@@ -349,12 +349,13 @@ func (i *Issue) ValidateWithCustom(customStatuses, customTypes []string) error {
 	if i.Status != StatusClosed && i.Status != StatusTombstone && i.ClosedAt != nil {
 		return fmt.Errorf("non-closed issues cannot have closed_at timestamp")
 	}
-	// Enforce tombstone invariants: deleted_at must be set for tombstones, and only for tombstones
+	// Enforce tombstone invariants: deleted_at must be set for tombstones
+	// Closed issues may also have deleted_at (soft-deleted then closed through cleanup)
 	if i.Status == StatusTombstone && i.DeletedAt == nil {
 		return fmt.Errorf("tombstone issues must have deleted_at timestamp")
 	}
-	if i.Status != StatusTombstone && i.DeletedAt != nil {
-		return fmt.Errorf("non-tombstone issues cannot have deleted_at timestamp")
+	if i.Status != StatusTombstone && i.Status != StatusClosed && i.DeletedAt != nil {
+		return fmt.Errorf("non-tombstone/non-closed issues cannot have deleted_at timestamp")
 	}
 	// Validate agent state if set
 	if !i.AgentState.IsValid() {
@@ -479,11 +480,21 @@ type IssueType string
 // Core work type constants - these are the built-in types that beads validates.
 // All other types require configuration via types.custom in config.yaml.
 const (
-	TypeBug     IssueType = "bug"
-	TypeFeature IssueType = "feature"
-	TypeTask    IssueType = "task"
-	TypeEpic    IssueType = "epic"
-	TypeChore   IssueType = "chore"
+	TypeBug          IssueType = "bug"
+	TypeFeature      IssueType = "feature"
+	TypeTask         IssueType = "task"
+	TypeEpic         IssueType = "epic"
+	TypeChore        IssueType = "chore"
+	TypeMessage      IssueType = "message"       // Ephemeral communication between workers
+	TypeMergeRequest IssueType = "merge-request" // Merge queue entry for refinery processing
+	TypeMolecule     IssueType = "molecule"      // Template molecule for issue hierarchies
+	TypeGate         IssueType = "gate"          // Async coordination gate
+	TypeAgent        IssueType = "agent"         // Agent identity bead
+	TypeRole         IssueType = "role"          // Agent role definition
+	TypeConvoy       IssueType = "convoy"        // Cross-project tracking with reactive completion
+	TypeEvent        IssueType = "event"         // Operational state change record
+	TypeSlot         IssueType = "slot"          // Exclusive access slot (merge-slot gate)
+	TypeWarrant      IssueType = "warrant"       // Session termination warrant
 )
 
 // Note: Gas Town types (molecule, gate, convoy, merge-request, slot, agent, role, rig, event, message)
@@ -495,7 +506,7 @@ const (
 // Other types (molecule, gate, convoy, etc.) require types.custom configuration.
 func (t IssueType) IsValid() bool {
 	switch t {
-	case TypeBug, TypeFeature, TypeTask, TypeEpic, TypeChore:
+	case TypeBug, TypeFeature, TypeTask, TypeEpic, TypeChore, TypeMessage, TypeMergeRequest, TypeMolecule, TypeGate, TypeAgent, TypeRole, TypeConvoy, TypeEvent, TypeSlot, TypeWarrant:
 		return true
 	}
 	return false
