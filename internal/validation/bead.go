@@ -13,12 +13,12 @@ import (
 // Returns the parsed priority (0-4) or -1 if invalid.
 func ParsePriority(content string) int {
 	content = strings.TrimSpace(content)
-	
+
 	// Handle "P1", "P0", etc. format
 	if strings.HasPrefix(strings.ToUpper(content), "P") {
 		content = content[1:] // Strip the "P" prefix
 	}
-	
+
 	var p int
 	if _, err := fmt.Sscanf(content, "%d", &p); err == nil && p >= 0 && p <= 4 {
 		return p
@@ -164,4 +164,185 @@ func ValidateIDPrefixAllowed(id, dbPrefix, allowedPrefixes string, force bool) e
 			dbPrefix, allowedPrefixes, id)
 	}
 	return fmt.Errorf("prefix mismatch: database uses '%s-' but ID '%s' doesn't match (use --force to override)", dbPrefix, id)
+}
+
+// ValidAgentRoles are the known agent role types for ID pattern validation
+var ValidAgentRoles = []string{
+	"mayor",    // Town-level: gt-mayor
+	"deacon",   // Town-level: gt-deacon
+	"witness",  // Per-rig: gt-<rig>-witness
+	"refinery", // Per-rig: gt-<rig>-refinery
+	"crew",     // Per-rig with name: gt-<rig>-crew-<name>
+	"polecat",  // Per-rig with name: gt-<rig>-polecat-<name>
+}
+
+// TownLevelRoles are agent roles that don't have a rig
+var TownLevelRoles = []string{"mayor", "deacon"}
+
+// RigLevelRoles are agent roles that have a rig but no name
+var RigLevelRoles = []string{"witness", "refinery"}
+
+// NamedRoles are agent roles that include a worker name
+var NamedRoles = []string{"crew", "polecat"}
+
+// isValidRole checks if a string is a valid agent role
+func isValidRole(s string) bool {
+	for _, r := range ValidAgentRoles {
+		if s == r {
+			return true
+		}
+	}
+	return false
+}
+
+// isTownLevelRole checks if a role is a town-level role (no rig)
+func isTownLevelRole(s string) bool {
+	for _, r := range TownLevelRoles {
+		if s == r {
+			return true
+		}
+	}
+	return false
+}
+
+// isRigLevelRole checks if a role is a rig-level singleton role
+func isRigLevelRole(s string) bool {
+	for _, r := range RigLevelRoles {
+		if s == r {
+			return true
+		}
+	}
+	return false
+}
+
+// isNamedRole checks if a role requires a worker name
+func isNamedRole(s string) bool {
+	for _, r := range NamedRoles {
+		if s == r {
+			return true
+		}
+	}
+	return false
+}
+
+// ExtractAgentPrefix extracts the prefix from an agent ID.
+// Agent IDs have the format: prefix-rig-role-name or prefix-role
+// The prefix is always the part before the first hyphen.
+// Examples:
+//   - "gt-gastown-polecat-nux" -> "gt"
+//   - "nx-nexus-polecat-nux" -> "nx"
+//   - "gt-mayor" -> "gt"
+//   - "bd-beads-witness" -> "bd"
+func ExtractAgentPrefix(id string) string {
+	hyphenIdx := strings.Index(id, "-")
+	if hyphenIdx <= 0 {
+		return ""
+	}
+	return id[:hyphenIdx]
+}
+
+// ValidateAgentID validates that an agent ID follows the expected pattern.
+// Canonical format: prefix-rig-role-name
+// Patterns:
+//   - Town-level: <prefix>-<role> (e.g., gt-mayor, bd-deacon)
+//   - Per-rig singleton: <prefix>-<rig>-<role> (e.g., gt-gastown-witness)
+//   - Per-rig named: <prefix>-<rig>-<role>-<name> (e.g., gt-gastown-polecat-nux)
+//
+// The prefix can be any rig's configured prefix (gt-, bd-, etc.).
+// Rig names may contain hyphens (e.g., my-project), so we parse by scanning
+// for known role tokens from the right side of the ID.
+// Returns nil if the ID is valid, or an error describing the issue.
+func ValidateAgentID(id string) error {
+	if id == "" {
+		return fmt.Errorf("agent ID is required")
+	}
+
+	// Must contain a hyphen to have a prefix
+	hyphenIdx := strings.Index(id, "-")
+	if hyphenIdx <= 0 {
+		return fmt.Errorf("agent ID must have a prefix followed by '-' (got %q)", id)
+	}
+
+	// Split into parts after the prefix
+	rest := id[hyphenIdx+1:] // Skip "<prefix>-"
+	parts := strings.Split(rest, "-")
+	if len(parts) < 1 || parts[0] == "" {
+		return fmt.Errorf("agent ID must include content after prefix (got %q)", id)
+	}
+
+	// Case 1: Single part after prefix
+	if len(parts) == 1 {
+		role := parts[0]
+		if isTownLevelRole(role) {
+			return nil // Valid town-level agent (gt-mayor, gt-deacon)
+		}
+		// Support deduplicated format: <prefix>-<role> where prefix == rig
+		// This handles cases like "spa-witness" for spa rig with spa- prefix
+		// (Gas Town deduplicates to avoid "spa-spa-witness")
+		if isRigLevelRole(role) {
+			return nil // Valid deduplicated rig-level singleton
+		}
+		if isNamedRole(role) {
+			// Named roles still need a name even in deduplicated format
+			return fmt.Errorf("agent role %q requires name: <prefix>-%s-<name> (got %q)", role, role, id)
+		}
+		return fmt.Errorf("invalid agent role %q (valid: %s)", role, strings.Join(ValidAgentRoles, ", "))
+	}
+
+	// For 2+ parts, scan from the right to find a known role.
+	// This allows rig names to contain hyphens (e.g., "my-project").
+	roleIdx := -1
+	var role string
+	for i := len(parts) - 1; i >= 0; i-- {
+		if isValidRole(parts[i]) {
+			roleIdx = i
+			role = parts[i]
+			break
+		}
+	}
+
+	if roleIdx == -1 {
+		return fmt.Errorf("invalid agent format: no valid role found in %q (valid roles: %s)", id, strings.Join(ValidAgentRoles, ", "))
+	}
+
+	// Extract rig (everything before role) and name (everything after role)
+	rig := strings.Join(parts[:roleIdx], "-")
+	name := strings.Join(parts[roleIdx+1:], "-")
+
+	// Validate based on role type
+	if isTownLevelRole(role) {
+		if rig != "" || name != "" {
+			return fmt.Errorf("town-level agent %q cannot have rig/name suffixes (expected <prefix>-%s, got %q)", role, role, id)
+		}
+		return nil
+	}
+
+	if isRigLevelRole(role) {
+		if rig == "" {
+			return fmt.Errorf("agent role %q requires rig: <prefix>-<rig>-%s (got %q)", role, role, id)
+		}
+		if name != "" {
+			return fmt.Errorf("agent role %q cannot have name suffix (expected <prefix>-<rig>-%s, got %q)", role, role, id)
+		}
+		return nil // Valid rig-level singleton agent
+	}
+
+	if isNamedRole(role) {
+		// Support deduplicated format: <prefix>-<role>-<name> where prefix == rig
+		// This handles cases like "spa-crew-ubuntu" for spa rig with spa- prefix
+		// (Gas Town deduplicates to avoid "spa-spa-crew-ubuntu")
+		if rig == "" {
+			// In deduplicated format, name must still be present
+			if name == "" {
+				return fmt.Errorf("agent role %q requires name: <prefix>-%s-<name> (got %q)", role, role, id)
+			}
+			return nil // Valid deduplicated named agent (prefix == rig)
+		}
+		if name == "" {
+			return fmt.Errorf("agent role %q requires name: <prefix>-<rig>-%s-<name> (got %q)", role, role, id)
+		}
+		return nil // Valid named agent
+	}
+
+	return fmt.Errorf("invalid agent ID format: %q", id)
 }
