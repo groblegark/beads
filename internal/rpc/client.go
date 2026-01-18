@@ -479,6 +479,140 @@ func (c *Client) MolStale(args *MolStaleArgs) (*MolStaleResponse, error) {
 	return &result, nil
 }
 
+// =============================================================================
+// Version Control Operations (Dolt backend only)
+// =============================================================================
+
+// VCHistory retrieves the version history for an issue via the daemon
+func (c *Client) VCHistory(args *VCHistoryArgs) (*VCHistoryResponse, error) {
+	resp, err := c.Execute(OpVCHistory, args)
+	if err != nil {
+		return nil, err
+	}
+
+	var result VCHistoryResponse
+	if err := json.Unmarshal(resp.Data, &result); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal history response: %w", err)
+	}
+
+	return &result, nil
+}
+
+// VCCommit creates a new commit via the daemon
+func (c *Client) VCCommit(args *VCCommitArgs) (*VCCommitResponse, error) {
+	resp, err := c.Execute(OpVCCommit, args)
+	if err != nil {
+		return nil, err
+	}
+
+	var result VCCommitResponse
+	if err := json.Unmarshal(resp.Data, &result); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal commit response: %w", err)
+	}
+
+	return &result, nil
+}
+
+// VCCurrentCommit retrieves the current commit hash via the daemon
+func (c *Client) VCCurrentCommit() (*VCCurrentCommitResponse, error) {
+	resp, err := c.Execute(OpVCCurrentCommit, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var result VCCurrentCommitResponse
+	if err := json.Unmarshal(resp.Data, &result); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal current commit response: %w", err)
+	}
+
+	return &result, nil
+}
+
+// VCBranch creates a new branch via the daemon
+func (c *Client) VCBranch(args *VCBranchArgs) (*Response, error) {
+	return c.Execute(OpVCBranch, args)
+}
+
+// VCCurrentBranch retrieves the current branch name via the daemon
+func (c *Client) VCCurrentBranch() (*VCCurrentBranchResponse, error) {
+	resp, err := c.Execute(OpVCCurrentBranch, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var result VCCurrentBranchResponse
+	if err := json.Unmarshal(resp.Data, &result); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal current branch response: %w", err)
+	}
+
+	return &result, nil
+}
+
+// VCListBranches retrieves all branch names via the daemon
+func (c *Client) VCListBranches() (*VCListBranchesResponse, error) {
+	resp, err := c.Execute(OpVCListBranches, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var result VCListBranchesResponse
+	if err := json.Unmarshal(resp.Data, &result); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal list branches response: %w", err)
+	}
+
+	return &result, nil
+}
+
+// VCDiff retrieves the diff between two commits/branches via the daemon
+func (c *Client) VCDiff(args *VCDiffArgs) (*VCDiffResponse, error) {
+	resp, err := c.Execute(OpVCDiff, args)
+	if err != nil {
+		return nil, err
+	}
+
+	var result VCDiffResponse
+	if err := json.Unmarshal(resp.Data, &result); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal diff response: %w", err)
+	}
+
+	return &result, nil
+}
+
+// VCMerge merges a branch into the current branch via the daemon
+func (c *Client) VCMerge(args *VCMergeArgs) (*VCMergeResponse, error) {
+	resp, err := c.Execute(OpVCMerge, args)
+	if err != nil {
+		return nil, err
+	}
+
+	var result VCMergeResponse
+	if err := json.Unmarshal(resp.Data, &result); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal merge response: %w", err)
+	}
+
+	return &result, nil
+}
+
+// VCGetConflicts retrieves merge conflicts via the daemon
+func (c *Client) VCGetConflicts() (*VCGetConflictsResponse, error) {
+	resp, err := c.Execute(OpVCGetConflicts, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var result VCGetConflictsResponse
+	if err := json.Unmarshal(resp.Data, &result); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal conflicts response: %w", err)
+	}
+
+	return &result, nil
+}
+
+// VCResolveConflicts resolves merge conflicts via the daemon
+func (c *Client) VCResolveConflicts(args *VCResolveConflictsArgs) (*Response, error) {
+	return c.Execute(OpVCResolveConflicts, args)
+}
+
 // cleanupStaleDaemonArtifacts removes stale daemon.pid file when socket is missing and lock is free.
 // This prevents stale artifacts from accumulating after daemon crashes.
 // Only removes pid file - lock file is managed by OS (released on process exit).

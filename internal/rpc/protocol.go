@@ -52,6 +52,18 @@ const (
 	OpGateShow   = "gate_show"
 	OpGateClose  = "gate_close"
 	OpGateWait   = "gate_wait"
+
+	// Version control operations (Dolt backend only)
+	OpVCHistory        = "vc_history"         // Get issue history
+	OpVCCommit         = "vc_commit"          // Create a commit
+	OpVCCurrentCommit  = "vc_current_commit"  // Get current commit hash
+	OpVCBranch         = "vc_branch"          // Create a branch
+	OpVCCurrentBranch  = "vc_current_branch"  // Get current branch name
+	OpVCListBranches   = "vc_list_branches"   // List all branches
+	OpVCDiff           = "vc_diff"            // Diff between commits
+	OpVCMerge          = "vc_merge"           // Merge a branch
+	OpVCGetConflicts   = "vc_get_conflicts"   // Get merge conflicts
+	OpVCResolveConflicts = "vc_resolve_conflicts" // Resolve conflicts
 )
 
 // Request represents an RPC request from client to daemon
@@ -637,4 +649,117 @@ type MolStaleResponse struct {
 	StaleMolecules []*StaleMolecule `json:"stale_molecules"`
 	TotalCount     int              `json:"total_count"`
 	BlockingCount  int              `json:"blocking_count"`
+}
+
+// =============================================================================
+// Version Control Operations (Dolt backend only)
+// =============================================================================
+
+// VCHistoryArgs represents arguments for the vc_history operation
+type VCHistoryArgs struct {
+	IssueID string `json:"issue_id"` // Issue ID to get history for
+}
+
+// VCHistoryEntry represents an issue at a specific point in history
+type VCHistoryEntry struct {
+	CommitHash string       `json:"commit_hash"` // The commit hash at this point
+	Committer  string       `json:"committer"`   // Who made the commit
+	CommitDate string       `json:"commit_date"` // ISO 8601 timestamp
+	Issue      *types.Issue `json:"issue"`       // The issue state at that commit
+}
+
+// VCHistoryResponse represents the response from vc_history operation
+type VCHistoryResponse struct {
+	Entries []*VCHistoryEntry `json:"entries"`
+}
+
+// VCCommitArgs represents arguments for the vc_commit operation
+type VCCommitArgs struct {
+	Message string `json:"message"` // Commit message
+}
+
+// VCCommitResponse represents the response from vc_commit operation
+type VCCommitResponse struct {
+	CommitHash string `json:"commit_hash"` // The hash of the new commit
+}
+
+// VCCurrentCommitArgs represents arguments for the vc_current_commit operation
+type VCCurrentCommitArgs struct{}
+
+// VCCurrentCommitResponse represents the response from vc_current_commit operation
+type VCCurrentCommitResponse struct {
+	CommitHash string `json:"commit_hash"` // Current HEAD commit hash
+}
+
+// VCBranchArgs represents arguments for the vc_branch operation
+type VCBranchArgs struct {
+	Name string `json:"name"` // Branch name to create
+}
+
+// VCCurrentBranchArgs represents arguments for the vc_current_branch operation
+type VCCurrentBranchArgs struct{}
+
+// VCCurrentBranchResponse represents the response from vc_current_branch operation
+type VCCurrentBranchResponse struct {
+	Branch string `json:"branch"` // Current branch name
+}
+
+// VCListBranchesArgs represents arguments for the vc_list_branches operation
+type VCListBranchesArgs struct{}
+
+// VCListBranchesResponse represents the response from vc_list_branches operation
+type VCListBranchesResponse struct {
+	Branches []string `json:"branches"` // List of branch names
+}
+
+// VCDiffArgs represents arguments for the vc_diff operation
+type VCDiffArgs struct {
+	FromRef string `json:"from_ref"` // Start commit/branch
+	ToRef   string `json:"to_ref"`   // End commit/branch
+}
+
+// VCDiffEntry represents a change between two commits
+type VCDiffEntry struct {
+	IssueID  string       `json:"issue_id"`  // The ID of the affected issue
+	DiffType string       `json:"diff_type"` // "added", "modified", or "removed"
+	OldValue *types.Issue `json:"old_value"` // State before (nil for "added")
+	NewValue *types.Issue `json:"new_value"` // State after (nil for "removed")
+}
+
+// VCDiffResponse represents the response from vc_diff operation
+type VCDiffResponse struct {
+	Entries []*VCDiffEntry `json:"entries"`
+}
+
+// VCMergeArgs represents arguments for the vc_merge operation
+type VCMergeArgs struct {
+	Branch string `json:"branch"` // Branch to merge into current branch
+}
+
+// VCConflict represents a merge conflict
+type VCConflict struct {
+	IssueID     string      `json:"issue_id"`     // The ID of the conflicting issue
+	Field       string      `json:"field"`        // Which field has the conflict
+	OursValue   interface{} `json:"ours_value"`   // Value on current branch
+	TheirsValue interface{} `json:"theirs_value"` // Value on merged branch
+}
+
+// VCMergeResponse represents the response from vc_merge operation
+type VCMergeResponse struct {
+	Success   bool         `json:"success"`             // True if merge succeeded without conflicts
+	Conflicts []*VCConflict `json:"conflicts,omitempty"` // Conflicts if any
+}
+
+// VCGetConflictsArgs represents arguments for the vc_get_conflicts operation
+type VCGetConflictsArgs struct{}
+
+// VCGetConflictsResponse represents the response from vc_get_conflicts operation
+type VCGetConflictsResponse struct {
+	Conflicts []*VCConflict `json:"conflicts"`
+}
+
+// VCResolveConflictsArgs represents arguments for the vc_resolve_conflicts operation
+type VCResolveConflictsArgs struct {
+	Table    string `json:"table"`    // Table with conflicts
+	Strategy string `json:"strategy"` // "ours" or "theirs"
 }

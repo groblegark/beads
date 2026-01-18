@@ -58,6 +58,31 @@ type Config struct {
 	ReadOnly       bool   // Open in read-only mode (skip schema init)
 }
 
+// cleanupStaleLockFiles removes stale Dolt LOCK files that may have been left behind
+// after a crash or unclean shutdown. These files can cause "database is read only" errors.
+func cleanupStaleLockFiles(doltPath, database string) {
+	// Dolt stores lock files in {doltPath}/{database}/.dolt/noms/
+	lockPaths := []string{
+		filepath.Join(doltPath, database, ".dolt", "noms", "LOCK"),
+		filepath.Join(doltPath, database, ".dolt", "noms", "manifestLock"),
+		// Also check root level for init-time locks
+		filepath.Join(doltPath, ".dolt", "noms", "LOCK"),
+		filepath.Join(doltPath, ".dolt", "noms", "manifestLock"),
+	}
+
+	for _, lockPath := range lockPaths {
+		if _, err := os.Stat(lockPath); err == nil {
+			// Lock file exists - try to remove it
+			// This is safe because if another process is holding the lock,
+			// the embedded Dolt driver will recreate it when opening
+			if err := os.Remove(lockPath); err != nil {
+				// Non-fatal - the database may still work
+				fmt.Fprintf(os.Stderr, "Warning: could not remove stale lock file %s: %v\n", lockPath, err)
+			}
+		}
+	}
+}
+
 // New creates a new Dolt storage backend
 func New(ctx context.Context, cfg *Config) (*DoltStore, error) {
 	if cfg.Path == "" {
@@ -88,6 +113,10 @@ func New(ctx context.Context, cfg *Config) (*DoltStore, error) {
 	if err := os.MkdirAll(cfg.Path, 0o750); err != nil {
 		return nil, fmt.Errorf("failed to create database directory: %w", err)
 	}
+
+	// Clean up stale lock files from previous crashes
+	// This prevents "database is read only" errors when reopening after unclean shutdown
+	cleanupStaleLockFiles(cfg.Path, cfg.Database)
 
 	// First, connect without specifying a database to create it if needed
 	initConnStr := fmt.Sprintf(
@@ -155,8 +184,22 @@ func New(ctx context.Context, cfg *Config) (*DoltStore, error) {
 	return store, nil
 }
 
+// schemaExists checks if the database schema has already been initialized
+// by checking for the existence of the issues table
+func (s *DoltStore) schemaExists(ctx context.Context) bool {
+	var count int
+	err := s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM information_schema.tables WHERE table_name = 'issues'").Scan(&count)
+	return err == nil && count > 0
+}
+
 // initSchema creates all tables if they don't exist
 func (s *DoltStore) initSchema(ctx context.Context) error {
+	// Check if schema already exists to avoid unnecessary writes
+	// This prevents "database is read only" errors when schema is already initialized
+	if s.schemaExists(ctx) {
+		return nil
+	}
+
 	// Execute schema creation - split into individual statements
 	// because MySQL/Dolt doesn't support multiple statements in one Exec
 	for _, stmt := range splitStatements(schema) {

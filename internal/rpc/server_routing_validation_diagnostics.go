@@ -242,6 +242,27 @@ func (s *Server) handleRequest(req *Request) Response {
 		resp = s.handleGateClose(req)
 	case OpGateWait:
 		resp = s.handleGateWait(req)
+	// Version control operations (Dolt backend only)
+	case OpVCHistory:
+		resp = s.handleVCHistory(req)
+	case OpVCCommit:
+		resp = s.handleVCCommit(req)
+	case OpVCCurrentCommit:
+		resp = s.handleVCCurrentCommit(req)
+	case OpVCBranch:
+		resp = s.handleVCBranch(req)
+	case OpVCCurrentBranch:
+		resp = s.handleVCCurrentBranch(req)
+	case OpVCListBranches:
+		resp = s.handleVCListBranches(req)
+	case OpVCDiff:
+		resp = s.handleVCDiff(req)
+	case OpVCMerge:
+		resp = s.handleVCMerge(req)
+	case OpVCGetConflicts:
+		resp = s.handleVCGetConflicts(req)
+	case OpVCResolveConflicts:
+		resp = s.handleVCResolveConflicts(req)
 	default:
 		s.metrics.RecordError(req.Operation)
 		return Response{

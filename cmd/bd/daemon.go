@@ -14,6 +14,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/steveyegge/beads/cmd/bd/doctor"
 	"github.com/steveyegge/beads/internal/beads"
+	"github.com/steveyegge/beads/internal/configfile"
 	"github.com/steveyegge/beads/internal/daemon"
 	"github.com/steveyegge/beads/internal/rpc"
 	"github.com/steveyegge/beads/internal/storage/factory"
@@ -388,10 +389,17 @@ func runDaemonLoop(interval time.Duration, autoCommit, autoPush, autoPull, local
 		}
 	}
 
-	// Validate using canonical name
+	// Validate using canonical name based on backend type
 	dbBaseName := filepath.Base(daemonDBPath)
-	if dbBaseName != beads.CanonicalDatabaseName {
-		log.Error("non-canonical database name", "name", dbBaseName, "expected", beads.CanonicalDatabaseName)
+	backend := factory.GetBackendFromConfig(beadsDir)
+	var expectedName string
+	if backend == configfile.BackendDolt {
+		expectedName = "dolt"
+	} else {
+		expectedName = beads.CanonicalDatabaseName
+	}
+	if dbBaseName != expectedName {
+		log.Error("non-canonical database name", "name", dbBaseName, "expected", expectedName, "backend", backend)
 		log.Info("run 'bd init' to migrate to canonical name")
 		return // Use return instead of os.Exit to allow defers to run
 	}
