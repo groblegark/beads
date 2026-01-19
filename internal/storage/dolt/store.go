@@ -124,7 +124,7 @@ func New(ctx context.Context, cfg *Config) (*DoltStore, error) {
 		return nil, fmt.Errorf("failed to create database directory: %w", err)
 	}
 
-	// Clean up stale LOCK file if present (for embedded mode only)
+// Clean up stale LOCK file if present (for embedded mode only)
 	// The Dolt embedded driver creates a LOCK file in .dolt/noms/ that may persist
 	// after crashes or unexpected termination. This causes "database is read only" errors.
 	if !cfg.ServerMode {
