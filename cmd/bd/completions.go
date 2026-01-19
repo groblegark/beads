@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 
 	"github.com/spf13/cobra"
@@ -20,6 +21,14 @@ func issueIDCompletion(cmd *cobra.Command, args []string, toComplete string) ([]
 		ctx = rootCtx
 	}
 
+	// If both store and dbPath are not set, don't search for a database.
+	// This handles the case where we're running without a database context
+	// (e.g., during testing or when the application hasn't initialized yet).
+	if store == nil && dbPath == "" {
+		// No database context available, return empty completion
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
+
 	// Get beads directory - use same logic as in PersistentPreRun
 	beadsDir := filepath.Dir(dbPath)
 	if dbPath == "" {
@@ -31,6 +40,12 @@ func issueIDCompletion(cmd *cobra.Command, args []string, toComplete string) ([]
 			// Default path
 			beadsDir = ".beads"
 		}
+	}
+
+	// Check if beads directory exists before attempting to open
+	if _, err := os.Stat(beadsDir); os.IsNotExist(err) {
+		// No beads directory exists, return empty completion
+		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
 
 	// Open database if store is not initialized
