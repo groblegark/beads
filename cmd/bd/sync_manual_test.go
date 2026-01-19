@@ -34,6 +34,36 @@ func TestTruncateText(t *testing.T) {
 			input: strings.Repeat("a", truncateTextMaxLen+10),
 			want:  strings.Repeat("a", truncateTextMaxLen-3) + "...",
 		},
+		{
+			name:   "very short max",
+			input:  "hello world",
+			maxLen: 3,
+			want:   "...",
+		},
+		{
+			name:   "UTF-8 characters preserved",
+			input:  "Hello 世界！This is a test",
+			maxLen: 12,
+			want:   "Hello 世界！...",
+		},
+		{
+			name:   "UTF-8 exact length",
+			input:  "日本語テスト",
+			maxLen: 6,
+			want:   "日本語テスト",
+		},
+		{
+			name:   "UTF-8 truncate",
+			input:  "日本語テストです",
+			maxLen: 6,
+			want:   "日本語...",
+		},
+		{
+			name:   "emoji handling",
+			input:  "Hello 🌍🌎🌏 World",
+			maxLen: 12,
+			want:   "Hello 🌍🌎🌏...",
+		},
 	}
 
 	for _, tt := range tests {

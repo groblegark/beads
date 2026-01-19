@@ -69,7 +69,7 @@ func resolveConflictsInteractively(conflicts []InteractiveConflict) ([]*beads.Is
 			for j := i; j < len(conflicts); j++ {
 				c := conflicts[j]
 				if c.Local != nil && c.Remote != nil {
-					merged, _ := mergeFieldLevel(c.Base, c.Local, c.Remote)
+					merged := mergeFieldLevel(c.Base, c.Local, c.Remote)
 					resolved = append(resolved, merged)
 				} else if c.Local != nil {
 					resolved = append(resolved, c.Local)
@@ -160,15 +160,15 @@ func displayConflictDiff(conflict InteractiveConflict) {
 	// Description (show truncated if different)
 	if local.Description != remote.Description {
 		fmt.Printf("  %s\n", ui.RenderAccent("description:"))
-		fmt.Printf("    %s %s\n", ui.RenderMuted("local:"), truncateText(local.Description))
-		fmt.Printf("    %s %s\n", ui.RenderAccent("remote:"), truncateText(remote.Description))
+		fmt.Printf("    %s %s\n", ui.RenderMuted("local:"), truncateText(local.Description, 60))
+		fmt.Printf("    %s %s\n", ui.RenderAccent("remote:"), truncateText(remote.Description, 60))
 	}
 
 	// Notes (show truncated if different)
 	if local.Notes != remote.Notes {
 		fmt.Printf("  %s\n", ui.RenderAccent("notes:"))
-		fmt.Printf("    %s %s\n", ui.RenderMuted("local:"), truncateText(local.Notes))
-		fmt.Printf("    %s %s\n", ui.RenderAccent("remote:"), truncateText(remote.Notes))
+		fmt.Printf("    %s %s\n", ui.RenderMuted("local:"), truncateText(local.Notes, 60))
+		fmt.Printf("    %s %s\n", ui.RenderAccent("remote:"), truncateText(remote.Notes, 60))
 	}
 
 	// Labels
@@ -293,7 +293,7 @@ func promptConflictResolution(reader *bufio.Reader, conflict InteractiveConflict
 
 		case "merged":
 			// Do field-level merge (same as automatic LWW merge)
-			merged, _ := mergeFieldLevel(conflict.Base, local, remote)
+			merged := mergeFieldLevel(conflict.Base, local, remote)
 			return InteractiveResolution{Choice: "merged", Issue: merged}, nil
 
 		case "skip":
@@ -371,11 +371,9 @@ func valueOrNone(s string) string {
 	return s
 }
 
-const truncateTextMaxLen = 60
-
-// truncateText truncates a string to a fixed max length (runes, not bytes) for proper UTF-8 handling.
+// truncateText truncates a string to maxLen runes (not bytes) for proper UTF-8 handling.
 // Replaces newlines with spaces for single-line display.
-func truncateText(s string) string {
+func truncateText(s string, maxLen int) string {
 	if s == "" {
 		return "(empty)"
 	}
@@ -385,14 +383,14 @@ func truncateText(s string) string {
 
 	// Count runes, not bytes, for proper UTF-8 handling
 	runeCount := utf8.RuneCountInString(s)
-	if runeCount <= truncateTextMaxLen {
+	if runeCount <= maxLen {
 		return s
 	}
 
 	// Truncate by runes
 	runes := []rune(s)
-	if truncateTextMaxLen <= 3 {
+	if maxLen <= 3 {
 		return "..."
 	}
-	return string(runes[:truncateTextMaxLen-3]) + "..."
+	return string(runes[:maxLen-3]) + "..."
 }
