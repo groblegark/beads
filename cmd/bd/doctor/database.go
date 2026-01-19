@@ -25,21 +25,42 @@ type localConfig struct {
 	NoDb       bool   `yaml:"no-db"`
 }
 
+// getBackend returns the configured backend type for the given beads directory.
+// Returns "sqlite" (default) or "dolt".
+func getBackend(beadsDir string) string {
+	cfg, err := configfile.Load(beadsDir)
+	if err != nil || cfg == nil {
+		return configfile.BackendSQLite
+	}
+	return cfg.GetBackend()
+}
+
 // CheckDatabaseVersion checks the database version and migration status
 func CheckDatabaseVersion(path string, cliVersion string) DoctorCheck {
 	// Follow redirect to resolve actual beads directory
 	beadsDir := resolveBeadsDir(filepath.Join(path, ".beads"))
 
-	// Check metadata.json first for custom database name
+	// Detect backend type
+	backend := getBackend(beadsDir)
+
+	// Check metadata.json first for custom database name or Dolt path
 	var dbPath string
-	if cfg, err := configfile.Load(beadsDir); err == nil && cfg != nil && cfg.Database != "" {
-		dbPath = cfg.DatabasePath(beadsDir)
+	if cfg, err := configfile.Load(beadsDir); err == nil && cfg != nil {
+		if backend == configfile.BackendDolt {
+			// For Dolt, use the dolt subdirectory
+			dbPath = filepath.Join(beadsDir, "dolt")
+		} else if cfg.Database != "" {
+			dbPath = cfg.DatabasePath(beadsDir)
+		} else {
+			// Fall back to canonical database name
+			dbPath = filepath.Join(beadsDir, beads.CanonicalDatabaseName)
+		}
 	} else {
-		// Fall back to canonical database name
+		// Fall back to canonical database name for SQLite
 		dbPath = filepath.Join(beadsDir, beads.CanonicalDatabaseName)
 	}
 
-	// Check if database file exists
+	// Check if database file/directory exists
 	if _, err := os.Stat(dbPath); os.IsNotExist(err) {
 		// Check if JSONL exists
 		// Check canonical (issues.jsonl) first, then legacy (beads.jsonl)
@@ -89,12 +110,22 @@ func CheckDatabaseVersion(path string, cliVersion string) DoctorCheck {
 		return DoctorCheck{
 			Name:    "Database",
 			Status:  StatusError,
-			Message: "No beads.db found",
+			Message: "No database found",
 			Fix:     "Run 'bd init' to create database",
 		}
 	}
 
-	// Get database version
+	// For Dolt backend, return OK (version checking not yet implemented)
+	if backend == configfile.BackendDolt {
+		return DoctorCheck{
+			Name:    "Database",
+			Status:  StatusOK,
+			Message: "Dolt database present",
+			Detail:  "Storage: Dolt",
+		}
+	}
+
+	// SQLite-specific version checking
 	dbVersion := getDatabaseVersionFromPath(dbPath)
 
 	if dbVersion == "unknown" {
@@ -140,12 +171,23 @@ func CheckSchemaCompatibility(path string) DoctorCheck {
 	// Follow redirect to resolve actual beads directory
 	beadsDir := resolveBeadsDir(filepath.Join(path, ".beads"))
 
-	// Check metadata.json first for custom database name
+	// Detect backend type
+	backend := getBackend(beadsDir)
+
+	// Check metadata.json first for custom database name or Dolt path
 	var dbPath string
-	if cfg, err := configfile.Load(beadsDir); err == nil && cfg != nil && cfg.Database != "" {
-		dbPath = cfg.DatabasePath(beadsDir)
+	if cfg, err := configfile.Load(beadsDir); err == nil && cfg != nil {
+		if backend == configfile.BackendDolt {
+			// For Dolt, use the dolt subdirectory
+			dbPath = filepath.Join(beadsDir, "dolt")
+		} else if cfg.Database != "" {
+			dbPath = cfg.DatabasePath(beadsDir)
+		} else {
+			// Fall back to canonical database name
+			dbPath = filepath.Join(beadsDir, beads.CanonicalDatabaseName)
+		}
 	} else {
-		// Fall back to canonical database name
+		// Fall back to canonical database name for SQLite
 		dbPath = filepath.Join(beadsDir, beads.CanonicalDatabaseName)
 	}
 
@@ -155,6 +197,15 @@ func CheckSchemaCompatibility(path string) DoctorCheck {
 			Name:    "Schema Compatibility",
 			Status:  StatusOK,
 			Message: "N/A (no database)",
+		}
+	}
+
+	// For Dolt backend, skip SQLite-specific schema checks
+	if backend == configfile.BackendDolt {
+		return DoctorCheck{
+			Name:    "Schema Compatibility",
+			Status:  StatusOK,
+			Message: "N/A (Dolt backend - schema validation not yet implemented)",
 		}
 	}
 
@@ -230,11 +281,23 @@ func CheckDatabaseIntegrity(path string) DoctorCheck {
 	// Follow redirect to resolve actual beads directory
 	beadsDir := resolveBeadsDir(filepath.Join(path, ".beads"))
 
+	// Detect backend type
+	backend := getBackend(beadsDir)
+
 	// Get database path (same logic as CheckSchemaCompatibility)
 	var dbPath string
-	if cfg, err := configfile.Load(beadsDir); err == nil && cfg != nil && cfg.Database != "" {
-		dbPath = cfg.DatabasePath(beadsDir)
+	if cfg, err := configfile.Load(beadsDir); err == nil && cfg != nil {
+		if backend == configfile.BackendDolt {
+			// For Dolt, use the dolt subdirectory
+			dbPath = filepath.Join(beadsDir, "dolt")
+		} else if cfg.Database != "" {
+			dbPath = cfg.DatabasePath(beadsDir)
+		} else {
+			// Fall back to canonical database name
+			dbPath = filepath.Join(beadsDir, beads.CanonicalDatabaseName)
+		}
 	} else {
+		// Fall back to canonical database name for SQLite
 		dbPath = filepath.Join(beadsDir, beads.CanonicalDatabaseName)
 	}
 
@@ -244,6 +307,15 @@ func CheckDatabaseIntegrity(path string) DoctorCheck {
 			Name:    "Database Integrity",
 			Status:  StatusOK,
 			Message: "N/A (no database)",
+		}
+	}
+
+	// For Dolt backend, skip SQLite PRAGMA integrity checks
+	if backend == configfile.BackendDolt {
+		return DoctorCheck{
+			Name:    "Database Integrity",
+			Status:  StatusOK,
+			Message: "N/A (Dolt backend - SQLite PRAGMA checks not applicable)",
 		}
 	}
 
@@ -343,10 +415,18 @@ func CheckDatabaseJSONLSync(path string) DoctorCheck {
 	// Follow redirect to resolve actual beads directory
 	beadsDir := resolveBeadsDir(filepath.Join(path, ".beads"))
 
+	// Detect backend type
+	backend := getBackend(beadsDir)
+
 	// Resolve database path (respects metadata.json override).
 	dbPath := filepath.Join(beadsDir, beads.CanonicalDatabaseName)
-	if cfg, err := configfile.Load(beadsDir); err == nil && cfg != nil && cfg.Database != "" {
-		dbPath = cfg.DatabasePath(beadsDir)
+	if cfg, err := configfile.Load(beadsDir); err == nil && cfg != nil {
+		if backend == configfile.BackendDolt {
+			// For Dolt, use the dolt subdirectory
+			dbPath = filepath.Join(beadsDir, "dolt")
+		} else if cfg.Database != "" {
+			dbPath = cfg.DatabasePath(beadsDir)
+		}
 	}
 
 	// Find JSONL file (respects metadata.json override when set).
@@ -384,6 +464,16 @@ func CheckDatabaseJSONLSync(path string) DoctorCheck {
 			Name:    "DB-JSONL Sync",
 			Status:  StatusOK,
 			Message: "N/A (no JSONL file)",
+		}
+	}
+
+	// For Dolt backend, skip detailed sync check for now
+	// (requires Dolt-specific connection, not implemented yet)
+	if backend == configfile.BackendDolt {
+		return DoctorCheck{
+			Name:    "DB-JSONL Sync",
+			Status:  StatusOK,
+			Message: "N/A (Dolt backend - sync check not yet implemented)",
 		}
 	}
 
@@ -798,11 +888,23 @@ func CheckDatabaseSize(path string) DoctorCheck {
 	// Follow redirect to resolve actual beads directory
 	beadsDir := resolveBeadsDir(filepath.Join(path, ".beads"))
 
+	// Detect backend type
+	backend := getBackend(beadsDir)
+
 	// Get database path
 	var dbPath string
-	if cfg, err := configfile.Load(beadsDir); err == nil && cfg != nil && cfg.Database != "" {
-		dbPath = cfg.DatabasePath(beadsDir)
+	if cfg, err := configfile.Load(beadsDir); err == nil && cfg != nil {
+		if backend == configfile.BackendDolt {
+			// For Dolt, use the dolt subdirectory
+			dbPath = filepath.Join(beadsDir, "dolt")
+		} else if cfg.Database != "" {
+			dbPath = cfg.DatabasePath(beadsDir)
+		} else {
+			// Fall back to canonical database name
+			dbPath = filepath.Join(beadsDir, beads.CanonicalDatabaseName)
+		}
 	} else {
+		// Fall back to canonical database name for SQLite
 		dbPath = filepath.Join(beadsDir, beads.CanonicalDatabaseName)
 	}
 
@@ -812,6 +914,15 @@ func CheckDatabaseSize(path string) DoctorCheck {
 			Name:    "Large Database",
 			Status:  StatusOK,
 			Message: "N/A (no database)",
+		}
+	}
+
+	// For Dolt backend, skip this check (not applicable)
+	if backend == configfile.BackendDolt {
+		return DoctorCheck{
+			Name:    "Large Database",
+			Status:  StatusOK,
+			Message: "N/A (Dolt backend - size checks not yet implemented)",
 		}
 	}
 
