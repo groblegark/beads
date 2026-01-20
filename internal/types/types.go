@@ -497,16 +497,17 @@ const (
 	TypeWarrant      IssueType = "warrant"       // Session termination warrant
 )
 
-// Note: Gas Town types (molecule, gate, convoy, merge-request, slot, agent, role, rig, event, message)
-// were removed from beads core. They are now purely custom types with no built-in constants.
-// Use string literals like types.IssueType("molecule") if needed, and configure types.custom.
-
-// IsValid checks if the issue type is a core work type.
-// Only core work types (bug, feature, task, epic, chore) are built-in.
-// Other types (molecule, gate, convoy, etc.) require types.custom configuration.
+// IsValid checks if the issue type is a defined type constant.
+// This includes core work types (bug, feature, task, epic, chore) and
+// extended types (message, merge-request, molecule, gate, agent, role, rig, convoy, event, slot, warrant).
+// All defined type constants are valid without requiring custom configuration.
 func (t IssueType) IsValid() bool {
 	switch t {
-	case TypeBug, TypeFeature, TypeTask, TypeEpic, TypeChore, TypeMessage, TypeMergeRequest, TypeMolecule, TypeGate, TypeAgent, TypeRole, TypeConvoy, TypeEvent, TypeSlot, TypeWarrant:
+	// Core work types
+	case TypeBug, TypeFeature, TypeTask, TypeEpic, TypeChore:
+		return true
+	// Extended types (Gas Town, molecules, coordination)
+	case TypeMessage, TypeMergeRequest, TypeMolecule, TypeGate, TypeAgent, TypeRole, TypeConvoy, TypeEvent, TypeSlot, TypeWarrant:
 		return true
 	}
 	return false
