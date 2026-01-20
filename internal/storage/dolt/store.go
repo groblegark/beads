@@ -123,14 +123,14 @@ func New(ctx context.Context, cfg *Config) (*DoltStore, error) {
 		"file://%s?commitname=%s&commitemail=%s",
 		cfg.Path, cfg.CommitterName, cfg.CommitterEmail)
 
-	// Retry logic for lock contention
+	// Retry logic for lock contention (bd-g9fg)
 	var db *sql.DB
 	var lastErr error
 	retryDelay := cfg.LockRetryDelay
 
 	for attempt := 0; attempt <= cfg.LockRetries; attempt++ {
 		if attempt > 0 {
-			// Log lock contention for debugging (rig-358fc7)
+			// Log lock contention for debugging
 			fmt.Fprintf(os.Stderr, "Dolt lock contention detected (attempt %d/%d), retrying in %v...\n",
 				attempt, cfg.LockRetries, retryDelay)
 			time.Sleep(retryDelay)
@@ -334,6 +334,7 @@ func cleanupStaleDoltLock(dbPath string, database string) error {
 	// For now, just log and don't touch it
 	return nil
 }
+
 
 // initSchema creates all tables if they don't exist
 func (s *DoltStore) initSchema(ctx context.Context) error {
