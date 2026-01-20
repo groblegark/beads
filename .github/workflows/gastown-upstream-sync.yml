@@ -1,0 +1,213 @@
+name: Gastown Upstream Sync
+
+# Synchronize gastown fork with upstream changes
+# Maintains clean git history while respecting branch protection
+
+on:
+  # Run daily at 3am UTC (after nightly tests complete)
+  schedule:
+    - cron: '0 3 * * *'
+
+  # Allow manual triggering for immediate sync
+  workflow_dispatch:
+    inputs:
+      upstream_remote:
+        description: 'Upstream remote name'
+        required: false
+        default: 'upstream'
+      upstream_branch:
+        description: 'Upstream branch to sync from'
+        required: false
+        default: 'main'
+      force_push:
+        description: 'Force push if diverged (dangerous)'
+        required: false
+        default: 'false'
+
+permissions:
+  contents: write  # Required for git push
+
+jobs:
+  sync:
+    name: Sync with Upstream
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    # Only run in gastown fork (prevent running in other forks)
+    if: ${{ github.repository == 'groblegark/gastown' || github.event_name == 'workflow_dispatch' }}
+
+    steps:
+      - name: Checkout with full history
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0  # Full history needed for rebase
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure Git
+        run: |
+          git config --global user.name "Gastown Sync Bot"
+          git config --global user.email "noreply@gastown.dev"
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: 'go.mod'
+          cache: true
+
+      - name: Build bd CLI
+        run: |
+          go build -o bd ./cmd/bd
+          chmod +x bd
+          echo "$(pwd)" >> $GITHUB_PATH
+
+      - name: Configure upstream remote
+        env:
+          UPSTREAM_REMOTE: ${{ github.event.inputs.upstream_remote || 'upstream' }}
+        run: |
+          # Add upstream remote if not already configured
+          if ! git remote get-url $UPSTREAM_REMOTE 2>/dev/null; then
+            echo "Adding upstream remote: $UPSTREAM_REMOTE"
+            git remote add $UPSTREAM_REMOTE https://github.com/steveyegge/beads.git
+          fi
+
+          # Fetch latest from upstream
+          echo "Fetching from $UPSTREAM_REMOTE..."
+          git fetch $UPSTREAM_REMOTE --prune
+
+          # Show current status
+          git remote -v
+
+      - name: Check upstream sync status
+        id: check_sync
+        env:
+          UPSTREAM_REMOTE: ${{ github.event.inputs.upstream_remote || 'upstream' }}
+          UPSTREAM_BRANCH: ${{ github.event.inputs.upstream_branch || 'main' }}
+        run: |
+          CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+          echo "current_branch=$CURRENT_BRANCH" >> $GITHUB_OUTPUT
+
+          # Get commit counts
+          AHEAD=$(git rev-list --count $UPSTREAM_REMOTE/$UPSTREAM_BRANCH..HEAD 2>/dev/null || echo "0")
+          BEHIND=$(git rev-list --count HEAD..$UPSTREAM_REMOTE/$UPSTREAM_BRANCH 2>/dev/null || echo "0")
+
+          echo "ahead=$AHEAD" >> $GITHUB_OUTPUT
+          echo "behind=$BEHIND" >> $GITHUB_OUTPUT
+
+          echo "Current branch: $CURRENT_BRANCH"
+          echo "Commits ahead of upstream: $AHEAD"
+          echo "Commits behind upstream: $BEHIND"
+
+          # Determine sync state
+          if [ "$AHEAD" -gt 0 ] && [ "$BEHIND" -gt 0 ]; then
+            echo "sync_state=diverged" >> $GITHUB_OUTPUT
+            echo "⚠️  Branch has diverged from upstream"
+          elif [ "$BEHIND" -gt 0 ]; then
+            echo "sync_state=behind" >> $GITHUB_OUTPUT
+            echo "📥 Branch is behind upstream, sync needed"
+          elif [ "$AHEAD" -gt 0 ]; then
+            echo "sync_state=ahead" >> $GITHUB_OUTPUT
+            echo "📤 Branch is ahead of upstream (OK)"
+          else
+            echo "sync_state=synced" >> $GITHUB_OUTPUT
+            echo "✅ Branch is in sync with upstream"
+          fi
+
+      - name: Run bd doctor health check
+        if: steps.check_sync.outputs.sync_state != 'synced'
+        run: |
+          echo "Running bd doctor to validate repository health..."
+          ./bd doctor || echo "⚠️  Doctor found issues (non-blocking)"
+
+      - name: Sync with upstream
+        if: steps.check_sync.outputs.sync_state == 'behind'
+        env:
+          UPSTREAM_REMOTE: ${{ github.event.inputs.upstream_remote || 'upstream' }}
+          UPSTREAM_BRANCH: ${{ github.event.inputs.upstream_branch || 'main' }}
+        run: |
+          echo "Rebasing onto $UPSTREAM_REMOTE/$UPSTREAM_BRANCH..."
+
+          # Ensure working tree is clean
+          if ! git diff-index --quiet HEAD --; then
+            echo "❌ Working tree has uncommitted changes"
+            git status
+            exit 1
+          fi
+
+          # Rebase onto upstream
+          if git rebase $UPSTREAM_REMOTE/$UPSTREAM_BRANCH; then
+            echo "✅ Successfully rebased onto upstream"
+          else
+            echo "❌ Rebase failed - conflicts detected"
+            git rebase --abort
+            exit 1
+          fi
+
+      - name: Handle diverged state
+        if: steps.check_sync.outputs.sync_state == 'diverged'
+        env:
+          UPSTREAM_REMOTE: ${{ github.event.inputs.upstream_remote || 'upstream' }}
+          UPSTREAM_BRANCH: ${{ github.event.inputs.upstream_branch || 'main' }}
+          FORCE_PUSH: ${{ github.event.inputs.force_push || 'false' }}
+        run: |
+          echo "⚠️  Branch has diverged from upstream"
+          echo "Commits ahead: ${{ steps.check_sync.outputs.ahead }}"
+          echo "Commits behind: ${{ steps.check_sync.outputs.behind }}"
+
+          if [ "$FORCE_PUSH" = "true" ]; then
+            echo "Force push enabled - attempting sync..."
+            git rebase $UPSTREAM_REMOTE/$UPSTREAM_BRANCH || {
+              echo "❌ Rebase failed"
+              git rebase --abort
+              exit 1
+            }
+          else
+            echo "❌ Branch diverged - manual intervention required"
+            echo "To force sync, re-run workflow with force_push=true"
+            exit 1
+          fi
+
+      - name: Verify sync-branch health
+        if: steps.check_sync.outputs.sync_state != 'synced'
+        run: |
+          echo "Checking sync-branch configuration..."
+
+          # Check if beads database exists
+          if [ -f ".beads/beads.db" ]; then
+            # Run bd sync to flush pending changes
+            echo "Flushing pending database changes..."
+            ./bd sync || echo "⚠️  bd sync had issues (non-blocking)"
+          else
+            echo "No beads database found, skipping sync"
+          fi
+
+      - name: Push to origin
+        if: steps.check_sync.outputs.sync_state == 'behind' || (steps.check_sync.outputs.sync_state == 'diverged' && github.event.inputs.force_push == 'true')
+        env:
+          FORCE_PUSH: ${{ github.event.inputs.force_push || 'false' }}
+        run: |
+          CURRENT_BRANCH="${{ steps.check_sync.outputs.current_branch }}"
+
+          echo "Pushing $CURRENT_BRANCH to origin..."
+
+          if [ "$FORCE_PUSH" = "true" ] && [ "${{ steps.check_sync.outputs.sync_state }}" = "diverged" ]; then
+            git push origin $CURRENT_BRANCH --force-with-lease
+            echo "✅ Force pushed to origin (with lease protection)"
+          else
+            git push origin $CURRENT_BRANCH
+            echo "✅ Pushed to origin"
+          fi
+
+      - name: Report sync status
+        if: always()
+        run: |
+          echo "=== Sync Status Summary ==="
+          echo "Branch: ${{ steps.check_sync.outputs.current_branch }}"
+          echo "State: ${{ steps.check_sync.outputs.sync_state }}"
+          echo "Ahead: ${{ steps.check_sync.outputs.ahead }}"
+          echo "Behind: ${{ steps.check_sync.outputs.behind }}"
+
+          if [ "${{ job.status }}" = "success" ]; then
+            echo "✅ Upstream sync completed successfully"
+          else
+            echo "❌ Upstream sync failed - see logs above"
+          fi
