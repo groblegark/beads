@@ -8,8 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/steveyegge/beads/internal/idgen"
-	"github.com/steveyegge/beads/internal/storage"
 	"github.com/steveyegge/beads/internal/types"
 )
 
@@ -97,9 +95,25 @@ func (s *DoltStore) CreateIssue(ctx context.Context, issue *types.Issue, actor s
 		issue.ID = generatedID
 	}
 
+	// Check if issue already exists (idempotent create)
+	var existingID string
+	err = tx.QueryRowContext(ctx, "SELECT id FROM issues WHERE id = ?", issue.ID).Scan(&existingID)
+	if err == nil {
+		// Issue already exists - this is idempotent, return success
+		// This handles race conditions and retry scenarios
+		return tx.Commit()
+	} else if err != sql.ErrNoRows {
+		return fmt.Errorf("failed to check for existing issue: %w", err)
+	}
+
 	// Insert issue
 	if err := insertIssue(ctx, tx, issue); err != nil {
-		return fmt.Errorf("failed to insert issue: %w", err)
+		// Check if this is a duplicate key error (race condition between check and insert)
+		if strings.Contains(err.Error(), "1062") || strings.Contains(err.Error(), "duplicate") {
+			// Another process created the issue - this is fine, return success
+			return tx.Commit()
+		}
+		return fmt.Errorf("failed to insert issue %s: %w", issue.ID, err)
 	}
 
 	// Record creation event
@@ -117,16 +131,6 @@ func (s *DoltStore) CreateIssue(ctx context.Context, issue *types.Issue, actor s
 
 // CreateIssues creates multiple issues in a single transaction
 func (s *DoltStore) CreateIssues(ctx context.Context, issues []*types.Issue, actor string) error {
-	return s.CreateIssuesWithFullOptions(ctx, issues, actor, storage.BatchCreateOptions{
-		OrphanHandling:       storage.OrphanAllow,
-		SkipPrefixValidation: false,
-	})
-}
-
-// CreateIssuesWithFullOptions creates multiple issues with full options control.
-// This is the backend-agnostic batch creation method that supports orphan handling
-// and prefix validation options.
-func (s *DoltStore) CreateIssuesWithFullOptions(ctx context.Context, issues []*types.Issue, actor string, opts storage.BatchCreateOptions) error {
 	if len(issues) == 0 {
 		return nil
 	}
@@ -146,15 +150,6 @@ func (s *DoltStore) CreateIssuesWithFullOptions(ctx context.Context, issues []*t
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
-
-	// Get prefix from config for validation
-	var configPrefix string
-	err = tx.QueryRowContext(ctx, "SELECT value FROM config WHERE `key` = ?", "issue_prefix").Scan(&configPrefix)
-	if err == sql.ErrNoRows || configPrefix == "" {
-		return fmt.Errorf("database not initialized: issue_prefix config is missing (run 'bd init --prefix <prefix>' first)")
-	} else if err != nil {
-		return fmt.Errorf("failed to get config: %w", err)
-	}
 
 	for _, issue := range issues {
 		now := time.Now().UTC()
@@ -194,36 +189,22 @@ func (s *DoltStore) CreateIssuesWithFullOptions(ctx context.Context, issues []*t
 			issue.ContentHash = issue.ComputeContentHash()
 		}
 
-		// Validate prefix if not skipped (for imports with different prefixes)
-		if !opts.SkipPrefixValidation && issue.ID != "" {
-			if err := validateIssueIDPrefix(issue.ID, configPrefix); err != nil {
-				return fmt.Errorf("prefix validation failed for %s: %w", issue.ID, err)
-			}
-		}
-
-		// Handle orphan checking for hierarchical IDs
-		if issue.ID != "" {
-			if parentID, _, ok := parseHierarchicalID(issue.ID); ok {
-				var parentCount int
-				err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM issues WHERE id = ?`, parentID).Scan(&parentCount)
-				if err != nil {
-					return fmt.Errorf("failed to check parent existence: %w", err)
-				}
-				if parentCount == 0 {
-					switch opts.OrphanHandling {
-					case storage.OrphanStrict:
-						return fmt.Errorf("parent issue %s does not exist (strict mode)", parentID)
-					case storage.OrphanSkip:
-						// Skip this issue
-						continue
-					case storage.OrphanResurrect, storage.OrphanAllow:
-						// Allow orphan - continue with insert
-					}
-				}
-			}
+		// Check if issue already exists (idempotent create)
+		var existingID string
+		err = tx.QueryRowContext(ctx, "SELECT id FROM issues WHERE id = ?", issue.ID).Scan(&existingID)
+		if err == nil {
+			// Issue already exists - skip it (idempotent)
+			continue
+		} else if err != sql.ErrNoRows {
+			return fmt.Errorf("failed to check for existing issue %s: %w", issue.ID, err)
 		}
 
 		if err := insertIssue(ctx, tx, issue); err != nil {
+			// Check if this is a duplicate key error (race condition)
+			if strings.Contains(err.Error(), "1062") || strings.Contains(err.Error(), "duplicate") {
+				// Another process created the issue - skip it
+				continue
+			}
 			return fmt.Errorf("failed to insert issue %s: %w", issue.ID, err)
 		}
 		if err := recordEvent(ctx, tx, issue.ID, types.EventCreated, actor, "", ""); err != nil {
@@ -235,35 +216,6 @@ func (s *DoltStore) CreateIssuesWithFullOptions(ctx context.Context, issues []*t
 	}
 
 	return tx.Commit()
-}
-
-// validateIssueIDPrefix validates that the issue ID has the correct prefix
-func validateIssueIDPrefix(id, prefix string) error {
-	if !strings.HasPrefix(id, prefix+"-") {
-		return fmt.Errorf("issue ID %s does not match configured prefix %s", id, prefix)
-	}
-	return nil
-}
-
-// parseHierarchicalID checks if an ID is hierarchical (e.g., "bd-abc.1") and returns the parent ID and child number
-func parseHierarchicalID(id string) (parentID string, childNum int, ok bool) {
-	// Find the last dot that separates parent from child number
-	lastDot := strings.LastIndex(id, ".")
-	if lastDot == -1 {
-		return "", 0, false
-	}
-
-	parentID = id[:lastDot]
-	suffix := id[lastDot+1:]
-
-	// Parse child number
-	var num int
-	_, err := fmt.Sscanf(suffix, "%d", &num)
-	if err != nil {
-		return "", 0, false
-	}
-
-	return parentID, num, true
 }
 
 // GetIssue retrieves an issue by ID
@@ -330,14 +282,7 @@ func (s *DoltStore) UpdateIssue(ctx context.Context, id string, updates map[stri
 			columnName = "ephemeral"
 		}
 		setClauses = append(setClauses, fmt.Sprintf("`%s` = ?", columnName))
-
-		// Handle JSON serialization for array fields stored as TEXT
-		if key == "waiters" {
-			waitersJSON, _ := json.Marshal(value)
-			args = append(args, string(waitersJSON))
-		} else {
-			args = append(args, value)
-		}
+		args = append(args, value)
 	}
 
 	// Auto-manage closed_at
@@ -496,7 +441,6 @@ func insertIssue(ctx context.Context, tx *sql.Tx, issue *types.Issue) error {
 
 func scanIssue(ctx context.Context, db *sql.DB, id string) (*types.Issue, error) {
 	var issue types.Issue
-	var createdAtStr, updatedAtStr sql.NullString // TEXT columns - must parse manually
 	var closedAt, compactedAt, deletedAt, lastActivity, dueAt, deferUntil sql.NullTime
 	var estimatedMinutes, originalSize, timeoutNs sql.NullInt64
 	var assignee, externalRef, compactedAtCommit, owner sql.NullString
@@ -526,7 +470,7 @@ func scanIssue(ctx context.Context, db *sql.DB, id string) (*types.Issue, error)
 		&issue.ID, &contentHash, &issue.Title, &issue.Description, &issue.Design,
 		&issue.AcceptanceCriteria, &issue.Notes, &issue.Status,
 		&issue.Priority, &issue.IssueType, &assignee, &estimatedMinutes,
-		&createdAtStr, &issue.CreatedBy, &owner, &updatedAtStr, &closedAt, &externalRef,
+		&issue.CreatedAt, &issue.CreatedBy, &owner, &issue.UpdatedAt, &closedAt, &externalRef,
 		&issue.CompactionLevel, &compactedAt, &compactedAtCommit, &originalSize, &sourceRepo, &closeReason,
 		&deletedAt, &deletedBy, &deleteReason, &originalType,
 		&sender, &ephemeral, &pinned, &isTemplate, &crystallizes,
@@ -542,14 +486,6 @@ func scanIssue(ctx context.Context, db *sql.DB, id string) (*types.Issue, error)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to get issue: %w", err)
-	}
-
-	// Parse timestamp strings (TEXT columns require manual parsing)
-	if createdAtStr.Valid {
-		issue.CreatedAt = parseTimeString(createdAtStr.String)
-	}
-	if updatedAtStr.Valid {
-		issue.UpdatedAt = parseTimeString(updatedAtStr.String)
 	}
 
 	// Map nullable fields
@@ -696,47 +632,15 @@ func markDirty(ctx context.Context, tx *sql.Tx, issueID string) error {
 	return err
 }
 
-// generateIssueID generates a unique hash-based ID for an issue
-// Uses adaptive length based on database size and tries multiple nonces on collision
-func generateIssueID(ctx context.Context, tx *sql.Tx, prefix string, issue *types.Issue, actor string) (string, error) {
-	// Get adaptive base length based on current database size
-	baseLength, err := GetAdaptiveIDLengthTx(ctx, tx, prefix)
-	if err != nil {
-		// Fallback to 6 on error
-		baseLength = 6
+// nolint:unparam // error return kept for interface consistency
+func generateIssueID(_ context.Context, _ *sql.Tx, prefix string, issue *types.Issue, _ string) (string, error) {
+	// Simple hash-based ID generation
+	// Use first 6 chars of content hash
+	hash := issue.ComputeContentHash()
+	if len(hash) > 6 {
+		hash = hash[:6]
 	}
-
-	// Try baseLength, baseLength+1, baseLength+2, up to max of 8
-	maxLength := 8
-	if baseLength > maxLength {
-		baseLength = maxLength
-	}
-
-	for length := baseLength; length <= maxLength; length++ {
-		// Try up to 10 nonces at each length
-		for nonce := 0; nonce < 10; nonce++ {
-			candidate := generateHashID(prefix, issue.Title, issue.Description, actor, issue.CreatedAt, length, nonce)
-
-			// Check if this ID already exists
-			var count int
-			err = tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM issues WHERE id = ?`, candidate).Scan(&count)
-			if err != nil {
-				return "", fmt.Errorf("failed to check for ID collision: %w", err)
-			}
-
-			if count == 0 {
-				return candidate, nil
-			}
-		}
-	}
-
-	return "", fmt.Errorf("failed to generate unique ID after trying lengths %d-%d with 10 nonces each", baseLength, maxLength)
-}
-
-// generateHashID creates a hash-based ID for a top-level issue.
-// Uses base36 encoding (0-9, a-z) for better information density than hex.
-func generateHashID(prefix, title, description, creator string, timestamp time.Time, length, nonce int) string {
-	return idgen.GenerateHashID(prefix, title, description, creator, timestamp, length, nonce)
+	return fmt.Sprintf("%s-%s", prefix, hash), nil
 }
 
 func isAllowedUpdateField(key string) bool {
@@ -749,7 +653,7 @@ func isAllowedUpdateField(key string) bool {
 		"hook_bead": true, "role_bead": true, "agent_state": true, "last_activity": true,
 		"role_type": true, "rig": true, "mol_type": true,
 		"event_category": true, "event_actor": true, "event_target": true, "event_payload": true,
-		"due_at": true, "defer_until": true, "await_id": true, "waiters": true,
+		"due_at": true, "defer_until": true, "await_id": true,
 	}
 	return allowed[key]
 }
