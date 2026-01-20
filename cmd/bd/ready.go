@@ -8,7 +8,6 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/steveyegge/beads/internal/config"
 	"github.com/steveyegge/beads/internal/rpc"
-	"github.com/steveyegge/beads/internal/storage/sqlite"
 	"github.com/steveyegge/beads/internal/types"
 	"github.com/steveyegge/beads/internal/ui"
 	"github.com/steveyegge/beads/internal/util"
@@ -268,9 +267,7 @@ var blockedCmd = &cobra.Command{
 		// If daemon is running but doesn't support this command, use direct storage
 		ctx := rootCtx
 		if daemonClient != nil && store == nil {
-			var err error
-			store, err = sqlite.New(ctx, dbPath)
-			if err != nil {
+			if err := ensureStoreActive(); err != nil {
 				fmt.Fprintf(os.Stderr, "Error: failed to open database: %v\n", err)
 				os.Exit(1)
 			}
