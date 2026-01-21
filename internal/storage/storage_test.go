@@ -206,6 +206,18 @@ func (m *mockStorage) UnderlyingDB() *sql.DB {
 func (m *mockStorage) UnderlyingConn(ctx context.Context) (*sql.Conn, error) {
 	return nil, nil
 }
+func (m *mockStorage) CreateDecisionPoint(ctx context.Context, dp *types.DecisionPoint) error {
+	return nil
+}
+func (m *mockStorage) GetDecisionPoint(ctx context.Context, issueID string) (*types.DecisionPoint, error) {
+	return nil, nil
+}
+func (m *mockStorage) UpdateDecisionPoint(ctx context.Context, dp *types.DecisionPoint) error {
+	return nil
+}
+func (m *mockStorage) ListPendingDecisions(ctx context.Context) ([]*types.DecisionPoint, error) {
+	return nil, nil
+}
 
 // mockTransaction is a minimal mock for Transaction interface testing.
 type mockTransaction struct{}
@@ -256,6 +268,15 @@ func (m *mockTransaction) GetMetadata(ctx context.Context, key string) (string, 
 	return "", nil
 }
 func (m *mockTransaction) AddComment(ctx context.Context, issueID, actor, comment string) error {
+	return nil
+}
+func (m *mockTransaction) CreateDecisionPoint(ctx context.Context, dp *types.DecisionPoint) error {
+	return nil
+}
+func (m *mockTransaction) GetDecisionPoint(ctx context.Context, issueID string) (*types.DecisionPoint, error) {
+	return nil, nil
+}
+func (m *mockTransaction) UpdateDecisionPoint(ctx context.Context, dp *types.DecisionPoint) error {
 	return nil
 }
 
