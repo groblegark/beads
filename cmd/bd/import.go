@@ -22,30 +22,6 @@ import (
 	"golang.org/x/term"
 )
 
-// DeletionMarker represents a compact deletion marker in JSONL format.
-// Format: {"id": "gt-123", "_deleted": true, "_deleted_at": "2026-01-17T10:30:00Z"}
-// These markers are used for incremental sync to propagate deletions efficiently
-// without sending full tombstone records.
-type DeletionMarker struct {
-	ID        string     `json:"id"`
-	Deleted   bool       `json:"_deleted"`
-	DeletedAt *time.Time `json:"_deleted_at,omitempty"`
-}
-
-// isDeletionMarker checks if a JSON line is a deletion marker.
-// Returns the parsed marker and true if it's a deletion marker, otherwise nil and false.
-func isDeletionMarker(line []byte) (*DeletionMarker, bool) {
-	var marker DeletionMarker
-	if err := json.Unmarshal(line, &marker); err != nil {
-		return nil, false
-	}
-	// A valid deletion marker must have an ID and _deleted=true
-	if marker.ID != "" && marker.Deleted {
-		return &marker, true
-	}
-	return nil, false
-}
-
 var importCmd = &cobra.Command{
 	Use:     "import",
 	GroupID: "sync",
@@ -98,13 +74,11 @@ NOTE: Import requires direct database access and does not work with daemon mode.
 			daemonClient = nil
 
 			var err error
-			beadsDir := filepath.Dir(dbPath)
-			store, err = factory.NewFromConfigWithOptions(rootCtx, beadsDir, factory.Options{
-				LockTimeout: lockTimeout,
-			})
+			// Use factory to respect storage backend config (SQLite vs Dolt)
+			store, err = factory.NewFromConfig(rootCtx, dbDir)
 			if err != nil {
 				// Check for fresh clone scenario
-				if handleFreshCloneError(err, beadsDir) {
+				if handleFreshCloneError(err, dbDir) {
 					os.Exit(1)
 				}
 				fmt.Fprintf(os.Stderr, "Error: failed to open database: %v\n", err)
@@ -163,7 +137,6 @@ NOTE: Import requires direct database access and does not work with daemon mode.
 		scanner := bufio.NewScanner(in)
 
 		var allIssues []*types.Issue
-		var deletionMarkers []*DeletionMarker
 		lineNum := 0
 
 		for scanner.Scan() {
@@ -219,10 +192,9 @@ NOTE: Import requires direct database access and does not work with daemon mode.
 					}()
 					in = f
 					scanner = bufio.NewScanner(in)
-					allIssues = nil        // Reset issues list
-					deletionMarkers = nil  // Reset deletion markers list
-					lineNum = 0            // Reset line counter
-					continue               // Restart parsing from beginning
+					allIssues = nil // Reset issues list
+					lineNum = 0     // Reset line counter
+					continue        // Restart parsing from beginning
 				} else {
 					// Can't retry stdin - should not happen since git conflicts only in files
 					fmt.Fprintf(os.Stderr, "Error: Cannot retry merge from stdin\n")
@@ -230,56 +202,13 @@ NOTE: Import requires direct database access and does not work with daemon mode.
 				}
 			}
 
-			// Check for deletion markers first
-			// Format: {"id": "gt-123", "_deleted": true, "_deleted_at": "..."}
-			if marker, ok := isDeletionMarker(rawLine); ok {
-				deletionMarkers = append(deletionMarkers, marker)
-				if debug.Enabled() {
-					debug.Logf("Found deletion marker for issue %s\n", marker.ID)
-				}
-				continue // Skip normal issue parsing for deletion markers
-			}
-
-			// Parse JSON as regular issue
+			// Parse JSON
 			var issue types.Issue
 			if err := json.Unmarshal([]byte(line), &issue); err != nil {
 				fmt.Fprintf(os.Stderr, "Error parsing line %d: %v\n", lineNum, err)
 				os.Exit(1)
 			}
 			issue.SetDefaults() // Apply defaults for omitted fields (beads-399)
-
-			// Migrate old JSONL format: auto-correct deleted status to tombstone
-			// This handles JSONL files from versions that used "deleted" instead of "tombstone"
-			// (GH#1223: Stuck in sync diversion loop)
-			if issue.Status == types.Status("deleted") && issue.DeletedAt != nil {
-				issue.Status = types.StatusTombstone
-				if debug.Enabled() {
-					debug.Logf("Auto-corrected status 'deleted' to 'tombstone' for issue %s\n", issue.ID)
-				}
-			}
-
-			// Fix: Any non-tombstone issue with deleted_at set is malformed and should be tombstone
-			// This catches issues that may have been corrupted or migrated incorrectly
-			if issue.Status != types.StatusTombstone && issue.DeletedAt != nil {
-				issue.Status = types.StatusTombstone
-				if debug.Enabled() {
-					debug.Logf("Auto-corrected status %s to 'tombstone' (had deleted_at) for issue %s\n", issue.Status, issue.ID)
-				}
-			}
-
-			if issue.Status == types.StatusClosed && issue.ClosedAt == nil {
-				now := time.Now()
-				issue.ClosedAt = &now
-			}
-
-			// Ensure tombstones have deleted_at set (fix for malformed data)
-			if issue.Status == types.StatusTombstone && issue.DeletedAt == nil {
-				now := time.Now()
-				issue.DeletedAt = &now
-				if debug.Enabled() {
-					debug.Logf("Auto-added deleted_at timestamp for tombstone issue %s\n", issue.ID)
-				}
-			}
 
 			allIssues = append(allIssues, &issue)
 		}
@@ -325,12 +254,6 @@ NOTE: Import requires direct database access and does not work with daemon mode.
 		}
 
 		// Phase 2: Use shared import logic
-		// Extract deletion IDs from markers
-		var deletionIDs []string
-		for _, marker := range deletionMarkers {
-			deletionIDs = append(deletionIDs, marker.ID)
-		}
-
 		opts := ImportOptions{
 			DryRun:                     dryRun,
 			SkipUpdate:                 skipUpdate,
@@ -338,7 +261,6 @@ NOTE: Import requires direct database access and does not work with daemon mode.
 			RenameOnImport:             renameOnImport,
 			ClearDuplicateExternalRefs: clearDuplicateExternalRefs,
 			OrphanHandling:             orphanHandling,
-			DeletionIDs:                deletionIDs,
 		}
 
 		// If --protect-left-snapshot is set, read the left snapshot and build timestamp map
@@ -417,9 +339,6 @@ NOTE: Import requires direct database access and does not work with daemon mode.
 				fmt.Fprintf(os.Stderr, "No collisions detected.\n")
 			}
 			msg := fmt.Sprintf("Would create %d new issues, update %d existing issues", result.Created, result.Updated)
-			if result.Deleted > 0 {
-				msg += fmt.Sprintf(", delete %d issues", result.Deleted)
-			}
 			if result.Unchanged > 0 {
 				msg += fmt.Sprintf(", %d unchanged", result.Unchanged)
 			}
@@ -453,15 +372,10 @@ NOTE: Import requires direct database access and does not work with daemon mode.
 			fmt.Fprintf(os.Stderr, "\nAll text and dependency references have been updated.\n")
 		}
 
-		// Record that this command performed a write (for Dolt auto-commit).
-		if result.Created > 0 || result.Updated > 0 || result.Deleted > 0 || len(result.IDMapping) > 0 {
-			commandDidWrite.Store(true)
-		}
-
 		// Flush immediately after import (no debounce) to ensure daemon sees changes
 		// Without this, daemon FileWatcher won't detect the import for up to 30s
 		// Only flush if there were actual changes to avoid unnecessary I/O
-		if result.Created > 0 || result.Updated > 0 || result.Deleted > 0 || len(result.IDMapping) > 0 {
+		if result.Created > 0 || result.Updated > 0 || len(result.IDMapping) > 0 {
 			flushToJSONLWithState(flushState{forceDirty: true})
 		}
 
@@ -509,9 +423,6 @@ NOTE: Import requires direct database access and does not work with daemon mode.
 
 		// Print summary
 		fmt.Fprintf(os.Stderr, "Import complete: %d created, %d updated", result.Created, result.Updated)
-		if result.Deleted > 0 {
-			fmt.Fprintf(os.Stderr, ", %d deleted", result.Deleted)
-		}
 		if result.Unchanged > 0 {
 			fmt.Fprintf(os.Stderr, ", %d unchanged", result.Unchanged)
 		}
@@ -643,7 +554,7 @@ func checkUncommittedChanges(filePath string, result *ImportResult) {
 		// Get line counts for context
 		workingTreeLines := countLines(filePath)
 		headLines := countLinesInGitHEAD(filePath, workDir)
-
+		
 		fmt.Fprintf(os.Stderr, "\n⚠️  Warning: %s has uncommitted changes\n", filePath)
 		fmt.Fprintf(os.Stderr, "   Working tree: %d lines\n", workingTreeLines)
 		if headLines > 0 {
