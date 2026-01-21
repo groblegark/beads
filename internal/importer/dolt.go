@@ -99,6 +99,18 @@ func importIssuesDolt(ctx context.Context, store *dolt.DoltStore, issues []*type
 				"assignee":    issue.Assignee,
 				"notes":       issue.Notes,
 				"design":      issue.Design,
+				// Decision point fields
+				"decision_prompt":         issue.DecisionPrompt,
+				"decision_options":        issue.DecisionOptions,
+				"decision_default":        issue.DecisionDefault,
+				"decision_selected":       issue.DecisionSelected,
+				"decision_text":           issue.DecisionText,
+				"decision_responded_at":   issue.DecisionRespondedAt,
+				"decision_responded_by":   issue.DecisionRespondedBy,
+				"decision_iteration":      issue.DecisionIteration,
+				"decision_max_iterations": issue.DecisionMaxIterations,
+				"decision_prior_id":       issue.DecisionPriorID,
+				"decision_guidance":       issue.DecisionGuidance,
 			}
 			if issue.ClosedAt != nil {
 				updates["closed_at"] = issue.ClosedAt

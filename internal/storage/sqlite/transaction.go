@@ -418,7 +418,8 @@ func (t *sqliteTxStorage) UpdateIssue(ctx context.Context, id string, updates ma
 
 	// Recompute content_hash if any content fields changed
 	contentChanged := false
-	contentFields := []string{"title", "description", "design", "acceptance_criteria", "notes", "status", "priority", "issue_type", "assignee", "external_ref"}
+	contentFields := []string{"title", "description", "design", "acceptance_criteria", "notes", "status", "priority", "issue_type", "assignee", "external_ref",
+		"decision_prompt", "decision_options", "decision_default", "decision_selected", "decision_text", "decision_responded_by", "decision_iteration", "decision_max_iterations", "decision_prior_id", "decision_guidance"}
 	for _, field := range contentFields {
 		if _, exists := updates[field]; exists {
 			contentChanged = true
@@ -534,6 +535,47 @@ func applyUpdatesToIssue(issue *types.Issue, updates map[string]interface{}) {
 				case *string:
 					issue.ExternalRef = v
 				}
+			}
+		// Decision point fields
+		case "decision_prompt":
+			if s, ok := value.(string); ok {
+				issue.DecisionPrompt = s
+			}
+		case "decision_options":
+			if s, ok := value.(string); ok {
+				issue.DecisionOptions = s
+			}
+		case "decision_default":
+			if s, ok := value.(string); ok {
+				issue.DecisionDefault = s
+			}
+		case "decision_selected":
+			if s, ok := value.(string); ok {
+				issue.DecisionSelected = s
+			}
+		case "decision_text":
+			if s, ok := value.(string); ok {
+				issue.DecisionText = s
+			}
+		case "decision_responded_by":
+			if s, ok := value.(string); ok {
+				issue.DecisionRespondedBy = s
+			}
+		case "decision_iteration":
+			if i, ok := value.(int); ok {
+				issue.DecisionIteration = i
+			}
+		case "decision_max_iterations":
+			if i, ok := value.(int); ok {
+				issue.DecisionMaxIterations = i
+			}
+		case "decision_prior_id":
+			if s, ok := value.(string); ok {
+				issue.DecisionPriorID = s
+			}
+		case "decision_guidance":
+			if s, ok := value.(string); ok {
+				issue.DecisionGuidance = s
 			}
 		}
 	}

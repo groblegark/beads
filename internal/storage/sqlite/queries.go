@@ -768,6 +768,18 @@ var allowedUpdateFields = map[string]bool{
 	"defer_until": true,
 	// Gate fields (bd-z6kw: support await_id updates for gate discovery)
 	"await_id": true,
+	// Decision point fields (hq-946577.12)
+	"decision_prompt":         true,
+	"decision_options":        true,
+	"decision_default":        true,
+	"decision_selected":       true,
+	"decision_text":           true,
+	"decision_responded_at":   true,
+	"decision_responded_by":   true,
+	"decision_iteration":      true,
+	"decision_max_iterations": true,
+	"decision_prior_id":       true,
+	"decision_guidance":       true,
 }
 
 // validatePriority validates a priority value
@@ -885,7 +897,8 @@ func (s *SQLiteStorage) UpdateIssue(ctx context.Context, id string, updates map[
 
 	// Recompute content_hash if any content fields changed
 	contentChanged := false
-	contentFields := []string{"title", "description", "design", "acceptance_criteria", "notes", "status", "priority", "issue_type", "assignee", "external_ref"}
+	contentFields := []string{"title", "description", "design", "acceptance_criteria", "notes", "status", "priority", "issue_type", "assignee", "external_ref",
+		"decision_prompt", "decision_options", "decision_default", "decision_selected", "decision_text", "decision_responded_by", "decision_iteration", "decision_max_iterations", "decision_prior_id", "decision_guidance"}
 	for _, field := range contentFields {
 		if _, exists := updates[field]; exists {
 			contentChanged = true
@@ -942,6 +955,47 @@ func (s *SQLiteStorage) UpdateIssue(ctx context.Context, id string, updates map[
 					default:
 						return fmt.Errorf("external_ref must be string or *string, got %T", value)
 					}
+				}
+			// Decision point fields
+			case "decision_prompt":
+				if s, ok := value.(string); ok {
+					updatedIssue.DecisionPrompt = s
+				}
+			case "decision_options":
+				if s, ok := value.(string); ok {
+					updatedIssue.DecisionOptions = s
+				}
+			case "decision_default":
+				if s, ok := value.(string); ok {
+					updatedIssue.DecisionDefault = s
+				}
+			case "decision_selected":
+				if s, ok := value.(string); ok {
+					updatedIssue.DecisionSelected = s
+				}
+			case "decision_text":
+				if s, ok := value.(string); ok {
+					updatedIssue.DecisionText = s
+				}
+			case "decision_responded_by":
+				if s, ok := value.(string); ok {
+					updatedIssue.DecisionRespondedBy = s
+				}
+			case "decision_iteration":
+				if i, ok := value.(int); ok {
+					updatedIssue.DecisionIteration = i
+				}
+			case "decision_max_iterations":
+				if i, ok := value.(int); ok {
+					updatedIssue.DecisionMaxIterations = i
+				}
+			case "decision_prior_id":
+				if s, ok := value.(string); ok {
+					updatedIssue.DecisionPriorID = s
+				}
+			case "decision_guidance":
+				if s, ok := value.(string); ok {
+					updatedIssue.DecisionGuidance = s
 				}
 			}
 		}

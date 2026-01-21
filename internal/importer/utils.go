@@ -121,6 +121,11 @@ func (fc *fieldComparator) equalBool(existingVal bool, newVal interface{}) bool 
 	}
 }
 
+func (fc *fieldComparator) equalInt(existingVal int, newVal interface{}) bool {
+	newInt, ok := fc.intFrom(newVal)
+	return ok && int64(existingVal) == newInt
+}
+
 func (fc *fieldComparator) checkFieldChanged(key string, existing *types.Issue, newVal interface{}) bool {
 	switch key {
 	case "title":
@@ -145,6 +150,31 @@ func (fc *fieldComparator) checkFieldChanged(key string, existing *types.Issue, 
 		return !fc.equalPtrStr(existing.ExternalRef, newVal)
 	case "pinned":
 		return !fc.equalBool(existing.Pinned, newVal)
+	// Decision point fields
+	case "decision_prompt":
+		return !fc.equalStr(existing.DecisionPrompt, newVal)
+	case "decision_options":
+		return !fc.equalStr(existing.DecisionOptions, newVal)
+	case "decision_default":
+		return !fc.equalStr(existing.DecisionDefault, newVal)
+	case "decision_selected":
+		return !fc.equalStr(existing.DecisionSelected, newVal)
+	case "decision_text":
+		return !fc.equalStr(existing.DecisionText, newVal)
+	case "decision_responded_by":
+		return !fc.equalStr(existing.DecisionRespondedBy, newVal)
+	case "decision_prior_id":
+		return !fc.equalStr(existing.DecisionPriorID, newVal)
+	case "decision_guidance":
+		return !fc.equalStr(existing.DecisionGuidance, newVal)
+	case "decision_iteration":
+		return !fc.equalInt(existing.DecisionIteration, newVal)
+	case "decision_max_iterations":
+		return !fc.equalInt(existing.DecisionMaxIterations, newVal)
+	case "decision_responded_at":
+		// Time fields are always considered potentially changed
+		// (complex comparison not worth the overhead for change detection)
+		return true
 	default:
 		return false
 	}

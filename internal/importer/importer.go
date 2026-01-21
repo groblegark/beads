@@ -629,6 +629,19 @@ func upsertIssues(ctx context.Context, sqliteStore *sqlite.SQLiteStorage, issues
 						updates["external_ref"] = nil
 					}
 
+					// Decision point fields
+					updates["decision_prompt"] = incoming.DecisionPrompt
+					updates["decision_options"] = incoming.DecisionOptions
+					updates["decision_default"] = incoming.DecisionDefault
+					updates["decision_selected"] = incoming.DecisionSelected
+					updates["decision_text"] = incoming.DecisionText
+					updates["decision_responded_at"] = incoming.DecisionRespondedAt
+					updates["decision_responded_by"] = incoming.DecisionRespondedBy
+					updates["decision_iteration"] = incoming.DecisionIteration
+					updates["decision_max_iterations"] = incoming.DecisionMaxIterations
+					updates["decision_prior_id"] = incoming.DecisionPriorID
+					updates["decision_guidance"] = incoming.DecisionGuidance
+
 					// Only update if data actually changed
 					if IssueDataChanged(existing, updates) {
 						if err := sqliteStore.UpdateIssue(ctx, existing.ID, updates, "import"); err != nil {
@@ -733,6 +746,19 @@ func upsertIssues(ctx context.Context, sqliteStore *sqlite.SQLiteStorage, issues
 				} else {
 					updates["external_ref"] = nil
 				}
+
+				// Decision point fields
+				updates["decision_prompt"] = incoming.DecisionPrompt
+				updates["decision_options"] = incoming.DecisionOptions
+				updates["decision_default"] = incoming.DecisionDefault
+				updates["decision_selected"] = incoming.DecisionSelected
+				updates["decision_text"] = incoming.DecisionText
+				updates["decision_responded_at"] = incoming.DecisionRespondedAt
+				updates["decision_responded_by"] = incoming.DecisionRespondedBy
+				updates["decision_iteration"] = incoming.DecisionIteration
+				updates["decision_max_iterations"] = incoming.DecisionMaxIterations
+				updates["decision_prior_id"] = incoming.DecisionPriorID
+				updates["decision_guidance"] = incoming.DecisionGuidance
 
 				// Only update if data actually changed
 				if IssueDataChanged(existingWithID, updates) {
