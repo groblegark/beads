@@ -109,14 +109,20 @@ var showCmd = &cobra.Command{
 					if result != nil {
 						result.Close()
 					}
-					fmt.Fprintf(os.Stderr, "Error fetching %s: %v\n", id, err)
+					// Only print errors to stderr in human-readable mode (bd-36869a)
+					if !jsonOutput {
+						fmt.Fprintf(os.Stderr, "Error fetching %s: %v\n", id, err)
+					}
 					continue
 				}
 				if result == nil || result.Issue == nil {
 					if result != nil {
 						result.Close()
 					}
-					fmt.Fprintf(os.Stderr, "Issue %s not found\n", id)
+					// Only print errors to stderr in human-readable mode (bd-36869a)
+					if !jsonOutput {
+						fmt.Fprintf(os.Stderr, "Issue %s not found\n", id)
+					}
 					continue
 				}
 				issue := result.Issue
@@ -165,7 +171,10 @@ var showCmd = &cobra.Command{
 				showArgs := &rpc.ShowArgs{ID: id}
 				resp, err := daemonClient.Show(showArgs)
 				if err != nil {
-					fmt.Fprintf(os.Stderr, "Error fetching %s: %v\n", id, err)
+					// Only print errors to stderr in human-readable mode (bd-36869a)
+					if !jsonOutput {
+						fmt.Fprintf(os.Stderr, "Error fetching %s: %v\n", id, err)
+					}
 					continue
 				}
 
@@ -334,14 +343,20 @@ var showCmd = &cobra.Command{
 				if result != nil {
 					result.Close()
 				}
-				fmt.Fprintf(os.Stderr, "Error fetching %s: %v\n", id, err)
+				// Only print errors to stderr in human-readable mode (bd-36869a)
+				if !jsonOutput {
+					fmt.Fprintf(os.Stderr, "Error fetching %s: %v\n", id, err)
+				}
 				continue
 			}
 			if result == nil || result.Issue == nil {
 				if result != nil {
 					result.Close()
 				}
-				fmt.Fprintf(os.Stderr, "Issue %s not found\n", id)
+				// Only print errors to stderr in human-readable mode (bd-36869a)
+				if !jsonOutput {
+					fmt.Fprintf(os.Stderr, "Issue %s not found\n", id)
+				}
 				continue
 			}
 			issue := result.Issue
@@ -740,18 +755,27 @@ func showIssueRefs(ctx context.Context, args []string, resolvedIDs []string, rou
 	for _, id := range routedArgs {
 		result, err := resolveAndGetIssueWithRouting(ctx, store, id)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error resolving %s: %v\n", id, err)
+			// Only print errors to stderr in human-readable mode (bd-36869a)
+			if !jsonOut {
+				fmt.Fprintf(os.Stderr, "Error resolving %s: %v\n", id, err)
+			}
 			continue
 		}
 		if result == nil || result.Issue == nil {
 			if result != nil {
 				result.Close()
 			}
-			fmt.Fprintf(os.Stderr, "Issue %s not found\n", id)
+			// Only print errors to stderr in human-readable mode (bd-36869a)
+			if !jsonOut {
+				fmt.Fprintf(os.Stderr, "Issue %s not found\n", id)
+			}
 			continue
 		}
 		if err := processIssue(result.ResolvedID, result.Store); err != nil {
-			fmt.Fprintf(os.Stderr, "Error getting refs for %s: %v\n", id, err)
+			// Only print errors to stderr in human-readable mode (bd-36869a)
+			if !jsonOut {
+				fmt.Fprintf(os.Stderr, "Error getting refs for %s: %v\n", id, err)
+			}
 		}
 		result.Close()
 	}
@@ -762,11 +786,17 @@ func showIssueRefs(ctx context.Context, args []string, resolvedIDs []string, rou
 			// Need to open direct connection for GetDependentsWithMetadata
 			dbStore, err := sqlite.New(ctx, dbPath)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "Error opening database: %v\n", err)
+				// Only print errors to stderr in human-readable mode (bd-36869a)
+				if !jsonOut {
+					fmt.Fprintf(os.Stderr, "Error opening database: %v\n", err)
+				}
 				continue
 			}
 			if err := processIssue(id, dbStore); err != nil {
-				fmt.Fprintf(os.Stderr, "Error getting refs for %s: %v\n", id, err)
+				// Only print errors to stderr in human-readable mode (bd-36869a)
+				if !jsonOut {
+					fmt.Fprintf(os.Stderr, "Error getting refs for %s: %v\n", id, err)
+				}
 			}
 			_ = dbStore.Close()
 		}
@@ -778,18 +808,27 @@ func showIssueRefs(ctx context.Context, args []string, resolvedIDs []string, rou
 			}
 			result, err := resolveAndGetIssueWithRouting(ctx, store, id)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "Error resolving %s: %v\n", id, err)
+				// Only print errors to stderr in human-readable mode (bd-36869a)
+				if !jsonOut {
+					fmt.Fprintf(os.Stderr, "Error resolving %s: %v\n", id, err)
+				}
 				continue
 			}
 			if result == nil || result.Issue == nil {
 				if result != nil {
 					result.Close()
 				}
-				fmt.Fprintf(os.Stderr, "Issue %s not found\n", id)
+				// Only print errors to stderr in human-readable mode (bd-36869a)
+				if !jsonOut {
+					fmt.Fprintf(os.Stderr, "Issue %s not found\n", id)
+				}
 				continue
 			}
 			if err := processIssue(result.ResolvedID, result.Store); err != nil {
-				fmt.Fprintf(os.Stderr, "Error getting refs for %s: %v\n", id, err)
+				// Only print errors to stderr in human-readable mode (bd-36869a)
+				if !jsonOut {
+					fmt.Fprintf(os.Stderr, "Error getting refs for %s: %v\n", id, err)
+				}
 			}
 			result.Close()
 		}
@@ -956,18 +995,27 @@ func showIssueChildren(ctx context.Context, args []string, resolvedIDs []string,
 	for _, id := range routedArgs {
 		result, err := resolveAndGetIssueWithRouting(ctx, store, id)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error resolving %s: %v\n", id, err)
+			// Only print errors to stderr in human-readable mode (bd-36869a)
+			if !jsonOut {
+				fmt.Fprintf(os.Stderr, "Error resolving %s: %v\n", id, err)
+			}
 			continue
 		}
 		if result == nil || result.Issue == nil {
 			if result != nil {
 				result.Close()
 			}
-			fmt.Fprintf(os.Stderr, "Issue %s not found\n", id)
+			// Only print errors to stderr in human-readable mode (bd-36869a)
+			if !jsonOut {
+				fmt.Fprintf(os.Stderr, "Issue %s not found\n", id)
+			}
 			continue
 		}
 		if err := processIssue(result.ResolvedID, result.Store); err != nil {
-			fmt.Fprintf(os.Stderr, "Error getting children for %s: %v\n", id, err)
+			// Only print errors to stderr in human-readable mode (bd-36869a)
+			if !jsonOut {
+				fmt.Fprintf(os.Stderr, "Error getting children for %s: %v\n", id, err)
+			}
 		}
 		result.Close()
 	}
@@ -978,11 +1026,17 @@ func showIssueChildren(ctx context.Context, args []string, resolvedIDs []string,
 			// Need to open direct connection for GetDependentsWithMetadata
 			dbStore, err := sqlite.New(ctx, dbPath)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "Error opening database: %v\n", err)
+				// Only print errors to stderr in human-readable mode (bd-36869a)
+				if !jsonOut {
+					fmt.Fprintf(os.Stderr, "Error opening database: %v\n", err)
+				}
 				continue
 			}
 			if err := processIssue(id, dbStore); err != nil {
-				fmt.Fprintf(os.Stderr, "Error getting children for %s: %v\n", id, err)
+				// Only print errors to stderr in human-readable mode (bd-36869a)
+				if !jsonOut {
+					fmt.Fprintf(os.Stderr, "Error getting children for %s: %v\n", id, err)
+				}
 			}
 			_ = dbStore.Close()
 		}
@@ -994,18 +1048,27 @@ func showIssueChildren(ctx context.Context, args []string, resolvedIDs []string,
 			}
 			result, err := resolveAndGetIssueWithRouting(ctx, store, id)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "Error resolving %s: %v\n", id, err)
+				// Only print errors to stderr in human-readable mode (bd-36869a)
+				if !jsonOut {
+					fmt.Fprintf(os.Stderr, "Error resolving %s: %v\n", id, err)
+				}
 				continue
 			}
 			if result == nil || result.Issue == nil {
 				if result != nil {
 					result.Close()
 				}
-				fmt.Fprintf(os.Stderr, "Issue %s not found\n", id)
+				// Only print errors to stderr in human-readable mode (bd-36869a)
+				if !jsonOut {
+					fmt.Fprintf(os.Stderr, "Issue %s not found\n", id)
+				}
 				continue
 			}
 			if err := processIssue(result.ResolvedID, result.Store); err != nil {
-				fmt.Fprintf(os.Stderr, "Error getting children for %s: %v\n", id, err)
+				// Only print errors to stderr in human-readable mode (bd-36869a)
+				if !jsonOut {
+					fmt.Fprintf(os.Stderr, "Error getting children for %s: %v\n", id, err)
+				}
 			}
 			result.Close()
 		}
