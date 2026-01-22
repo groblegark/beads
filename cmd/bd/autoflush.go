@@ -423,6 +423,14 @@ func autoImportIfNewer() {
 		fmt.Fprintf(os.Stderr, "This may cause auto-import to retry the same import on next operation.\n")
 	}
 
+	// bd-36869a: Also update jsonl_file_hash after import to prevent mismatch warnings.
+	// validateJSONLIntegrity compares JSONL file against jsonl_file_hash. Without this,
+	// after auto-import the JSONL hash differs from stored jsonl_file_hash (which was
+	// only set after last export), triggering a spurious "hash mismatch" warning.
+	if err := store.SetJSONLFileHash(ctx, currentHash); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: failed to update jsonl_file_hash after import: %v\n", err)
+	}
+
 	// Store import timestamp for staleness detection
 	// Use RFC3339Nano for nanosecond precision to avoid race with file mtime
 	importTime := time.Now().Format(time.RFC3339Nano)
