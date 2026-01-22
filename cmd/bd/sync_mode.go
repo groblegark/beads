@@ -57,6 +57,8 @@ const (
 // GetSyncMode returns the configured sync mode, defaulting to git-portable.
 // Reads from config.yaml first (sync.mode is a yaml-only key), then falls back
 // to database config for backwards compatibility and testing.
+// If no explicit mode is set and the storage backend is Dolt, defaults to
+// dolt-native mode (hq-3446fc.18).
 func GetSyncMode(ctx context.Context, s storage.Storage) string {
 	// Try yaml config first (preferred source), but only if it exists in config file
 	// (not just the viper default value)
@@ -68,6 +70,14 @@ func GetSyncMode(ctx context.Context, s storage.Storage) string {
 	// Fall back to database config for backwards compatibility
 	if mode == "" && s != nil {
 		mode, _ = s.GetConfig(ctx, SyncModeConfigKey)
+	}
+
+	// If no explicit mode set, infer from storage backend (hq-3446fc.18)
+	// Dolt backend should default to dolt-native mode for proper sync behavior
+	if mode == "" && s != nil {
+		if _, hasDoltRemote := storage.AsRemote(s); hasDoltRemote {
+			return SyncModeDoltNative
+		}
 	}
 
 	if mode == "" {

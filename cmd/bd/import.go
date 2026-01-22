@@ -515,8 +515,17 @@ NOTE: Import requires direct database access and does not work with daemon mode.
 // The function sets DB mtime to max(JSONL mtime, now) + 1ns to handle clock skew.
 // If jsonlPath is empty or can't be read, falls back to time.Now().
 //
+// In Dolt mode, beads.db may not exist (database is in dolt/ directory), so this
+// function silently returns nil if the dbPath doesn't exist (hq-3446fc.18).
+//
 // Fixes issues #278, #301, #321: daemon export leaving JSONL newer than DB.
 func TouchDatabaseFile(dbPath, jsonlPath string) error {
+	// Skip if database file doesn't exist (e.g., Dolt backend uses dolt/ directory
+	// instead of beads.db). This is not an error in that case. (hq-3446fc.18)
+	if _, err := os.Stat(dbPath); os.IsNotExist(err) {
+		return nil
+	}
+
 	targetTime := time.Now()
 
 	// If we have the JSONL path, use max(JSONL mtime, now) to handle clock skew
