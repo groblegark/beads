@@ -546,8 +546,9 @@ Examples:
 			// Update database mtime to be >= JSONL mtime (fixes #278, #301, #321)
 			// Only do this when exporting to default JSONL path (not arbitrary outputs)
 			// This prevents validatePreExport from incorrectly blocking on next export
+			// Use GetActualBeadsDirForDB to handle sync-branch worktree paths (bd-f74e54)
 			if output == "" || output == findJSONLPath() {
-				beadsDir := filepath.Dir(finalPath)
+				beadsDir := GetActualBeadsDirForDB(finalPath)
 				dbPath := filepath.Join(beadsDir, "beads.db")
 				if err := TouchDatabaseFile(dbPath, finalPath); err != nil {
 					// Log warning but don't fail export

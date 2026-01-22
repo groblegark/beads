@@ -87,8 +87,9 @@ func finalizeExport(ctx context.Context, result *ExportResult) {
 
 	// Update database mtime to be >= JSONL mtime (fixes #278, #301, #321)
 	// This prevents validatePreExport from incorrectly blocking on next export
+	// Use GetActualBeadsDirForDB to handle sync-branch worktree paths (bd-f74e54)
 	if result.JSONLPath != "" {
-		beadsDir := filepath.Dir(result.JSONLPath)
+		beadsDir := GetActualBeadsDirForDB(result.JSONLPath)
 		dbPath := filepath.Join(beadsDir, "beads.db")
 		if err := TouchDatabaseFile(dbPath, result.JSONLPath); err != nil {
 			// Non-fatal warning

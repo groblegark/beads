@@ -504,6 +504,38 @@ NOTE: Import requires direct database access and does not work with daemon mode.
 	},
 }
 
+// GetActualBeadsDirForDB returns the actual beads directory for database operations.
+// When sync-branch is configured, findJSONLPath() returns the worktree JSONL path
+// (e.g., .git/beads-worktrees/beads-sync/.beads/issues.jsonl), but the database
+// file (beads.db) only exists in the main repo's .beads/ directory.
+//
+// This function extracts the correct beads directory from either:
+// - A worktree path: .git/beads-worktrees/<branch>/.beads/ -> returns main .beads/
+// - A normal path: .beads/issues.jsonl -> returns .beads/
+//
+// Fixes bd-f74e54: bd sync warning about failed mtime update on non-existent worktree DB.
+func GetActualBeadsDirForDB(jsonlPath string) string {
+	// Check if this is a worktree path (contains "beads-worktrees")
+	if strings.Contains(jsonlPath, "beads-worktrees") {
+		// Extract the path before beads-worktrees and find the main .beads directory
+		// Path format: /path/to/repo/.git/beads-worktrees/<branch>/.beads/issues.jsonl
+		// We want: /path/to/repo/.beads/
+		idx := strings.Index(jsonlPath, "beads-worktrees")
+		if idx > 0 {
+			// Get the git directory path (e.g., /path/to/repo/.git/)
+			gitDir := jsonlPath[:idx]
+			// Remove trailing slash if present
+			gitDir = strings.TrimSuffix(gitDir, string(filepath.Separator))
+			// Get the repo root (parent of .git)
+			repoRoot := filepath.Dir(gitDir)
+			// Return the main .beads directory
+			return filepath.Join(repoRoot, ".beads")
+		}
+	}
+	// Not a worktree path, use the directory containing the JSONL file
+	return filepath.Dir(jsonlPath)
+}
+
 // TouchDatabaseFile updates the modification time of the database file.
 // This is used after import AND export to ensure the database appears "in sync" with JSONL,
 // preventing bd doctor and validatePreExport from incorrectly warning that JSONL is newer.

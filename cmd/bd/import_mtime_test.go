@@ -43,6 +43,50 @@ func TestTouchDatabaseFile(t *testing.T) {
 	}
 }
 
+// TestGetActualBeadsDirForDB verifies the helper correctly handles worktree paths
+func TestGetActualBeadsDirForDB(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "normal_path",
+			input:    "/home/user/project/.beads/issues.jsonl",
+			expected: "/home/user/project/.beads",
+		},
+		{
+			name:     "worktree_path",
+			input:    "/home/user/project/.git/beads-worktrees/beads-sync/.beads/issues.jsonl",
+			expected: "/home/user/project/.beads",
+		},
+		{
+			name:     "worktree_path_different_branch",
+			input:    "/path/to/repo/.git/beads-worktrees/my-sync-branch/.beads/issues.jsonl",
+			expected: "/path/to/repo/.beads",
+		},
+		{
+			name:     "bare_repo_worktree_path",
+			input:    "/home/user/repo.git/beads-worktrees/beads-sync/.beads/issues.jsonl",
+			expected: "/home/user/.beads",
+		},
+		{
+			name:     "nested_beads_dir",
+			input:    "/home/user/project/subdir/.beads/issues.jsonl",
+			expected: "/home/user/project/subdir/.beads",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := GetActualBeadsDirForDB(tt.input)
+			if result != tt.expected {
+				t.Errorf("GetActualBeadsDirForDB(%q) = %q, want %q", tt.input, result, tt.expected)
+			}
+		})
+	}
+}
+
 // TestTouchDatabaseFileWithClockSkew verifies handling of future JSONL timestamps
 func TestTouchDatabaseFileWithClockSkew(t *testing.T) {
 	tmpDir := t.TempDir()

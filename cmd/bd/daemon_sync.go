@@ -410,7 +410,8 @@ func performExport(ctx context.Context, store storage.Storage, autoCommit, autoP
 		}
 
 		// Check for exclusive lock
-		beadsDir := filepath.Dir(jsonlPath)
+		// Use GetActualBeadsDirForDB to handle sync-branch worktree paths (bd-f74e54)
+		beadsDir := GetActualBeadsDirForDB(jsonlPath)
 		skip, holder, err := types.ShouldSkipDatabase(beadsDir)
 		if skip {
 			if err != nil {
@@ -552,7 +553,8 @@ func performAutoImport(ctx context.Context, store storage.Storage, skipGit bool,
 		if !skipGit {
 			jsonlPath := findJSONLPath()
 			if jsonlPath != "" {
-				beadsDir := filepath.Dir(jsonlPath)
+				// Use GetActualBeadsDirForDB to handle sync-branch worktree paths (bd-f74e54)
+				beadsDir := GetActualBeadsDirForDB(jsonlPath)
 				if ShouldSkipSync(beadsDir) {
 					log.log("Skipping %s: in backoff period", mode)
 					return
@@ -569,7 +571,8 @@ func performAutoImport(ctx context.Context, store storage.Storage, skipGit bool,
 		}
 
 		// Check for exclusive lock
-		beadsDir := filepath.Dir(jsonlPath)
+		// Use GetActualBeadsDirForDB to handle sync-branch worktree paths (bd-f74e54)
+		beadsDir := GetActualBeadsDirForDB(jsonlPath)
 		skip, holder, err := types.ShouldSkipDatabase(beadsDir)
 		if skip {
 			if err != nil {
@@ -698,7 +701,8 @@ func performSync(ctx context.Context, store storage.Storage, autoCommit, autoPus
 		multiRepoPaths := getMultiRepoJSONLPaths()
 
 		// Check for exclusive lock before processing database
-		beadsDir := filepath.Dir(jsonlPath)
+		// Use GetActualBeadsDirForDB to handle sync-branch worktree paths (bd-f74e54)
+		beadsDir := GetActualBeadsDirForDB(jsonlPath)
 		skip, holder, err := types.ShouldSkipDatabase(beadsDir)
 		if skip {
 			if err != nil {
