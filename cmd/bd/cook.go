@@ -475,7 +475,8 @@ func cookFormulaToSubgraph(f *formula.Formula, protoID string) (*TemplateSubgrap
 	// Collect issues for each step (use protoID as parent for step IDs)
 	// The unified collectSteps builds both issueMap and idMapping
 	idMapping := make(map[string]string)
-	collectSteps(f.Steps, protoID, idMapping, issueMap, &issues, &deps, nil) // nil = keep labels on issues
+	decisionConfigs := make(map[string]*formula.DecisionConfig)
+	collectSteps(f.Steps, protoID, idMapping, issueMap, &issues, &deps, nil, decisionConfigs) // nil labelHandler = keep labels on issues
 
 	// Collect dependencies from depends_on using the idMapping built above
 	for _, step := range f.Steps {
@@ -483,10 +484,11 @@ func cookFormulaToSubgraph(f *formula.Formula, protoID string) (*TemplateSubgrap
 	}
 
 	return &TemplateSubgraph{
-		Root:         rootIssue,
-		Issues:       issues,
-		Dependencies: deps,
-		IssueMap:     issueMap,
+		Root:            rootIssue,
+		Issues:          issues,
+		Dependencies:    deps,
+		IssueMap:        issueMap,
+		DecisionConfigs: decisionConfigs,
 	}, nil
 }
 
@@ -524,6 +526,58 @@ func createGateIssue(step *formula.Step, parentID string) *types.Issue {
 		IssueType:   types.TypeGate,
 		AwaitType:   step.Gate.Type,
 		AwaitID:     step.Gate.ID,
+		Timeout:     timeout,
+		IsTemplate:  true,
+		CreatedAt:   time.Now(),
+		UpdatedAt:   time.Now(),
+	}
+}
+
+// createDecisionGateIssue creates a decision gate issue for a step with a Decision field.
+// Decision gates have type=gate, await_type=decision, and block the step they guard.
+// The decision config is stored in the DecisionConfigs map and used during pour to
+// create the DecisionPoint record.
+// Returns the gate issue and its ID.
+func createDecisionGateIssue(step *formula.Step, parentID string) *types.Issue {
+	if step.Decision == nil {
+		return nil
+	}
+
+	// Generate decision gate ID: {parentID}.decision-{step.ID}
+	decisionID := fmt.Sprintf("%s.decision-%s", parentID, step.ID)
+
+	// Use the prompt as the title (truncated if too long)
+	title := step.Decision.Prompt
+	if len(title) > 100 {
+		title = title[:97] + "..."
+	}
+
+	// Parse timeout if specified
+	var timeout time.Duration
+	if step.Decision.Timeout != "" {
+		if parsed, err := time.ParseDuration(step.Decision.Timeout); err == nil {
+			timeout = parsed
+		}
+	}
+
+	// Build description with option summary
+	desc := fmt.Sprintf("Decision point for step %s\n\nPrompt: %s\n\nOptions:\n",
+		step.ID, step.Decision.Prompt)
+	for _, opt := range step.Decision.Options {
+		desc += fmt.Sprintf("  [%s] %s\n", opt.ID, opt.Label)
+	}
+	if step.Decision.Default != "" {
+		desc += fmt.Sprintf("\nDefault: %s", step.Decision.Default)
+	}
+
+	return &types.Issue{
+		ID:          decisionID,
+		Title:       title,
+		Description: desc,
+		Status:      types.StatusOpen,
+		Priority:    2,
+		IssueType:   types.TypeGate,
+		AwaitType:   "decision",
 		Timeout:     timeout,
 		IsTemplate:  true,
 		CreatedAt:   time.Now(),
@@ -585,12 +639,15 @@ func processStepToIssue(step *formula.Step, parentID string) *types.Issue {
 //   - issueMap: issue.ID → issue (optional, nil for DB path, populated for in-memory path)
 //   - labelHandler: callback for each label (if nil, labels stay on issue; if set, labels are
 //     extracted and issue.Labels is cleared - use for DB path)
+//   - decisionConfigs: optional map to store decision configs (template issue ID → DecisionConfig)
+//     Nil for DB path (DecisionPoints created directly), populated for in-memory path
 func collectSteps(steps []*formula.Step, parentID string,
 	idMapping map[string]string,
 	issueMap map[string]*types.Issue,
 	issues *[]*types.Issue,
 	deps *[]*types.Dependency,
-	labelHandler func(issueID, label string)) {
+	labelHandler func(issueID, label string),
+	decisionConfigs map[string]*formula.DecisionConfig) {
 
 	for _, step := range steps {
 		issue := processStepToIssue(step, parentID)
@@ -652,9 +709,49 @@ func collectSteps(steps []*formula.Step, parentID string,
 			})
 		}
 
+		// Create decision gate issue if step has a Decision (hq-946577.19)
+		if step.Decision != nil {
+			decisionIssue := createDecisionGateIssue(step, parentID)
+			*issues = append(*issues, decisionIssue)
+
+			// Add decision gate to mapping (use decision-{step.ID} as key)
+			decisionKey := fmt.Sprintf("decision-%s", step.ID)
+			idMapping[decisionKey] = decisionIssue.ID
+			if issueMap != nil {
+				issueMap[decisionIssue.ID] = decisionIssue
+			}
+
+			// Store decision config for later use during pour (in-memory path only)
+			if decisionConfigs != nil {
+				decisionConfigs[decisionIssue.ID] = step.Decision
+			}
+
+			// Handle decision gate labels if needed
+			if labelHandler != nil && len(decisionIssue.Labels) > 0 {
+				for _, label := range decisionIssue.Labels {
+					labelHandler(decisionIssue.ID, label)
+				}
+				decisionIssue.Labels = nil
+			}
+
+			// Decision gate is a child of the parent (same level as the step)
+			*deps = append(*deps, &types.Dependency{
+				IssueID:     decisionIssue.ID,
+				DependsOnID: parentID,
+				Type:        types.DepParentChild,
+			})
+
+			// Step depends on decision gate (decision blocks the step)
+			*deps = append(*deps, &types.Dependency{
+				IssueID:     issue.ID,
+				DependsOnID: decisionIssue.ID,
+				Type:        types.DepBlocks,
+			})
+		}
+
 		// Recursively collect children
 		if len(step.Children) > 0 {
-			collectSteps(step.Children, issue.ID, idMapping, issueMap, issues, deps, labelHandler)
+			collectSteps(step.Children, issue.ID, idMapping, issueMap, issues, deps, labelHandler, decisionConfigs)
 		}
 	}
 }
@@ -828,9 +925,10 @@ func cookFormula(ctx context.Context, s storage.Storage, f *formula.Formula, pro
 
 	// Collect issues for each step (use protoID as parent for step IDs)
 	// Use labelHandler to extract labels for separate DB storage
+	// Pass nil for decisionConfigs since persist path doesn't need to track them separately
 	collectSteps(f.Steps, protoID, idMapping, nil, &issues, &deps, func(issueID, label string) {
 		labels = append(labels, struct{ issueID, label string }{issueID, label})
-	})
+	}, nil)
 
 	// Collect dependencies from depends_on
 	for _, step := range f.Steps {

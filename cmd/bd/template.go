@@ -26,12 +26,13 @@ var variablePattern = regexp.MustCompile(`\{\{([a-zA-Z_][a-zA-Z0-9_]*)\}\}`)
 
 // TemplateSubgraph holds a template epic and all its descendants
 type TemplateSubgraph struct {
-	Root         *types.Issue                // The template epic
-	Issues       []*types.Issue              // All issues in the subgraph (including root)
-	Dependencies []*types.Dependency         // All dependencies within the subgraph
-	IssueMap     map[string]*types.Issue     // ID -> Issue for quick lookup
-	VarDefs      map[string]formula.VarDef   // Variable definitions from formula (for defaults)
-	Phase        string                      // Recommended phase: "liquid" (pour) or "vapor" (wisp)
+	Root            *types.Issue                        // The template epic
+	Issues          []*types.Issue                      // All issues in the subgraph (including root)
+	Dependencies    []*types.Dependency                 // All dependencies within the subgraph
+	IssueMap        map[string]*types.Issue             // ID -> Issue for quick lookup
+	VarDefs         map[string]formula.VarDef           // Variable definitions from formula (for defaults)
+	Phase           string                              // Recommended phase: "liquid" (pour) or "vapor" (wisp)
+	DecisionConfigs map[string]*formula.DecisionConfig  // Template issue ID -> decision config (for decision gates)
 }
 
 // InstantiateResult holds the result of template instantiation
@@ -1002,6 +1003,36 @@ func cloneSubgraph(ctx context.Context, s storage.Storage, subgraph *TemplateSub
 			}
 			if err := tx.AddDependency(ctx, newDep, opts.Actor); err != nil {
 				return fmt.Errorf("failed to create dependency: %w", err)
+			}
+		}
+
+		// Third pass: create DecisionPoint records for decision gates (hq-946577.19)
+		if len(subgraph.DecisionConfigs) > 0 {
+			for oldIssueID, decisionConfig := range subgraph.DecisionConfigs {
+				newIssueID, ok := idMapping[oldIssueID]
+				if !ok {
+					continue // Template issue not found in mapping
+				}
+
+				// Serialize options to JSON
+				optionsJSON, err := json.Marshal(decisionConfig.Options)
+				if err != nil {
+					return fmt.Errorf("failed to marshal decision options for %s: %w", newIssueID, err)
+				}
+
+				dp := &types.DecisionPoint{
+					IssueID:       newIssueID,
+					Prompt:        substituteVariables(decisionConfig.Prompt, opts.Vars),
+					Options:       string(optionsJSON),
+					DefaultOption: decisionConfig.Default,
+					Iteration:     1,
+					MaxIterations: 3, // Default max iterations
+					CreatedAt:     time.Now(),
+				}
+
+				if err := tx.CreateDecisionPoint(ctx, dp); err != nil {
+					return fmt.Errorf("failed to create decision point for %s: %w", newIssueID, err)
+				}
 			}
 		}
 
