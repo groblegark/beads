@@ -784,3 +784,239 @@ func BenchmarkGetLabels(b *testing.B) {
 		}
 	}
 }
+
+// =============================================================================
+// Bootstrap and Cold Start Benchmarks
+// =============================================================================
+
+// BenchmarkBootstrap measures the time to initialize a new Dolt store.
+// This is critical for embedded mode where each process must bootstrap.
+func BenchmarkBootstrap(b *testing.B) {
+	if _, err := os.LookupEnv("DOLT_PATH"); err != false {
+		if _, err := os.Stat("/usr/local/bin/dolt"); os.IsNotExist(err) {
+			if _, err := os.Stat("/usr/bin/dolt"); os.IsNotExist(err) {
+				b.Skip("Dolt not installed, skipping benchmark")
+			}
+		}
+	}
+
+	ctx := context.Background()
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		b.StopTimer()
+		tmpDir, err := os.MkdirTemp("", "dolt-bootstrap-bench-*")
+		if err != nil {
+			b.Fatalf("failed to create temp dir: %v", err)
+		}
+
+		cfg := &Config{
+			Path:           tmpDir,
+			CommitterName:  "bench",
+			CommitterEmail: "bench@example.com",
+			Database:       "benchdb",
+		}
+
+		b.StartTimer()
+		store, err := New(ctx, cfg)
+		b.StopTimer()
+
+		if err != nil {
+			os.RemoveAll(tmpDir)
+			b.Fatalf("failed to create Dolt store: %v", err)
+		}
+		store.Close()
+		os.RemoveAll(tmpDir)
+	}
+}
+
+// BenchmarkColdStart measures reading from a freshly opened store.
+// Simulates the typical CLI pattern: open -> read -> close.
+func BenchmarkColdStart(b *testing.B) {
+	if _, err := os.LookupEnv("DOLT_PATH"); err != false {
+		if _, err := os.Stat("/usr/local/bin/dolt"); os.IsNotExist(err) {
+			if _, err := os.Stat("/usr/bin/dolt"); os.IsNotExist(err) {
+				b.Skip("Dolt not installed, skipping benchmark")
+			}
+		}
+	}
+
+	ctx := context.Background()
+
+	// Create a persistent store with some data
+	tmpDir, err := os.MkdirTemp("", "dolt-coldstart-bench-*")
+	if err != nil {
+		b.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	cfg := &Config{
+		Path:           tmpDir,
+		CommitterName:  "bench",
+		CommitterEmail: "bench@example.com",
+		Database:       "benchdb",
+	}
+
+	// Seed with data
+	store, err := New(ctx, cfg)
+	if err != nil {
+		b.Fatalf("failed to create Dolt store: %v", err)
+	}
+	if err := store.SetConfig(ctx, "issue_prefix", "bench"); err != nil {
+		store.Close()
+		b.Fatalf("failed to set prefix: %v", err)
+	}
+	for i := 0; i < 100; i++ {
+		issue := &types.Issue{
+			ID:        fmt.Sprintf("bench-cold-%d", i),
+			Title:     fmt.Sprintf("Cold Start Issue %d", i),
+			Status:    types.StatusOpen,
+			Priority:  2,
+			IssueType: types.TypeTask,
+		}
+		if err := store.CreateIssue(ctx, issue, "bench"); err != nil {
+			store.Close()
+			b.Fatalf("failed to create issue: %v", err)
+		}
+	}
+	store.Close()
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		// Open fresh connection
+		store, err := New(ctx, cfg)
+		if err != nil {
+			b.Fatalf("failed to reopen store: %v", err)
+		}
+
+		// Typical operation: get an issue
+		_, err = store.GetIssue(ctx, "bench-cold-50")
+		if err != nil {
+			store.Close()
+			b.Fatalf("failed to get issue: %v", err)
+		}
+
+		store.Close()
+	}
+}
+
+// BenchmarkWarmCache measures performance after the store is warmed up.
+// This represents steady-state performance in server mode.
+func BenchmarkWarmCache(b *testing.B) {
+	store, cleanup := setupBenchStore(b)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	// Create test data
+	for i := 0; i < 100; i++ {
+		issue := &types.Issue{
+			ID:        fmt.Sprintf("bench-warm-%d", i),
+			Title:     fmt.Sprintf("Warm Cache Issue %d", i),
+			Status:    types.StatusOpen,
+			Priority:  2,
+			IssueType: types.TypeTask,
+		}
+		if err := store.CreateIssue(ctx, issue, "bench"); err != nil {
+			b.Fatalf("failed to create issue: %v", err)
+		}
+	}
+
+	// Warm up the cache with a few reads
+	for i := 0; i < 10; i++ {
+		store.GetIssue(ctx, fmt.Sprintf("bench-warm-%d", i))
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, err := store.GetIssue(ctx, fmt.Sprintf("bench-warm-%d", i%100))
+		if err != nil {
+			b.Fatalf("failed to get issue: %v", err)
+		}
+	}
+}
+
+// =============================================================================
+// Embedded vs Server Mode Comparison Benchmarks
+// =============================================================================
+
+// BenchmarkEmbeddedRead measures read performance in embedded mode.
+func BenchmarkEmbeddedRead(b *testing.B) {
+	store, cleanup := setupBenchStore(b)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	// Create test issue
+	issue := &types.Issue{
+		ID:        "embedded-read-test",
+		Title:     "Embedded Read Test Issue",
+		Status:    types.StatusOpen,
+		Priority:  2,
+		IssueType: types.TypeTask,
+	}
+	if err := store.CreateIssue(ctx, issue, "bench"); err != nil {
+		b.Fatalf("failed to create issue: %v", err)
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, err := store.GetIssue(ctx, "embedded-read-test")
+		if err != nil {
+			b.Fatalf("failed to get issue: %v", err)
+		}
+	}
+}
+
+// BenchmarkEmbeddedWrite measures write performance in embedded mode.
+func BenchmarkEmbeddedWrite(b *testing.B) {
+	store, cleanup := setupBenchStore(b)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		issue := &types.Issue{
+			ID:        fmt.Sprintf("embedded-write-%d", i),
+			Title:     fmt.Sprintf("Embedded Write Issue %d", i),
+			Status:    types.StatusOpen,
+			Priority:  2,
+			IssueType: types.TypeTask,
+		}
+		if err := store.CreateIssue(ctx, issue, "bench"); err != nil {
+			b.Fatalf("failed to create issue: %v", err)
+		}
+	}
+}
+
+// BenchmarkEmbeddedSearch measures search performance in embedded mode.
+func BenchmarkEmbeddedSearch(b *testing.B) {
+	store, cleanup := setupBenchStore(b)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	// Create searchable issues
+	for i := 0; i < 100; i++ {
+		issue := &types.Issue{
+			ID:          fmt.Sprintf("embedded-search-%d", i),
+			Title:       fmt.Sprintf("Embedded Search Issue %d", i),
+			Description: fmt.Sprintf("This is searchable content for issue %d", i),
+			Status:      types.StatusOpen,
+			Priority:    (i % 4) + 1,
+			IssueType:   types.TypeTask,
+		}
+		if err := store.CreateIssue(ctx, issue, "bench"); err != nil {
+			b.Fatalf("failed to create issue: %v", err)
+		}
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, err := store.SearchIssues(ctx, "searchable", types.IssueFilter{})
+		if err != nil {
+			b.Fatalf("failed to search: %v", err)
+		}
+	}
+}

@@ -1,6 +1,6 @@
 # Makefile for beads project
 
-.PHONY: all build test bench bench-quick clean install help
+.PHONY: all build test bench bench-quick bench-dolt bench-dolt-quick bench-compare clean install help
 
 # Default target
 all: build
@@ -33,6 +33,45 @@ bench-quick:
 	@echo "Running quick performance benchmarks..."
 	go test -bench=. -benchtime=100ms -tags=bench -run=^$$ ./internal/storage/sqlite/ -timeout=15m
 
+# Run Dolt performance benchmarks
+# Requires Dolt to be installed (https://docs.dolthub.com/introduction/installation)
+bench-dolt:
+	@echo "Running Dolt performance benchmarks..."
+	@echo "Note: Dolt must be installed and accessible in PATH"
+	@echo ""
+	go test -bench=. -benchmem -benchtime=1s -run=^$$ ./internal/storage/dolt/ -timeout=30m
+	@echo ""
+	@echo "Dolt benchmark complete."
+
+# Run quick Dolt benchmarks
+bench-dolt-quick:
+	@echo "Running quick Dolt benchmarks..."
+	go test -bench=. -benchmem -benchtime=100ms -run=^$$ ./internal/storage/dolt/ -timeout=15m
+
+# Run comparison benchmarks (SQLite vs Dolt)
+# Outputs results to docs/reports/benchmark-comparison-<timestamp>.md
+bench-compare:
+	@echo "Running SQLite vs Dolt comparison benchmarks..."
+	@echo "This runs the same operations on both backends for comparison."
+	@echo ""
+	@mkdir -p docs/reports
+	@TIMESTAMP=$$(date +%Y%m%d-%H%M%S) && \
+	echo "# SQLite vs Dolt Benchmark Comparison" > docs/reports/benchmark-comparison-$$TIMESTAMP.md && \
+	echo "" >> docs/reports/benchmark-comparison-$$TIMESTAMP.md && \
+	echo "**Date**: $$(date -Iseconds)" >> docs/reports/benchmark-comparison-$$TIMESTAMP.md && \
+	echo "" >> docs/reports/benchmark-comparison-$$TIMESTAMP.md && \
+	echo "## SQLite Results" >> docs/reports/benchmark-comparison-$$TIMESTAMP.md && \
+	echo '```' >> docs/reports/benchmark-comparison-$$TIMESTAMP.md && \
+	go test -bench=. -benchmem -benchtime=500ms -run=^$$ ./internal/storage/sqlite/ -timeout=15m 2>&1 | tee -a docs/reports/benchmark-comparison-$$TIMESTAMP.md && \
+	echo '```' >> docs/reports/benchmark-comparison-$$TIMESTAMP.md && \
+	echo "" >> docs/reports/benchmark-comparison-$$TIMESTAMP.md && \
+	echo "## Dolt Results" >> docs/reports/benchmark-comparison-$$TIMESTAMP.md && \
+	echo '```' >> docs/reports/benchmark-comparison-$$TIMESTAMP.md && \
+	go test -bench=. -benchmem -benchtime=500ms -run=^$$ ./internal/storage/dolt/ -timeout=15m 2>&1 | tee -a docs/reports/benchmark-comparison-$$TIMESTAMP.md && \
+	echo '```' >> docs/reports/benchmark-comparison-$$TIMESTAMP.md && \
+	echo "" && \
+	echo "Comparison saved to: docs/reports/benchmark-comparison-$$TIMESTAMP.md"
+
 # Install bd to GOPATH/bin
 install:
 	@echo "Installing bd to $$(go env GOPATH)/bin..."
@@ -50,10 +89,13 @@ clean:
 # Show help
 help:
 	@echo "Beads Makefile targets:"
-	@echo "  make build        - Build the bd binary"
-	@echo "  make test         - Run all tests"
-	@echo "  make bench        - Run performance benchmarks (generates CPU profiles)"
-	@echo "  make bench-quick  - Run quick benchmarks (shorter benchtime)"
-	@echo "  make install      - Install bd to GOPATH/bin"
-	@echo "  make clean        - Remove build artifacts and profile files"
-	@echo "  make help         - Show this help message"
+	@echo "  make build           - Build the bd binary"
+	@echo "  make test            - Run all tests"
+	@echo "  make bench           - Run SQLite performance benchmarks"
+	@echo "  make bench-quick     - Run quick SQLite benchmarks"
+	@echo "  make bench-dolt      - Run Dolt performance benchmarks"
+	@echo "  make bench-dolt-quick- Run quick Dolt benchmarks"
+	@echo "  make bench-compare   - Run SQLite vs Dolt comparison"
+	@echo "  make install         - Install bd to GOPATH/bin"
+	@echo "  make clean           - Remove build artifacts and profile files"
+	@echo "  make help            - Show this help message"
