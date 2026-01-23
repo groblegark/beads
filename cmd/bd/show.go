@@ -5,50 +5,28 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/steveyegge/beads/internal/rpc"
 	"github.com/steveyegge/beads/internal/storage"
-	"github.com/steveyegge/beads/internal/storage/factory"
+	"github.com/steveyegge/beads/internal/storage/sqlite"
 	"github.com/steveyegge/beads/internal/types"
 	"github.com/steveyegge/beads/internal/ui"
 )
 
 var showCmd = &cobra.Command{
-	Use:     "show [id...] [--id=<id>...]",
-	Aliases: []string{"view"},
+	Use:     "show [id...]",
 	GroupID: "issues",
 	Short:   "Show issue details",
-	Args:    cobra.ArbitraryArgs, // Allow zero positional args when --id is used
+	Args:    cobra.MinimumNArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		showThread, _ := cmd.Flags().GetBool("thread")
 		shortMode, _ := cmd.Flags().GetBool("short")
 		showRefs, _ := cmd.Flags().GetBool("refs")
 		showChildren, _ := cmd.Flags().GetBool("children")
 		asOfRef, _ := cmd.Flags().GetString("as-of")
-		idFlags, _ := cmd.Flags().GetStringArray("id")
-		localTime, _ := cmd.Flags().GetBool("local-time")
 		ctx := rootCtx
-
-		// Helper to format timestamp based on --local-time flag
-		formatTime := func(t time.Time) string {
-			if localTime {
-				t = t.Local()
-			}
-			return t.Format("2006-01-02 15:04")
-		}
-
-		// Merge --id flag values with positional args
-		// This allows IDs that look like flags (e.g., --xyz or gt--abc) to be passed safely
-		args = append(args, idFlags...)
-
-		// Validate that at least one ID is provided
-		if len(args) == 0 {
-			FatalErrorRespectJSON("at least one issue ID is required (use positional args or --id flag)")
-		}
 
 		// Handle --as-of flag: show issue at a specific point in history
 		if asOfRef != "" {
@@ -152,6 +130,7 @@ var showCmd = &cobra.Command{
 					// Get labels and deps for JSON output
 					details := &types.IssueDetails{Issue: *issue}
 					details.Labels, _ = issueStore.GetLabels(ctx, issue.ID)
+					// Use interface methods (works with SQLite, Dolt, etc.)
 					details.Dependencies, _ = issueStore.GetDependenciesWithMetadata(ctx, issue.ID)
 					details.Dependents, _ = issueStore.GetDependentsWithMetadata(ctx, issue.ID)
 					details.Comments, _ = issueStore.GetIssueComments(ctx, issue.ID)
@@ -264,47 +243,18 @@ var showCmd = &cobra.Command{
 						fmt.Printf("\n%s %s\n", ui.RenderBold("LABELS:"), strings.Join(details.Labels, ", "))
 					}
 
-					// Dependencies grouped by type with semantic colors
+					// Dependencies with semantic colors
 					if len(details.Dependencies) > 0 {
-						var blocks, parent, related, discovered []*types.IssueWithDependencyMetadata
+						fmt.Printf("\n%s\n", ui.RenderBold("DEPENDS ON"))
 						for _, dep := range details.Dependencies {
-							switch dep.DependencyType {
-							case types.DepBlocks:
-								blocks = append(blocks, dep)
-							case types.DepParentChild:
-								parent = append(parent, dep)
-							case types.DepRelated:
-								related = append(related, dep)
-							case types.DepDiscoveredFrom:
-								discovered = append(discovered, dep)
-							default:
-								blocks = append(blocks, dep)
-							}
+							fmt.Println(formatDependencyLine("→", dep))
 						}
 
-						if len(parent) > 0 {
-							fmt.Printf("\n%s\n", ui.RenderBold("PARENT"))
-							for _, dep := range parent {
-								fmt.Println(formatDependencyLine("↑", dep))
-							}
-						}
-						if len(blocks) > 0 {
-							fmt.Printf("\n%s\n", ui.RenderBold("DEPENDS ON"))
-							for _, dep := range blocks {
-								fmt.Println(formatDependencyLine("→", dep))
-							}
-						}
-						if len(related) > 0 {
-							fmt.Printf("\n%s\n", ui.RenderBold("RELATED"))
-							for _, dep := range related {
-								fmt.Println(formatDependencyLine("↔", dep))
-							}
-						}
-						if len(discovered) > 0 {
-							fmt.Printf("\n%s\n", ui.RenderBold("DISCOVERED FROM"))
-							for _, dep := range discovered {
-								fmt.Println(formatDependencyLine("◊", dep))
-							}
+						// Show decision context for blocking decisions (hq-946577.26)
+						// Open direct store for decision point lookup
+						if directStore, err := sqlite.New(ctx, dbPath); err == nil {
+							displayBlockingDecisionContext(ctx, details.Dependencies, directStore)
+							_ = directStore.Close()
 						}
 					}
 
@@ -355,7 +305,7 @@ var showCmd = &cobra.Command{
 					if len(details.Comments) > 0 {
 						fmt.Printf("\n%s\n", ui.RenderBold("COMMENTS"))
 						for _, comment := range details.Comments {
-							fmt.Printf("  %s %s\n", ui.RenderMuted(formatTime(comment.CreatedAt)), comment.Author)
+							fmt.Printf("  %s %s\n", ui.RenderMuted(comment.CreatedAt.Format("2006-01-02")), comment.Author)
 							rendered := ui.RenderMarkdown(comment.Text)
 							// TrimRight removes trailing newlines that Glamour adds, preventing extra blank lines
 							for _, line := range strings.Split(strings.TrimRight(rendered, "\n"), "\n") {
@@ -415,7 +365,7 @@ var showCmd = &cobra.Command{
 				details := &types.IssueDetails{Issue: *issue}
 				details.Labels, _ = issueStore.GetLabels(ctx, issue.ID)
 
-				// Get dependencies with metadata (dependency_type field)
+				// Get dependencies/dependents with metadata (works with SQLite, Dolt, etc.)
 				details.Dependencies, _ = issueStore.GetDependenciesWithMetadata(ctx, issue.ID)
 				details.Dependents, _ = issueStore.GetDependentsWithMetadata(ctx, issue.ID)
 
@@ -476,50 +426,16 @@ var showCmd = &cobra.Command{
 				fmt.Printf("\n%s %s\n", ui.RenderBold("LABELS:"), strings.Join(labels, ", "))
 			}
 
-			// Show dependencies - grouped by dependency type for clarity
+			// Show dependencies with semantic colors (works with SQLite, Dolt, etc.)
 			depsWithMeta, _ := issueStore.GetDependenciesWithMetadata(ctx, issue.ID)
 			if len(depsWithMeta) > 0 {
-				// Group by dependency type
-				var blocks, parent, related, discovered []*types.IssueWithDependencyMetadata
+				fmt.Printf("\n%s\n", ui.RenderBold("DEPENDS ON"))
 				for _, dep := range depsWithMeta {
-					switch dep.DependencyType {
-					case types.DepBlocks:
-						blocks = append(blocks, dep)
-					case types.DepParentChild:
-						parent = append(parent, dep)
-					case types.DepRelated:
-						related = append(related, dep)
-					case types.DepDiscoveredFrom:
-						discovered = append(discovered, dep)
-					default:
-						blocks = append(blocks, dep) // Default to blocks
-					}
+					fmt.Println(formatDependencyLine("→", dep))
 				}
 
-				if len(parent) > 0 {
-					fmt.Printf("\n%s\n", ui.RenderBold("PARENT"))
-					for _, dep := range parent {
-						fmt.Println(formatDependencyLine("↑", dep))
-					}
-				}
-				if len(blocks) > 0 {
-					fmt.Printf("\n%s\n", ui.RenderBold("DEPENDS ON"))
-					for _, dep := range blocks {
-						fmt.Println(formatDependencyLine("→", dep))
-					}
-				}
-				if len(related) > 0 {
-					fmt.Printf("\n%s\n", ui.RenderBold("RELATED"))
-					for _, dep := range related {
-						fmt.Println(formatDependencyLine("↔", dep))
-					}
-				}
-				if len(discovered) > 0 {
-					fmt.Printf("\n%s\n", ui.RenderBold("DISCOVERED FROM"))
-					for _, dep := range discovered {
-						fmt.Println(formatDependencyLine("◊", dep))
-					}
-				}
+				// Show decision context for blocking decisions (hq-946577.26)
+				displayBlockingDecisionContext(ctx, depsWithMeta, issueStore)
 			}
 
 			// Show dependents - grouped by dependency type for clarity
@@ -573,7 +489,7 @@ var showCmd = &cobra.Command{
 			if len(comments) > 0 {
 				fmt.Printf("\n%s\n", ui.RenderBold("COMMENTS"))
 				for _, comment := range comments {
-					fmt.Printf("  %s %s\n", ui.RenderMuted(formatTime(comment.CreatedAt)), comment.Author)
+					fmt.Printf("  %s %s\n", ui.RenderMuted(comment.CreatedAt.Format("2006-01-02")), comment.Author)
 					rendered := ui.RenderMarkdown(comment.Text)
 					// TrimRight removes trailing newlines that Glamour adds, preventing extra blank lines
 					for _, line := range strings.Split(strings.TrimRight(rendered, "\n"), "\n") {
@@ -781,7 +697,7 @@ func showIssueRefs(ctx context.Context, args []string, resolvedIDs []string, rou
 	// Collect all refs for all issues
 	allRefs := make(map[string][]*types.IssueWithDependencyMetadata)
 
-	// Process each issue
+	// Process each issue (works with SQLite, Dolt, etc.)
 	processIssue := func(issueID string, issueStore storage.Storage) error {
 		refs, err := issueStore.GetDependentsWithMetadata(ctx, issueID)
 		if err != nil {
@@ -815,8 +731,7 @@ func showIssueRefs(ctx context.Context, args []string, resolvedIDs []string, rou
 	if daemonClient != nil {
 		for _, id := range resolvedIDs {
 			// Need to open direct connection for GetDependentsWithMetadata
-			// Use factory to respect backend configuration (bd-m2jr: SQLite fallback fix)
-			dbStore, err := factory.NewFromConfig(ctx, filepath.Dir(dbPath))
+			dbStore, err := sqlite.New(ctx, dbPath)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "Error opening database: %v\n", err)
 				continue
@@ -973,7 +888,7 @@ func showIssueChildren(ctx context.Context, args []string, resolvedIDs []string,
 	// Collect all children for all issues
 	allChildren := make(map[string][]*types.IssueWithDependencyMetadata)
 
-	// Process each issue to get its children
+	// Process each issue to get its children (works with SQLite, Dolt, etc.)
 	processIssue := func(issueID string, issueStore storage.Storage) error {
 		// Initialize entry so "no children" message can be shown
 		if _, exists := allChildren[issueID]; !exists {
@@ -1018,8 +933,7 @@ func showIssueChildren(ctx context.Context, args []string, resolvedIDs []string,
 	if daemonClient != nil {
 		for _, id := range resolvedIDs {
 			// Need to open direct connection for GetDependentsWithMetadata
-			// Use factory to respect backend configuration (bd-m2jr: SQLite fallback fix)
-			dbStore, err := factory.NewFromConfig(ctx, filepath.Dir(dbPath))
+			dbStore, err := sqlite.New(ctx, dbPath)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "Error opening database: %v\n", err)
 				continue
@@ -1089,6 +1003,79 @@ func containsStr(slice []string, val string) bool {
 	return false
 }
 
+// displayBlockingDecisionContext shows decision context for open blockers that have decision points.
+// This helps users understand what decision needs to be made to unblock the issue. (hq-946577.26)
+func displayBlockingDecisionContext(ctx context.Context, deps []*types.IssueWithDependencyMetadata, issueStore storage.Storage) {
+	if issueStore == nil {
+		return
+	}
+
+	for _, dep := range deps {
+		// Only check open/in_progress blocking dependencies
+		if dep.Status == types.StatusClosed {
+			continue
+		}
+		if dep.DependencyType != types.DepBlocks && dep.DependencyType != "" {
+			// Skip non-blocking dependencies (parent-child, related, etc.)
+			// Note: empty type is treated as blocks for backwards compatibility
+			continue
+		}
+
+		// Try to get the decision point for this blocker
+		dp, err := issueStore.GetDecisionPoint(ctx, dep.ID)
+		if err != nil || dp == nil {
+			continue
+		}
+
+		// Only show if decision is pending (no response yet)
+		if dp.SelectedOption != "" || dp.ResponseText != "" {
+			continue
+		}
+
+		// Parse options from JSON
+		var options []types.DecisionOption
+		if dp.Options != "" {
+			_ = json.Unmarshal([]byte(dp.Options), &options)
+		}
+
+		// Build options display
+		var optionLines []string
+		for _, opt := range options {
+			displayText := opt.Short
+			if displayText == "" {
+				displayText = opt.Label
+			}
+			marker := ""
+			if opt.ID == dp.DefaultOption {
+				marker = " (default)"
+			}
+			optionLines = append(optionLines, fmt.Sprintf("  [%s] %s%s", opt.ID, displayText, marker))
+		}
+
+		// Display decision context prominently
+		fmt.Printf("\n  %s %s %s\n\n",
+			ui.RenderFail("⚠️  BLOCKED BY DECISION:"),
+			ui.RenderAccent(dep.ID),
+			ui.RenderMuted(fmt.Sprintf("● P%d", dep.Priority)))
+
+		fmt.Printf("  %s\n\n", dp.Prompt)
+
+		if len(optionLines) > 0 {
+			for _, line := range optionLines {
+				fmt.Println(line)
+			}
+			fmt.Println()
+		}
+
+		fmt.Printf("  %s bd decision respond %s --select=<option>\n",
+			ui.RenderMuted("→ To unblock:"),
+			dep.ID)
+		fmt.Printf("  %s bd decision respond %s --text=\"...\"\n",
+			ui.RenderMuted("→ Or provide text:"),
+			dep.ID)
+	}
+}
+
 // showIssueAsOf displays issues as they existed at a specific commit or branch ref.
 // This requires a versioned storage backend (e.g., Dolt).
 func showIssueAsOf(ctx context.Context, args []string, ref string, shortMode bool) {
@@ -1145,8 +1132,6 @@ func init() {
 	showCmd.Flags().Bool("refs", false, "Show issues that reference this issue (reverse lookup)")
 	showCmd.Flags().Bool("children", false, "Show only the children of this issue")
 	showCmd.Flags().String("as-of", "", "Show issue as it existed at a specific commit hash or branch (requires Dolt)")
-	showCmd.Flags().StringArray("id", nil, "Issue ID (use for IDs that look like flags, e.g., --id=gt--xyz)")
-	showCmd.Flags().Bool("local-time", false, "Show timestamps in local time instead of UTC")
 	showCmd.ValidArgsFunction = issueIDCompletion
 	rootCmd.AddCommand(showCmd)
 }

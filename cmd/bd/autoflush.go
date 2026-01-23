@@ -149,11 +149,9 @@ func getWorktreeJSONLPath(mainJSONLPath string) string {
 	}
 	worktreePath := filepath.Join(gitCommonDir, "beads-worktrees", syncBranch)
 
-	// Check if worktree exists (should have been created by syncbranch.EnsureWorktree
-	// during initialization). If it doesn't exist, fall back to main repo JSONL.
-	// GH#1349: This fallback should now be rare since EnsureWorktree is called early.
+	// Check if worktree exists (it should be created by sync branch operations)
+	// If it doesn't exist, fall back to main repo JSONL
 	if _, err := os.Stat(worktreePath); os.IsNotExist(err) {
-		debug.Logf("sync-branch configured but worktree doesn't exist at %s, falling back to main JSONL", worktreePath)
 		return ""
 	}
 
@@ -446,12 +444,9 @@ func autoImportIfNewer() {
 // Flush-on-exit guarantee: PersistentPostRun calls flushManager.Shutdown() which
 // performs a final flush before the command exits, ensuring no data is lost.
 //
-// Thread-safe: Safe to call from multiple goroutines (uses atomic.Bool).
+// Thread-safe: Safe to call from multiple goroutines (no shared mutable state).
 // No-op if auto-flush is disabled via --no-auto-flush flag.
 func markDirtyAndScheduleFlush() {
-	// Track that this command performed a write (atomic to avoid data races).
-	commandDidWrite.Store(true)
-
 	// Use FlushManager if available
 	// No FlushManager means sandbox mode or test without flush setup - no-op is correct
 	if flushManager != nil {
@@ -461,9 +456,6 @@ func markDirtyAndScheduleFlush() {
 
 // markDirtyAndScheduleFullExport marks DB as needing a full export (for ID-changing operations)
 func markDirtyAndScheduleFullExport() {
-	// Track that this command performed a write (atomic to avoid data races).
-	commandDidWrite.Store(true)
-
 	// Use FlushManager if available
 	// No FlushManager means sandbox mode or test without flush setup - no-op is correct
 	if flushManager != nil {
@@ -489,11 +481,11 @@ func clearAutoFlushState() {
 //
 // Atomic write pattern:
 //
-//  1. Create temp file with PID suffix: issues.jsonl.tmp.12345
-//  2. Write all issues as JSONL to temp file
-//  3. Close temp file
-//  4. Atomic rename: temp → target
-//  5. Set file permissions to 0644
+//	1. Create temp file with PID suffix: issues.jsonl.tmp.12345
+//	2. Write all issues as JSONL to temp file
+//	3. Close temp file
+//	4. Atomic rename: temp → target
+//	5. Set file permissions to 0644
 //
 // Error handling: Returns error on any failure. Cleanup is guaranteed via defer.
 // Thread-safe: No shared state access. Safe to call from multiple goroutines.
@@ -859,7 +851,7 @@ type flushState struct {
 //   - Store already closed (storeActive=false)
 //   - Database not dirty (isDirty=false) AND forceDirty=false
 //   - No dirty issues found (incremental mode only)
-//   - Sync mode is dolt-native (bd-ixip: skip JSONL export)
+//   - Sync mode is dolt-native (JSONL export disabled)
 func flushToJSONLWithState(state flushState) {
 	// Check if store is still active (not closed) and not nil
 	storeMutex.Lock()
@@ -869,10 +861,11 @@ func flushToJSONLWithState(state flushState) {
 	}
 	storeMutex.Unlock()
 
-	// Check sync mode before JSONL export (bd-ixip: dolt-native mode should skip JSONL)
 	ctx := rootCtx
+
+	// Check if JSONL export is enabled for current sync mode (bd-48h)
+	// In dolt-native mode, JSONL export is disabled - Dolt is the source of truth
 	if !ShouldExportJSONL(ctx, store) {
-		debug.Logf("skipping autoflush (dolt-native mode)")
 		return
 	}
 
