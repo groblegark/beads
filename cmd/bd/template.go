@@ -26,12 +26,13 @@ var variablePattern = regexp.MustCompile(`\{\{([a-zA-Z_][a-zA-Z0-9_]*)\}\}`)
 
 // TemplateSubgraph holds a template epic and all its descendants
 type TemplateSubgraph struct {
-	Root         *types.Issue                // The template epic
-	Issues       []*types.Issue              // All issues in the subgraph (including root)
-	Dependencies []*types.Dependency         // All dependencies within the subgraph
-	IssueMap     map[string]*types.Issue     // ID -> Issue for quick lookup
-	VarDefs      map[string]formula.VarDef   // Variable definitions from formula (for defaults)
-	Phase        string                      // Recommended phase: "liquid" (pour) or "vapor" (wisp)
+	Root           *types.Issue                // The template epic
+	Issues         []*types.Issue              // All issues in the subgraph (including root)
+	Dependencies   []*types.Dependency         // All dependencies within the subgraph
+	IssueMap       map[string]*types.Issue     // ID -> Issue for quick lookup
+	VarDefs        map[string]formula.VarDef   // Variable definitions from formula (for defaults)
+	Phase          string                      // Recommended phase: "liquid" (pour) or "vapor" (wisp)
+	DecisionPoints []*types.DecisionPoint      // Decision points for decision gates (hq-946577.19)
 }
 
 // InstantiateResult holds the result of template instantiation

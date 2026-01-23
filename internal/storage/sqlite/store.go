@@ -18,6 +18,7 @@ import (
 	sqlite3 "github.com/ncruces/go-sqlite3"
 	_ "github.com/ncruces/go-sqlite3/driver"
 	_ "github.com/ncruces/go-sqlite3/embed"
+	"github.com/steveyegge/beads/internal/types"
 	"github.com/tetratelabs/wazero"
 )
 
@@ -553,4 +554,129 @@ func (s *SQLiteStorage) reconnect() error {
 	}
 
 	return nil
+}
+
+// CreateDecisionPoint creates a new decision point for an issue.
+// This wraps the transaction-based CreateDecisionPoint for convenience.
+func (s *SQLiteStorage) CreateDecisionPoint(ctx context.Context, dp *types.DecisionPoint) error {
+	// Acquire connection for transaction
+	conn, err := s.db.Conn(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to acquire connection: %w", err)
+	}
+	defer func() { _ = conn.Close() }()
+
+	// Create transaction storage
+	txStorage := &sqliteTxStorage{conn: conn}
+
+	return txStorage.CreateDecisionPoint(ctx, dp)
+}
+
+// GetDecisionPoint retrieves the decision point for an issue.
+// This wraps the transaction-based GetDecisionPoint for convenience.
+func (s *SQLiteStorage) GetDecisionPoint(ctx context.Context, issueID string) (*types.DecisionPoint, error) {
+	// Acquire connection
+	conn, err := s.db.Conn(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to acquire connection: %w", err)
+	}
+	defer func() { _ = conn.Close() }()
+
+	// Create transaction storage
+	txStorage := &sqliteTxStorage{conn: conn}
+
+	return txStorage.GetDecisionPoint(ctx, issueID)
+}
+
+// UpdateDecisionPoint updates an existing decision point.
+// This wraps the transaction-based UpdateDecisionPoint for convenience.
+func (s *SQLiteStorage) UpdateDecisionPoint(ctx context.Context, dp *types.DecisionPoint) error {
+	// Acquire connection for transaction
+	conn, err := s.db.Conn(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to acquire connection: %w", err)
+	}
+	defer func() { _ = conn.Close() }()
+
+	// Create transaction storage
+	txStorage := &sqliteTxStorage{conn: conn}
+
+	return txStorage.UpdateDecisionPoint(ctx, dp)
+}
+
+// ListPendingDecisions returns all decision points that haven't been responded to.
+func (s *SQLiteStorage) ListPendingDecisions(ctx context.Context) ([]*types.DecisionPoint, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT issue_id, prompt, options,
+			COALESCE(default_option, ''), COALESCE(selected_option, ''),
+			COALESCE(response_text, ''), responded_at, COALESCE(responded_by, ''),
+			iteration, max_iterations,
+			COALESCE(prior_id, ''), COALESCE(guidance, ''), created_at
+		FROM decision_points
+		WHERE responded_at IS NULL
+		ORDER BY created_at ASC
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list pending decisions: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var results []*types.DecisionPoint
+	for rows.Next() {
+		dp := &types.DecisionPoint{}
+		if err := rows.Scan(
+			&dp.IssueID, &dp.Prompt, &dp.Options,
+			&dp.DefaultOption, &dp.SelectedOption,
+			&dp.ResponseText, &dp.RespondedAt, &dp.RespondedBy,
+			&dp.Iteration, &dp.MaxIterations,
+			&dp.PriorID, &dp.Guidance, &dp.CreatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan decision point: %w", err)
+		}
+		results = append(results, dp)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("rows error: %w", err)
+	}
+
+	return results, nil
+}
+
+// ListAllDecisionPoints returns all decision points (for JSONL export).
+func (s *SQLiteStorage) ListAllDecisionPoints(ctx context.Context) ([]*types.DecisionPoint, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT issue_id, prompt, options,
+			COALESCE(default_option, ''), COALESCE(selected_option, ''),
+			COALESCE(response_text, ''), responded_at, COALESCE(responded_by, ''),
+			iteration, max_iterations,
+			COALESCE(prior_id, ''), COALESCE(guidance, ''), created_at
+		FROM decision_points
+		ORDER BY issue_id ASC
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list all decision points: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var results []*types.DecisionPoint
+	for rows.Next() {
+		dp := &types.DecisionPoint{}
+		if err := rows.Scan(
+			&dp.IssueID, &dp.Prompt, &dp.Options,
+			&dp.DefaultOption, &dp.SelectedOption,
+			&dp.ResponseText, &dp.RespondedAt, &dp.RespondedBy,
+			&dp.Iteration, &dp.MaxIterations,
+			&dp.PriorID, &dp.Guidance, &dp.CreatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan decision point: %w", err)
+		}
+		results = append(results, dp)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("rows error: %w", err)
+	}
+
+	return results, nil
 }
