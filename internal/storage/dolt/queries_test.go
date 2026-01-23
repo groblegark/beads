@@ -169,14 +169,10 @@ func TestGetStaleIssues(t *testing.T) {
 	}
 
 	// Force the updated_at to be old by directly updating the database
-	db, err := store.getDB(ctx)
-	if err != nil {
-		t.Fatalf("failed to get db: %v", err)
-	}
+	db := store.UnderlyingDB()
 
 	oldDate := time.Now().AddDate(0, 0, -30) // 30 days ago
-	_, err = db.ExecContext(ctx, `UPDATE issues SET updated_at = ? WHERE id = ?`, oldDate, staleIssue.ID)
-	if err != nil {
+	if _, err := db.ExecContext(ctx, `UPDATE issues SET updated_at = ? WHERE id = ?`, oldDate, staleIssue.ID); err != nil {
 		t.Fatalf("failed to backdate issue: %v", err)
 	}
 
@@ -248,15 +244,11 @@ func TestGetStaleIssues_WithStatus(t *testing.T) {
 	}
 
 	// Backdate both issues
-	db, err := store.getDB(ctx)
-	if err != nil {
-		t.Fatalf("failed to get db: %v", err)
-	}
+	db := store.UnderlyingDB()
 
 	oldDate := time.Now().AddDate(0, 0, -30)
-	_, err = db.ExecContext(ctx, `UPDATE issues SET updated_at = ? WHERE id IN (?, ?)`,
-		oldDate, openIssue.ID, inProgressIssue.ID)
-	if err != nil {
+	if _, err := db.ExecContext(ctx, `UPDATE issues SET updated_at = ? WHERE id IN (?, ?)`,
+		oldDate, openIssue.ID, inProgressIssue.ID); err != nil {
 		t.Fatalf("failed to backdate issues: %v", err)
 	}
 
