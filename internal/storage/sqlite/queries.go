@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/steveyegge/beads/internal/storage"
 	"github.com/steveyegge/beads/internal/types"
 )
 
@@ -2071,4 +2072,161 @@ func (s *SQLiteStorage) SearchIssues(ctx context.Context, query string, filter t
 	defer func() { _ = rows.Close() }()
 
 	return s.scanIssues(ctx, rows)
+}
+
+// =============================================================================
+// Decision Point Operations (hq-b0b22c.3)
+// =============================================================================
+
+// CreateDecisionPoint creates a new decision point for an issue.
+func (s *SQLiteStorage) CreateDecisionPoint(ctx context.Context, dp *types.DecisionPoint) error {
+	return s.RunInTransaction(ctx, func(tx storage.Transaction) error {
+		return tx.CreateDecisionPoint(ctx, dp)
+	})
+}
+
+// GetDecisionPoint retrieves the decision point for an issue.
+func (s *SQLiteStorage) GetDecisionPoint(ctx context.Context, issueID string) (*types.DecisionPoint, error) {
+	var dp types.DecisionPoint
+	var respondedAt sql.NullTime
+	var priorID sql.NullString
+
+	err := s.db.QueryRowContext(ctx, `
+		SELECT issue_id, prompt, options,
+			COALESCE(default_option, ''), COALESCE(selected_option, ''),
+			COALESCE(response_text, ''), responded_at, COALESCE(responded_by, ''),
+			iteration, max_iterations,
+			prior_id, COALESCE(guidance, ''), created_at
+		FROM decision_points
+		WHERE issue_id = ?
+	`, issueID).Scan(
+		&dp.IssueID, &dp.Prompt, &dp.Options,
+		&dp.DefaultOption, &dp.SelectedOption,
+		&dp.ResponseText, &respondedAt, &dp.RespondedBy,
+		&dp.Iteration, &dp.MaxIterations,
+		&priorID, &dp.Guidance, &dp.CreatedAt,
+	)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to query decision point: %w", err)
+	}
+
+	if respondedAt.Valid {
+		dp.RespondedAt = &respondedAt.Time
+	}
+	if priorID.Valid {
+		dp.PriorID = priorID.String
+	}
+
+	return &dp, nil
+}
+
+// UpdateDecisionPoint updates an existing decision point.
+func (s *SQLiteStorage) UpdateDecisionPoint(ctx context.Context, dp *types.DecisionPoint) error {
+	return s.RunInTransaction(ctx, func(tx storage.Transaction) error {
+		return tx.UpdateDecisionPoint(ctx, dp)
+	})
+}
+
+// ListAllDecisionPoints returns all decision points in the database.
+func (s *SQLiteStorage) ListAllDecisionPoints(ctx context.Context) ([]*types.DecisionPoint, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT issue_id, prompt, options,
+			COALESCE(default_option, ''), COALESCE(selected_option, ''),
+			COALESCE(response_text, ''), responded_at, COALESCE(responded_by, ''),
+			iteration, max_iterations,
+			prior_id, COALESCE(guidance, ''), created_at
+		FROM decision_points
+		ORDER BY created_at DESC
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list decision points: %w", err)
+	}
+	defer rows.Close()
+
+	var dps []*types.DecisionPoint
+	for rows.Next() {
+		var dp types.DecisionPoint
+		var respondedAt sql.NullTime
+		var priorID sql.NullString
+
+		if err := rows.Scan(
+			&dp.IssueID, &dp.Prompt, &dp.Options,
+			&dp.DefaultOption, &dp.SelectedOption,
+			&dp.ResponseText, &respondedAt, &dp.RespondedBy,
+			&dp.Iteration, &dp.MaxIterations,
+			&priorID, &dp.Guidance, &dp.CreatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan decision point: %w", err)
+		}
+
+		if respondedAt.Valid {
+			dp.RespondedAt = &respondedAt.Time
+		}
+		if priorID.Valid {
+			dp.PriorID = priorID.String
+		}
+
+		dps = append(dps, &dp)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to iterate decision points: %w", err)
+	}
+
+	return dps, nil
+}
+
+// ListPendingDecisions returns decision points that haven't been responded to yet.
+func (s *SQLiteStorage) ListPendingDecisions(ctx context.Context) ([]*types.DecisionPoint, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT dp.issue_id, dp.prompt, dp.options,
+			COALESCE(dp.default_option, ''), COALESCE(dp.selected_option, ''),
+			COALESCE(dp.response_text, ''), dp.responded_at, COALESCE(dp.responded_by, ''),
+			dp.iteration, dp.max_iterations,
+			dp.prior_id, COALESCE(dp.guidance, ''), dp.created_at
+		FROM decision_points dp
+		JOIN issues i ON dp.issue_id = i.id
+		WHERE dp.responded_at IS NULL
+		  AND i.status IN ('open', 'in_progress', 'hooked')
+		ORDER BY dp.created_at ASC
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list pending decisions: %w", err)
+	}
+	defer rows.Close()
+
+	var dps []*types.DecisionPoint
+	for rows.Next() {
+		var dp types.DecisionPoint
+		var respondedAt sql.NullTime
+		var priorID sql.NullString
+
+		if err := rows.Scan(
+			&dp.IssueID, &dp.Prompt, &dp.Options,
+			&dp.DefaultOption, &dp.SelectedOption,
+			&dp.ResponseText, &respondedAt, &dp.RespondedBy,
+			&dp.Iteration, &dp.MaxIterations,
+			&priorID, &dp.Guidance, &dp.CreatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan decision point: %w", err)
+		}
+
+		if respondedAt.Valid {
+			dp.RespondedAt = &respondedAt.Time
+		}
+		if priorID.Valid {
+			dp.PriorID = priorID.String
+		}
+
+		dps = append(dps, &dp)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to iterate pending decisions: %w", err)
+	}
+
+	return dps, nil
 }
