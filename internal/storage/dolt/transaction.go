@@ -443,3 +443,93 @@ func scanIssueTx(ctx context.Context, tx *sql.Tx, id string) (*types.Issue, erro
 
 	return &issue, nil
 }
+
+// =============================================================================
+// Decision Point Transaction Methods
+// =============================================================================
+
+// CreateDecisionPoint creates a new decision point within the transaction.
+func (t *doltTransaction) CreateDecisionPoint(ctx context.Context, dp *types.DecisionPoint) error {
+	// Verify issue exists
+	issue, err := t.GetIssue(ctx, dp.IssueID)
+	if err != nil {
+		return fmt.Errorf("failed to check issue existence: %w", err)
+	}
+	if issue == nil {
+		return fmt.Errorf("issue %s not found", dp.IssueID)
+	}
+
+	// Convert empty strings to NULL for optional FK fields
+	var priorID interface{}
+	if dp.PriorID != "" {
+		priorID = dp.PriorID
+	}
+
+	_, err = t.tx.ExecContext(ctx, `
+		INSERT INTO decision_points (
+			issue_id, prompt, options, default_option, selected_option,
+			response_text, responded_at, responded_by, iteration, max_iterations,
+			prior_id, guidance, created_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
+	`, dp.IssueID, dp.Prompt, dp.Options, dp.DefaultOption, dp.SelectedOption,
+		dp.ResponseText, dp.RespondedAt, dp.RespondedBy, dp.Iteration, dp.MaxIterations,
+		priorID, dp.Guidance)
+	if err != nil {
+		return fmt.Errorf("failed to insert decision point: %w", err)
+	}
+
+	return nil
+}
+
+// GetDecisionPoint retrieves the decision point for an issue within the transaction.
+func (t *doltTransaction) GetDecisionPoint(ctx context.Context, issueID string) (*types.DecisionPoint, error) {
+	dp := &types.DecisionPoint{}
+	var respondedAt sql.NullTime
+	var priorID, defaultOpt, selectedOpt, responseText, respondedBy, guidance sql.NullString
+
+	err := t.tx.QueryRowContext(ctx, `
+		SELECT issue_id, prompt, options,
+			default_option, selected_option,
+			response_text, responded_at, responded_by,
+			iteration, max_iterations,
+			prior_id, guidance, created_at
+		FROM decision_points
+		WHERE issue_id = ?
+	`, issueID).Scan(
+		&dp.IssueID, &dp.Prompt, &dp.Options,
+		&defaultOpt, &selectedOpt,
+		&responseText, &respondedAt, &respondedBy,
+		&dp.Iteration, &dp.MaxIterations,
+		&priorID, &guidance, &dp.CreatedAt,
+	)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to query decision point: %w", err)
+	}
+
+	if defaultOpt.Valid {
+		dp.DefaultOption = defaultOpt.String
+	}
+	if selectedOpt.Valid {
+		dp.SelectedOption = selectedOpt.String
+	}
+	if responseText.Valid {
+		dp.ResponseText = responseText.String
+	}
+	if respondedAt.Valid {
+		dp.RespondedAt = &respondedAt.Time
+	}
+	if respondedBy.Valid {
+		dp.RespondedBy = respondedBy.String
+	}
+	if priorID.Valid {
+		dp.PriorID = priorID.String
+	}
+	if guidance.Valid {
+		dp.Guidance = guidance.String
+	}
+
+	return dp, nil
+}
