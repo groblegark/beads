@@ -1601,6 +1601,7 @@ func (t *sqliteTxStorage) getLabelsForIssues(ctx context.Context, issueIDs []str
 }
 
 // CreateDecisionPoint creates a new decision point within the transaction.
+// hq-b0b22c.3: Also sets await_type='decision' on the issue if not already set.
 func (t *sqliteTxStorage) CreateDecisionPoint(ctx context.Context, dp *types.DecisionPoint) error {
 	// Verify issue exists
 	issue, err := t.GetIssue(ctx, dp.IssueID)
@@ -1609,6 +1610,18 @@ func (t *sqliteTxStorage) CreateDecisionPoint(ctx context.Context, dp *types.Dec
 	}
 	if issue == nil {
 		return fmt.Errorf("issue %s not found", dp.IssueID)
+	}
+
+	// hq-b0b22c.3: Ensure await_type is set to 'decision' on the issue
+	// This is critical for bd decision show/respond to work correctly
+	if issue.AwaitType != "decision" {
+		_, err = t.conn.ExecContext(ctx, `
+			UPDATE issues SET await_type = 'decision', updated_at = CURRENT_TIMESTAMP
+			WHERE id = ?
+		`, dp.IssueID)
+		if err != nil {
+			return fmt.Errorf("failed to set await_type on issue: %w", err)
+		}
 	}
 
 	// Convert empty strings to NULL for optional FK fields
@@ -1700,4 +1713,44 @@ func (t *sqliteTxStorage) UpdateDecisionPoint(ctx context.Context, dp *types.Dec
 	}
 
 	return nil
+}
+
+// ListAllDecisionPoints retrieves all decision points in the database.
+// hq-b0b22c.3: Added for decision point workflow support.
+func (t *sqliteTxStorage) ListAllDecisionPoints(ctx context.Context) ([]*types.DecisionPoint, error) {
+	rows, err := t.conn.QueryContext(ctx, `
+		SELECT issue_id, prompt, options,
+			COALESCE(default_option, ''), COALESCE(selected_option, ''),
+			COALESCE(response_text, ''), responded_at, COALESCE(responded_by, ''),
+			iteration, max_iterations,
+			COALESCE(prior_id, ''), COALESCE(guidance, ''), created_at
+		FROM decision_points
+		ORDER BY created_at DESC
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query decision points: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var result []*types.DecisionPoint
+	for rows.Next() {
+		dp := &types.DecisionPoint{}
+		err := rows.Scan(
+			&dp.IssueID, &dp.Prompt, &dp.Options,
+			&dp.DefaultOption, &dp.SelectedOption,
+			&dp.ResponseText, &dp.RespondedAt, &dp.RespondedBy,
+			&dp.Iteration, &dp.MaxIterations,
+			&dp.PriorID, &dp.Guidance, &dp.CreatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan decision point: %w", err)
+		}
+		result = append(result, dp)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to iterate decision points: %w", err)
+	}
+
+	return result, nil
 }

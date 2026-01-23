@@ -443,3 +443,170 @@ func scanIssueTx(ctx context.Context, tx *sql.Tx, id string) (*types.Issue, erro
 
 	return &issue, nil
 }
+
+// =============================================================================
+// Decision Point Methods
+// hq-b0b22c.3: Add decision point methods to doltTransaction
+// =============================================================================
+
+// CreateDecisionPoint creates a new decision point within the transaction.
+// Also sets await_type='decision' on the issue if not already set.
+func (t *doltTransaction) CreateDecisionPoint(ctx context.Context, dp *types.DecisionPoint) error {
+	// Verify issue exists
+	issue, err := t.GetIssue(ctx, dp.IssueID)
+	if err != nil {
+		return fmt.Errorf("failed to check issue existence: %w", err)
+	}
+	if issue == nil {
+		return fmt.Errorf("issue %s not found", dp.IssueID)
+	}
+
+	// Ensure await_type is set to 'decision' on the issue
+	if issue.AwaitType != "decision" {
+		_, err = t.tx.ExecContext(ctx, `
+			UPDATE issues SET await_type = 'decision', updated_at = NOW()
+			WHERE id = ?
+		`, dp.IssueID)
+		if err != nil {
+			return fmt.Errorf("failed to set await_type on issue: %w", err)
+		}
+	}
+
+	// Convert empty strings to NULL for optional FK fields
+	var priorID interface{}
+	if dp.PriorID != "" {
+		priorID = dp.PriorID
+	}
+
+	// Insert decision point
+	_, err = t.tx.ExecContext(ctx, `
+		INSERT INTO decision_points (
+			issue_id, prompt, options, default_option, selected_option,
+			response_text, responded_at, responded_by, iteration, max_iterations,
+			prior_id, guidance, created_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
+	`, dp.IssueID, dp.Prompt, dp.Options, dp.DefaultOption, dp.SelectedOption,
+		dp.ResponseText, dp.RespondedAt, dp.RespondedBy, dp.Iteration, dp.MaxIterations,
+		priorID, dp.Guidance)
+	if err != nil {
+		return fmt.Errorf("failed to insert decision point: %w", err)
+	}
+
+	return nil
+}
+
+// GetDecisionPoint retrieves the decision point for an issue within the transaction.
+func (t *doltTransaction) GetDecisionPoint(ctx context.Context, issueID string) (*types.DecisionPoint, error) {
+	dp := &types.DecisionPoint{}
+	var priorID sql.NullString
+	err := t.tx.QueryRowContext(ctx, `
+		SELECT issue_id, prompt, options,
+			COALESCE(default_option, ''), COALESCE(selected_option, ''),
+			COALESCE(response_text, ''), responded_at, COALESCE(responded_by, ''),
+			iteration, max_iterations,
+			prior_id, COALESCE(guidance, ''), created_at
+		FROM decision_points
+		WHERE issue_id = ?
+	`, issueID).Scan(
+		&dp.IssueID, &dp.Prompt, &dp.Options,
+		&dp.DefaultOption, &dp.SelectedOption,
+		&dp.ResponseText, &dp.RespondedAt, &dp.RespondedBy,
+		&dp.Iteration, &dp.MaxIterations,
+		&priorID, &dp.Guidance, &dp.CreatedAt,
+	)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to query decision point: %w", err)
+	}
+
+	if priorID.Valid {
+		dp.PriorID = priorID.String
+	}
+
+	return dp, nil
+}
+
+// UpdateDecisionPoint updates an existing decision point within the transaction.
+func (t *doltTransaction) UpdateDecisionPoint(ctx context.Context, dp *types.DecisionPoint) error {
+	// Convert empty strings to NULL for optional FK fields
+	var priorID interface{}
+	if dp.PriorID != "" {
+		priorID = dp.PriorID
+	}
+
+	result, err := t.tx.ExecContext(ctx, `
+		UPDATE decision_points SET
+			prompt = ?,
+			options = ?,
+			default_option = ?,
+			selected_option = ?,
+			response_text = ?,
+			responded_at = ?,
+			responded_by = ?,
+			iteration = ?,
+			max_iterations = ?,
+			prior_id = ?,
+			guidance = ?
+		WHERE issue_id = ?
+	`, dp.Prompt, dp.Options, dp.DefaultOption, dp.SelectedOption,
+		dp.ResponseText, dp.RespondedAt, dp.RespondedBy,
+		dp.Iteration, dp.MaxIterations, priorID, dp.Guidance, dp.IssueID)
+	if err != nil {
+		return fmt.Errorf("failed to update decision point: %w", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+	if rowsAffected == 0 {
+		return fmt.Errorf("decision point not found for issue %s", dp.IssueID)
+	}
+
+	return nil
+}
+
+// ListAllDecisionPoints retrieves all decision points within the transaction.
+func (t *doltTransaction) ListAllDecisionPoints(ctx context.Context) ([]*types.DecisionPoint, error) {
+	rows, err := t.tx.QueryContext(ctx, `
+		SELECT issue_id, prompt, options,
+			COALESCE(default_option, ''), COALESCE(selected_option, ''),
+			COALESCE(response_text, ''), responded_at, COALESCE(responded_by, ''),
+			iteration, max_iterations,
+			prior_id, COALESCE(guidance, ''), created_at
+		FROM decision_points
+		ORDER BY created_at DESC
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query decision points: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var result []*types.DecisionPoint
+	for rows.Next() {
+		dp := &types.DecisionPoint{}
+		var priorID sql.NullString
+		err := rows.Scan(
+			&dp.IssueID, &dp.Prompt, &dp.Options,
+			&dp.DefaultOption, &dp.SelectedOption,
+			&dp.ResponseText, &dp.RespondedAt, &dp.RespondedBy,
+			&dp.Iteration, &dp.MaxIterations,
+			&priorID, &dp.Guidance, &dp.CreatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan decision point: %w", err)
+		}
+		if priorID.Valid {
+			dp.PriorID = priorID.String
+		}
+		result = append(result, dp)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to iterate decision points: %w", err)
+	}
+
+	return result, nil
+}

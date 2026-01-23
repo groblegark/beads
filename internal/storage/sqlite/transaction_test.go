@@ -2007,3 +2007,68 @@ func TestTransactionSearchIssuesWithIDs(t *testing.T) {
 		t.Fatalf("RunInTransaction failed: %v", err)
 	}
 }
+
+// TestDecisionPointAwaitTypePersistence verifies that CreateDecisionPoint
+// correctly sets await_type='decision' on the associated issue.
+// This is the fix for hq-b0b22c.3: await_type persistence for decision points.
+func TestDecisionPointAwaitTypePersistence(t *testing.T) {
+	ctx := context.Background()
+	store, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	// Create an issue WITHOUT setting await_type
+	issueID := fmt.Sprintf("bd-dp%d", time.Now().UnixNano()%100000)
+	issue := &types.Issue{
+		ID:        issueID,
+		Title:     "Test Decision Point",
+		IssueType: types.TypeGate,
+		Status:    types.StatusOpen,
+		Priority:  2,
+		// Deliberately NOT setting AwaitType here
+	}
+	if err := store.CreateIssue(ctx, issue, "test"); err != nil {
+		t.Fatalf("failed to create issue: %v", err)
+	}
+
+	// Verify await_type is initially empty
+	gotIssue, err := store.GetIssue(ctx, issueID)
+	if err != nil {
+		t.Fatalf("failed to get issue: %v", err)
+	}
+	if gotIssue.AwaitType != "" {
+		t.Errorf("expected await_type to be empty initially, got %q", gotIssue.AwaitType)
+	}
+
+	// Create a decision point for the issue
+	dp := &types.DecisionPoint{
+		IssueID:       issueID,
+		Prompt:        "Test prompt?",
+		Options:       `[{"id":"a","label":"Option A"}]`,
+		Iteration:     1,
+		MaxIterations: 3,
+	}
+	if err := store.CreateDecisionPoint(ctx, dp); err != nil {
+		t.Fatalf("failed to create decision point: %v", err)
+	}
+
+	// Verify await_type is now set to 'decision'
+	gotIssue, err = store.GetIssue(ctx, issueID)
+	if err != nil {
+		t.Fatalf("failed to get issue after creating decision point: %v", err)
+	}
+	if gotIssue.AwaitType != "decision" {
+		t.Errorf("expected await_type to be 'decision' after CreateDecisionPoint, got %q", gotIssue.AwaitType)
+	}
+
+	// Verify the decision point was created correctly
+	gotDP, err := store.GetDecisionPoint(ctx, issueID)
+	if err != nil {
+		t.Fatalf("failed to get decision point: %v", err)
+	}
+	if gotDP == nil {
+		t.Fatal("expected decision point to exist, got nil")
+	}
+	if gotDP.Prompt != "Test prompt?" {
+		t.Errorf("expected prompt %q, got %q", "Test prompt?", gotDP.Prompt)
+	}
+}

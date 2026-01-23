@@ -248,6 +248,27 @@ CREATE TABLE IF NOT EXISTS federation_peers (
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     INDEX idx_federation_peers_sovereignty (sovereignty)
 );
+
+-- Decision points table (human-in-the-loop choices)
+-- hq-b0b22c.3: Added for decision point workflow support
+CREATE TABLE IF NOT EXISTS decision_points (
+    issue_id VARCHAR(255) PRIMARY KEY,
+    prompt TEXT NOT NULL,
+    options TEXT NOT NULL,
+    default_option VARCHAR(255),
+    selected_option VARCHAR(255),
+    response_text TEXT,
+    responded_at DATETIME,
+    responded_by VARCHAR(255),
+    iteration INT DEFAULT 1,
+    max_iterations INT DEFAULT 3,
+    prior_id VARCHAR(255),
+    guidance TEXT,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_decision_points_prior (prior_id),
+    CONSTRAINT fk_decision_issue FOREIGN KEY (issue_id) REFERENCES issues(id) ON DELETE CASCADE,
+    CONSTRAINT fk_decision_prior FOREIGN KEY (prior_id) REFERENCES issues(id) ON DELETE SET NULL
+);
 `
 
 // defaultConfig contains the default configuration values

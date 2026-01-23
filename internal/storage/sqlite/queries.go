@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/steveyegge/beads/internal/storage"
 	"github.com/steveyegge/beads/internal/types"
 )
 
@@ -803,7 +804,9 @@ var allowedUpdateFields = map[string]bool{
 	"due_at":      true,
 	"defer_until": true,
 	// Gate fields (bd-z6kw: support await_id updates for gate discovery)
-	"await_id": true,
+	// hq-b0b22c.3: Added await_type to fix decision point persistence
+	"await_type": true,
+	"await_id":   true,
 }
 
 // validatePriority validates a priority value
@@ -2071,4 +2074,52 @@ func (s *SQLiteStorage) SearchIssues(ctx context.Context, query string, filter t
 	defer func() { _ = rows.Close() }()
 
 	return s.scanIssues(ctx, rows)
+}
+
+// =============================================================================
+// Decision Point Methods
+// hq-b0b22c.3: Add decision point methods to SQLiteStorage
+// =============================================================================
+
+// CreateDecisionPoint creates a new decision point for an issue.
+// Also sets await_type='decision' on the issue if not already set.
+func (s *SQLiteStorage) CreateDecisionPoint(ctx context.Context, dp *types.DecisionPoint) error {
+	return s.RunInTransaction(ctx, func(tx storage.Transaction) error {
+		return tx.CreateDecisionPoint(ctx, dp)
+	})
+}
+
+// GetDecisionPoint retrieves the decision point for an issue.
+func (s *SQLiteStorage) GetDecisionPoint(ctx context.Context, issueID string) (*types.DecisionPoint, error) {
+	var result *types.DecisionPoint
+	err := s.RunInTransaction(ctx, func(tx storage.Transaction) error {
+		dp, err := tx.GetDecisionPoint(ctx, issueID)
+		if err != nil {
+			return err
+		}
+		result = dp
+		return nil
+	})
+	return result, err
+}
+
+// UpdateDecisionPoint updates an existing decision point.
+func (s *SQLiteStorage) UpdateDecisionPoint(ctx context.Context, dp *types.DecisionPoint) error {
+	return s.RunInTransaction(ctx, func(tx storage.Transaction) error {
+		return tx.UpdateDecisionPoint(ctx, dp)
+	})
+}
+
+// ListAllDecisionPoints retrieves all decision points in the database.
+func (s *SQLiteStorage) ListAllDecisionPoints(ctx context.Context) ([]*types.DecisionPoint, error) {
+	var result []*types.DecisionPoint
+	err := s.RunInTransaction(ctx, func(tx storage.Transaction) error {
+		dps, err := tx.ListAllDecisionPoints(ctx)
+		if err != nil {
+			return err
+		}
+		result = dps
+		return nil
+	})
+	return result, err
 }
