@@ -635,8 +635,7 @@ func runWispGC(cmd *cobra.Command, args []string) {
 		return
 	}
 
-	// Delete abandoned wisps
-	// Works with any storage backend that implements storage.Storage (SQLite, Dolt, etc.)
+	// Delete abandoned wisps (DeleteIssue is on Storage interface - works with SQLite and Dolt)
 	var cleanedIDs []string
 	for _, issue := range abandoned {
 		if err := store.DeleteIssue(ctx, issue.ID); err != nil {
