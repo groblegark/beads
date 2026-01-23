@@ -10,17 +10,14 @@ import (
 	"runtime/pprof"
 	"runtime/trace"
 	"slices"
-	"strconv"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"syscall"
 	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/steveyegge/beads/internal/beads"
 	"github.com/steveyegge/beads/internal/config"
-	"github.com/steveyegge/beads/internal/configfile"
 	"github.com/steveyegge/beads/internal/debug"
 	"github.com/steveyegge/beads/internal/hooks"
 	"github.com/steveyegge/beads/internal/molecules"
@@ -73,41 +70,19 @@ var (
 	upgradeAcknowledged    = false // Set to true after showing upgrade notification once per session
 )
 var (
-	noAutoFlush     bool
-	noAutoImport    bool
-	sandboxMode     bool
-	allowStale      bool          // Use --allow-stale: skip staleness check (emergency escape hatch)
-	noDb            bool          // Use --no-db mode: load from JSONL, write back after each command
+	noAutoFlush    bool
+	noAutoImport   bool
+	sandboxMode    bool
+	allowStale     bool          // Use --allow-stale: skip staleness check (emergency escape hatch)
+	noDb           bool          // Use --no-db mode: load from JSONL, write back after each command
 	readonlyMode    bool          // Read-only mode: block write operations (for worker sandboxes)
 	storeIsReadOnly bool          // Track if store was opened read-only (for staleness checks)
 	lockTimeout     time.Duration // SQLite busy_timeout (default 30s, 0 = fail immediately)
-	profileEnabled  bool
-	profileFile     *os.File
-	traceFile       *os.File
-	verboseFlag     bool // Enable verbose/debug output
-	quietFlag       bool // Suppress non-essential output
-
-	// Dolt auto-commit policy (flag/config). Values: off | on
-	doltAutoCommit string
-
-	// commandDidWrite is set when a command performs a write that should trigger
-	// auto-flush. Used to decide whether to auto-commit Dolt after the command completes.
-	// Thread-safe via atomic.Bool to avoid data races in concurrent flush operations.
-	commandDidWrite atomic.Bool
-
-	// commandDidExplicitDoltCommit is set when a command already created a Dolt commit
-	// explicitly (e.g., bd sync in dolt-native mode, hook flows, bd vc commit).
-	// This prevents a redundant auto-commit attempt in PersistentPostRun.
-	commandDidExplicitDoltCommit bool
-
-	// commandDidWriteTipMetadata is set when a command records a tip as "shown" by writing
-	// metadata (tip_*_last_shown). This will be used to create a separate Dolt commit for
-	// tip writes, even when the main command is read-only.
-	commandDidWriteTipMetadata bool
-
-	// commandTipIDsShown tracks which tip IDs were shown in this command (deduped).
-	// This is used for tip-commit message formatting.
-	commandTipIDsShown map[string]struct{}
+	profileEnabled bool
+	profileFile    *os.File
+	traceFile      *os.File
+	verboseFlag    bool // Enable verbose/debug output
+	quietFlag      bool // Suppress non-essential output
 )
 
 // readOnlyCommands lists commands that only read from the database.
@@ -124,7 +99,6 @@ var readOnlyCommands = map[string]bool{
 	"graph":      true,
 	"duplicates": true,
 	"comments":   true, // list comments (not add)
-	"current":    true, // bd sync mode current
 	// NOTE: "export" is NOT read-only - it writes to clear dirty issues and update jsonl_file_hash
 }
 
@@ -214,7 +188,6 @@ func init() {
 	rootCmd.PersistentFlags().BoolVar(&allowStale, "allow-stale", false, "Allow operations on potentially stale data (skip staleness check)")
 	rootCmd.PersistentFlags().BoolVar(&noDb, "no-db", false, "Use no-db mode: load from JSONL, no SQLite")
 	rootCmd.PersistentFlags().BoolVar(&readonlyMode, "readonly", false, "Read-only mode: block write operations (for worker sandboxes)")
-	rootCmd.PersistentFlags().StringVar(&doltAutoCommit, "dolt-auto-commit", "", "Dolt backend: auto-commit after write commands (off|on). Default from config key dolt.auto-commit")
 	rootCmd.PersistentFlags().DurationVar(&lockTimeout, "lock-timeout", 30*time.Second, "SQLite busy timeout (0 = fail immediately if locked)")
 	rootCmd.PersistentFlags().BoolVar(&profileEnabled, "profile", false, "Generate CPU profile for performance analysis")
 	rootCmd.PersistentFlags().BoolVarP(&verboseFlag, "verbose", "v", false, "Enable verbose/debug output")
@@ -256,12 +229,6 @@ var rootCmd = &cobra.Command{
 	PersistentPreRun: func(cmd *cobra.Command, args []string) {
 		// Initialize CommandContext to hold runtime state (replaces scattered globals)
 		initCommandContext()
-
-		// Reset per-command write tracking (used by Dolt auto-commit).
-		commandDidWrite.Store(false)
-		commandDidExplicitDoltCommit = false
-		commandDidWriteTipMetadata = false
-		commandTipIDsShown = make(map[string]struct{})
 
 		// Set up signal-aware context for graceful cancellation
 		rootCtx, rootCancel = signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -353,14 +320,6 @@ var rootCmd = &cobra.Command{
 				WasSet bool
 			}{actor, true}
 		}
-		if !cmd.Flags().Changed("dolt-auto-commit") && strings.TrimSpace(doltAutoCommit) == "" {
-			doltAutoCommit = config.GetString("dolt.auto-commit")
-		} else if cmd.Flags().Changed("dolt-auto-commit") {
-			flagOverrides["dolt-auto-commit"] = struct {
-				Value  interface{}
-				WasSet bool
-			}{doltAutoCommit, true}
-		}
 
 		// Check for and log configuration overrides (only in verbose mode)
 		if verboseFlag {
@@ -368,12 +327,6 @@ var rootCmd = &cobra.Command{
 			for _, override := range overrides {
 				config.LogOverride(override)
 			}
-		}
-
-		// Validate Dolt auto-commit mode early so all commands fail fast on invalid config.
-		if _, err := getDoltAutoCommitMode(); err != nil {
-			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-			os.Exit(1)
 		}
 
 		// GH#1093: Check noDbCommands BEFORE expensive operations (ensureForkProtection,
@@ -625,14 +578,13 @@ var rootCmd = &cobra.Command{
 			debug.Logf("wisp operation detected, using direct mode")
 		}
 
-		// Embedded Dolt is single-process-only; never use daemon/RPC.
-		// (Dolt server mode supports multi-process and won't trigger this.)
+		// Dolt backend (embedded) is single-process-only; never use daemon/RPC.
 		// This must be checked after dbPath is resolved.
 		if !noDaemon && singleProcessOnlyBackend() {
 			noDaemon = true
 			daemonStatus.AutoStartEnabled = false
 			daemonStatus.FallbackReason = FallbackSingleProcessOnly
-			daemonStatus.Detail = "backend is single-process-only (embedded dolt): daemon mode disabled; using direct mode"
+			daemonStatus.Detail = "backend is single-process-only (dolt): daemon mode disabled; using direct mode"
 			debug.Logf("single-process backend detected, using direct mode")
 		}
 
@@ -826,61 +778,29 @@ var rootCmd = &cobra.Command{
 		// Fall back to direct storage access
 		var err error
 		var needsBootstrap bool // Track if DB needs initial import (GH#b09)
-		beadsDir := filepath.Dir(dbPath)
 
-		// Detect backend from metadata.json
-		backend := factory.GetBackendFromConfig(beadsDir)
+		// Find the beads directory - prefer FindBeadsDir() which respects BEADS_DIR env
+		// and follows redirects. Fall back to deriving from dbPath for explicit --db usage.
+		beadsDir := beads.FindBeadsDir()
+		if beadsDir == "" {
+			beadsDir = filepath.Dir(dbPath)
+		}
 
-		// Create storage with appropriate options
+		// Create storage with appropriate options using NewFromConfig
+		// This ensures server mode settings from metadata.json are respected
 		opts := factory.Options{
 			ReadOnly:    useReadOnly,
 			LockTimeout: lockTimeout,
 		}
 
-		// Check for server mode via environment variable (bd-f4f78a)
-		if os.Getenv("BEADS_DOLT_SERVER_MODE") == "1" || os.Getenv("BEADS_DOLT_SERVER_MODE") == "true" {
-			opts.ServerMode = true
-			if host := os.Getenv("BEADS_DOLT_SERVER_HOST"); host != "" {
-				opts.ServerHost = host
-			}
-			if portStr := os.Getenv("BEADS_DOLT_SERVER_PORT"); portStr != "" {
-				if port, err := strconv.Atoi(portStr); err == nil {
-					opts.ServerPort = port
-				}
-			}
-			if user := os.Getenv("BEADS_DOLT_SERVER_USER"); user != "" {
-				opts.ServerUser = user
-			}
-			opts.ServerPass = os.Getenv("BEADS_DOLT_SERVER_PASS")
-		}
-
-		if backend == configfile.BackendDolt {
-			// For Dolt, use the dolt subdirectory
-			doltPath := filepath.Join(beadsDir, "dolt")
-
-			// Check if server mode is configured in metadata.json
-			cfg, cfgErr := configfile.Load(beadsDir)
-			if cfgErr == nil && cfg != nil && cfg.IsDoltServerMode() {
-				opts.ServerMode = true
-				opts.ServerHost = cfg.GetDoltServerHost()
-				opts.ServerPort = cfg.GetDoltServerPort()
-				if cfg.Database != "" {
-					opts.Database = cfg.Database
-				}
-			}
-
-			store, err = factory.NewWithOptions(rootCtx, backend, doltPath, opts)
-		} else {
-			// SQLite backend
-			store, err = factory.NewWithOptions(rootCtx, backend, dbPath, opts)
-			if err != nil && useReadOnly {
-				// If read-only fails (e.g., DB doesn't exist), fall back to read-write
-				// This handles the case where user runs "bd list" before "bd init"
-				debug.Logf("read-only open failed, falling back to read-write: %v", err)
-				opts.ReadOnly = false
-				store, err = factory.NewWithOptions(rootCtx, backend, dbPath, opts)
-				needsBootstrap = true // New DB needs auto-import (GH#b09)
-			}
+		store, err = factory.NewFromConfigWithOptions(rootCtx, beadsDir, opts)
+		if err != nil && useReadOnly {
+			// If read-only fails (e.g., DB doesn't exist), fall back to read-write
+			// This handles the case where user runs "bd list" before "bd init"
+			debug.Logf("read-only open failed, falling back to read-write: %v", err)
+			opts.ReadOnly = false
+			store, err = factory.NewFromConfigWithOptions(rootCtx, beadsDir, opts)
+			needsBootstrap = true // New DB needs auto-import (GH#b09)
 		}
 
 		// Track final read-only state for staleness checks (GH#1089)
@@ -1003,45 +923,6 @@ var rootCmd = &cobra.Command{
 		if flushManager != nil && !skipFinalFlush {
 			if err := flushManager.Shutdown(); err != nil {
 				fmt.Fprintf(os.Stderr, "Warning: flush manager shutdown error: %v\n", err)
-			}
-		}
-
-		// Dolt auto-commit: after a successful write command (and after final flush),
-		// create a Dolt commit so changes don't remain only in the working set.
-		if commandDidWrite.Load() && !commandDidExplicitDoltCommit {
-			if err := maybeAutoCommit(rootCtx, doltAutoCommitParams{Command: cmd.Name()}); err != nil {
-				fmt.Fprintf(os.Stderr, "Error: dolt auto-commit failed: %v\n", err)
-				os.Exit(1)
-			}
-		}
-
-		// Tip metadata auto-commit: if a tip was shown, create a separate Dolt commit for the
-		// tip_*_last_shown metadata updates. This may happen even for otherwise read-only commands.
-		if commandDidWriteTipMetadata && len(commandTipIDsShown) > 0 {
-			// Only applies when dolt auto-commit is enabled and backend is versioned (Dolt).
-			if mode, err := getDoltAutoCommitMode(); err != nil {
-				fmt.Fprintf(os.Stderr, "Error: dolt tip auto-commit failed: %v\n", err)
-				os.Exit(1)
-			} else if mode == doltAutoCommitOn {
-				// Apply tip metadata writes now (deferred in recordTipShown for Dolt).
-				for tipID := range commandTipIDsShown {
-					key := fmt.Sprintf("tip_%s_last_shown", tipID)
-					value := time.Now().Format(time.RFC3339)
-					if err := store.SetMetadata(rootCtx, key, value); err != nil {
-						fmt.Fprintf(os.Stderr, "Error: dolt tip auto-commit failed: %v\n", err)
-						os.Exit(1)
-					}
-				}
-
-				ids := make([]string, 0, len(commandTipIDsShown))
-				for tipID := range commandTipIDsShown {
-					ids = append(ids, tipID)
-				}
-				msg := formatDoltAutoCommitMessage("tip", getActor(), ids)
-				if err := maybeAutoCommit(rootCtx, doltAutoCommitParams{Command: "tip", MessageOverride: msg}); err != nil {
-					fmt.Fprintf(os.Stderr, "Error: dolt tip auto-commit failed: %v\n", err)
-					os.Exit(1)
-				}
 			}
 		}
 
