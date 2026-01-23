@@ -16,7 +16,7 @@ const (
 	CategoryIntegration = "Integrations"
 	CategoryMetadata    = "Metadata"
 	CategoryMaintenance = "Maintenance"
-	CategoryFederation  = "Federation"
+	CategoryPerformance = "Performance"
 )
 
 // CategoryOrder defines the display order for categories
@@ -25,8 +25,8 @@ var CategoryOrder = []string{
 	CategoryData,
 	CategoryGit,
 	CategoryRuntime,
+	CategoryPerformance,
 	CategoryIntegration,
-	CategoryFederation,
 	CategoryMetadata,
 	CategoryMaintenance,
 }
