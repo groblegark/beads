@@ -11,7 +11,6 @@ import (
 
 	"github.com/steveyegge/beads/internal/storage"
 	"github.com/steveyegge/beads/internal/storage/factory"
-	"github.com/steveyegge/beads/internal/storage/sqlite"
 )
 
 // RoutesFileName is the name of the routes configuration file
@@ -470,13 +469,7 @@ func GetRoutedStorageWithOpener(ctx context.Context, id, currentBeadsDir string,
 		store, err = factory.NewFromConfig(ctx, beadsDir)
 	}
 	if err != nil {
-		// Fallback to SQLite for backwards compatibility if factory fails
-		// (e.g., missing metadata.json)
-		dbPath := filepath.Join(beadsDir, "beads.db")
-		store, err = sqlite.New(ctx, dbPath)
-		if err != nil {
-			return nil, err
-		}
+		return nil, fmt.Errorf("failed to open routed storage at %s: %w", beadsDir, err)
 	}
 
 	return &RoutedStorage{
