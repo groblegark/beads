@@ -630,7 +630,7 @@ func scanIssueRow(rows *sql.Rows) (*types.Issue, error) {
 	var createdAtStr, updatedAtStr sql.NullString // TEXT columns - must parse manually
 	var closedAt, compactedAt, deletedAt, lastActivity, dueAt, deferUntil sql.NullTime
 	var estimatedMinutes, originalSize, timeoutNs sql.NullInt64
-	var assignee, externalRef, compactedAtCommit, owner sql.NullString
+	var assignee, externalRef, compactedAtCommit, owner, createdBy sql.NullString
 	var contentHash, sourceRepo, closeReason, deletedBy, deleteReason, originalType sql.NullString
 	var workType, sourceSystem sql.NullString
 	var sender, molType, eventKind, actor, target, payload sql.NullString
@@ -643,7 +643,7 @@ func scanIssueRow(rows *sql.Rows) (*types.Issue, error) {
 		&issue.ID, &contentHash, &issue.Title, &issue.Description, &issue.Design,
 		&issue.AcceptanceCriteria, &issue.Notes, &issue.Status,
 		&issue.Priority, &issue.IssueType, &assignee, &estimatedMinutes,
-		&createdAtStr, &issue.CreatedBy, &owner, &updatedAtStr, &closedAt, &externalRef,
+		&createdAtStr, &createdBy, &owner, &updatedAtStr, &closedAt, &externalRef,
 		&issue.CompactionLevel, &compactedAt, &compactedAtCommit, &originalSize, &sourceRepo, &closeReason,
 		&deletedAt, &deletedBy, &deleteReason, &originalType,
 		&sender, &ephemeral, &pinned, &isTemplate, &crystallizes,
@@ -680,6 +680,9 @@ func scanIssueRow(rows *sql.Rows) (*types.Issue, error) {
 	}
 	if owner.Valid {
 		issue.Owner = owner.String
+	}
+	if createdBy.Valid {
+		issue.CreatedBy = createdBy.String
 	}
 	if externalRef.Valid {
 		issue.ExternalRef = &externalRef.String
