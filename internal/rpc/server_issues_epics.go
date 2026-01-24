@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/steveyegge/beads/internal/storage"
+	"github.com/steveyegge/beads/internal/storage/sqlite"
 	"github.com/steveyegge/beads/internal/types"
 	"github.com/steveyegge/beads/internal/util"
 	"github.com/steveyegge/beads/internal/utils"
@@ -941,14 +941,14 @@ func (s *Server) handleDelete(req *Request) Response {
 
 	ctx := s.reqCtx(req)
 
-	// Use batch delete for cascade/multi-issue operations if storage supports it
+	// Use batch delete for cascade/multi-issue operations on SQLite storage
 	// This handles cascade delete properly by expanding dependents recursively
 	// For simple single-issue deletes, use the direct path to preserve custom reason
-	if batchDeleter, ok := store.(storage.BatchDeleter); ok {
+	if sqlStore, ok := store.(*sqlite.SQLiteStorage); ok {
 		// Use batch delete if: cascade enabled, force enabled, multiple IDs, or dry-run
 		useBatchDelete := deleteArgs.Cascade || deleteArgs.Force || len(deleteArgs.IDs) > 1 || deleteArgs.DryRun
 		if useBatchDelete {
-			result, err := batchDeleter.DeleteIssues(ctx, deleteArgs.IDs, deleteArgs.Cascade, deleteArgs.Force, deleteArgs.DryRun)
+			result, err := sqlStore.DeleteIssues(ctx, deleteArgs.IDs, deleteArgs.Cascade, deleteArgs.Force, deleteArgs.DryRun)
 			if err != nil {
 				return Response{
 					Success: false,
@@ -1327,12 +1327,6 @@ func (s *Server) handleList(req *Request) Response {
 	}
 	depCounts, _ := store.GetDependencyCounts(ctx, issueIDs)
 
-	// Populate dependencies for JSON output
-	allDeps, _ := store.GetAllDependencyRecords(ctx)
-	for _, issue := range issues {
-		issue.Dependencies = allDeps[issue.ID]
-	}
-
 	// Build response with counts
 	issuesWithCounts := make([]*types.IssueWithCounts, len(issues))
 	for i, issue := range issues {
@@ -1654,7 +1648,7 @@ func (s *Server) handleShow(req *Request) Response {
 	labels, _ := store.GetLabels(ctx, issue.ID)
 
 	// Get dependencies and dependents with metadata (including dependency type)
-	// These methods are part of the Storage interface - no type assertion needed
+	// These methods are on the Storage interface, no type assertion needed
 	deps, _ := store.GetDependenciesWithMetadata(ctx, issue.ID)
 	dependents, _ := store.GetDependentsWithMetadata(ctx, issue.ID)
 
@@ -2334,13 +2328,22 @@ func (s *Server) handleGateWait(req *Request) Response {
 	addedCount := len(newWaiters)
 
 	if addedCount > 0 {
-		// Update waiters using the Storage interface
-		allWaiters := append(gate.Waiters, newWaiters...)
-
-		updates := map[string]interface{}{
-			"waiters": allWaiters,
+		// Update waiters using SQLite directly
+		sqliteStore, ok := store.(*sqlite.SQLiteStorage)
+		if !ok {
+			return Response{
+				Success: false,
+				Error:   "gate wait requires SQLite storage",
+			}
 		}
-		if err := store.UpdateIssue(ctx, gateID, updates, s.reqActor(req)); err != nil {
+
+		allWaiters := append(gate.Waiters, newWaiters...)
+		waitersJSON, _ := json.Marshal(allWaiters)
+
+		// Use raw SQL to update the waiters field
+		_, err = sqliteStore.UnderlyingDB().ExecContext(ctx, `UPDATE issues SET waiters = ?, updated_at = ? WHERE id = ?`,
+			string(waitersJSON), time.Now(), gateID)
+		if err != nil {
 			return Response{
 				Success: false,
 				Error:   fmt.Sprintf("failed to add waiters: %v", err),
