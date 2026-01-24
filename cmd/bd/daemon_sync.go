@@ -14,62 +14,15 @@ import (
 
 	"github.com/steveyegge/beads/internal/beads"
 	"github.com/steveyegge/beads/internal/config"
-	"github.com/steveyegge/beads/internal/debug"
 	"github.com/steveyegge/beads/internal/storage"
 	"github.com/steveyegge/beads/internal/storage/sqlite"
-	"github.com/steveyegge/beads/internal/syncbranch"
 	"github.com/steveyegge/beads/internal/types"
 )
-
-// warnIfSyncBranchMisconfigured logs a warning at daemon startup if sync-branch
-// equals the current branch. This is a one-time warning to alert users about
-// the misconfiguration. The daemon continues to start (warn only, don't block).
-// Returns true if misconfigured (warning was logged), false otherwise.
-// GH#1258: Prevents silent failure when sync-branch == current-branch.
-func warnIfSyncBranchMisconfigured(ctx context.Context, store storage.Storage, log daemonLogger) bool {
-	syncBranch, err := syncbranch.Get(ctx, store)
-	if err != nil || syncBranch == "" {
-		return false // No sync branch configured, not misconfigured
-	}
-
-	if syncbranch.IsSyncBranchSameAsCurrent(ctx, syncBranch) {
-		log.Warn("sync-branch misconfiguration detected",
-			"sync_branch", syncBranch,
-			"message", "sync-branch is your current branch; daemon sync operations will be skipped; configure a dedicated sync branch (e.g., 'beads-sync') to enable sync")
-		return true
-	}
-
-	return false
-}
-
-// shouldSkipDueToSameBranch checks if operation should be skipped because
-// sync-branch == current-branch. Returns true if should skip, logs reason.
-// Uses fail-open pattern: if branch detection fails, allows operation to proceed.
-func shouldSkipDueToSameBranch(ctx context.Context, store storage.Storage, operation string, log daemonLogger) bool {
-	syncBranch, err := syncbranch.Get(ctx, store)
-	if err != nil || syncBranch == "" {
-		return false // No sync branch configured, allow
-	}
-
-	if syncbranch.IsSyncBranchSameAsCurrent(ctx, syncBranch) {
-		log.log("Skipping %s: sync-branch '%s' is your current branch. Use a dedicated sync branch.", operation, syncBranch)
-		return true
-	}
-
-	return false
-}
 
 // exportToJSONLWithStore exports issues to JSONL using the provided store.
 // If multi-repo mode is configured, routes issues to their respective JSONL files.
 // Otherwise, exports to a single JSONL file.
-// Respects sync mode: skips JSONL export in dolt-native mode (bd-u9yv).
 func exportToJSONLWithStore(ctx context.Context, store storage.Storage, jsonlPath string) error {
-	// Check sync mode before JSONL export (bd-u9yv: dolt-native mode should skip JSONL)
-	if !ShouldExportJSONL(ctx, store) {
-		debug.Logf("skipping JSONL export (dolt-native mode)")
-		return nil
-	}
-
 	// Try multi-repo export first
 	sqliteStore, ok := store.(*sqlite.SQLiteStorage)
 	if ok {
@@ -138,21 +91,6 @@ func exportToJSONLWithStore(ctx context.Context, store storage.Storage, jsonlPat
 		issue.Comments = comments
 	}
 
-	// Populate decision points for issues that have them (hq-946577.12)
-	allDecisionPoints, err := store.ListAllDecisionPoints(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to get decision points: %w", err)
-	}
-	dpByIssue := make(map[string]*types.DecisionPoint)
-	for _, dp := range allDecisionPoints {
-		dpByIssue[dp.IssueID] = dp
-	}
-	for _, issue := range issues {
-		if dp, ok := dpByIssue[issue.ID]; ok {
-			issue.DecisionPoint = dp
-		}
-	}
-
 	// Create temp file for atomic write
 	dir := filepath.Dir(jsonlPath)
 	base := filepath.Base(jsonlPath)
@@ -198,17 +136,6 @@ func exportToJSONLWithStore(ctx context.Context, store storage.Storage, jsonlPat
 	if writeErr = os.Rename(tempPath, jsonlPath); writeErr != nil {
 		writeErr = fmt.Errorf("failed to rename temp file: %w", writeErr)
 		return writeErr
-	}
-
-	// Update export_hashes for all exported issues (GH#1278)
-	// This ensures child issues created with --parent are properly registered
-	for _, issue := range issues {
-		if issue.ContentHash != "" {
-			if err := store.SetExportHash(ctx, issue.ID, issue.ContentHash); err != nil {
-				// Non-fatal warning - continue with other issues
-				fmt.Fprintf(os.Stderr, "Warning: failed to set export hash for %s: %v\n", issue.ID, err)
-			}
-		}
 	}
 
 	return nil
@@ -499,18 +426,11 @@ func performExport(ctx context.Context, store storage.Storage, autoCommit, autoP
 		if skipGit {
 			mode = "local export"
 		}
-
-		// Guard: Skip if sync-branch == current-branch (GH#1258)
-		// Local-only mode (skipGit) doesn't use sync-branch, so skip the guard
-		if !skipGit && shouldSkipDueToSameBranch(exportCtx, store, mode, log) {
-			return
-		}
-
 		log.log("Starting %s...", mode)
 
 		jsonlPath := findJSONLPath()
 		if jsonlPath == "" {
-			log.log("Error: beads storage file not found")
+			log.log("Error: JSONL path not found")
 			return
 		}
 
@@ -562,10 +482,8 @@ func performExport(ctx context.Context, store storage.Storage, autoCommit, autoP
 			// This prevents validatePreExport from incorrectly blocking on next export
 			// with "JSONL is newer than database" after daemon auto-export
 			// Dolt backend does not have a SQLite DB file; mtime touch is SQLite-only.
-			// Use store.Path() to get the actual database location, not the JSONL directory,
-			// since sync-branch exports write JSONL to a worktree but the DB stays in the main repo.
-			if sqliteStore, ok := store.(*sqlite.SQLiteStorage); ok {
-				dbPath := sqliteStore.Path()
+			if _, ok := store.(*sqlite.SQLiteStorage); ok {
+				dbPath := filepath.Join(beadsDir, "beads.db")
 				if err := TouchDatabaseFile(dbPath, jsonlPath); err != nil {
 					log.log("Warning: failed to update database mtime: %v", err)
 				}
@@ -658,12 +576,6 @@ func performAutoImport(ctx context.Context, store storage.Storage, skipGit bool,
 			mode = "local auto-import"
 		}
 
-		// Guard: Skip if sync-branch == current-branch (GH#1258)
-		// Local-only mode (skipGit) doesn't use sync-branch, so skip the guard
-		if !skipGit && shouldSkipDueToSameBranch(importCtx, store, mode, log) {
-			return
-		}
-
 		// Check backoff before attempting sync (skip for local mode)
 		if !skipGit {
 			jsonlPath := findJSONLPath()
@@ -680,7 +592,7 @@ func performAutoImport(ctx context.Context, store storage.Storage, skipGit bool,
 
 		jsonlPath := findJSONLPath()
 		if jsonlPath == "" {
-			log.log("Error: beads storage file not found")
+			log.log("Error: JSONL path not found")
 			return
 		}
 
@@ -802,18 +714,11 @@ func performSync(ctx context.Context, store storage.Storage, autoCommit, autoPus
 		if skipGit {
 			mode = "local sync cycle"
 		}
-
-		// Guard: Skip if sync-branch == current-branch (GH#1258)
-		// Local-only mode (skipGit) doesn't use sync-branch, so skip the guard
-		if !skipGit && shouldSkipDueToSameBranch(syncCtx, store, mode, log) {
-			return
-		}
-
 		log.log("Starting %s...", mode)
 
 		jsonlPath := findJSONLPath()
 		if jsonlPath == "" {
-			log.log("Error: beads storage file not found")
+			log.log("Error: JSONL path not found")
 			return
 		}
 
@@ -862,6 +767,7 @@ func performSync(ctx context.Context, store storage.Storage, autoCommit, autoPus
 
 		// GH#885: Defer metadata updates until AFTER git commit succeeds.
 		// Define helper to finalize after git operations.
+		dbPath := filepath.Join(beadsDir, "beads.db")
 		finalizeExportMetadata := func() {
 			// Update export metadata for multi-repo support with stable keys
 			if multiRepoPaths != nil {
@@ -878,10 +784,7 @@ func performSync(ctx context.Context, store storage.Storage, autoCommit, autoPus
 			// Update database mtime to be >= JSONL mtime
 			// This prevents validatePreExport from incorrectly blocking on next export
 			// Dolt backend does not have a SQLite DB file; mtime touch is SQLite-only.
-			// Use store.Path() to get the actual database location, not the JSONL directory,
-			// since sync-branch exports write JSONL to a worktree but the DB stays in the main repo.
-			if sqliteStore, ok := store.(*sqlite.SQLiteStorage); ok {
-				dbPath := sqliteStore.Path()
+			if _, ok := store.(*sqlite.SQLiteStorage); ok {
 				if err := TouchDatabaseFile(dbPath, jsonlPath); err != nil {
 					log.log("Warning: failed to update database mtime: %v", err)
 				}
@@ -1001,10 +904,7 @@ func performSync(ctx context.Context, store storage.Storage, autoCommit, autoPus
 		// Update database mtime after import (fixes #278, #301, #321)
 		// Sync branch import can update JSONL timestamp, so ensure DB >= JSONL
 		// Dolt backend does not have a SQLite DB file; mtime touch is SQLite-only.
-		// Use store.Path() to get the actual database location, not the JSONL directory,
-		// since sync-branch imports read JSONL from a worktree but the DB stays in the main repo.
-		if sqliteStore, ok := store.(*sqlite.SQLiteStorage); ok {
-			dbPath := sqliteStore.Path()
+		if _, ok := store.(*sqlite.SQLiteStorage); ok {
 			if err := TouchDatabaseFile(dbPath, jsonlPath); err != nil {
 				log.log("Warning: failed to update database mtime: %v", err)
 			}
@@ -1067,184 +967,146 @@ func performSync(ctx context.Context, store storage.Storage, autoCommit, autoPus
 }
 
 // =============================================================================
-// Dolt Native Sync Functions (bd-z6d.2)
+// Dolt-Native Sync Functions (hq-c005e8)
 // =============================================================================
+// These functions provide lightweight sync for dolt-native mode, bypassing
+// all JSONL export/import logic since Dolt handles versioning natively.
 
-// DoltSyncer is the interface for Dolt's native sync operations.
-// Dolt backends implement this interface to enable direct commit/push/pull
-// without going through JSONL intermediate format.
-type DoltSyncer interface {
-	// Commit creates a Dolt commit with all staged changes
-	Commit(ctx context.Context, message string) error
-	// Push pushes commits to the configured remote
-	Push(ctx context.Context) error
-	// Pull pulls commits from the configured remote
-	Pull(ctx context.Context) error
-}
-
-// IsDoltSyncer returns true if the store implements DoltSyncer interface
-func IsDoltSyncer(store storage.Storage) bool {
-	_, ok := store.(DoltSyncer)
-	return ok
-}
-
-// AsDoltSyncer returns the store as a DoltSyncer, or nil if not supported
-func AsDoltSyncer(store storage.Storage) DoltSyncer {
-	if syncer, ok := store.(DoltSyncer); ok {
-		return syncer
-	}
-	return nil
-}
-
-// createDoltExportFunc creates a function that commits changes directly to Dolt
-// and optionally pushes to remote. This bypasses JSONL entirely.
-//
-// Unlike the JSONL-based export which:
-//   1. Queries all issues from database
-//   2. Writes to JSONL file
-//   3. Git commits the JSONL file
-//   4. Git pushes
-//
-// The Dolt export simply:
-//   1. Commits all pending changes (Dolt tracks changes automatically)
-//   2. Pushes to Dolt remote
-func createDoltExportFunc(ctx context.Context, store storage.Storage, autoCommit, autoPush bool, log daemonLogger) func() {
-	syncer := AsDoltSyncer(store)
-	if syncer == nil {
-		log.log("ERROR: createDoltExportFunc called with non-Dolt store")
-		return func() {}
-	}
-
+// createDoltNativeExportFunc creates a function that commits to Dolt and
+// optionally pushes. This replaces the JSONL export workflow for dolt-native mode.
+func createDoltNativeExportFunc(ctx context.Context, store storage.Storage, autoCommit, autoPush bool, log daemonLogger) func() {
 	return func() {
 		exportCtx, exportCancel := context.WithTimeout(ctx, 30*time.Second)
 		defer exportCancel()
 
-		log.log("Starting Dolt export...")
+		log.log("Starting dolt-native export...")
 
-		if !autoCommit {
-			log.log("Dolt export skipped (auto-commit disabled)")
+		// Get the remote storage interface
+		rs, ok := storage.AsRemote(store)
+		if !ok {
+			log.log("Error: store does not support remote operations")
 			return
 		}
 
-		// Commit changes to Dolt
-		message := fmt.Sprintf("bd daemon export: %s", time.Now().Format("2006-01-02 15:04:05"))
-		if err := syncer.Commit(exportCtx, message); err != nil {
-			// "nothing to commit" is not an error - it just means no changes
-			if strings.Contains(err.Error(), "nothing to commit") {
-				log.log("Dolt export: no changes to commit")
-				return
-			}
-			log.log("Dolt commit failed: %v", err)
-			return
-		}
-		log.log("Dolt commit created")
-
-		// Push if enabled
-		if autoPush {
-			if err := syncer.Push(exportCtx); err != nil {
-				log.log("Dolt push failed: %v", err)
-				return
-			}
-			log.log("Pushed to Dolt remote")
-		}
-
-		log.log("Dolt export complete")
-	}
-}
-
-// createDoltAutoImportFunc creates a function that pulls changes from Dolt remote.
-// This bypasses JSONL entirely - changes are pulled directly into the Dolt database.
-//
-// Unlike the JSONL-based import which:
-//   1. Git pulls to update JSONL file
-//   2. Parses JSONL line by line
-//   3. Imports each issue into SQLite database
-//
-// The Dolt import simply:
-//   1. Pulls from Dolt remote (native database-level sync)
-func createDoltAutoImportFunc(ctx context.Context, store storage.Storage, log daemonLogger) func() {
-	syncer := AsDoltSyncer(store)
-	if syncer == nil {
-		log.log("ERROR: createDoltAutoImportFunc called with non-Dolt store")
-		return func() {}
-	}
-
-	return func() {
-		importCtx, importCancel := context.WithTimeout(ctx, 1*time.Minute)
-		defer importCancel()
-
-		log.log("Starting Dolt auto-import...")
-
-		// Pull from remote
-		if err := syncer.Pull(importCtx); err != nil {
-			// "up to date" or "already up to date" is not an error
-			errStr := err.Error()
-			if strings.Contains(errStr, "up to date") || strings.Contains(errStr, "up-to-date") {
-				log.log("Dolt auto-import: already up to date")
-				return
-			}
-			log.log("Dolt pull failed: %v", err)
-			return
-		}
-
-		log.log("Dolt auto-import complete")
-	}
-}
-
-// createDoltSyncFunc creates a function that performs full Dolt sync cycle.
-// This is the Dolt equivalent of performSync for SQLite+JSONL.
-//
-// Sync order: commit local → pull remote → push local
-// This ensures local changes are preserved before pulling, and
-// any merge conflicts are handled by Dolt's native merge.
-func createDoltSyncFunc(ctx context.Context, store storage.Storage, autoCommit, autoPush bool, log daemonLogger) func() {
-	syncer := AsDoltSyncer(store)
-	if syncer == nil {
-		log.log("ERROR: createDoltSyncFunc called with non-Dolt store")
-		return func() {}
-	}
-
-	return func() {
-		syncCtx, syncCancel := context.WithTimeout(ctx, 2*time.Minute)
-		defer syncCancel()
-
-		log.log("Starting Dolt sync cycle...")
-
-		// Step 1: Commit local changes (if auto-commit enabled)
+		// Commit changes if autoCommit enabled
 		if autoCommit {
-			message := fmt.Sprintf("bd daemon sync: %s", time.Now().Format("2006-01-02 15:04:05"))
-			if err := syncer.Commit(syncCtx, message); err != nil {
+			message := fmt.Sprintf("bd daemon: %s", time.Now().Format("2006-01-02 15:04:05"))
+			if err := rs.Commit(exportCtx, message); err != nil {
+				// "nothing to commit" is not an error
 				if !strings.Contains(err.Error(), "nothing to commit") {
 					log.log("Dolt commit failed: %v", err)
 					return
 				}
-				log.log("No local changes to commit")
+				log.log("No changes to commit")
 			} else {
-				log.log("Committed local changes")
+				log.log("Committed to Dolt")
 			}
 		}
 
-		// Step 2: Pull remote changes
-		if err := syncer.Pull(syncCtx); err != nil {
-			errStr := err.Error()
-			if !strings.Contains(errStr, "up to date") && !strings.Contains(errStr, "up-to-date") {
+		// Push if autoPush enabled
+		if autoPush {
+			if err := rs.Push(exportCtx); err != nil {
+				// "nothing to push" or "no remote" is not an error
+				if !strings.Contains(err.Error(), "nothing to push") &&
+					!strings.Contains(err.Error(), "remote") {
+					log.log("Dolt push failed: %v", err)
+					return
+				}
+			} else {
+				log.log("Pushed to Dolt remote")
+			}
+		}
+
+		log.log("Dolt-native export complete")
+	}
+}
+
+// createDoltNativePullFunc creates a function that pulls from Dolt remote.
+// This replaces the JSONL auto-import workflow for dolt-native mode.
+func createDoltNativePullFunc(ctx context.Context, store storage.Storage, log daemonLogger) func() {
+	return func() {
+		pullCtx, pullCancel := context.WithTimeout(ctx, 60*time.Second)
+		defer pullCancel()
+
+		log.log("Starting dolt-native pull...")
+
+		// Get the remote storage interface
+		rs, ok := storage.AsRemote(store)
+		if !ok {
+			log.log("Error: store does not support remote operations")
+			return
+		}
+
+		if err := rs.Pull(pullCtx); err != nil {
+			// "nothing to pull" or "no remote" is not an error
+			if !strings.Contains(err.Error(), "nothing to pull") &&
+				!strings.Contains(err.Error(), "remote") &&
+				!strings.Contains(err.Error(), "up to date") {
 				log.log("Dolt pull failed: %v", err)
 				return
 			}
-			log.log("Already up to date with remote")
 		} else {
-			log.log("Pulled remote changes")
+			log.log("Pulled from Dolt remote")
 		}
 
-		// Step 3: Push local changes (if auto-push enabled)
-		if autoPush && autoCommit {
-			if err := syncer.Push(syncCtx); err != nil {
-				log.log("Dolt push failed: %v", err)
-				return
+		log.log("Dolt-native pull complete")
+	}
+}
+
+// createDoltNativeSyncFunc creates a sync function for dolt-native mode.
+// This is a no-op sync cycle since dolt-native uses event-driven commit/push.
+func createDoltNativeSyncFunc(ctx context.Context, store storage.Storage, autoCommit, autoPush, autoPull bool, log daemonLogger) func() {
+	return func() {
+		syncCtx, syncCancel := context.WithTimeout(ctx, 2*time.Minute)
+		defer syncCancel()
+
+		log.log("Starting dolt-native sync cycle...")
+
+		rs, ok := storage.AsRemote(store)
+		if !ok {
+			log.log("Error: store does not support remote operations")
+			return
+		}
+
+		// Pull first if autoPull enabled
+		if autoPull {
+			if err := rs.Pull(syncCtx); err != nil {
+				if !strings.Contains(err.Error(), "remote") &&
+					!strings.Contains(err.Error(), "up to date") {
+					log.log("Dolt pull failed: %v", err)
+					// Continue anyway - push might still work
+				}
+			} else {
+				log.log("Pulled from Dolt remote")
 			}
-			log.log("Pushed to Dolt remote")
 		}
 
-		log.log("Dolt sync cycle complete")
+		// Commit if autoCommit enabled
+		if autoCommit {
+			message := fmt.Sprintf("bd daemon sync: %s", time.Now().Format("2006-01-02 15:04:05"))
+			if err := rs.Commit(syncCtx, message); err != nil {
+				if !strings.Contains(err.Error(), "nothing to commit") {
+					log.log("Dolt commit failed: %v", err)
+					return
+				}
+			} else {
+				log.log("Committed to Dolt")
+			}
+		}
+
+		// Push if autoPush enabled
+		if autoPush {
+			if err := rs.Push(syncCtx); err != nil {
+				if !strings.Contains(err.Error(), "nothing to push") &&
+					!strings.Contains(err.Error(), "remote") {
+					log.log("Dolt push failed: %v", err)
+					return
+				}
+			} else {
+				log.log("Pushed to Dolt remote")
+			}
+		}
+
+		log.log("Dolt-native sync cycle complete")
 	}
 }
