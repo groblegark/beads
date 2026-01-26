@@ -9,12 +9,7 @@ import (
 
 // GetDirtyIssues returns IDs of issues that have been modified since last export
 func (s *DoltStore) GetDirtyIssues(ctx context.Context) ([]string, error) {
-	db, err := s.getDB(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get database connection: %w", err)
-	}
-
-	rows, err := db.QueryContext(ctx, `
+	rows, err := s.db.QueryContext(ctx, `
 		SELECT issue_id FROM dirty_issues ORDER BY marked_at ASC
 	`)
 	if err != nil {
@@ -35,13 +30,8 @@ func (s *DoltStore) GetDirtyIssues(ctx context.Context) ([]string, error) {
 
 // GetDirtyIssueHash returns the dirty hash for a specific issue
 func (s *DoltStore) GetDirtyIssueHash(ctx context.Context, issueID string) (string, error) {
-	db, err := s.getDB(ctx)
-	if err != nil {
-		return "", fmt.Errorf("failed to get database connection: %w", err)
-	}
-
 	var hash string
-	err = db.QueryRowContext(ctx, `
+	err := s.db.QueryRowContext(ctx, `
 		SELECT i.content_hash FROM issues i
 		JOIN dirty_issues d ON i.id = d.issue_id
 		WHERE d.issue_id = ?
@@ -58,6 +48,12 @@ func (s *DoltStore) ClearDirtyIssuesByID(ctx context.Context, issueIDs []string)
 		return nil
 	}
 
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
 	placeholders := make([]string, len(issueIDs))
 	args := make([]interface{}, len(issueIDs))
 	for i, id := range issueIDs {
@@ -65,29 +61,19 @@ func (s *DoltStore) ClearDirtyIssuesByID(ctx context.Context, issueIDs []string)
 		args[i] = id
 	}
 
-	db, err := s.getDB(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to get database connection: %w", err)
-	}
-
 	// nolint:gosec // G201: placeholders contains only ? markers, actual values passed via args
 	query := fmt.Sprintf("DELETE FROM dirty_issues WHERE issue_id IN (%s)", strings.Join(placeholders, ","))
-	_, err = db.ExecContext(ctx, query, args...)
+	_, err = tx.ExecContext(ctx, query, args...)
 	if err != nil {
 		return fmt.Errorf("failed to clear dirty issues: %w", err)
 	}
-	return nil
+	return tx.Commit()
 }
 
 // GetExportHash returns the last export hash for an issue
 func (s *DoltStore) GetExportHash(ctx context.Context, issueID string) (string, error) {
-	db, err := s.getDB(ctx)
-	if err != nil {
-		return "", fmt.Errorf("failed to get database connection: %w", err)
-	}
-
 	var hash string
-	err = db.QueryRowContext(ctx, `
+	err := s.db.QueryRowContext(ctx, `
 		SELECT content_hash FROM export_hashes WHERE issue_id = ?
 	`, issueID).Scan(&hash)
 	if err != nil {
@@ -98,12 +84,13 @@ func (s *DoltStore) GetExportHash(ctx context.Context, issueID string) (string, 
 
 // SetExportHash stores the export hash for an issue
 func (s *DoltStore) SetExportHash(ctx context.Context, issueID, contentHash string) error {
-	db, err := s.getDB(ctx)
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return fmt.Errorf("failed to get database connection: %w", err)
+		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
+	defer func() { _ = tx.Rollback() }()
 
-	_, err = db.ExecContext(ctx, `
+	_, err = tx.ExecContext(ctx, `
 		INSERT INTO export_hashes (issue_id, content_hash, exported_at)
 		VALUES (?, ?, ?)
 		ON DUPLICATE KEY UPDATE content_hash = VALUES(content_hash), exported_at = VALUES(exported_at)
@@ -111,21 +98,22 @@ func (s *DoltStore) SetExportHash(ctx context.Context, issueID, contentHash stri
 	if err != nil {
 		return fmt.Errorf("failed to set export hash: %w", err)
 	}
-	return nil
+	return tx.Commit()
 }
 
 // ClearAllExportHashes removes all export hashes (for full re-export)
 func (s *DoltStore) ClearAllExportHashes(ctx context.Context) error {
-	db, err := s.getDB(ctx)
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return fmt.Errorf("failed to get database connection: %w", err)
+		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
+	defer func() { _ = tx.Rollback() }()
 
-	_, err = db.ExecContext(ctx, "DELETE FROM export_hashes")
+	_, err = tx.ExecContext(ctx, "DELETE FROM export_hashes")
 	if err != nil {
 		return fmt.Errorf("failed to clear export hashes: %w", err)
 	}
-	return nil
+	return tx.Commit()
 }
 
 // GetJSONLFileHash returns the stored JSONL file hash
