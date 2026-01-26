@@ -418,7 +418,7 @@ variable.`,
 			if err := store.SetMetadata(ctx, "repo_id", repoID); err != nil {
 				fmt.Fprintf(os.Stderr, "Warning: failed to set repo_id: %v\n", err)
 			} else if !quiet {
-				fmt.Printf("  Repository ID: %s\n", repoID[:8])
+				fmt.Printf("  Repository ID: %s (full: %s)\n", repoID[:8], repoID)
 			}
 		}
 
