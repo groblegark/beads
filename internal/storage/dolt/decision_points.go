@@ -10,9 +10,15 @@ import (
 
 // CreateDecisionPoint creates a new decision point for an issue.
 func (s *DoltStore) CreateDecisionPoint(ctx context.Context, dp *types.DecisionPoint) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
 	// Verify issue exists
 	var exists bool
-	err := s.db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM issues WHERE id = ?)`, dp.IssueID).Scan(&exists)
+	err = tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM issues WHERE id = ?)`, dp.IssueID).Scan(&exists)
 	if err != nil {
 		return fmt.Errorf("failed to check issue existence: %w", err)
 	}
@@ -27,7 +33,7 @@ func (s *DoltStore) CreateDecisionPoint(ctx context.Context, dp *types.DecisionP
 	}
 
 	// Insert decision point
-	_, err = s.db.ExecContext(ctx, `
+	_, err = tx.ExecContext(ctx, `
 		INSERT INTO decision_points (
 			issue_id, prompt, options, default_option, selected_option,
 			response_text, responded_at, responded_by, iteration, max_iterations,
@@ -40,7 +46,7 @@ func (s *DoltStore) CreateDecisionPoint(ctx context.Context, dp *types.DecisionP
 		return fmt.Errorf("failed to insert decision point: %w", err)
 	}
 
-	return nil
+	return tx.Commit()
 }
 
 // GetDecisionPoint retrieves the decision point for an issue.
@@ -75,13 +81,19 @@ func (s *DoltStore) GetDecisionPoint(ctx context.Context, issueID string) (*type
 
 // UpdateDecisionPoint updates an existing decision point.
 func (s *DoltStore) UpdateDecisionPoint(ctx context.Context, dp *types.DecisionPoint) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
 	// Convert empty strings to NULL for optional FK fields
 	var priorID interface{}
 	if dp.PriorID != "" {
 		priorID = dp.PriorID
 	}
 
-	result, err := s.db.ExecContext(ctx, `
+	result, err := tx.ExecContext(ctx, `
 		UPDATE decision_points SET
 			prompt = ?,
 			options = ?,
@@ -112,7 +124,7 @@ func (s *DoltStore) UpdateDecisionPoint(ctx context.Context, dp *types.DecisionP
 		return fmt.Errorf("decision point not found for issue %s", dp.IssueID)
 	}
 
-	return nil
+	return tx.Commit()
 }
 
 // ListPendingDecisions returns all decision points that haven't been responded to.
