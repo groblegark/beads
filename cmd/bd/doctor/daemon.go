@@ -296,8 +296,7 @@ func CheckHydratedRepoDaemons(path string) DoctorCheck {
 	beadsDir := filepath.Join(path, ".beads")
 
 	ctx := context.Background()
-	// Use factory to respect backend configuration (bd-m2jr: SQLite fallback fix)
-	store, err := factory.NewFromConfig(ctx, beadsDir)
+	store, err := factory.NewFromConfigWithOptions(ctx, beadsDir, factory.Options{})
 	if err != nil {
 		return DoctorCheck{
 			Name:    "Hydrated Repo Daemons",
