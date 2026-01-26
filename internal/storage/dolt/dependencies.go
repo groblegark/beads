@@ -12,17 +12,18 @@ import (
 
 // AddDependency adds a dependency between two issues
 func (s *DoltStore) AddDependency(ctx context.Context, dep *types.Dependency, actor string) error {
-	db, err := s.getDB(ctx)
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return fmt.Errorf("failed to get database connection: %w", err)
+		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
+	defer func() { _ = tx.Rollback() }()
 
 	metadata := dep.Metadata
 	if metadata == "" {
 		metadata = "{}"
 	}
 
-	_, err = db.ExecContext(ctx, `
+	_, err = tx.ExecContext(ctx, `
 		INSERT INTO dependencies (issue_id, depends_on_id, type, created_at, created_by, metadata, thread_id)
 		VALUES (?, ?, ?, NOW(), ?, ?, ?)
 		ON DUPLICATE KEY UPDATE type = VALUES(type), metadata = VALUES(metadata)
@@ -30,33 +31,50 @@ func (s *DoltStore) AddDependency(ctx context.Context, dep *types.Dependency, ac
 	if err != nil {
 		return fmt.Errorf("failed to add dependency: %w", err)
 	}
-	return nil
+
+	// Mark both issues as dirty for incremental export
+	if err := markDirty(ctx, tx, dep.IssueID); err != nil {
+		return fmt.Errorf("failed to mark issue dirty: %w", err)
+	}
+	if err := markDirty(ctx, tx, dep.DependsOnID); err != nil {
+		return fmt.Errorf("failed to mark depends_on issue dirty: %w", err)
+	}
+
+	return tx.Commit()
 }
 
 // RemoveDependency removes a dependency between two issues
 func (s *DoltStore) RemoveDependency(ctx context.Context, issueID, dependsOnID string, actor string) error {
-	db, err := s.getDB(ctx)
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return fmt.Errorf("failed to get database connection: %w", err)
+		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
+	defer func() { _ = tx.Rollback() }()
 
-	_, err = db.ExecContext(ctx, `
+	result, err := tx.ExecContext(ctx, `
 		DELETE FROM dependencies WHERE issue_id = ? AND depends_on_id = ?
 	`, issueID, dependsOnID)
 	if err != nil {
 		return fmt.Errorf("failed to remove dependency: %w", err)
 	}
-	return nil
+
+	// Only mark dirty if something was actually deleted
+	rows, _ := result.RowsAffected()
+	if rows > 0 {
+		if err := markDirty(ctx, tx, issueID); err != nil {
+			return fmt.Errorf("failed to mark issue dirty: %w", err)
+		}
+		if err := markDirty(ctx, tx, dependsOnID); err != nil {
+			return fmt.Errorf("failed to mark depends_on issue dirty: %w", err)
+		}
+	}
+
+	return tx.Commit()
 }
 
 // GetDependencies retrieves issues that this issue depends on
 func (s *DoltStore) GetDependencies(ctx context.Context, issueID string) ([]*types.Issue, error) {
-	db, err := s.getDB(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get database connection: %w", err)
-	}
-
-	rows, err := db.QueryContext(ctx, `
+	rows, err := s.db.QueryContext(ctx, `
 		SELECT i.id FROM issues i
 		JOIN dependencies d ON i.id = d.depends_on_id
 		WHERE d.issue_id = ?
@@ -72,12 +90,7 @@ func (s *DoltStore) GetDependencies(ctx context.Context, issueID string) ([]*typ
 
 // GetDependents retrieves issues that depend on this issue
 func (s *DoltStore) GetDependents(ctx context.Context, issueID string) ([]*types.Issue, error) {
-	db, err := s.getDB(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get database connection: %w", err)
-	}
-
-	rows, err := db.QueryContext(ctx, `
+	rows, err := s.db.QueryContext(ctx, `
 		SELECT i.id FROM issues i
 		JOIN dependencies d ON i.id = d.issue_id
 		WHERE d.depends_on_id = ?
@@ -93,12 +106,7 @@ func (s *DoltStore) GetDependents(ctx context.Context, issueID string) ([]*types
 
 // GetDependenciesWithMetadata returns dependencies with metadata
 func (s *DoltStore) GetDependenciesWithMetadata(ctx context.Context, issueID string) ([]*types.IssueWithDependencyMetadata, error) {
-	db, err := s.getDB(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get database connection: %w", err)
-	}
-
-	rows, err := db.QueryContext(ctx, `
+	rows, err := s.db.QueryContext(ctx, `
 		SELECT d.depends_on_id, d.type, d.created_at, d.created_by, d.metadata, d.thread_id
 		FROM dependencies d
 		WHERE d.issue_id = ?
@@ -137,12 +145,7 @@ func (s *DoltStore) GetDependenciesWithMetadata(ctx context.Context, issueID str
 
 // GetDependentsWithMetadata returns dependents with metadata
 func (s *DoltStore) GetDependentsWithMetadata(ctx context.Context, issueID string) ([]*types.IssueWithDependencyMetadata, error) {
-	db, err := s.getDB(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get database connection: %w", err)
-	}
-
-	rows, err := db.QueryContext(ctx, `
+	rows, err := s.db.QueryContext(ctx, `
 		SELECT d.issue_id, d.type, d.created_at, d.created_by, d.metadata, d.thread_id
 		FROM dependencies d
 		WHERE d.depends_on_id = ?
@@ -181,12 +184,7 @@ func (s *DoltStore) GetDependentsWithMetadata(ctx context.Context, issueID strin
 
 // GetDependencyRecords returns raw dependency records for an issue
 func (s *DoltStore) GetDependencyRecords(ctx context.Context, issueID string) ([]*types.Dependency, error) {
-	db, err := s.getDB(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get database connection: %w", err)
-	}
-
-	rows, err := db.QueryContext(ctx, `
+	rows, err := s.db.QueryContext(ctx, `
 		SELECT issue_id, depends_on_id, type, created_at, created_by, metadata, thread_id
 		FROM dependencies
 		WHERE issue_id = ?
@@ -201,12 +199,7 @@ func (s *DoltStore) GetDependencyRecords(ctx context.Context, issueID string) ([
 
 // GetAllDependencyRecords returns all dependency records
 func (s *DoltStore) GetAllDependencyRecords(ctx context.Context) (map[string][]*types.Dependency, error) {
-	db, err := s.getDB(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get database connection: %w", err)
-	}
-
-	rows, err := db.QueryContext(ctx, `
+	rows, err := s.db.QueryContext(ctx, `
 		SELECT issue_id, depends_on_id, type, created_at, created_by, metadata, thread_id
 		FROM dependencies
 		ORDER BY issue_id
@@ -227,54 +220,10 @@ func (s *DoltStore) GetAllDependencyRecords(ctx context.Context) (map[string][]*
 	return result, rows.Err()
 }
 
-// GetDependencyRecordsForIssues returns dependency records for specific issues
-func (s *DoltStore) GetDependencyRecordsForIssues(ctx context.Context, issueIDs []string) (map[string][]*types.Dependency, error) {
-	if len(issueIDs) == 0 {
-		return make(map[string][]*types.Dependency), nil
-	}
-
-	placeholders := make([]string, len(issueIDs))
-	args := make([]interface{}, len(issueIDs))
-	for i, id := range issueIDs {
-		placeholders[i] = "?"
-		args[i] = id
-	}
-	inClause := strings.Join(placeholders, ",")
-
-	// nolint:gosec // G201: inClause contains only ? placeholders, actual values passed via args
-	query := fmt.Sprintf(`
-		SELECT issue_id, depends_on_id, type, created_at, created_by, metadata, thread_id
-		FROM dependencies
-		WHERE issue_id IN (%s)
-		ORDER BY issue_id
-	`, inClause)
-
-	rows, err := s.db.QueryContext(ctx, query, args...)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get dependency records for issues: %w", err)
-	}
-	defer rows.Close()
-
-	result := make(map[string][]*types.Dependency)
-	for rows.Next() {
-		dep, err := scanDependencyRow(rows)
-		if err != nil {
-			return nil, err
-		}
-		result[dep.IssueID] = append(result[dep.IssueID], dep)
-	}
-	return result, rows.Err()
-}
-
 // GetDependencyCounts returns dependency counts for multiple issues
 func (s *DoltStore) GetDependencyCounts(ctx context.Context, issueIDs []string) (map[string]*types.DependencyCounts, error) {
 	if len(issueIDs) == 0 {
 		return make(map[string]*types.DependencyCounts), nil
-	}
-
-	db, err := s.getDB(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get database connection: %w", err)
 	}
 
 	placeholders := make([]string, len(issueIDs))
@@ -294,7 +243,7 @@ func (s *DoltStore) GetDependencyCounts(ctx context.Context, issueIDs []string) 
 		GROUP BY issue_id
 	`, inClause)
 
-	depRows, err := db.QueryContext(ctx, depQuery, args...)
+	depRows, err := s.db.QueryContext(ctx, depQuery, args...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get dependency counts: %w", err)
 	}
@@ -325,7 +274,7 @@ func (s *DoltStore) GetDependencyCounts(ctx context.Context, issueIDs []string) 
 		GROUP BY depends_on_id
 	`, inClause)
 
-	blockingRows, err := db.QueryContext(ctx, blockingQuery, args...)
+	blockingRows, err := s.db.QueryContext(ctx, blockingQuery, args...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get blocking counts: %w", err)
 	}
@@ -371,12 +320,7 @@ func (s *DoltStore) buildDependencyTree(ctx context.Context, issueID string, dep
 		query = "SELECT depends_on_id FROM dependencies WHERE issue_id = ?"
 	}
 
-	db, err := s.getDB(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get database connection: %w", err)
-	}
-
-	rows, err := db.QueryContext(ctx, query, issueID)
+	rows, err := s.db.QueryContext(ctx, query, issueID)
 	if err != nil {
 		return nil, err
 	}
@@ -484,12 +428,7 @@ func (s *DoltStore) DetectCycles(ctx context.Context) ([][]*types.Issue, error) 
 
 // IsBlocked checks if an issue has open blockers
 func (s *DoltStore) IsBlocked(ctx context.Context, issueID string) (bool, []string, error) {
-	db, err := s.getDB(ctx)
-	if err != nil {
-		return false, nil, fmt.Errorf("failed to get database connection: %w", err)
-	}
-
-	rows, err := db.QueryContext(ctx, `
+	rows, err := s.db.QueryContext(ctx, `
 		SELECT d.depends_on_id
 		FROM dependencies d
 		JOIN issues i ON d.depends_on_id = i.id
@@ -516,13 +455,8 @@ func (s *DoltStore) IsBlocked(ctx context.Context, issueID string) (bool, []stri
 
 // GetNewlyUnblockedByClose finds issues that become unblocked when an issue is closed
 func (s *DoltStore) GetNewlyUnblockedByClose(ctx context.Context, closedIssueID string) ([]*types.Issue, error) {
-	db, err := s.getDB(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get database connection: %w", err)
-	}
-
 	// Find issues that were blocked only by the closed issue
-	rows, err := db.QueryContext(ctx, `
+	rows, err := s.db.QueryContext(ctx, `
 		SELECT DISTINCT d.issue_id
 		FROM dependencies d
 		JOIN issues i ON d.issue_id = i.id
@@ -576,11 +510,6 @@ func (s *DoltStore) GetIssuesByIDs(ctx context.Context, ids []string) ([]*types.
 		return nil, nil
 	}
 
-	db, err := s.getDB(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get database connection: %w", err)
-	}
-
 	// Build IN clause
 	placeholders := make([]string, len(ids))
 	args := make([]interface{}, len(ids))
@@ -606,7 +535,7 @@ func (s *DoltStore) GetIssuesByIDs(ctx context.Context, ids []string) ([]*types.
 		WHERE id IN (%s)
 	`, strings.Join(placeholders, ","))
 
-	queryRows, err := db.QueryContext(ctx, query, args...)
+	queryRows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get issues by IDs: %w", err)
 	}
