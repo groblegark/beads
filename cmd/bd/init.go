@@ -16,7 +16,6 @@ import (
 	"github.com/steveyegge/beads/internal/configfile"
 	"github.com/steveyegge/beads/internal/git"
 	"github.com/steveyegge/beads/internal/storage"
-	"github.com/steveyegge/beads/internal/storage/dolt"
 	"github.com/steveyegge/beads/internal/storage/factory"
 	"github.com/steveyegge/beads/internal/syncbranch"
 	"github.com/steveyegge/beads/internal/types"
@@ -42,11 +41,10 @@ With --stealth: configures per-repository git settings for invisible beads usage
   • Claude Code settings with bd onboard instruction
   Perfect for personal use without affecting repo collaborators.
 
-With --backend dolt: uses Dolt as the storage backend. If a dolt sql-server is detected
-running on port 3307 or 3306, server mode is automatically enabled for multi-writer access.
-Use --server to explicitly enable server mode, or set connection details with --server-host,
---server-port, and --server-user. Password should be set via BEADS_DOLT_PASSWORD environment
-variable.`,
+With --backend dolt --server: configures Dolt to connect to an external dolt sql-server
+instead of using the embedded driver. This enables multi-writer access for multi-agent
+environments. Connection settings can be customized with --server-host, --server-port,
+and --server-user. Password should be set via BEADS_DOLT_PASSWORD environment variable.`,
 	Run: func(cmd *cobra.Command, _ []string) {
 		prefix, _ := cmd.Flags().GetString("prefix")
 		quiet, _ := cmd.Flags().GetBool("quiet")
@@ -66,42 +64,35 @@ variable.`,
 		serverPort, _ := cmd.Flags().GetInt("server-port")
 		serverUser, _ := cmd.Flags().GetString("server-user")
 
+		// Initialize config first (needed for backend inheritance check)
+		// PersistentPreRun doesn't run for init command
+		if err := config.Initialize(); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to initialize config: %v\n", err)
+			// Non-fatal - continue with defaults
+		}
+
 		// Validate backend flag
 		if backend != "" && backend != configfile.BackendSQLite && backend != configfile.BackendDolt {
 			fmt.Fprintf(os.Stderr, "Error: invalid backend '%s' (must be 'sqlite' or 'dolt')\n", backend)
 			os.Exit(1)
 		}
 		if backend == "" {
-			backend = configfile.BackendSQLite // Default to SQLite
+			// Inherit storage-backend from parent config.yaml if available (hq-be3912)
+			// This enables new rigs to automatically use dolt when town uses dolt
+			if inherited := config.GetString("storage-backend"); inherited != "" {
+				backend = inherited
+				if !quiet {
+					fmt.Printf("Inheriting storage backend '%s' from parent config\n", backend)
+				}
+			} else {
+				backend = configfile.BackendSQLite // Default to SQLite
+			}
 		}
 
 		// Validate server mode requires dolt backend
 		if serverMode && backend != configfile.BackendDolt {
 			fmt.Fprintf(os.Stderr, "Error: --server flag requires --backend dolt\n")
 			os.Exit(1)
-		}
-
-		// Auto-detect dolt server if backend is dolt and --server wasn't explicitly specified
-		// This enables server mode by default when a dolt sql-server is already running
-		if backend == configfile.BackendDolt && !serverMode {
-			if host, port, detected := dolt.DetectRunningServer(); detected {
-				serverMode = true
-				if serverHost == "" {
-					serverHost = host
-				}
-				if serverPort == 0 {
-					serverPort = port
-				}
-				if !quiet {
-					fmt.Printf("Detected running dolt sql-server on %s:%d, enabling server mode\n", host, port)
-				}
-			}
-		}
-
-		// Initialize config (PersistentPreRun doesn't run for init command)
-		if err := config.Initialize(); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to initialize config: %v\n", err)
-			// Non-fatal - continue with defaults
 		}
 
 		// Safety guard: check for existing JSONL with issues
