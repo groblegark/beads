@@ -16,22 +16,33 @@ import (
 )
 
 var showCmd = &cobra.Command{
-	Use:     "show [id...]",
+	Use:     "show [id...] [--id=<id>...]",
 	Aliases: []string{"view"},
 	GroupID: "issues",
 	Short:   "Show issue details",
-	Args:    cobra.MinimumNArgs(1),
+	Args:    cobra.ArbitraryArgs, // Allow zero positional args when --id is used
 	Run: func(cmd *cobra.Command, args []string) {
 		showThread, _ := cmd.Flags().GetBool("thread")
 		shortMode, _ := cmd.Flags().GetBool("short")
 		showRefs, _ := cmd.Flags().GetBool("refs")
 		showChildren, _ := cmd.Flags().GetBool("children")
 		asOfRef, _ := cmd.Flags().GetString("as-of")
+		idFlags, _ := cmd.Flags().GetStringArray("id")
+		fullMode, _ := cmd.Flags().GetBool("full")
 		ctx := rootCtx
+
+		// Merge --id flag values with positional args
+		// This allows IDs that look like flags (e.g., --xyz or gt--abc) to be passed safely
+		args = append(args, idFlags...)
+
+		// Validate that at least one ID is provided
+		if len(args) == 0 {
+			FatalErrorRespectJSON("at least one issue ID is required (use positional args or --id flag)")
+		}
 
 		// Handle --as-of flag: show issue at a specific point in history
 		if asOfRef != "" {
-			showIssueAsOf(ctx, args, asOfRef, shortMode)
+			showIssueAsOf(ctx, args, asOfRef, shortMode, fullMode)
 			return
 		}
 
@@ -152,7 +163,7 @@ var showCmd = &cobra.Command{
 					// Metadata: Owner · Type | Created · Updated
 					fmt.Println(formatIssueMetadata(issue))
 					if issue.Description != "" {
-						fmt.Printf("\n%s\n%s\n", ui.RenderBold("DESCRIPTION"), ui.RenderMarkdown(issue.Description))
+						fmt.Printf("\n%s\n%s\n", ui.RenderBold("DESCRIPTION"), renderContent(issue.Description, fullMode))
 					}
 					fmt.Println()
 					displayIdx++
@@ -228,27 +239,63 @@ var showCmd = &cobra.Command{
 
 					// Content sections
 					if issue.Description != "" {
-						fmt.Printf("\n%s\n%s\n", ui.RenderBold("DESCRIPTION"), ui.RenderMarkdown(issue.Description))
+						fmt.Printf("\n%s\n%s\n", ui.RenderBold("DESCRIPTION"), renderContent(issue.Description, fullMode))
 					}
 					if issue.Design != "" {
-						fmt.Printf("\n%s\n%s\n", ui.RenderBold("DESIGN"), ui.RenderMarkdown(issue.Design))
+						fmt.Printf("\n%s\n%s\n", ui.RenderBold("DESIGN"), renderContent(issue.Design, fullMode))
 					}
 					if issue.Notes != "" {
-						fmt.Printf("\n%s\n%s\n", ui.RenderBold("NOTES"), ui.RenderMarkdown(issue.Notes))
+						fmt.Printf("\n%s\n%s\n", ui.RenderBold("NOTES"), renderContent(issue.Notes, fullMode))
 					}
 					if issue.AcceptanceCriteria != "" {
-						fmt.Printf("\n%s\n%s\n", ui.RenderBold("ACCEPTANCE CRITERIA"), ui.RenderMarkdown(issue.AcceptanceCriteria))
+						fmt.Printf("\n%s\n%s\n", ui.RenderBold("ACCEPTANCE CRITERIA"), renderContent(issue.AcceptanceCriteria, fullMode))
 					}
 
 					if len(details.Labels) > 0 {
 						fmt.Printf("\n%s %s\n", ui.RenderBold("LABELS:"), strings.Join(details.Labels, ", "))
 					}
 
-					// Dependencies with semantic colors
+					// Dependencies grouped by type with semantic colors
 					if len(details.Dependencies) > 0 {
-						fmt.Printf("\n%s\n", ui.RenderBold("DEPENDS ON"))
+						var blocks, parent, related, discovered []*types.IssueWithDependencyMetadata
 						for _, dep := range details.Dependencies {
-							fmt.Println(formatDependencyLine("→", dep))
+							switch dep.DependencyType {
+							case types.DepBlocks:
+								blocks = append(blocks, dep)
+							case types.DepParentChild:
+								parent = append(parent, dep)
+							case types.DepRelated:
+								related = append(related, dep)
+							case types.DepDiscoveredFrom:
+								discovered = append(discovered, dep)
+							default:
+								blocks = append(blocks, dep)
+							}
+						}
+
+						if len(parent) > 0 {
+							fmt.Printf("\n%s\n", ui.RenderBold("PARENT"))
+							for _, dep := range parent {
+								fmt.Println(formatDependencyLine("↑", dep))
+							}
+						}
+						if len(blocks) > 0 {
+							fmt.Printf("\n%s\n", ui.RenderBold("DEPENDS ON"))
+							for _, dep := range blocks {
+								fmt.Println(formatDependencyLine("→", dep))
+							}
+						}
+						if len(related) > 0 {
+							fmt.Printf("\n%s\n", ui.RenderBold("RELATED"))
+							for _, dep := range related {
+								fmt.Println(formatDependencyLine("↔", dep))
+							}
+						}
+						if len(discovered) > 0 {
+							fmt.Printf("\n%s\n", ui.RenderBold("DISCOVERED FROM"))
+							for _, dep := range discovered {
+								fmt.Println(formatDependencyLine("◊", dep))
+							}
 						}
 					}
 
@@ -402,16 +449,16 @@ var showCmd = &cobra.Command{
 
 			// Content sections
 			if issue.Description != "" {
-				fmt.Printf("\n%s\n%s\n", ui.RenderBold("DESCRIPTION"), ui.RenderMarkdown(issue.Description))
+				fmt.Printf("\n%s\n%s\n", ui.RenderBold("DESCRIPTION"), renderContent(issue.Description, fullMode))
 			}
 			if issue.Design != "" {
-				fmt.Printf("\n%s\n%s\n", ui.RenderBold("DESIGN"), ui.RenderMarkdown(issue.Design))
+				fmt.Printf("\n%s\n%s\n", ui.RenderBold("DESIGN"), renderContent(issue.Design, fullMode))
 			}
 			if issue.Notes != "" {
-				fmt.Printf("\n%s\n%s\n", ui.RenderBold("NOTES"), ui.RenderMarkdown(issue.Notes))
+				fmt.Printf("\n%s\n%s\n", ui.RenderBold("NOTES"), renderContent(issue.Notes, fullMode))
 			}
 			if issue.AcceptanceCriteria != "" {
-				fmt.Printf("\n%s\n%s\n", ui.RenderBold("ACCEPTANCE CRITERIA"), ui.RenderMarkdown(issue.AcceptanceCriteria))
+				fmt.Printf("\n%s\n%s\n", ui.RenderBold("ACCEPTANCE CRITERIA"), renderContent(issue.AcceptanceCriteria, fullMode))
 			}
 
 			// Show labels
@@ -420,12 +467,50 @@ var showCmd = &cobra.Command{
 				fmt.Printf("\n%s %s\n", ui.RenderBold("LABELS:"), strings.Join(labels, ", "))
 			}
 
-			// Show dependencies with semantic colors
-			deps, _ := issueStore.GetDependencies(ctx, issue.ID)
-			if len(deps) > 0 {
-				fmt.Printf("\n%s\n", ui.RenderBold("DEPENDS ON"))
-				for _, dep := range deps {
-					fmt.Println(formatSimpleDependencyLine("→", dep))
+			// Show dependencies - grouped by dependency type for clarity
+			// GetDependenciesWithMetadata is on Storage interface (works with SQLite and Dolt)
+			depsWithMeta, _ := issueStore.GetDependenciesWithMetadata(ctx, issue.ID)
+			if len(depsWithMeta) > 0 {
+				// Group by dependency type
+				var blocks, parent, related, discovered []*types.IssueWithDependencyMetadata
+				for _, dep := range depsWithMeta {
+					switch dep.DependencyType {
+					case types.DepBlocks:
+						blocks = append(blocks, dep)
+					case types.DepParentChild:
+						parent = append(parent, dep)
+					case types.DepRelated:
+						related = append(related, dep)
+					case types.DepDiscoveredFrom:
+						discovered = append(discovered, dep)
+					default:
+						blocks = append(blocks, dep) // Default to blocks
+					}
+				}
+
+				if len(parent) > 0 {
+					fmt.Printf("\n%s\n", ui.RenderBold("PARENT"))
+					for _, dep := range parent {
+						fmt.Println(formatDependencyLine("↑", dep))
+					}
+				}
+				if len(blocks) > 0 {
+					fmt.Printf("\n%s\n", ui.RenderBold("DEPENDS ON"))
+					for _, dep := range blocks {
+						fmt.Println(formatDependencyLine("→", dep))
+					}
+				}
+				if len(related) > 0 {
+					fmt.Printf("\n%s\n", ui.RenderBold("RELATED"))
+					for _, dep := range related {
+						fmt.Println(formatDependencyLine("↔", dep))
+					}
+				}
+				if len(discovered) > 0 {
+					fmt.Printf("\n%s\n", ui.RenderBold("DISCOVERED FROM"))
+					for _, dep := range discovered {
+						fmt.Println(formatDependencyLine("◊", dep))
+					}
 				}
 			}
 
@@ -995,9 +1080,23 @@ func containsStr(slice []string, val string) bool {
 	return false
 }
 
+// renderContent renders text content with optional truncation.
+// If fullMode is true, renders full content. Otherwise, truncates long text.
+func renderContent(text string, fullMode bool) string {
+	if text == "" {
+		return ""
+	}
+	if fullMode || !ui.ShouldTruncate(text, ui.DefaultMaxLines, 0) {
+		return ui.RenderMarkdown(text)
+	}
+	// Truncate long content
+	truncated := ui.TruncateLines(text, ui.DefaultMaxLines, ui.DefaultContextLines)
+	return ui.RenderMarkdown(truncated)
+}
+
 // showIssueAsOf displays issues as they existed at a specific commit or branch ref.
 // This requires a versioned storage backend (e.g., Dolt).
-func showIssueAsOf(ctx context.Context, args []string, ref string, shortMode bool) {
+func showIssueAsOf(ctx context.Context, args []string, ref string, shortMode bool, fullMode bool) {
 	// Check if storage supports versioning
 	vs, ok := storage.AsVersioned(store)
 	if !ok {
@@ -1035,7 +1134,7 @@ func showIssueAsOf(ctx context.Context, args []string, ref string, shortMode boo
 		fmt.Println(formatIssueMetadata(issue))
 
 		if issue.Description != "" {
-			fmt.Printf("\n%s\n%s\n", ui.RenderBold("DESCRIPTION"), ui.RenderMarkdown(issue.Description))
+			fmt.Printf("\n%s\n%s\n", ui.RenderBold("DESCRIPTION"), renderContent(issue.Description, fullMode))
 		}
 		fmt.Println()
 	}
@@ -1051,6 +1150,8 @@ func init() {
 	showCmd.Flags().Bool("refs", false, "Show issues that reference this issue (reverse lookup)")
 	showCmd.Flags().Bool("children", false, "Show only the children of this issue")
 	showCmd.Flags().String("as-of", "", "Show issue as it existed at a specific commit hash or branch (requires Dolt)")
+	showCmd.Flags().StringArray("id", nil, "Issue ID (use for IDs that look like flags, e.g., --id=gt--xyz)")
+	showCmd.Flags().BoolP("full", "f", false, "Show complete text without truncation")
 	showCmd.ValidArgsFunction = issueIDCompletion
 	rootCmd.AddCommand(showCmd)
 }
