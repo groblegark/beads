@@ -495,7 +495,7 @@ func performExport(ctx context.Context, store storage.Storage, autoCommit, autoP
 
 		jsonlPath := findJSONLPath()
 		if jsonlPath == "" {
-			log.log("Error: JSONL path not found")
+			log.log("Error: beads storage file not found")
 			return
 		}
 
@@ -665,7 +665,7 @@ func performAutoImport(ctx context.Context, store storage.Storage, skipGit bool,
 
 		jsonlPath := findJSONLPath()
 		if jsonlPath == "" {
-			log.log("Error: JSONL path not found")
+			log.log("Error: beads storage file not found")
 			return
 		}
 
@@ -798,7 +798,7 @@ func performSync(ctx context.Context, store storage.Storage, autoCommit, autoPus
 
 		jsonlPath := findJSONLPath()
 		if jsonlPath == "" {
-			log.log("Error: JSONL path not found")
+			log.log("Error: beads storage file not found")
 			return
 		}
 
