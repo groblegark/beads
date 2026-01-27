@@ -207,6 +207,9 @@ func TestInitWithSyncBranch(t *testing.T) {
 	tmpDir := t.TempDir()
 	t.Chdir(tmpDir)
 
+	// Reset git caches to ensure fresh context after chdir (bd-xos: fixes test isolation)
+	git.ResetCaches()
+
 	// Initialize git repo first (needed for sync branch to make sense)
 	if err := runCommandInDir(tmpDir, "git", "init", "--initial-branch=dev"); err != nil {
 		t.Fatalf("Failed to init git: %v", err)
@@ -250,6 +253,9 @@ func TestInitWithoutBranchFlag(t *testing.T) {
 
 	tmpDir := t.TempDir()
 	t.Chdir(tmpDir)
+
+	// Reset git caches to ensure fresh context after chdir (bd-xos: fixes test isolation)
+	git.ResetCaches()
 
 	// Initialize git repo on 'main' branch
 	if err := runCommandInDir(tmpDir, "git", "init", "--initial-branch=main"); err != nil {
