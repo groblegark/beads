@@ -334,119 +334,51 @@ func TestValidatePrefixWithAllowed(t *testing.T) {
 	}
 }
 
-func TestValidateAgentID(t *testing.T) {
+// TestValidateIDPrefixAllowed tests the new function that validates IDs using
+// "starts with" matching to handle multi-hyphen prefixes correctly (GH#1135).
+func TestValidateIDPrefixAllowed(t *testing.T) {
 	tests := []struct {
-		name          string
-		id            string
-		wantError     bool
-		errorContains string
+		name            string
+		id              string
+		dbPrefix        string
+		allowedPrefixes string
+		force           bool
+		wantError       bool
 	}{
-		// Town-level agents (no rig)
-		{"valid mayor", "gt-mayor", false, ""},
-		{"valid deacon", "gt-deacon", false, ""},
+		// Basic cases
+		{"matching prefix", "bd-abc123", "bd", "", false, false},
+		{"empty db prefix", "bd-abc123", "", "", false, false},
+		{"mismatched with force", "foo-abc123", "bd", "", true, false},
+		{"mismatched without force", "foo-abc123", "bd", "", false, true},
 
-		// Per-rig agents (canonical format: gt-<rig>-<role>)
-		{"valid witness gastown", "gt-gastown-witness", false, ""},
-		{"valid refinery beads", "gt-beads-refinery", false, ""},
+		// Multi-hyphen prefix cases (GH#1135 - the main bug)
+		{"hq-cv prefix with word suffix", "hq-cv-test", "djdefi-ops", "hq,hq-cv", false, false},
+		{"hq-cv prefix with hash suffix", "hq-cv-abc123", "djdefi-ops", "hq,hq-cv", false, false},
+		{"djdefi-ops with word suffix", "djdefi-ops-test", "djdefi-ops", "", false, false},
 
-		// Named agents (canonical format: gt-<rig>-<role>-<name>)
-		{"valid polecat", "gt-gastown-polecat-nux", false, ""},
-		{"valid crew", "gt-beads-crew-dave", false, ""},
-		{"valid polecat with complex name", "gt-gastown-polecat-war-boy-1", false, ""},
-
-		// Valid: alternative prefixes (beads uses bd-)
-		{"valid bd-mayor", "bd-mayor", false, ""},
-		{"valid bd-beads-polecat-pearl", "bd-beads-polecat-pearl", false, ""},
-		{"valid bd-beads-witness", "bd-beads-witness", false, ""},
-
-		// Valid: hyphenated rig names (GH#854)
-		{"hyphenated rig witness", "ob-my-project-witness", false, ""},
-		{"hyphenated rig refinery", "gt-foo-bar-refinery", false, ""},
-		{"hyphenated rig crew", "bd-my-cool-project-crew-fang", false, ""},
-		{"hyphenated rig polecat", "gt-some-long-rig-name-polecat-nux", false, ""},
-		{"hyphenated rig and name", "gt-my-rig-polecat-war-boy", false, ""},
-		{"multi-hyphen rig crew", "ob-a-b-c-d-crew-dave", false, ""},
-
-		// Invalid: no prefix (missing hyphen)
-		{"no prefix", "mayor", true, "must have a prefix followed by '-'"},
-
-		// Invalid: empty
-		{"empty id", "", true, "agent ID is required"},
-
-		// Invalid: unknown role in position 2
-		{"unknown role", "gt-gastown-admin", true, "invalid agent format"},
-
-		// Invalid: town-level with rig (put role first)
-		{"mayor with rig suffix", "gt-gastown-mayor", true, "cannot have rig/name suffixes"},
-		{"deacon with rig suffix", "gt-beads-deacon", true, "cannot have rig/name suffixes"},
-
-		// Invalid: per-rig role without rig
-		{"witness alone", "gt-witness", true, "requires rig"},
-		{"refinery alone", "gt-refinery", true, "requires rig"},
-
-		// Invalid: named agent without name
-		{"crew no name", "gt-beads-crew", true, "requires name"},
-		{"polecat no name", "gt-gastown-polecat", true, "requires name"},
-
-		// Invalid: witness/refinery with extra parts
-		{"witness with name", "gt-gastown-witness-extra", true, "cannot have name suffix"},
-		{"refinery with name", "gt-beads-refinery-extra", true, "cannot have name suffix"},
-
-		// Invalid: empty components
-		{"empty after prefix", "gt-", true, "must include content after prefix"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			err := ValidateAgentID(tt.id)
-			if (err != nil) != tt.wantError {
-				t.Errorf("ValidateAgentID(%q) error = %v, wantError %v", tt.id, err, tt.wantError)
-				return
-			}
-			if err != nil && tt.errorContains != "" {
-				if !strings.Contains(err.Error(), tt.errorContains) {
-					t.Errorf("ValidateAgentID(%q) error = %q, should contain %q", tt.id, err.Error(), tt.errorContains)
-				}
-			}
-		})
-	}
-}
-
-func TestExtractAgentPrefix(t *testing.T) {
-	tests := []struct {
-		name       string
-		id         string
-		wantPrefix string
-	}{
-		// Town-level agents
-		{"mayor", "gt-mayor", "gt"},
-		{"deacon", "gt-deacon", "gt"},
-		{"bd mayor", "bd-mayor", "bd"},
-
-		// Per-rig agents
-		{"witness", "gt-gastown-witness", "gt"},
-		{"refinery", "bd-beads-refinery", "bd"},
-
-		// Named agents - the bug case
-		{"polecat 3-char name", "nx-nexus-polecat-nux", "nx"},
-		{"polecat regular", "gt-gastown-polecat-phoenix", "gt"},
-		{"crew", "gt-beads-crew-dave", "gt"},
-
-		// Hyphenated rig names
-		{"hyphenated rig", "gt-my-project-witness", "gt"},
-		{"multi-hyphen rig polecat", "bd-my-cool-app-polecat-bob", "bd"},
+		// Allowed prefixes list
+		{"allowed prefix gt", "gt-abc123", "hq", "gt,hmc", false, false},
+		{"allowed prefix hmc", "hmc-abc123", "hq", "gt,hmc", false, false},
+		{"primary prefix still works", "hq-abc123", "hq", "gt,hmc", false, false},
+		{"prefix not in allowed list", "foo-abc123", "hq", "gt,hmc", false, true},
 
 		// Edge cases
-		{"no hyphen", "nohyphen", ""},
-		{"empty", "", ""},
-		{"just prefix", "gt-", "gt"},
+		{"allowed with spaces", "gt-abc123", "hq", "gt, hmc, foo", false, false},
+		{"allowed with trailing dash", "gt-abc123", "hq", "gt-, hmc-", false, false},
+		{"empty allowed list", "gt-abc123", "hq", "", false, true},
+		{"single allowed prefix", "gt-abc123", "hq", "gt", false, false},
+
+		// Multi-hyphen allowed prefixes
+		{"multi-hyphen in allowed list", "my-cool-prefix-abc123", "hq", "my-cool-prefix,other", false, false},
+		{"partial match should fail", "hq-cv-extra-test", "hq", "hq-cv-extra", false, false},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := ExtractAgentPrefix(tt.id)
-			if got != tt.wantPrefix {
-				t.Errorf("ExtractAgentPrefix(%q) = %q, want %q", tt.id, got, tt.wantPrefix)
+			err := ValidateIDPrefixAllowed(tt.id, tt.dbPrefix, tt.allowedPrefixes, tt.force)
+			if (err != nil) != tt.wantError {
+				t.Errorf("ValidateIDPrefixAllowed(%q, %q, %q) error = %v, wantError %v",
+					tt.id, tt.dbPrefix, tt.allowedPrefixes, err, tt.wantError)
 			}
 		})
 	}
