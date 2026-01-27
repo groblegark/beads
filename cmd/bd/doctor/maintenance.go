@@ -11,8 +11,8 @@ import (
 
 	"github.com/steveyegge/beads/internal/beads"
 	"github.com/steveyegge/beads/internal/configfile"
+	"github.com/steveyegge/beads/internal/storage"
 	"github.com/steveyegge/beads/internal/storage/factory"
-	"github.com/steveyegge/beads/internal/storage/sqlite"
 	"github.com/steveyegge/beads/internal/types"
 )
 
@@ -51,8 +51,9 @@ func CheckStaleClosedIssues(path string) DoctorCheck {
 		thresholdDays = cfg.GetStaleClosedIssuesDays()
 	}
 
+	// Open database using factory to respect backend configuration (bd-m2jr: SQLite fallback fix)
 	ctx := context.Background()
-	store, err := factory.NewFromConfigWithOptions(ctx, beadsDir, factory.Options{})
+	store, err := factory.NewFromConfig(ctx, beadsDir)
 	if err != nil {
 		return DoctorCheck{
 			Name:     "Stale Closed Issues",
@@ -197,10 +198,21 @@ func CheckExpiredTombstones(path string) DoctorCheck {
 // CheckStaleMolecules detects complete-but-unclosed molecules.
 // A molecule is stale if all children are closed but the root is still open.
 func CheckStaleMolecules(path string) DoctorCheck {
-	beadsDir := resolveBeadsDir(filepath.Join(path, ".beads"))
+	backend, beadsDir := getBackendAndBeadsDir(path)
 
+	// Dolt backend: this check uses SQLite-specific queries, skip for now
+	if backend == configfile.BackendDolt {
+		return DoctorCheck{
+			Name:     "Stale Molecules",
+			Status:   StatusOK,
+			Message:  "N/A (dolt backend)",
+			Category: CategoryMaintenance,
+		}
+	}
+
+	// Open database using factory to respect backend configuration (bd-m2jr: SQLite fallback fix)
 	ctx := context.Background()
-	store, err := factory.NewFromConfigWithOptions(ctx, beadsDir, factory.Options{})
+	store, err := factory.NewFromConfig(ctx, beadsDir)
 	if err != nil {
 		return DoctorCheck{
 			Name:     "Stale Molecules",
@@ -259,7 +271,8 @@ func CheckStaleMolecules(path string) DoctorCheck {
 }
 
 // CheckCompactionCandidates detects issues eligible for compaction.
-// Note: Compaction is SQLite-specific; Dolt backends use their own maintenance.
+// Note: Compaction is a SQLite-specific optimization. Dolt backends don't need compaction
+// as Dolt handles data management differently.
 func CheckCompactionCandidates(path string) DoctorCheck {
 	// Follow redirect to resolve actual beads directory
 	beadsDir := resolveBeadsDir(filepath.Join(path, ".beads"))
@@ -275,15 +288,21 @@ func CheckCompactionCandidates(path string) DoctorCheck {
 		}
 	}
 
-	// SQLite backend - need SQLite-specific store for GetTier1Candidates
-	cfg, err := configfile.Load(beadsDir)
-	if err != nil || cfg == nil {
-		cfg = configfile.DefaultConfig()
+	// Check if backend is SQLite - compaction only applies to SQLite
+	cfg, _ := configfile.Load(beadsDir)
+	if cfg != nil && cfg.GetBackend() != configfile.BackendSQLite {
+		return DoctorCheck{
+			Name:     "Compaction Candidates",
+			Status:   StatusOK,
+			Message:  "N/A (compaction only applies to SQLite backend)",
+			Category: CategoryMaintenance,
+		}
 	}
 	dbPath := cfg.DatabasePath(beadsDir)
 
+	// Open database using factory
 	ctx := context.Background()
-	store, err := sqlite.New(ctx, dbPath)
+	store, err := factory.NewFromConfig(ctx, beadsDir)
 	if err != nil {
 		return DoctorCheck{
 			Name:     "Compaction Candidates",
@@ -294,7 +313,18 @@ func CheckCompactionCandidates(path string) DoctorCheck {
 	}
 	defer func() { _ = store.Close() }()
 
-	tier1, err := store.GetTier1Candidates(ctx)
+	// Type assert to CompactableStorage for compaction methods
+	compactStore, ok := store.(storage.CompactableStorage)
+	if !ok {
+		return DoctorCheck{
+			Name:     "Compaction Candidates",
+			Status:   StatusOK,
+			Message:  "N/A (backend does not support compaction)",
+			Category: CategoryMaintenance,
+		}
+	}
+
+	tier1, err := compactStore.GetTier1Candidates(ctx)
 	if err != nil {
 		return DoctorCheck{
 			Name:     "Compaction Candidates",

@@ -187,9 +187,9 @@ func CheckDuplicateIssues(path string, gastownMode bool, gastownThreshold int) D
 	// Follow redirect to resolve actual beads directory (bd-tvus fix)
 	beadsDir := resolveBeadsDir(filepath.Join(path, ".beads"))
 
-	// Open store to use existing duplicate detection
+	// Open store using factory to respect backend configuration (bd-m2jr: SQLite fallback fix)
 	ctx := context.Background()
-	store, err := factory.NewFromConfigWithOptions(ctx, beadsDir, factory.Options{})
+	store, err := factory.NewFromConfig(ctx, beadsDir)
 	if err != nil {
 		return DoctorCheck{
 			Name:    "Duplicate Issues",
