@@ -13,11 +13,11 @@ import (
 	"github.com/steveyegge/beads/internal/config"
 	"github.com/steveyegge/beads/internal/debug"
 	"github.com/steveyegge/beads/internal/hooks"
-	"github.com/steveyegge/beads/internal/idgen"
 	"github.com/steveyegge/beads/internal/routing"
 	"github.com/steveyegge/beads/internal/rpc"
 	"github.com/steveyegge/beads/internal/storage"
 	"github.com/steveyegge/beads/internal/storage/factory"
+	"github.com/steveyegge/beads/internal/storage/sqlite"
 	"github.com/steveyegge/beads/internal/timeparsing"
 	"github.com/steveyegge/beads/internal/types"
 	"github.com/steveyegge/beads/internal/ui"
@@ -123,8 +123,6 @@ var createCmd = &cobra.Command{
 		rigOverride, _ := cmd.Flags().GetString("rig")
 		prefixOverride, _ := cmd.Flags().GetString("prefix")
 		wisp, _ := cmd.Flags().GetBool("ephemeral")
-		pinned, _ := cmd.Flags().GetBool("pinned")
-		autoClose, _ := cmd.Flags().GetBool("auto-close")
 		molTypeStr, _ := cmd.Flags().GetString("mol-type")
 		var molType types.MolType
 		if molTypeStr != "" {
@@ -152,21 +150,6 @@ var createCmd = &cobra.Command{
 		// Validate event-specific flags require --type=event
 		if (eventCategory != "" || eventActor != "" || eventTarget != "" || eventPayload != "") && issueType != "event" {
 			FatalError("--event-category, --event-actor, --event-target, and --event-payload flags require --type=event")
-		}
-
-		// Advice-specific flags
-		adviceTargetRig, _ := cmd.Flags().GetString("advice-target-rig")
-		adviceTargetRole, _ := cmd.Flags().GetString("advice-target-role")
-		adviceTargetAgent, _ := cmd.Flags().GetString("advice-target-agent")
-
-		// Validate advice-specific flags require --type=advice
-		if (adviceTargetRig != "" || adviceTargetRole != "" || adviceTargetAgent != "") && issueType != "advice" {
-			FatalError("--advice-target-rig, --advice-target-role, and --advice-target-agent flags require --type=advice")
-		}
-
-		// Validate --auto-close requires --type=epic
-		if autoClose && issueType != "epic" {
-			FatalError("--auto-close flag requires --type=epic")
 		}
 
 		// Parse --due flag (GH#820)
@@ -218,8 +201,6 @@ var createCmd = &cobra.Command{
 				Assignee:           assignee,
 				ExternalRef:        externalRefPtr,
 				Ephemeral:          wisp,
-				Pinned:             pinned,
-				AutoClose:          autoClose,
 				CreatedBy:          getActorWithGit(),
 				Owner:              getOwner(),
 				MolType:            molType,
@@ -232,10 +213,6 @@ var createCmd = &cobra.Command{
 				Actor:     eventActor,
 				Target:    eventTarget,
 				Payload:   eventPayload,
-				// Advice fields
-				AdviceTargetRig:   adviceTargetRig,
-				AdviceTargetRole:  adviceTargetRole,
-				AdviceTargetAgent: adviceTargetAgent,
 			}
 			if explicitID != "" {
 				previewIssue.ID = explicitID
@@ -297,7 +274,7 @@ var createCmd = &cobra.Command{
 								// Found a matching route - auto-route to that rig
 								rigName := routing.ExtractProjectFromPath(route.Path)
 								if rigName != "" {
-									createInRig(cmd, rigName, explicitID, title, description, issueType, priority, design, acceptance, notes, assignee, labels, externalRef, wisp, pinned, autoClose)
+									createInRig(cmd, rigName, explicitID, title, description, issueType, priority, design, acceptance, notes, assignee, labels, externalRef, wisp)
 									return
 								}
 							}
@@ -317,7 +294,7 @@ var createCmd = &cobra.Command{
 			targetRig = prefixOverride
 		}
 		if targetRig != "" {
-			createInRig(cmd, targetRig, explicitID, title, description, issueType, priority, design, acceptance, notes, assignee, labels, externalRef, wisp, pinned, autoClose)
+			createInRig(cmd, targetRig, explicitID, title, description, issueType, priority, design, acceptance, notes, assignee, labels, externalRef, wisp)
 			return
 		}
 
@@ -437,18 +414,14 @@ var createCmd = &cobra.Command{
 		if parentID != "" && daemonClient == nil {
 			ctx := rootCtx
 			// Validate parent exists before generating child ID
-			// Use routing-aware lookup to support cross-repo parent references
-			result, err := resolveAndGetIssueWithRouting(ctx, store, parentID)
+			parentIssue, err := store.GetIssue(ctx, parentID)
 			if err != nil {
 				FatalError("failed to check parent issue: %v", err)
 			}
-			if result == nil || result.Issue == nil {
+			if parentIssue == nil {
 				FatalError("parent issue %s not found", parentID)
 			}
-			defer result.Close()
-
-			// Use the routed store for GetNextChildID to ensure consistent child ID generation
-			childID, err := result.Store.GetNextChildID(ctx, result.ResolvedID)
+			childID, err := store.GetNextChildID(ctx, parentID)
 			if err != nil {
 				FatalError("%v", err)
 			}
@@ -457,23 +430,12 @@ var createCmd = &cobra.Command{
 
 		// Validate explicit ID format if provided
 		if explicitID != "" {
-			var requestedPrefix string
-			var err error
-
-			// For agent types, use agent-aware prefix extraction.
-			// This fixes the bug where 3-char polecat names like "nux" in
-			// "nx-nexus-polecat-nux" were incorrectly treated as hash suffixes,
-			// causing prefix to be extracted as "nx-nexus-polecat" instead of "nx".
-			if issueType == "agent" {
-				if err := validation.ValidateAgentID(explicitID); err != nil {
-					FatalError("invalid agent ID: %v", err)
-				}
-				requestedPrefix = validation.ExtractAgentPrefix(explicitID)
-			} else {
-				requestedPrefix, err = validation.ValidateIDFormat(explicitID)
-				if err != nil {
-					FatalError("%v", err)
-				}
+			// Basic format validation for all issue types.
+			// Note: Gas Town-specific agent ID validation (mayor, polecat, witness, etc.)
+			// is handled by gastown, not beads core.
+			_, err := validation.ValidateIDFormat(explicitID)
+			if err != nil {
+				FatalError("%v", err)
 			}
 
 			// Validate prefix matches database prefix
@@ -494,12 +456,18 @@ var createCmd = &cobra.Command{
 				}
 				// If error, continue without validation (non-fatal)
 			} else {
-				// Direct mode - check config
+				// Direct mode - check config (GH#1145: fallback to config.yaml)
 				dbPrefix, _ = store.GetConfig(ctx, "issue_prefix")
+				if dbPrefix == "" {
+					dbPrefix = config.GetString("issue-prefix")
+				}
 				allowedPrefixes, _ = store.GetConfig(ctx, "allowed_prefixes")
 			}
 
-			if err := validation.ValidatePrefixWithAllowed(requestedPrefix, dbPrefix, allowedPrefixes, forceCreate); err != nil {
+			// Use ValidateIDPrefixAllowed which handles multi-hyphen prefixes correctly (GH#1135)
+			// This checks if the ID starts with an allowed prefix, rather than extracting
+			// the prefix first (which can fail for IDs like "hq-cv-test" where "test" looks like a word)
+			if err := validation.ValidateIDPrefixAllowed(explicitID, dbPrefix, allowedPrefixes, forceCreate); err != nil {
 				FatalError("%v", err)
 			}
 		}
@@ -511,22 +479,8 @@ var createCmd = &cobra.Command{
 
 		// If daemon is running, use RPC
 		if daemonClient != nil {
-			// Generate semantic ID if no explicit ID provided
-			rpcID := explicitID
-			if rpcID == "" && parentID == "" { // Don't generate semantic ID for child issues
-				// Get prefix via RPC since store may be nil in daemon mode
-				prefix := "bd" // Default prefix
-				if resp, err := daemonClient.GetConfig(&rpc.GetConfigArgs{Key: "prefix"}); err == nil && resp.Value != "" {
-					prefix = resp.Value
-				}
-				// Skip client-side semantic ID generation in daemon mode - let server handle it
-				// The server's storage layer will generate an ID if rpcID is empty
-				rpcID = "" // Let daemon generate ID
-				_ = prefix // Prefix fetched for future use when server supports semantic IDs
-			}
-
 			createArgs := &rpc.CreateArgs{
-				ID:                 rpcID,
+				ID:                 explicitID,
 				Parent:             parentID,
 				Title:              title,
 				Description:        description,
@@ -543,8 +497,6 @@ var createCmd = &cobra.Command{
 				WaitsFor:           waitsFor,
 				WaitsForGate:       waitsForGate,
 				Ephemeral:          wisp,
-				Pinned:             pinned,
-				AutoClose:          autoClose,
 				CreatedBy:          getActorWithGit(),
 				Owner:              getOwner(),
 				MolType:            string(molType),
@@ -556,9 +508,6 @@ var createCmd = &cobra.Command{
 				EventPayload:       eventPayload,
 				DueAt:              formatTimeForRPC(dueAt),
 				DeferUntil:         formatTimeForRPC(deferUntil),
-				AdviceTargetRig:    adviceTargetRig,
-				AdviceTargetRole:   adviceTargetRole,
-				AdviceTargetAgent:  adviceTargetAgent,
 			}
 
 			resp, err := daemonClient.Create(createArgs)
@@ -594,20 +543,8 @@ var createCmd = &cobra.Command{
 		}
 
 		// Direct mode
-		ctx := rootCtx
-
-		// Generate semantic ID if no explicit ID provided
-		issueID := explicitID
-		if issueID == "" {
-			prefix, _ := store.GetConfig(ctx, "issue_prefix")
-			if prefix == "" {
-				prefix = "bd" // Default prefix
-			}
-			issueID = generateSemanticID(ctx, store, prefix, issueType, title)
-		}
-
 		issue := &types.Issue{
-			ID:                 issueID,
+			ID:                 explicitID, // Set explicit ID if provided (empty string if not)
 			Title:              title,
 			Description:        description,
 			Design:             design,
@@ -620,8 +557,6 @@ var createCmd = &cobra.Command{
 			ExternalRef:        externalRefPtr,
 			EstimatedMinutes:   estimatedMinutes,
 			Ephemeral:          wisp,
-			Pinned:             pinned,
-			AutoClose:          autoClose,
 			CreatedBy:          getActorWithGit(),
 			Owner:              getOwner(),
 			MolType:            molType,
@@ -633,10 +568,9 @@ var createCmd = &cobra.Command{
 			Payload:            eventPayload,
 			DueAt:              dueAt,
 			DeferUntil:         deferUntil,
-			AdviceTargetRig:    adviceTargetRig,
-			AdviceTargetRole:   adviceTargetRole,
-			AdviceTargetAgent:  adviceTargetAgent,
 		}
+
+		ctx := rootCtx
 
 		// Check if any dependencies are discovered-from type
 		// If so, inherit source_repo from the parent issue
@@ -827,27 +761,6 @@ var createCmd = &cobra.Command{
 	},
 }
 
-// generateSemanticID creates a semantic ID for an issue based on its title and type.
-// It checks the storage layer for collisions and adds a numeric suffix if needed.
-// If config id.semantic is explicitly set to false, returns empty string to let storage generate hash ID.
-func generateSemanticID(ctx context.Context, store storage.Storage, prefix, issueType, title string) string {
-	// Check if semantic IDs are disabled (default: enabled)
-	// GetString returns "" if not set, so we only disable if explicitly "false"
-	if config.GetString("id.semantic") == "false" {
-		return "" // Let storage layer generate legacy hash ID
-	}
-
-	gen := idgen.NewSemanticIDGenerator()
-
-	// Use callback-based generation with collision checking against storage
-	exists := func(id string) bool {
-		issue, err := store.GetIssue(ctx, id)
-		return err == nil && issue != nil
-	}
-
-	return gen.GenerateSemanticIDWithCallback(prefix, issueType, title, exists)
-}
-
 // flushRoutedRepo ensures the target repo's JSONL is updated after routing an issue.
 // This is critical for multi-repo hydration to work correctly (bd-fix-routing).
 // Respects sync mode: skips JSONL export in dolt-native mode (bd-a9ka).
@@ -990,8 +903,6 @@ func init() {
 	createCmd.Flags().String("prefix", "", "Create issue in rig by prefix (e.g., --prefix bd- or --prefix bd or --prefix beads)")
 	createCmd.Flags().IntP("estimate", "e", 0, "Time estimate in minutes (e.g., 60 for 1 hour)")
 	createCmd.Flags().Bool("ephemeral", false, "Create as ephemeral (ephemeral, not exported to JSONL)")
-	createCmd.Flags().Bool("pinned", false, "Pin the issue (keeps it visible, used for agent beads)")
-	createCmd.Flags().Bool("auto-close", false, "Auto-close this epic when all children are closed (requires --type=epic)")
 	createCmd.Flags().String("mol-type", "", "Molecule type: swarm (multi-polecat), patrol (recurring ops), work (default)")
 	createCmd.Flags().Bool("validate", false, "Validate description contains required sections for issue type")
 	// Agent-specific flags (only valid when --type=agent)
@@ -1002,10 +913,6 @@ func init() {
 	createCmd.Flags().String("event-actor", "", "Entity URI who caused this event (requires --type=event)")
 	createCmd.Flags().String("event-target", "", "Entity URI or bead ID affected (requires --type=event)")
 	createCmd.Flags().String("event-payload", "", "Event-specific JSON data (requires --type=event)")
-	// Advice-specific flags (only valid when --type=advice)
-	createCmd.Flags().String("advice-target-rig", "", "Target rig for advice (e.g., 'gastown') (requires --type=advice)")
-	createCmd.Flags().String("advice-target-role", "", "Target role for advice (e.g., 'polecat', 'crew') (requires --type=advice)")
-	createCmd.Flags().String("advice-target-agent", "", "Target agent ID for advice (e.g., 'gastown/polecats/alpha') (requires --type=advice)")
 	// Time-based scheduling flags (GH#820)
 	// Examples:
 	//   --due=+6h           Due in 6 hours
@@ -1022,7 +929,7 @@ func init() {
 
 // createInRig creates an issue in a different rig using --rig flag or auto-routing.
 // This bypasses the normal daemon/direct flow and directly creates in the target rig.
-func createInRig(cmd *cobra.Command, rigName, explicitID, title, description, issueType string, priority int, design, acceptance, notes, assignee string, labels []string, externalRef string, wisp, pinned, autoClose bool) {
+func createInRig(cmd *cobra.Command, rigName, explicitID, title, description, issueType string, priority int, design, acceptance, notes, assignee string, labels []string, externalRef string, wisp bool) {
 	ctx := rootCtx
 
 	// Find the town-level beads directory (where routes.jsonl lives)
@@ -1047,17 +954,6 @@ func createInRig(cmd *cobra.Command, rigName, explicitID, title, description, is
 			fmt.Fprintf(os.Stderr, "warning: failed to close rig database: %v\n", err)
 		}
 	}()
-
-	// Auto-fix missing issue_prefix: if database config is missing but config.yaml has it,
-	// populate the database config (fixes hq-8af330.15)
-	if existingPrefix, _ := targetStore.GetConfig(ctx, "issue_prefix"); existingPrefix == "" {
-		// Try to get prefix from config.yaml in target beads directory
-		if cfgPrefix := readIssuePrefixFromConfig(targetBeadsDir); cfgPrefix != "" {
-			if err := targetStore.SetConfig(ctx, "issue_prefix", cfgPrefix); err != nil {
-				fmt.Fprintf(os.Stderr, "warning: failed to auto-set issue_prefix from config.yaml: %v\n", err)
-			}
-		}
-	}
 
 	// Prepare prefix override from routes.jsonl for cross-rig creation
 	// Strip trailing hyphen - database stores prefix without it (e.g., "aops" not "aops-")
@@ -1085,11 +981,6 @@ func createInRig(cmd *cobra.Command, rigName, explicitID, title, description, is
 	}
 	roleType, _ := cmd.Flags().GetString("role-type")
 	agentRig, _ := cmd.Flags().GetString("agent-rig")
-
-	// Extract advice flags (gt-epc-advice_management_cli)
-	adviceTargetRig, _ := cmd.Flags().GetString("advice-target-rig")
-	adviceTargetRole, _ := cmd.Flags().GetString("advice-target-role")
-	adviceTargetAgent, _ := cmd.Flags().GetString("advice-target-agent")
 
 	// Extract time-based scheduling flags (bd-xwvo fix)
 	var dueAt *time.Time
@@ -1126,8 +1017,6 @@ func createInRig(cmd *cobra.Command, rigName, explicitID, title, description, is
 		Assignee:           assignee,
 		ExternalRef:        externalRefPtr,
 		Ephemeral:          wisp,
-		Pinned:             pinned,
-		AutoClose:          autoClose,
 		CreatedBy:          getActorWithGit(),
 		Owner:              getOwner(),
 		// Event fields (bd-xwvo fix)
@@ -1142,10 +1031,6 @@ func createInRig(cmd *cobra.Command, rigName, explicitID, title, description, is
 		// Time scheduling fields (bd-xwvo fix)
 		DueAt:      dueAt,
 		DeferUntil: deferUntil,
-		// Advice fields (gt-epc-advice_management_cli)
-		AdviceTargetRig:   adviceTargetRig,
-		AdviceTargetRole:  adviceTargetRole,
-		AdviceTargetAgent: adviceTargetAgent,
 		// Cross-rig routing: use route prefix instead of database config
 		PrefixOverride: prefixOverride,
 	}
@@ -1245,13 +1130,13 @@ func ensureBeadsDirForPath(ctx context.Context, targetPath string, sourceStore s
 		}
 	}
 
-	// Initialize database - it will be created when factory.NewFromConfig is called
+	// Initialize database - it will be created when sqlite.New is called
 	// But we need to set the prefix if source store has one (T012: prefix inheritance)
 	if sourceStore != nil {
 		sourcePrefix, err := sourceStore.GetConfig(ctx, "issue_prefix")
 		if err == nil && sourcePrefix != "" {
 			// Open target store temporarily to set prefix
-			tempStore, err := factory.NewFromConfig(ctx, beadsDir)
+			tempStore, err := sqlite.New(ctx, dbPath)
 			if err != nil {
 				return fmt.Errorf("failed to initialize target database: %w", err)
 			}
@@ -1266,28 +1151,4 @@ func ensureBeadsDirForPath(ctx context.Context, targetPath string, sourceStore s
 	}
 
 	return nil
-}
-
-// readIssuePrefixFromConfig reads the issue-prefix from a config.yaml file in the given beads directory.
-// Returns empty string if not found or on error.
-func readIssuePrefixFromConfig(beadsDir string) string {
-	configPath := filepath.Join(beadsDir, "config.yaml")
-	data, err := os.ReadFile(configPath) //nolint:gosec // Path is derived from trusted beadsDir
-	if err != nil {
-		return ""
-	}
-
-	// Simple parsing: look for "issue-prefix: " line
-	lines := strings.Split(string(data), "\n")
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "issue-prefix:") {
-			value := strings.TrimPrefix(line, "issue-prefix:")
-			value = strings.TrimSpace(value)
-			// Remove quotes if present
-			value = strings.Trim(value, `"'`)
-			return value
-		}
-	}
-	return ""
 }
