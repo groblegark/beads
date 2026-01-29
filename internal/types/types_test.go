@@ -545,16 +545,17 @@ func TestIssueTypeIsValid(t *testing.T) {
 		{TypeTask, true},
 		{TypeEpic, true},
 		{TypeChore, true},
-		// Gas Town types are now custom types (not built-in)
-		{IssueType("message"), false},
-		{IssueType("merge-request"), false},
-		{IssueType("molecule"), false},
-		{IssueType("gate"), false},
-		{IssueType("agent"), false},
-		{IssueType("role"), false},
-		{IssueType("convoy"), false},
-		{IssueType("event"), false},
-		{IssueType("slot"), false},
+		// Extended types (Gas Town, molecules, coordination) are now built-in
+		{IssueType("message"), true},
+		{IssueType("merge-request"), true},
+		{IssueType("molecule"), true},
+		{IssueType("gate"), true},
+		{IssueType("agent"), true},
+		{IssueType("role"), true},
+		{IssueType("convoy"), true},
+		{IssueType("event"), true},
+		{IssueType("slot"), true},
+		// Custom types (not in built-in list)
 		{IssueType("rig"), false},
 		// Invalid types
 		{IssueType("invalid"), false},

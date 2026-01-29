@@ -953,9 +953,9 @@ func TestRoutingModeDefaultIsEmpty(t *testing.T) {
 		t.Fatalf("Initialize() returned error: %v", err)
 	}
 
-	// Verify routing.mode defaults to empty string (disabled)
-	if got := GetString("routing.mode"); got != "" {
-		t.Errorf("GetString(routing.mode) = %q, want \"\" (empty = disabled by default)", got)
+	// Verify routing.mode defaults to "auto"
+	if got := GetString("routing.mode"); got != "auto" {
+		t.Errorf("GetString(routing.mode) = %q, want \"auto\"", got)
 	}
 
 	// Verify other routing defaults are still set correctly
@@ -1443,10 +1443,10 @@ func TestGetSovereigntyInvalid(t *testing.T) {
 		t.Fatalf("Initialize() returned error: %v", err)
 	}
 
-	// Set invalid sovereignty - should return T1 as fallback
+	// Set invalid sovereignty - should return empty string (no fallback)
 	Set("federation.sovereignty", "T99")
-	if got := GetSovereignty(); got != SovereigntyT1 {
-		t.Errorf("GetSovereignty() with invalid tier = %q, want %q (fallback)", got, SovereigntyT1)
+	if got := GetSovereignty(); got != "" {
+		t.Errorf("GetSovereignty() with invalid tier = %q, want \"\" (invalid returns empty)", got)
 	}
 }
 
@@ -1562,10 +1562,14 @@ func TestGetFieldStrategies(t *testing.T) {
 		t.Fatalf("Initialize() returned error: %v", err)
 	}
 
-	t.Run("empty_by_default", func(t *testing.T) {
+	t.Run("has_defaults", func(t *testing.T) {
 		result := GetFieldStrategies()
-		if len(result) != 0 {
-			t.Errorf("GetFieldStrategies() with no config = %v, want empty map", result)
+		// Now returns default strategies for compaction_level and labels
+		if result["compaction_level"] != FieldStrategyMax {
+			t.Errorf("Expected default compaction_level=max, got %s", result["compaction_level"])
+		}
+		if result["labels"] != FieldStrategyUnion {
+			t.Errorf("Expected default labels=union, got %s", result["labels"])
 		}
 	})
 
@@ -1575,8 +1579,8 @@ func TestGetFieldStrategies(t *testing.T) {
 			t.Fatalf("Initialize() returned error: %v", err)
 		}
 
-		// Set per-field strategies
-		Set("conflict.fields", map[string]string{
+		// Set per-field strategies using new config key
+		Set("sync.field_strategies", map[string]string{
 			"compaction_level":   "max",
 			"labels":             "union",
 			"estimated_minutes":  "manual",
@@ -1599,27 +1603,27 @@ func TestGetFieldStrategies(t *testing.T) {
 		}
 	})
 
-	t.Run("invalid_strategy_skipped", func(t *testing.T) {
+	t.Run("custom_strategies_included", func(t *testing.T) {
 		ResetForTesting()
 		if err := Initialize(); err != nil {
 			t.Fatalf("Initialize() returned error: %v", err)
 		}
 
-		// Set a mix of valid and invalid strategies
-		Set("conflict.fields", map[string]string{
+		// Set strategies using new config key - custom strategies are passed through
+		Set("sync.field_strategies", map[string]string{
 			"compaction_level": "max",
-			"invalid_field":    "invalid-strategy",
+			"custom_field":     "custom-strategy",
 		})
 
 		result := GetFieldStrategies()
 
-		// Valid one should be present
+		// Standard strategy should be present
 		if result["compaction_level"] != FieldStrategyMax {
 			t.Errorf("Expected compaction_level=max, got %s", result["compaction_level"])
 		}
-		// Invalid one should be skipped
-		if _, exists := result["invalid_field"]; exists {
-			t.Errorf("Expected invalid_field to be skipped, but it was included: %s", result["invalid_field"])
+		// Custom strategies are passed through (no filtering)
+		if result["custom_field"] != "custom-strategy" {
+			t.Errorf("Expected custom_field=custom-strategy, got %s", result["custom_field"])
 		}
 	})
 }

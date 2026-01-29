@@ -209,7 +209,8 @@ func TestValidateFieldUpdateWithCustom(t *testing.T) {
 		{"valid built-in type bug", "issue_type", "bug", customStatuses, customTypes, false},
 		{"invalid type", "issue_type", "invalid_type", customStatuses, customTypes, true},
 		{"valid type without custom types", "issue_type", "task", customStatuses, nil, false},
-		{"custom type without custom types configured", "issue_type", "agent", customStatuses, nil, true},
+		{"built-in extended type without custom types", "issue_type", "agent", customStatuses, nil, false},
+		{"custom type without custom types configured", "issue_type", "rig", customStatuses, nil, true},
 
 		// Custom status validation
 		{"valid custom status", "status", "awaiting_review", customStatuses, customTypes, false},

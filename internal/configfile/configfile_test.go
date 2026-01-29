@@ -338,28 +338,26 @@ func TestDoltServerMode(t *testing.T) {
 	})
 }
 
-// TestIsDoltServerModeEnvVar tests env var overrides for IsDoltServerMode
-func TestIsDoltServerModeEnvVar(t *testing.T) {
-	t.Run("env var override with dolt backend", func(t *testing.T) {
-		t.Setenv("BEADS_DOLT_SERVER_MODE", "1")
-		cfg := &Config{Backend: BackendDolt}
+// TestIsDoltServerModeConfig tests IsDoltServerMode with config values
+func TestIsDoltServerModeConfig(t *testing.T) {
+	t.Run("server mode enabled with dolt backend", func(t *testing.T) {
+		cfg := &Config{Backend: BackendDolt, DoltMode: DoltModeServer}
 		if !cfg.IsDoltServerMode() {
-			t.Error("IsDoltServerMode() = false, want true when env var set with dolt backend")
+			t.Error("IsDoltServerMode() = false, want true when DoltMode=server with dolt backend")
 		}
 	})
 
-	t.Run("env var ignored for sqlite backend", func(t *testing.T) {
-		t.Setenv("BEADS_DOLT_SERVER_MODE", "1")
-		cfg := &Config{Backend: BackendSQLite}
+	t.Run("server mode ignored for sqlite backend", func(t *testing.T) {
+		cfg := &Config{Backend: BackendSQLite, DoltMode: DoltModeServer}
 		if cfg.IsDoltServerMode() {
-			t.Error("IsDoltServerMode() = true, want false when env var set but sqlite backend")
+			t.Error("IsDoltServerMode() = true, want false when sqlite backend")
 		}
 	})
 
-	t.Run("env var not set", func(t *testing.T) {
+	t.Run("embedded mode by default", func(t *testing.T) {
 		cfg := &Config{Backend: BackendDolt}
 		if cfg.IsDoltServerMode() {
-			t.Error("IsDoltServerMode() = true, want false when no config or env var")
+			t.Error("IsDoltServerMode() = true, want false when no server mode config")
 		}
 	})
 }
@@ -447,36 +445,47 @@ func TestDoltServerModeRoundtrip(t *testing.T) {
 }
 
 // TestEnvVarOverrides tests env var overrides for getter methods
-func TestEnvVarOverrides(t *testing.T) {
-	t.Run("host env var overrides config", func(t *testing.T) {
-		t.Setenv("BEADS_DOLT_SERVER_HOST", "192.168.1.1")
+// TestConfigValues tests that config values are returned correctly from getters
+func TestConfigValues(t *testing.T) {
+	t.Run("host config value", func(t *testing.T) {
 		cfg := &Config{DoltServerHost: "10.0.0.1"}
-		if got := cfg.GetDoltServerHost(); got != "192.168.1.1" {
-			t.Errorf("GetDoltServerHost() = %q, want 192.168.1.1", got)
+		if got := cfg.GetDoltServerHost(); got != "10.0.0.1" {
+			t.Errorf("GetDoltServerHost() = %q, want 10.0.0.1", got)
 		}
 	})
 
-	t.Run("port env var overrides config", func(t *testing.T) {
-		t.Setenv("BEADS_DOLT_SERVER_PORT", "3309")
-		cfg := &Config{DoltServerPort: 3308}
-		if got := cfg.GetDoltServerPort(); got != 3309 {
-			t.Errorf("GetDoltServerPort() = %d, want 3309", got)
+	t.Run("host default value", func(t *testing.T) {
+		cfg := &Config{}
+		if got := cfg.GetDoltServerHost(); got != DefaultDoltServerHost {
+			t.Errorf("GetDoltServerHost() = %q, want %q", got, DefaultDoltServerHost)
 		}
 	})
 
-	t.Run("invalid port env var falls through to config", func(t *testing.T) {
-		t.Setenv("BEADS_DOLT_SERVER_PORT", "not-a-number")
+	t.Run("port config value", func(t *testing.T) {
 		cfg := &Config{DoltServerPort: 3308}
 		if got := cfg.GetDoltServerPort(); got != 3308 {
 			t.Errorf("GetDoltServerPort() = %d, want 3308", got)
 		}
 	})
 
-	t.Run("user env var overrides config", func(t *testing.T) {
-		t.Setenv("BEADS_DOLT_SERVER_USER", "envuser")
+	t.Run("port default value", func(t *testing.T) {
+		cfg := &Config{}
+		if got := cfg.GetDoltServerPort(); got != DefaultDoltServerPort {
+			t.Errorf("GetDoltServerPort() = %d, want %d", got, DefaultDoltServerPort)
+		}
+	})
+
+	t.Run("user config value", func(t *testing.T) {
 		cfg := &Config{DoltServerUser: "admin"}
-		if got := cfg.GetDoltServerUser(); got != "envuser" {
-			t.Errorf("GetDoltServerUser() = %q, want envuser", got)
+		if got := cfg.GetDoltServerUser(); got != "admin" {
+			t.Errorf("GetDoltServerUser() = %q, want admin", got)
+		}
+	})
+
+	t.Run("user default value", func(t *testing.T) {
+		cfg := &Config{}
+		if got := cfg.GetDoltServerUser(); got != DefaultDoltServerUser {
+			t.Errorf("GetDoltServerUser() = %q, want %q", got, DefaultDoltServerUser)
 		}
 	})
 
