@@ -60,15 +60,15 @@ func init() {
 		}
 
 		return dolt.New(ctx, &dolt.Config{
-			Path:        path,
-			ReadOnly:    opts.ReadOnly,
-			IdleTimeout: opts.IdleTimeout,
+			Path:           path,
+			ReadOnly:       opts.ReadOnly,
+			IdleTimeout:    opts.IdleTimeout,
 			// Server mode options (bd-f4f78a)
-			ServerMode: serverMode,
-			ServerHost: opts.ServerHost,
-			ServerPort: opts.ServerPort,
-			ServerUser: opts.ServerUser,
-			ServerPass: opts.ServerPass,
+			ServerMode:     serverMode,
+			ServerHost:     opts.ServerHost,
+			ServerPort:     opts.ServerPort,
+			ServerUser:     opts.ServerUser,
+			ServerPassword: opts.ServerPassword,
 		})
 	})
 }

@@ -141,7 +141,7 @@ Example:
 		// Validate mode
 		if !config.IsValidSyncMode(mode) {
 			fmt.Fprintf(os.Stderr, "Error: invalid sync mode: %s\n", mode)
-			fmt.Fprintf(os.Stderr, "Valid modes: %s\n", strings.Join(config.ValidSyncModes(), ", "))
+			fmt.Fprintf(os.Stderr, "Valid modes: %s\n", strings.Join(config.ValidSyncModes, ", "))
 			os.Exit(1)
 		}
 

@@ -43,6 +43,24 @@ const (
 	SyncTriggerPull = "pull"
 )
 
+// ValidSyncModes is the list of valid sync mode values
+var ValidSyncModes = []string{
+	SyncModeGitPortable,
+	SyncModeRealtime,
+	SyncModeDoltNative,
+	SyncModeBeltAndSuspenders,
+}
+
+// IsValidSyncMode returns true if the given mode is a valid sync mode
+func IsValidSyncMode(mode string) bool {
+	for _, valid := range ValidSyncModes {
+		if mode == valid {
+			return true
+		}
+	}
+	return false
+}
+
 // Conflict strategy constants define how sync conflicts are resolved.
 const (
 	// ConflictStrategyNewest keeps whichever version has the newer updated_at timestamp.
@@ -57,6 +75,51 @@ const (
 	// ConflictStrategyManual requires manual resolution of conflicts.
 	ConflictStrategyManual = "manual"
 )
+
+// FieldStrategy constants define per-field merge strategies
+const (
+	// FieldStrategyNewest uses the value from the issue with newer updated_at
+	FieldStrategyNewest = "newest"
+
+	// FieldStrategyMax uses the maximum value (for numeric fields like compaction_level)
+	FieldStrategyMax = "max"
+
+	// FieldStrategyUnion combines values from both (for arrays like labels)
+	FieldStrategyUnion = "union"
+
+	// FieldStrategyManual requires interactive resolution
+	FieldStrategyManual = "manual"
+)
+
+// GetFieldStrategies returns a map of field names to their merge strategies.
+// Fields not in the map use the default strategy (newest).
+func GetFieldStrategies() map[string]string {
+	result := make(map[string]string)
+
+	// Default field strategies
+	result["compaction_level"] = FieldStrategyMax
+	result["labels"] = FieldStrategyUnion
+
+	// Override with config values if available
+	if v != nil {
+		strategies := v.GetStringMapString("sync.field_strategies")
+		for field, strategy := range strategies {
+			result[field] = strategy
+		}
+	}
+
+	return result
+}
+
+// GetFieldStrategy returns the merge strategy for a specific field.
+// Returns "newest" (default) if not configured.
+func GetFieldStrategy(field string) string {
+	strategies := GetFieldStrategies()
+	if strategy, ok := strategies[field]; ok {
+		return strategy
+	}
+	return FieldStrategyNewest
+}
 
 // Federation sovereignty tiers define data sovereignty levels.
 const (
@@ -485,6 +548,63 @@ func GetStringMapString(key string) map[string]string {
 		return map[string]string{}
 	}
 	return v.GetStringMapString(key)
+}
+
+// GetCustomTypesFromYAML returns custom issue types from the types.custom config key.
+// Returns nil if no custom types are configured.
+func GetCustomTypesFromYAML() []string {
+	customStr := GetString("types.custom")
+	if customStr == "" {
+		return nil
+	}
+	// Parse comma-separated list
+	var types []string
+	for _, t := range strings.Split(customStr, ",") {
+		t = strings.TrimSpace(t)
+		if t != "" {
+			types = append(types, t)
+		}
+	}
+	if len(types) == 0 {
+		return nil
+	}
+	return types
+}
+
+// GetCustomStatusesFromYAML returns custom statuses from the statuses.custom config key.
+// Returns nil if no custom statuses are configured.
+func GetCustomStatusesFromYAML() []string {
+	customStr := GetString("statuses.custom")
+	if customStr == "" {
+		return nil
+	}
+	// Parse comma-separated list
+	var statuses []string
+	for _, s := range strings.Split(customStr, ",") {
+		s = strings.TrimSpace(s)
+		if s != "" {
+			statuses = append(statuses, s)
+		}
+	}
+	if len(statuses) == 0 {
+		return nil
+	}
+	return statuses
+}
+
+// GetTownLevelRoles returns town-level agent roles from validation package.
+func GetTownLevelRoles() []string {
+	return []string{"mayor", "deacon"}
+}
+
+// GetRigLevelRoles returns rig-level singleton agent roles from validation package.
+func GetRigLevelRoles() []string {
+	return []string{"witness", "refinery"}
+}
+
+// GetNamedRoles returns agent roles that include a worker name.
+func GetNamedRoles() []string {
+	return []string{"crew", "polecat"}
 }
 
 // GetDirectoryLabels returns labels for the current working directory based on config.

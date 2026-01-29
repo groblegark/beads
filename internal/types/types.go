@@ -126,6 +126,15 @@ type Issue struct {
 	Target    string `json:"target,omitempty"`     // Entity URI or bead ID affected
 	Payload   string `json:"payload,omitempty"`    // Event-specific JSON data
 
+	// ===== Skill Fields (agent capabilities) =====
+	SkillName       string   `json:"skill_name,omitempty"`        // Skill identifier (e.g., "python", "rust-debugging")
+	SkillVersion    string   `json:"skill_version,omitempty"`     // Skill version (semver or date)
+	SkillCategory   string   `json:"skill_category,omitempty"`    // Skill category (e.g., "language", "tool", "domain")
+	SkillInputs     []string `json:"skill_inputs,omitempty"`      // Expected input types
+	SkillOutputs    []string `json:"skill_outputs,omitempty"`     // Expected output types
+	SkillExamples   []string `json:"skill_examples,omitempty"`    // Example use cases
+	ClaudeSkillPath string   `json:"claude_skill_path,omitempty"` // Path to Claude skill definition file
+	SkillContent    string   `json:"skill_content,omitempty"`     // Skill prompt content for inline skills
 }
 
 // ComputeContentHash creates a deterministic hash of the issue's content.
@@ -499,6 +508,8 @@ const (
 	TypeEvent        IssueType = "event"         // Operational state change record
 	TypeSlot         IssueType = "slot"          // Exclusive access slot (merge-slot gate)
 	TypeWarrant      IssueType = "warrant"       // Session termination warrant
+	TypeSkill        IssueType = "skill"         // Agent skill/capability definition
+	TypeWisp         IssueType = "wisp"          // Ephemeral issue type (bonded molecule variant)
 )
 
 // IsValid checks if the issue type is a defined type constant.
@@ -511,7 +522,7 @@ func (t IssueType) IsValid() bool {
 	case TypeBug, TypeFeature, TypeTask, TypeEpic, TypeChore:
 		return true
 	// Extended types (Gas Town, molecules, coordination)
-	case TypeMessage, TypeMergeRequest, TypeMolecule, TypeGate, TypeAgent, TypeRole, TypeConvoy, TypeEvent, TypeSlot, TypeWarrant:
+	case TypeMessage, TypeMergeRequest, TypeMolecule, TypeGate, TypeAgent, TypeRole, TypeConvoy, TypeEvent, TypeSlot, TypeWarrant, TypeSkill, TypeWisp:
 		return true
 	}
 	return false
@@ -729,6 +740,10 @@ const (
 
 	// Delegation types (work delegation chains)
 	DepDelegatedFrom DependencyType = "delegated-from" // Work delegated from parent; completion cascades up
+
+	// Skill types (agent capability graph)
+	DepProvidesSkill DependencyType = "provides-skill" // Agent provides skill (agent → skill bead)
+	DepRequiresSkill DependencyType = "requires-skill" // Issue requires skill (issue → skill bead)
 )
 
 // IsValid checks if the dependency type value is valid.
@@ -745,7 +760,8 @@ func (d DependencyType) IsWellKnown() bool {
 	case DepBlocks, DepParentChild, DepConditionalBlocks, DepWaitsFor, DepRelated, DepDiscoveredFrom,
 		DepRepliesTo, DepRelatesTo, DepDuplicates, DepSupersedes,
 		DepAuthoredBy, DepAssignedTo, DepApprovedBy, DepAttests, DepTracks,
-		DepUntil, DepCausedBy, DepValidates, DepDelegatedFrom:
+		DepUntil, DepCausedBy, DepValidates, DepDelegatedFrom,
+		DepProvidesSkill, DepRequiresSkill:
 		return true
 	}
 	return false

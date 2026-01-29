@@ -256,7 +256,7 @@ func promptConflictResolution(reader *bufio.Reader, conflict InteractiveConflict
 
 		case "merged":
 			// Do field-level merge (same as automatic LWW merge)
-			merged := mergeFieldLevel(conflict.Base, local, remote)
+			merged, _ := mergeFieldLevel(conflict.Base, local, remote)
 			return InteractiveResolution{Choice: "merged", Issue: merged}, nil
 
 		case "skip":

@@ -1227,12 +1227,11 @@ func resolveExternalDependencies(ctx context.Context, issueID string, typeFilter
 			fmt.Fprintf(os.Stderr, "[external-deps] resolved beads dir: %s\n", targetBeadsDir)
 		}
 
-		// Open storage for the target rig
-		targetDBPath := filepath.Join(targetBeadsDir, "beads.db")
-		targetStore, err := sqlite.New(ctx, targetDBPath)
+		// Open storage for the target rig using factory to support both SQLite and Dolt
+		targetStore, err := factory.NewFromConfig(ctx, targetBeadsDir)
 		if err != nil {
 			if isVerbose() {
-				fmt.Fprintf(os.Stderr, "[external-deps] failed to open target db %s: %v\n", targetDBPath, err)
+				fmt.Fprintf(os.Stderr, "[external-deps] failed to open target db in %s: %v\n", targetBeadsDir, err)
 			}
 			continue // Can't open target database
 		}

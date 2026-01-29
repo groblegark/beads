@@ -379,7 +379,7 @@ func runDiagnostics(path string) doctorResult {
 	}
 
 	// Check 6: Multiple JSONL files (excluding merge artifacts)
-	jsonlCheck := convertWithCategory(doctor.CheckLegacyJSONLFilename(path), doctor.CategoryData)
+	jsonlCheck := convertWithCategory(doctor.CheckLegacyJSONLFilename(path, false), doctor.CategoryData)
 	result.Checks = append(result.Checks, jsonlCheck)
 	if jsonlCheck.Status == statusWarning || jsonlCheck.Status == statusError {
 		result.OverallOK = false
@@ -606,7 +606,7 @@ func runDiagnostics(path string) doctorResult {
 	// Don't fail overall check for child→parent deps, just warn
 
 	// Check 23: Duplicate issues (from bd validate)
-	duplicatesCheck := convertDoctorCheck(doctor.CheckDuplicateIssues(path))
+	duplicatesCheck := convertDoctorCheck(doctor.CheckDuplicateIssues(path, false, 0))
 	result.Checks = append(result.Checks, duplicatesCheck)
 	// Don't fail overall check for duplicates, just warn
 

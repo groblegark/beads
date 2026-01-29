@@ -816,3 +816,13 @@ func FindAllDatabases() []DatabaseInfo {
 
 	return databases
 }
+
+// GetConfiguredBackend returns the backend type from the beads directory config.
+// Returns the string backend name (e.g., "sqlite", "dolt") or empty string if no config.
+func GetConfiguredBackend(beadsDir string) string {
+	cfg, err := configfile.Load(beadsDir)
+	if err != nil || cfg == nil {
+		return ""
+	}
+	return string(cfg.GetBackend())
+}

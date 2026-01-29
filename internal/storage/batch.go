@@ -22,4 +22,10 @@ type BatchCreateOptions struct {
 	OrphanHandling OrphanHandling
 	// SkipPrefixValidation skips prefix validation for existing IDs (used during import)
 	SkipPrefixValidation bool
+	// PreserveDates preserves created_at/updated_at from issue (used during import)
+	PreserveDates bool
+	// SkipValidation skips type/status validation (used during import)
+	SkipValidation bool
+	// SkipDirtyTracking skips marking issues as dirty
+	SkipDirtyTracking bool
 }

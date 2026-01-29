@@ -183,7 +183,7 @@ The --full flag provides the legacy full sync behavior for backwards compatibili
 				fmt.Println("→ [DRY RUN] Would import from JSONL")
 			} else {
 				fmt.Println("→ Importing from JSONL...")
-				if err := importFromJSONLInline(ctx, jsonlPath, renameOnImport, noGitHistory); err != nil {
+				if err := importFromJSONLInline(ctx, jsonlPath, renameOnImport, noGitHistory, false); err != nil {
 					FatalError("importing: %v", err)
 				}
 				fmt.Println("✓ Import complete")
@@ -1064,7 +1064,7 @@ func resolveSyncConflicts(ctx context.Context, jsonlPath string, strategy string
 	}
 
 	// Import to database
-	if err := importFromJSONLInline(ctx, jsonlPath, false, false); err != nil {
+	if err := importFromJSONLInline(ctx, jsonlPath, false, false, false); err != nil {
 		return fmt.Errorf("importing merged state: %w", err)
 	}
 
@@ -1161,7 +1161,8 @@ func resolveSyncConflictsManually(ctx context.Context, jsonlPath, beadsDir strin
 				remote := remoteMap[id]
 				base := baseMap[id]
 				if local != nil && remote != nil {
-					mergedIssues = append(mergedIssues, mergeFieldLevel(base, local, remote))
+					merged, _ := mergeFieldLevel(base, local, remote)
+					mergedIssues = append(mergedIssues, merged)
 				} else if local != nil {
 					mergedIssues = append(mergedIssues, local)
 				} else if remote != nil {
@@ -1173,7 +1174,7 @@ func resolveSyncConflictsManually(ctx context.Context, jsonlPath, beadsDir strin
 			local := localMap[id]
 			remote := remoteMap[id]
 			base := baseMap[id]
-			merged, _ := MergeIssue(base, local, remote)
+			merged, _, _ := MergeIssue(base, local, remote)
 			if merged != nil {
 				mergedIssues = append(mergedIssues, merged)
 			}
@@ -1205,7 +1206,7 @@ func resolveSyncConflictsManually(ctx context.Context, jsonlPath, beadsDir strin
 	}
 
 	// Import to database
-	if err := importFromJSONLInline(ctx, jsonlPath, false, false); err != nil {
+	if err := importFromJSONLInline(ctx, jsonlPath, false, false, false); err != nil {
 		return fmt.Errorf("importing merged state: %w", err)
 	}
 

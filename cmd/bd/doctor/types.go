@@ -17,6 +17,7 @@ const (
 	CategoryMetadata    = "Metadata"
 	CategoryMaintenance = "Maintenance"
 	CategoryPerformance = "Performance"
+	CategoryFederation  = "Federation"
 )
 
 // CategoryOrder defines the display order for categories
@@ -29,6 +30,7 @@ var CategoryOrder = []string{
 	CategoryIntegration,
 	CategoryMetadata,
 	CategoryMaintenance,
+	CategoryFederation,
 }
 
 // MinSyncBranchHookVersion is the minimum hook version that supports sync-branch bypass (issue #532)

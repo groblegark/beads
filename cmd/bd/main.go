@@ -82,8 +82,9 @@ var (
 	profileEnabled bool
 	profileFile    *os.File
 	traceFile      *os.File
-	verboseFlag    bool // Enable verbose/debug output
-	quietFlag      bool // Suppress non-essential output
+	verboseFlag    bool   // Enable verbose/debug output
+	quietFlag      bool   // Suppress non-essential output
+	doltAutoCommit string // Dolt auto-commit mode: on (default) or off
 )
 
 // readOnlyCommands lists commands that only read from the database.

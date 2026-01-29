@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/steveyegge/beads/internal/config"
 	"github.com/steveyegge/beads/internal/storage"
@@ -85,7 +86,7 @@ func SetSyncMode(ctx context.Context, s storage.Storage, mode string) error {
 	// Validate mode using the shared validation
 	if !config.IsValidSyncMode(mode) {
 		return fmt.Errorf("invalid sync mode: %s (valid: %s)",
-			mode, fmt.Sprintf("%v", config.ValidSyncModes()))
+			mode, strings.Join(config.ValidSyncModes, ", "))
 	}
 
 	return s.SetConfig(ctx, SyncModeConfigKey, mode)

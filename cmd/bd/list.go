@@ -1210,7 +1210,11 @@ var listCmd = &cobra.Command{
 			if store != nil {
 				allDepsForList, _ = store.GetAllDependencyRecords(ctx)
 			} else if dbPath != "" {
-				if roStore, err := sqlite.NewReadOnlyWithTimeout(ctx, dbPath, lockTimeout); err == nil {
+				beadsDir := filepath.Dir(dbPath)
+				if roStore, err := factory.NewFromConfigWithOptions(ctx, beadsDir, factory.Options{
+					ReadOnly:    true,
+					LockTimeout: lockTimeout,
+				}); err == nil {
 					allDepsForList, _ = roStore.GetAllDependencyRecords(ctx)
 					_ = roStore.Close()
 				}
@@ -1591,8 +1595,9 @@ func listInRig(cmd *cobra.Command, rigName string, filter types.IssueFilter, sor
 	var buf strings.Builder
 	if ui.IsAgentMode() {
 		// Agent mode: ultra-compact, no colors, no pager
+		// Cross-rig context: no dependency info available
 		for _, issue := range issues {
-			formatAgentIssue(&buf, issue)
+			formatAgentIssue(&buf, issue, nil, nil)
 		}
 		fmt.Print(buf.String())
 		return
@@ -1605,9 +1610,10 @@ func listInRig(cmd *cobra.Command, rigName string, filter types.IssueFilter, sor
 		}
 	} else {
 		// Compact format: one line per issue
+		// Cross-rig context: no dependency info available
 		for _, issue := range issues {
 			labels := labelsMap[issue.ID]
-			formatIssueCompact(&buf, issue, labels)
+			formatIssueCompact(&buf, issue, labels, nil, nil)
 		}
 	}
 

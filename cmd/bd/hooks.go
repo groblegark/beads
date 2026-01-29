@@ -42,6 +42,13 @@ const shimVersionPrefix = "# bd-shim "
 // These hooks have the logic embedded directly rather than using shims
 const inlineHookMarker = "# bd (beads)"
 
+// jsonlFilePaths are the JSONL files that need to be staged/committed during git hooks
+var jsonlFilePaths = []string{
+	".beads/issues.jsonl",
+	".beads/deletions.jsonl",
+	".beads/interactions.jsonl",
+}
+
 // HookStatus represents the status of a single git hook
 type HookStatus struct {
 	Name      string

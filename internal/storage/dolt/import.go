@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/steveyegge/beads/internal/storage"
 	"github.com/steveyegge/beads/internal/types"
 )
 
@@ -35,16 +36,8 @@ func (s *DoltStore) GetOrphanHandling(ctx context.Context) string {
 	return handling
 }
 
-// BatchCreateOptions controls batch issue creation behavior
-type BatchCreateOptions struct {
-	SkipValidation     bool // Skip type/status validation
-	PreserveDates      bool // Preserve created_at/updated_at from issue
-	SkipDirtyTracking  bool // Skip marking issues as dirty
-	SkipPrefixCheck    bool // Skip prefix validation
-}
-
 // CreateIssuesWithFullOptions creates multiple issues with full options control
-func (s *DoltStore) CreateIssuesWithFullOptions(ctx context.Context, issues []*types.Issue, actor string, opts BatchCreateOptions) error {
+func (s *DoltStore) CreateIssuesWithFullOptions(ctx context.Context, issues []*types.Issue, actor string, opts storage.BatchCreateOptions) error {
 	if len(issues) == 0 {
 		return nil
 	}
@@ -102,39 +95,4 @@ func (s *DoltStore) CreateIssuesWithFullOptions(ctx context.Context, issues []*t
 	return nil
 }
 
-// ImportIssueComment adds a comment during import, preserving the original timestamp.
-func (s *DoltStore) ImportIssueComment(ctx context.Context, issueID, author, text string, createdAt string) (*types.Comment, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	// Parse the timestamp
-	var parsedTime time.Time
-	var err error
-	if createdAt != "" {
-		parsedTime, err = time.Parse(time.RFC3339, createdAt)
-		if err != nil {
-			// Try other formats
-			parsedTime, err = time.Parse("2006-01-02T15:04:05Z", createdAt)
-			if err != nil {
-				parsedTime = time.Now().UTC()
-			}
-		}
-	} else {
-		parsedTime = time.Now().UTC()
-	}
-
-	// Insert the comment with the preserved timestamp
-	_, err = s.db.ExecContext(ctx, `
-		INSERT INTO comments (issue_id, author, text, created_at)
-		VALUES (?, ?, ?, ?)
-	`, issueID, author, text, parsedTime.UTC().Format("2006-01-02 15:04:05"))
-	if err != nil {
-		return nil, fmt.Errorf("failed to insert comment: %w", err)
-	}
-
-	return &types.Comment{
-		Author:    author,
-		Text:      text,
-		CreatedAt: parsedTime,
-	}, nil
-}
+// Note: ImportIssueComment is defined in events.go

@@ -273,7 +273,7 @@ var createCmd = &cobra.Command{
 								// Found a matching route - auto-route to that rig
 								rigName := routing.ExtractProjectFromPath(route.Path)
 								if rigName != "" {
-									createInRig(cmd, rigName, explicitID, title, description, issueType, priority, design, acceptance, notes, assignee, labels, externalRef, wisp)
+									createInRig(cmd, rigName, explicitID, title, description, issueType, priority, design, acceptance, notes, assignee, labels, externalRef, wisp, pinned)
 									return
 								}
 							}

@@ -43,6 +43,7 @@ type Options struct {
 	OrphanHandling             OrphanHandling  // How to handle missing parent issues (default: allow)
 	ClearDuplicateExternalRefs bool            // Clear duplicate external_ref values instead of erroring
 	ProtectLocalExportIDs      map[string]time.Time // IDs from left snapshot with timestamps for timestamp-aware protection (GH#865)
+	DeletionIDs                []string        // IDs to delete (from JSONL deletion markers)
 }
 
 // Result contains statistics about the import operation
@@ -51,6 +52,7 @@ type Result struct {
 	Updated             int               // Existing issues updated
 	Unchanged           int               // Existing issues that matched exactly (idempotent)
 	Skipped             int               // Issues skipped (duplicates, errors)
+	Deleted             int               // Issues deleted (from deletion markers)
 	Collisions          int               // Collisions detected
 	IDMapping           map[string]string // Mapping of remapped IDs (old -> new)
 	CollisionIDs        []string          // IDs that collided
@@ -944,9 +946,7 @@ func importComments(ctx context.Context, sqliteStore *sqlite.SQLiteStorage, issu
 			key := fmt.Sprintf("%s:%s", comment.Author, strings.TrimSpace(comment.Text))
 			if !existingComments[key] {
 				// Use ImportIssueComment to preserve original timestamp (GH#735)
-				// Format timestamp as RFC3339 for SQLite compatibility
-				createdAt := comment.CreatedAt.UTC().Format(time.RFC3339)
-				if _, err := sqliteStore.ImportIssueComment(ctx, issue.ID, comment.Author, comment.Text, createdAt); err != nil {
+				if _, err := sqliteStore.ImportIssueComment(ctx, issue.ID, comment.Author, comment.Text, comment.CreatedAt); err != nil {
 					if opts.Strict {
 						return fmt.Errorf("error adding comment to %s: %w", issue.ID, err)
 					}

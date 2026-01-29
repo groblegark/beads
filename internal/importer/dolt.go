@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/steveyegge/beads/internal/storage"
 	"github.com/steveyegge/beads/internal/storage/dolt"
 	"github.com/steveyegge/beads/internal/types"
 )
@@ -71,11 +72,11 @@ func importIssuesDolt(ctx context.Context, store *dolt.DoltStore, issues []*type
 
 		// Create new issues
 		if len(toCreate) > 0 {
-			batchOpts := dolt.BatchCreateOptions{
-				SkipValidation:    true,
-				PreserveDates:     true,
-				SkipDirtyTracking: true,
-				SkipPrefixCheck:   opts.SkipPrefixValidation,
+			batchOpts := storage.BatchCreateOptions{
+				SkipValidation:       true,
+				PreserveDates:        true,
+				SkipDirtyTracking:    true,
+				SkipPrefixValidation: opts.SkipPrefixValidation,
 			}
 			if err := store.CreateIssuesWithFullOptions(ctx, toCreate, "import", batchOpts); err != nil {
 				return nil, fmt.Errorf("failed to create issues: %w", err)
