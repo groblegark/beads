@@ -25,7 +25,7 @@ func TestSyncModeListText(t *testing.T) {
 	output := captureSyncModeListOutput(t)
 
 	// Verify output contains all sync modes
-	for _, mode := range config.ValidSyncModes() {
+	for _, mode := range config.ValidSyncModes {
 		if !strings.Contains(output, mode) {
 			t.Errorf("output should contain mode '%s', got: %s", mode, output)
 		}
@@ -77,7 +77,7 @@ func TestSyncModeListJSON(t *testing.T) {
 		}
 	}
 
-	for _, expected := range config.ValidSyncModes() {
+	for _, expected := range config.ValidSyncModes {
 		if !modes[expected] {
 			t.Errorf("missing mode: %s", expected)
 		}
@@ -179,11 +179,6 @@ func TestSyncModeCurrentWithoutStore(t *testing.T) {
 	storeActive = false
 	storeMutex.Unlock()
 
-	// Suppress config warnings for cleaner test output
-	origWarnings := config.ConfigWarnings
-	config.ConfigWarnings = false
-	defer func() { config.ConfigWarnings = origWarnings }()
-
 	// Test text output - should fall back to config.yaml (default: git-portable)
 	t.Run("text", func(t *testing.T) {
 		origJsonOutput := jsonOutput
@@ -238,7 +233,7 @@ func TestSyncModeInfoStructure(t *testing.T) {
 		modes[m.Mode] = true
 	}
 
-	for _, expected := range config.ValidSyncModes() {
+	for _, expected := range config.ValidSyncModes {
 		if !modes[expected] {
 			t.Errorf("syncModeInfo missing mode: %s", expected)
 		}
@@ -247,7 +242,7 @@ func TestSyncModeInfoStructure(t *testing.T) {
 
 // TestSyncModeSetValidModes tests `bd sync mode set` with valid modes.
 func TestSyncModeSetValidModes(t *testing.T) {
-	for _, mode := range config.ValidSyncModes() {
+	for _, mode := range config.ValidSyncModes {
 		t.Run(mode, func(t *testing.T) {
 			ctx := context.Background()
 			tmpDir := t.TempDir()

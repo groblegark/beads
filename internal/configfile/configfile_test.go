@@ -480,23 +480,15 @@ func TestEnvVarOverrides(t *testing.T) {
 		}
 	})
 
-	t.Run("database env var overrides config", func(t *testing.T) {
-		t.Setenv("BEADS_DOLT_SERVER_DATABASE", "envdb")
-		cfg := &Config{DoltDatabase: "mydb"}
-		if got := cfg.GetDoltDatabase(); got != "envdb" {
-			t.Errorf("GetDoltDatabase() = %q, want envdb", got)
-		}
-	})
-
 	t.Run("database default", func(t *testing.T) {
 		cfg := &Config{}
-		if got := cfg.GetDoltDatabase(); got != DefaultDoltDatabase {
-			t.Errorf("GetDoltDatabase() = %q, want %q", got, DefaultDoltDatabase)
+		if got := cfg.GetDoltDatabase(); got != "beads" {
+			t.Errorf("GetDoltDatabase() = %q, want %q", got, "beads")
 		}
 	})
 
 	t.Run("database config value", func(t *testing.T) {
-		cfg := &Config{DoltDatabase: "mydb"}
+		cfg := &Config{Database: "mydb"}
 		if got := cfg.GetDoltDatabase(); got != "mydb" {
 			t.Errorf("GetDoltDatabase() = %q, want mydb", got)
 		}

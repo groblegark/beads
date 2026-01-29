@@ -2,12 +2,35 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 
 	"github.com/steveyegge/beads/internal/importer"
 	"github.com/steveyegge/beads/internal/storage"
 	"github.com/steveyegge/beads/internal/types"
 )
+
+// DeletionMarker represents a deletion marker in JSONL format.
+// When importing, entries with _deleted: true indicate the issue should be deleted.
+type DeletionMarker struct {
+	ID        string     `json:"id"`
+	Deleted   bool       `json:"_deleted"`
+	DeletedAt *time.Time `json:"_deleted_at,omitempty"`
+}
+
+// isDeletionMarker checks if the given JSON data represents a deletion marker.
+// Returns the marker and true if it's a valid deletion marker, nil and false otherwise.
+func isDeletionMarker(data []byte) (*DeletionMarker, bool) {
+	var marker DeletionMarker
+	if err := json.Unmarshal(data, &marker); err != nil {
+		return nil, false
+	}
+	// A deletion marker must have an ID and _deleted must be true
+	if marker.ID == "" || !marker.Deleted {
+		return nil, false
+	}
+	return &marker, true
+}
 
 // fieldComparator handles comparison logic for a specific field type
 type fieldComparator struct {

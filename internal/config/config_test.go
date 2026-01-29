@@ -1671,7 +1671,7 @@ func TestGetConflictConfigWithFields(t *testing.T) {
 	}
 
 	Set("conflict.strategy", "ours")
-	Set("conflict.fields", map[string]string{
+	Set("sync.field_strategies", map[string]string{
 		"compaction_level": "max",
 		"labels":           "union",
 	})
@@ -1681,10 +1681,13 @@ func TestGetConflictConfigWithFields(t *testing.T) {
 	if result.Strategy != ConflictStrategyOurs {
 		t.Errorf("GetConflictConfig().Strategy = %s, want ours", result.Strategy)
 	}
-	if result.Fields["compaction_level"] != FieldStrategyMax {
-		t.Errorf("GetConflictConfig().Fields[compaction_level] = %s, want max", result.Fields["compaction_level"])
+
+	// Field strategies are accessed via GetFieldStrategies(), not ConflictConfig.Fields
+	fields := GetFieldStrategies()
+	if fields["compaction_level"] != FieldStrategyMax {
+		t.Errorf("GetFieldStrategies()[compaction_level] = %s, want max", fields["compaction_level"])
 	}
-	if result.Fields["labels"] != FieldStrategyUnion {
-		t.Errorf("GetConflictConfig().Fields[labels] = %s, want union", result.Fields["labels"])
+	if fields["labels"] != FieldStrategyUnion {
+		t.Errorf("GetFieldStrategies()[labels] = %s, want union", fields["labels"])
 	}
 }

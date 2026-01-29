@@ -8,39 +8,47 @@ import (
 	"github.com/steveyegge/beads/internal/beads"
 )
 
+// truncateTextMaxLen is the default max length used in tests
+const truncateTextMaxLen = 60
+
 func TestTruncateText(t *testing.T) {
 	tests := []struct {
-		name  string
-		input string
-		want  string
+		name   string
+		input  string
+		maxLen int
+		want   string
 	}{
 		{
-			name:  "empty string",
-			input: "",
-			want:  "(empty)",
+			name:   "empty string",
+			input:  "",
+			maxLen: truncateTextMaxLen,
+			want:   "(empty)",
 		},
 		{
-			name:  "short string",
-			input: "hello",
-			want:  "hello",
+			name:   "short string",
+			input:  "hello",
+			maxLen: truncateTextMaxLen,
+			want:   "hello",
 		},
 		{
-			name:  "newlines replaced",
-			input: "line1\nline2\r\nline3",
-			want:  "line1 line2 line3",
+			name:   "newlines replaced",
+			input:  "line1\nline2\r\nline3",
+			maxLen: truncateTextMaxLen,
+			want:   "line1 line2 line3",
 		},
 		{
-			name:  "truncated at fixed max",
-			input: strings.Repeat("a", truncateTextMaxLen+10),
-			want:  strings.Repeat("a", truncateTextMaxLen-3) + "...",
+			name:   "truncated at fixed max",
+			input:  strings.Repeat("a", truncateTextMaxLen+10),
+			maxLen: truncateTextMaxLen,
+			want:   strings.Repeat("a", truncateTextMaxLen-3) + "...",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := truncateText(tt.input)
+			got := truncateText(tt.input, tt.maxLen)
 			if got != tt.want {
-				t.Errorf("truncateText(%q) = %q, want %q", tt.input, got, tt.want)
+				t.Errorf("truncateText(%q, %d) = %q, want %q", tt.input, tt.maxLen, got, tt.want)
 			}
 		})
 	}
