@@ -81,9 +81,15 @@ func TestFallbackToDirectModeEnablesFlush(t *testing.T) {
 	testDBPath := filepath.Join(beadsDir, "beads.db")
 
 	// Create metadata.json so factory.NewFromConfig knows which DB to open (GH#e82f5136)
-	metadataJSON := `{"database":"test.db","jsonl_export":"issues.jsonl"}`
+	// NOTE: database name must match testDBPath (beads.db)
+	metadataJSON := `{"database":"beads.db","jsonl_export":"issues.jsonl"}`
 	if err := os.WriteFile(filepath.Join(beadsDir, "metadata.json"), []byte(metadataJSON), 0644); err != nil {
 		t.Fatalf("failed to create metadata.json: %v", err)
+	}
+
+	// Create config.yaml with git-portable sync mode (needed for JSONL export)
+	if err := os.WriteFile(filepath.Join(beadsDir, "config.yaml"), []byte("sync:\n  mode: git-portable\n"), 0644); err != nil {
+		t.Fatalf("failed to create config.yaml: %v", err)
 	}
 
 	// Change to temp directory so FindBeadsDir finds our test .beads directory
@@ -95,6 +101,11 @@ func TestFallbackToDirectModeEnablesFlush(t *testing.T) {
 		t.Fatalf("failed to change to temp directory: %v", err)
 	}
 	defer os.Chdir(originalWd)
+
+	// Reinitialize config to pick up the test directory's config.yaml
+	if err := config.Initialize(); err != nil {
+		t.Fatalf("failed to initialize config after chdir: %v", err)
+	}
 
 	// Seed database with issues
 	setupStore := newTestStore(t, testDBPath)

@@ -51,8 +51,10 @@ var ValidSyncModes = []string{
 	SyncModeBeltAndSuspenders,
 }
 
-// IsValidSyncMode returns true if the given mode is a valid sync mode
+// IsValidSyncMode returns true if the given mode is a valid sync mode.
+// Matching is case-insensitive and whitespace is trimmed.
 func IsValidSyncMode(mode string) bool {
+	mode = strings.ToLower(strings.TrimSpace(mode))
 	for _, valid := range ValidSyncModes {
 		if mode == valid {
 			return true
