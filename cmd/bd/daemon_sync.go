@@ -109,8 +109,15 @@ func exportToJSONLWithStore(ctx context.Context, store storage.Storage, jsonlPat
 		}
 	}()
 
+	// Track content hashes for export_hashes table (GH#1278)
+	exportHashes := make(map[string]string)
+
 	// Write JSONL
 	for _, issue := range issues {
+		// Compute and store content hash for export tracking
+		contentHash := issue.ComputeContentHash()
+		exportHashes[issue.ID] = contentHash
+
 		data, marshalErr := json.Marshal(issue)
 		if marshalErr != nil {
 			writeErr = fmt.Errorf("failed to marshal issue %s: %w", issue.ID, marshalErr)
@@ -136,6 +143,17 @@ func exportToJSONLWithStore(ctx context.Context, store storage.Storage, jsonlPat
 	if writeErr = os.Rename(tempPath, jsonlPath); writeErr != nil {
 		writeErr = fmt.Errorf("failed to rename temp file: %w", writeErr)
 		return writeErr
+	}
+
+	// Update export_hashes table after successful export (GH#1278)
+	// This tracks what content was last exported for each issue
+	if sqliteStore, ok := store.(*sqlite.SQLiteStorage); ok {
+		for issueID, contentHash := range exportHashes {
+			if err := sqliteStore.SetExportHash(ctx, issueID, contentHash); err != nil {
+				// Non-fatal - just log warning
+				fmt.Fprintf(os.Stderr, "Warning: failed to set export hash for %s: %v\n", issueID, err)
+			}
+		}
 	}
 
 	return nil

@@ -162,6 +162,19 @@ func ImportIssues(ctx context.Context, dbPath string, store storage.Storage, iss
 	if err != nil {
 		return result, err
 	}
+
+	// Process deletion markers in dry-run mode (count only)
+	// This must happen before the early return so dry-run reports accurate counts
+	if opts.DryRun && len(opts.DeletionIDs) > 0 {
+		for _, id := range opts.DeletionIDs {
+			existing, err := sqliteStore.GetIssue(ctx, id)
+			if err != nil || existing == nil {
+				continue
+			}
+			result.Deleted++
+		}
+	}
+
 	if opts.DryRun && result.Collisions == 0 {
 		return result, nil
 	}
@@ -189,6 +202,24 @@ func ImportIssues(ctx context.Context, dbPath string, store storage.Storage, iss
 	// Import decision points (hq-946577.12)
 	if err := importDecisionPoints(ctx, sqliteStore, issues, opts); err != nil {
 		return nil, err
+	}
+
+	// Process deletion markers (delete issues by ID)
+	// Note: Dry-run mode returns early above, so this only runs for actual deletions
+	if len(opts.DeletionIDs) > 0 {
+		for _, id := range opts.DeletionIDs {
+			// Check if issue exists before deleting
+			existing, err := sqliteStore.GetIssue(ctx, id)
+			if err != nil || existing == nil {
+				// Issue doesn't exist, skip
+				continue
+			}
+			// Actually delete the issue
+			if err := sqliteStore.DeleteIssue(ctx, id); err != nil {
+				return nil, fmt.Errorf("failed to delete issue %s: %w", id, err)
+			}
+			result.Deleted++
+		}
 	}
 
 	// Checkpoint WAL to ensure data persistence and reduce WAL file size
