@@ -409,23 +409,28 @@ func handleExistingSocket(socketPath string) bool {
 		return true
 	}
 
+	// CRITICAL FIX: Derive beadsDir from socketPath, not dbPath.
+	// The socket might belong to a parent workspace's daemon (via registry lookup),
+	// while dbPath points to the local workspace. Using dbPath here would check
+	// the wrong lock and potentially delete a running daemon's socket.
+	// See: hq--bug-investigate_intermittent_dolt_daemon
+	socketBeadsDir := filepath.Dir(socketPath)
+
 	// Use flock-based check as authoritative source (immune to PID reuse)
 	// If daemon lock is not held, daemon is definitely dead regardless of PID file
-	beadsDir := filepath.Dir(dbPath)
-	if running, pid := lockfile.TryDaemonLock(beadsDir); running {
+	if running, pid := lockfile.TryDaemonLock(socketBeadsDir); running {
 		debugLog("daemon lock held (PID %d), waiting for socket", pid)
 		return waitForSocketReadiness(socketPath, 5*time.Second)
 	}
 
 	// Lock not held - daemon is dead, clean up stale artifacts
+	// Only clean up artifacts in the socket's workspace, not the local workspace
 	debugLog("socket is stale (daemon lock not held), cleaning up")
 	_ = os.Remove(socketPath) // Best-effort cleanup, file may not exist
-	pidFile := getPIDFileForSocket(socketPath)
-	if pidFile != "" {
-		_ = os.Remove(pidFile) // Best-effort cleanup, file may not exist
-	}
+	pidFile := filepath.Join(socketBeadsDir, "daemon.pid")
+	_ = os.Remove(pidFile) // Best-effort cleanup, file may not exist
 	// Also clean up daemon.lock file (contains stale metadata)
-	lockFile := filepath.Join(beadsDir, "daemon.lock")
+	lockFile := filepath.Join(socketBeadsDir, "daemon.lock")
 	_ = os.Remove(lockFile) // Best-effort cleanup
 	return false
 }
