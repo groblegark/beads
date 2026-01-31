@@ -11,8 +11,8 @@ import (
 
 	"github.com/steveyegge/beads/internal/beads"
 	"github.com/steveyegge/beads/internal/configfile"
-	"github.com/steveyegge/beads/internal/storage"
 	"github.com/steveyegge/beads/internal/storage/factory"
+	"github.com/steveyegge/beads/internal/storage/sqlite"
 	"github.com/steveyegge/beads/internal/types"
 )
 
@@ -298,7 +298,6 @@ func CheckCompactionCandidates(path string) DoctorCheck {
 			Category: CategoryMaintenance,
 		}
 	}
-	dbPath := cfg.DatabasePath(beadsDir)
 
 	// Open database using factory
 	ctx := context.Background()
@@ -313,8 +312,8 @@ func CheckCompactionCandidates(path string) DoctorCheck {
 	}
 	defer func() { _ = store.Close() }()
 
-	// Type assert to CompactableStorage for compaction methods
-	compactStore, ok := store.(storage.CompactableStorage)
+	// Type assert to SQLiteStorage for compaction methods
+	compactStore, ok := store.(*sqlite.SQLiteStorage)
 	if !ok {
 		return DoctorCheck{
 			Name:     "Compaction Candidates",
