@@ -344,7 +344,9 @@ func (t *sqliteTxStorage) GetIssue(ctx context.Context, id string) (*types.Issue
 		       sender, ephemeral, pinned, is_template, crystallizes,
 		       await_type, await_id, timeout_ns, waiters,
 		       hook_bead, role_bead, agent_state, last_activity, role_type, rig, mol_type,
-		       due_at, defer_until, metadata
+		       due_at, defer_until, metadata,
+		       advice_target_rig, advice_target_role, advice_target_agent,
+		       advice_hook_command, advice_hook_trigger, advice_hook_timeout, advice_hook_on_failure
 		FROM issues
 		WHERE id = ?
 	`, id)
@@ -1388,7 +1390,9 @@ func (t *sqliteTxStorage) SearchIssues(ctx context.Context, query string, filter
 		       sender, ephemeral, pinned, is_template, crystallizes,
 		       await_type, await_id, timeout_ns, waiters,
 		       hook_bead, role_bead, agent_state, last_activity, role_type, rig, mol_type,
-		       due_at, defer_until, metadata
+		       due_at, defer_until, metadata,
+		       advice_target_rig, advice_target_role, advice_target_agent,
+		       advice_hook_command, advice_hook_trigger, advice_hook_timeout, advice_hook_on_failure
 		FROM issues
 		%s
 		ORDER BY priority ASC, created_at DESC
@@ -1458,6 +1462,15 @@ func scanIssueRow(row scanner) (*types.Issue, error) {
 	var deferUntil sql.NullTime
 	// Custom metadata field (GH#1406)
 	var metadata sql.NullString
+	// Advice fields (gt-epc-advice_schema_storage)
+	var adviceTargetRig sql.NullString
+	var adviceTargetRole sql.NullString
+	var adviceTargetAgent sql.NullString
+	// Advice hook fields (hq--uaim)
+	var adviceHookCommand sql.NullString
+	var adviceHookTrigger sql.NullString
+	var adviceHookTimeout sql.NullInt64
+	var adviceHookOnFailure sql.NullString
 
 	err := row.Scan(
 		&issue.ID, &contentHash, &issue.Title, &issue.Description, &issue.Design,
@@ -1470,6 +1483,8 @@ func scanIssueRow(row scanner) (*types.Issue, error) {
 		&awaitType, &awaitID, &timeoutNs, &waiters,
 		&hookBead, &roleBead, &agentState, &lastActivity, &roleType, &rig, &molType,
 		&dueAt, &deferUntil, &metadata,
+		&adviceTargetRig, &adviceTargetRole, &adviceTargetAgent,
+		&adviceHookCommand, &adviceHookTrigger, &adviceHookTimeout, &adviceHookOnFailure,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to scan issue: %w", err)
@@ -1562,6 +1577,29 @@ func scanIssueRow(row scanner) (*types.Issue, error) {
 	// Custom metadata field (GH#1406)
 	if metadata.Valid && metadata.String != "" && metadata.String != "{}" {
 		issue.Metadata = []byte(metadata.String)
+	}
+	// Advice fields (gt-epc-advice_schema_storage)
+	if adviceTargetRig.Valid {
+		issue.AdviceTargetRig = adviceTargetRig.String
+	}
+	if adviceTargetRole.Valid {
+		issue.AdviceTargetRole = adviceTargetRole.String
+	}
+	if adviceTargetAgent.Valid {
+		issue.AdviceTargetAgent = adviceTargetAgent.String
+	}
+	// Advice hook fields (hq--uaim)
+	if adviceHookCommand.Valid {
+		issue.AdviceHookCommand = adviceHookCommand.String
+	}
+	if adviceHookTrigger.Valid {
+		issue.AdviceHookTrigger = adviceHookTrigger.String
+	}
+	if adviceHookTimeout.Valid {
+		issue.AdviceHookTimeout = int(adviceHookTimeout.Int64)
+	}
+	if adviceHookOnFailure.Valid {
+		issue.AdviceHookOnFailure = adviceHookOnFailure.String
 	}
 
 	return &issue, nil

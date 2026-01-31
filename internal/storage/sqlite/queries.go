@@ -355,6 +355,15 @@ func (s *SQLiteStorage) GetIssue(ctx context.Context, id string) (*types.Issue, 
 	var deferUntil sql.NullTime
 	// Custom metadata field (GH#1406)
 	var metadata sql.NullString
+	// Advice fields (gt-epc-advice_schema_storage)
+	var adviceTargetRig sql.NullString
+	var adviceTargetRole sql.NullString
+	var adviceTargetAgent sql.NullString
+	// Advice hook fields (hq--uaim)
+	var adviceHookCommand sql.NullString
+	var adviceHookTrigger sql.NullString
+	var adviceHookTimeout sql.NullInt64
+	var adviceHookOnFailure sql.NullString
 
 	var contentHash sql.NullString
 	var compactedAtCommit sql.NullString
@@ -369,7 +378,9 @@ func (s *SQLiteStorage) GetIssue(ctx context.Context, id string) (*types.Issue, 
 		       await_type, await_id, timeout_ns, waiters,
 		       hook_bead, role_bead, agent_state, last_activity, role_type, rig, mol_type,
 		       event_kind, actor, target, payload,
-		       due_at, defer_until, metadata
+		       due_at, defer_until, metadata,
+		       advice_target_rig, advice_target_role, advice_target_agent,
+		       advice_hook_command, advice_hook_trigger, advice_hook_timeout, advice_hook_on_failure
 		FROM issues
 		WHERE id = ?
 	`, id).Scan(
@@ -384,6 +395,8 @@ func (s *SQLiteStorage) GetIssue(ctx context.Context, id string) (*types.Issue, 
 		&hookBead, &roleBead, &agentState, &lastActivity, &roleType, &rig, &molType,
 		&eventKind, &actor, &target, &payload,
 		&dueAt, &deferUntil, &metadata,
+		&adviceTargetRig, &adviceTargetRole, &adviceTargetAgent,
+		&adviceHookCommand, &adviceHookTrigger, &adviceHookTimeout, &adviceHookOnFailure,
 	)
 
 	if err == sql.ErrNoRows {
@@ -523,6 +536,29 @@ func (s *SQLiteStorage) GetIssue(ctx context.Context, id string) (*types.Issue, 
 	// Custom metadata field (GH#1406)
 	if metadata.Valid && metadata.String != "" && metadata.String != "{}" {
 		issue.Metadata = []byte(metadata.String)
+	}
+	// Advice fields (gt-epc-advice_schema_storage)
+	if adviceTargetRig.Valid {
+		issue.AdviceTargetRig = adviceTargetRig.String
+	}
+	if adviceTargetRole.Valid {
+		issue.AdviceTargetRole = adviceTargetRole.String
+	}
+	if adviceTargetAgent.Valid {
+		issue.AdviceTargetAgent = adviceTargetAgent.String
+	}
+	// Advice hook fields (hq--uaim)
+	if adviceHookCommand.Valid {
+		issue.AdviceHookCommand = adviceHookCommand.String
+	}
+	if adviceHookTrigger.Valid {
+		issue.AdviceHookTrigger = adviceHookTrigger.String
+	}
+	if adviceHookTimeout.Valid {
+		issue.AdviceHookTimeout = int(adviceHookTimeout.Int64)
+	}
+	if adviceHookOnFailure.Valid {
+		issue.AdviceHookOnFailure = adviceHookOnFailure.String
 	}
 
 	// Fetch labels for this issue
@@ -2055,7 +2091,9 @@ func (s *SQLiteStorage) SearchIssues(ctx context.Context, query string, filter t
 		       sender, ephemeral, pinned, is_template, crystallizes,
 		       await_type, await_id, timeout_ns, waiters,
 		       hook_bead, role_bead, agent_state, last_activity, role_type, rig, mol_type,
-		       due_at, defer_until, metadata
+		       due_at, defer_until, metadata,
+		       advice_target_rig, advice_target_role, advice_target_agent,
+		       advice_hook_command, advice_hook_trigger, advice_hook_timeout, advice_hook_on_failure
 		FROM issues
 		%s
 		ORDER BY priority ASC, created_at DESC

@@ -995,6 +995,15 @@ func (s *SQLiteStorage) scanIssues(ctx context.Context, rows *sql.Rows) ([]*type
 		var deferUntil sql.NullTime
 		// Custom metadata field (GH#1406)
 		var metadata sql.NullString
+		// Advice fields (gt-epc-advice_schema_storage)
+		var adviceTargetRig sql.NullString
+		var adviceTargetRole sql.NullString
+		var adviceTargetAgent sql.NullString
+		// Advice hook fields (hq--uaim)
+		var adviceHookCommand sql.NullString
+		var adviceHookTrigger sql.NullString
+		var adviceHookTimeout sql.NullInt64
+		var adviceHookOnFailure sql.NullString
 
 		err := rows.Scan(
 			&issue.ID, &contentHash, &issue.Title, &issue.Description, &issue.Design,
@@ -1006,6 +1015,8 @@ func (s *SQLiteStorage) scanIssues(ctx context.Context, rows *sql.Rows) ([]*type
 			&awaitType, &awaitID, &timeoutNs, &waiters,
 			&hookBead, &roleBead, &agentState, &lastActivity, &roleType, &rig, &molType,
 			&dueAt, &deferUntil, &metadata,
+			&adviceTargetRig, &adviceTargetRole, &adviceTargetAgent,
+			&adviceHookCommand, &adviceHookTrigger, &adviceHookTimeout, &adviceHookOnFailure,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan issue: %w", err)
@@ -1089,6 +1100,29 @@ func (s *SQLiteStorage) scanIssues(ctx context.Context, rows *sql.Rows) ([]*type
 		// Custom metadata field (GH#1406)
 		if metadata.Valid && metadata.String != "" && metadata.String != "{}" {
 			issue.Metadata = []byte(metadata.String)
+		}
+		// Advice fields (gt-epc-advice_schema_storage)
+		if adviceTargetRig.Valid {
+			issue.AdviceTargetRig = adviceTargetRig.String
+		}
+		if adviceTargetRole.Valid {
+			issue.AdviceTargetRole = adviceTargetRole.String
+		}
+		if adviceTargetAgent.Valid {
+			issue.AdviceTargetAgent = adviceTargetAgent.String
+		}
+		// Advice hook fields (hq--uaim)
+		if adviceHookCommand.Valid {
+			issue.AdviceHookCommand = adviceHookCommand.String
+		}
+		if adviceHookTrigger.Valid {
+			issue.AdviceHookTrigger = adviceHookTrigger.String
+		}
+		if adviceHookTimeout.Valid {
+			issue.AdviceHookTimeout = int(adviceHookTimeout.Int64)
+		}
+		if adviceHookOnFailure.Valid {
+			issue.AdviceHookOnFailure = adviceHookOnFailure.String
 		}
 
 		issues = append(issues, &issue)

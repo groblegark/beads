@@ -175,7 +175,9 @@ func (s *SQLiteStorage) GetIssuesByLabel(ctx context.Context, label string) ([]*
 		       i.sender, i.ephemeral, i.pinned, i.is_template, i.crystallizes,
 		       i.await_type, i.await_id, i.timeout_ns, i.waiters,
 		       i.hook_bead, i.role_bead, i.agent_state, i.last_activity, i.role_type, i.rig, i.mol_type,
-		       i.due_at, i.defer_until, i.metadata
+		       i.due_at, i.defer_until, i.metadata,
+		       i.advice_target_rig, i.advice_target_role, i.advice_target_agent,
+		       i.advice_hook_command, i.advice_hook_trigger, i.advice_hook_timeout, i.advice_hook_on_failure
 		FROM issues i
 		JOIN labels l ON i.id = l.issue_id
 		WHERE l.label = ?
