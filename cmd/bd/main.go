@@ -914,6 +914,12 @@ var rootCmd = &cobra.Command{
 			LockTimeout: lockTimeout,
 		}
 
+		// Determine backend from config
+		backend := configfile.BackendSQLite // default
+		if cfg, cfgErr := configfile.Load(beadsDir); cfgErr == nil && cfg != nil {
+			backend = cfg.GetBackend()
+		}
+
 		if backend == configfile.BackendDolt {
 			// For Dolt, use the dolt subdirectory
 			doltPath := filepath.Join(beadsDir, "dolt")
