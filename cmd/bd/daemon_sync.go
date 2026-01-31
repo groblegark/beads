@@ -16,47 +16,8 @@ import (
 	"github.com/steveyegge/beads/internal/config"
 	"github.com/steveyegge/beads/internal/storage"
 	"github.com/steveyegge/beads/internal/storage/sqlite"
-	"github.com/steveyegge/beads/internal/syncbranch"
 	"github.com/steveyegge/beads/internal/types"
 )
-
-// warnIfSyncBranchMisconfigured logs a warning at daemon startup if sync-branch
-// equals the current branch. This is a one-time warning to alert users about
-// the misconfiguration. The daemon continues to start (warn only, don't block).
-// Returns true if misconfigured (warning was logged), false otherwise.
-// GH#1258: Prevents silent failure when sync-branch == current-branch.
-func warnIfSyncBranchMisconfigured(ctx context.Context, store storage.Storage, log daemonLogger) bool {
-	syncBranch, err := syncbranch.Get(ctx, store)
-	if err != nil || syncBranch == "" {
-		return false // No sync branch configured, not misconfigured
-	}
-
-	if syncbranch.IsSyncBranchSameAsCurrent(ctx, syncBranch) {
-		log.Warn("sync-branch misconfiguration detected",
-			"sync_branch", syncBranch,
-			"message", "sync-branch is your current branch; daemon sync operations will be skipped; configure a dedicated sync branch (e.g., 'beads-sync') to enable sync")
-		return true
-	}
-
-	return false
-}
-
-// shouldSkipDueToSameBranch checks if operation should be skipped because
-// sync-branch == current-branch. Returns true if should skip, logs reason.
-// Uses fail-open pattern: if branch detection fails, allows operation to proceed.
-func shouldSkipDueToSameBranch(ctx context.Context, store storage.Storage, operation string, log daemonLogger) bool {
-	syncBranch, err := syncbranch.Get(ctx, store)
-	if err != nil || syncBranch == "" {
-		return false // No sync branch configured, allow
-	}
-
-	if syncbranch.IsSyncBranchSameAsCurrent(ctx, syncBranch) {
-		log.log("Skipping %s: sync-branch '%s' is your current branch. Use a dedicated sync branch.", operation, syncBranch)
-		return true
-	}
-
-	return false
-}
 
 // exportToJSONLWithStore exports issues to JSONL using the provided store.
 // If multi-repo mode is configured, routes issues to their respective JSONL files.
@@ -148,8 +109,15 @@ func exportToJSONLWithStore(ctx context.Context, store storage.Storage, jsonlPat
 		}
 	}()
 
+	// Track content hashes for export_hashes table (GH#1278)
+	exportHashes := make(map[string]string)
+
 	// Write JSONL
 	for _, issue := range issues {
+		// Compute and store content hash for export tracking
+		contentHash := issue.ComputeContentHash()
+		exportHashes[issue.ID] = contentHash
+
 		data, marshalErr := json.Marshal(issue)
 		if marshalErr != nil {
 			writeErr = fmt.Errorf("failed to marshal issue %s: %w", issue.ID, marshalErr)
@@ -177,13 +145,13 @@ func exportToJSONLWithStore(ctx context.Context, store storage.Storage, jsonlPat
 		return writeErr
 	}
 
-	// Update export_hashes for all exported issues (GH#1278)
-	// This ensures child issues created with --parent are properly registered
-	for _, issue := range issues {
-		if issue.ContentHash != "" {
-			if err := store.SetExportHash(ctx, issue.ID, issue.ContentHash); err != nil {
-				// Non-fatal warning - continue with other issues
-				fmt.Fprintf(os.Stderr, "Warning: failed to set export hash for %s: %v\n", issue.ID, err)
+	// Update export_hashes table after successful export (GH#1278)
+	// This tracks what content was last exported for each issue
+	if sqliteStore, ok := store.(*sqlite.SQLiteStorage); ok {
+		for issueID, contentHash := range exportHashes {
+			if err := sqliteStore.SetExportHash(ctx, issueID, contentHash); err != nil {
+				// Non-fatal - just log warning
+				fmt.Fprintf(os.Stderr, "Warning: failed to set export hash for %s: %v\n", issueID, err)
 			}
 		}
 	}
@@ -476,13 +444,6 @@ func performExport(ctx context.Context, store storage.Storage, autoCommit, autoP
 		if skipGit {
 			mode = "local export"
 		}
-
-		// Guard: Skip if sync-branch == current-branch (GH#1258)
-		// Local-only mode (skipGit) doesn't use sync-branch, so skip the guard
-		if !skipGit && shouldSkipDueToSameBranch(exportCtx, store, mode, log) {
-			return
-		}
-
 		log.log("Starting %s...", mode)
 
 		jsonlPath := findJSONLPath()
@@ -633,12 +594,6 @@ func performAutoImport(ctx context.Context, store storage.Storage, skipGit bool,
 			mode = "local auto-import"
 		}
 
-		// Guard: Skip if sync-branch == current-branch (GH#1258)
-		// Local-only mode (skipGit) doesn't use sync-branch, so skip the guard
-		if !skipGit && shouldSkipDueToSameBranch(importCtx, store, mode, log) {
-			return
-		}
-
 		// Check backoff before attempting sync (skip for local mode)
 		if !skipGit {
 			jsonlPath := findJSONLPath()
@@ -777,13 +732,6 @@ func performSync(ctx context.Context, store storage.Storage, autoCommit, autoPus
 		if skipGit {
 			mode = "local sync cycle"
 		}
-
-		// Guard: Skip if sync-branch == current-branch (GH#1258)
-		// Local-only mode (skipGit) doesn't use sync-branch, so skip the guard
-		if !skipGit && shouldSkipDueToSameBranch(syncCtx, store, mode, log) {
-			return
-		}
-
 		log.log("Starting %s...", mode)
 
 		jsonlPath := findJSONLPath()

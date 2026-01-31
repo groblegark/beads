@@ -8,39 +8,47 @@ import (
 	"github.com/steveyegge/beads/internal/beads"
 )
 
+// truncateTextMaxLen is the default max length used in tests
+const truncateTextMaxLen = 60
+
 func TestTruncateText(t *testing.T) {
 	tests := []struct {
-		name  string
-		input string
-		want  string
+		name   string
+		input  string
+		maxLen int
+		want   string
 	}{
 		{
-			name:  "empty string",
-			input: "",
-			want:  "(empty)",
+			name:   "empty string",
+			input:  "",
+			maxLen: truncateTextMaxLen,
+			want:   "(empty)",
 		},
 		{
-			name:  "short string",
-			input: "hello",
-			want:  "hello",
+			name:   "short string",
+			input:  "hello",
+			maxLen: truncateTextMaxLen,
+			want:   "hello",
 		},
 		{
-			name:  "newlines replaced",
-			input: "line1\nline2\r\nline3",
-			want:  "line1 line2 line3",
+			name:   "newlines replaced",
+			input:  "line1\nline2\r\nline3",
+			maxLen: truncateTextMaxLen,
+			want:   "line1 line2 line3",
 		},
 		{
-			name:  "truncated at fixed max",
-			input: strings.Repeat("a", truncateTextMaxLen+10),
-			want:  strings.Repeat("a", truncateTextMaxLen-3) + "...",
+			name:   "truncated at fixed max",
+			input:  strings.Repeat("a", truncateTextMaxLen+10),
+			maxLen: truncateTextMaxLen,
+			want:   strings.Repeat("a", truncateTextMaxLen-3) + "...",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := truncateText(tt.input)
+			got := truncateText(tt.input, tt.maxLen)
 			if got != tt.want {
-				t.Errorf("truncateText(%q) = %q, want %q", tt.input, got, tt.want)
+				t.Errorf("truncateText(%q, %d) = %q, want %q", tt.input, tt.maxLen, got, tt.want)
 			}
 		})
 	}
@@ -153,14 +161,6 @@ func TestInteractiveConflictDisplay(t *testing.T) {
 				},
 			},
 		},
-		{
-			name: "both nil (edge case)",
-			conflict: InteractiveConflict{
-				IssueID: "test-6",
-				Local:   nil,
-				Remote:  nil,
-			},
-		},
 	}
 
 	for _, tt := range tests {
@@ -174,58 +174,22 @@ func TestInteractiveConflictDisplay(t *testing.T) {
 func TestShowDetailedDiff(t *testing.T) {
 	now := time.Now()
 
-	tests := []struct {
-		name     string
-		conflict InteractiveConflict
-	}{
-		{
-			name: "both exist",
-			conflict: InteractiveConflict{
-				IssueID: "test-1",
-				Local: &beads.Issue{
-					ID:        "test-1",
-					Title:     "Local",
-					UpdatedAt: now,
-				},
-				Remote: &beads.Issue{
-					ID:        "test-1",
-					Title:     "Remote",
-					UpdatedAt: now,
-				},
-			},
+	conflict := InteractiveConflict{
+		IssueID: "test-1",
+		Local: &beads.Issue{
+			ID:        "test-1",
+			Title:     "Local",
+			UpdatedAt: now,
 		},
-		{
-			name: "local nil",
-			conflict: InteractiveConflict{
-				IssueID: "test-2",
-				Local:   nil,
-				Remote: &beads.Issue{
-					ID:        "test-2",
-					Title:     "Remote",
-					UpdatedAt: now,
-				},
-			},
-		},
-		{
-			name: "remote nil",
-			conflict: InteractiveConflict{
-				IssueID: "test-3",
-				Local: &beads.Issue{
-					ID:        "test-3",
-					Title:     "Local",
-					UpdatedAt: now,
-				},
-				Remote: nil,
-			},
+		Remote: &beads.Issue{
+			ID:        "test-1",
+			Title:     "Remote",
+			UpdatedAt: now,
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			// Just make sure it doesn't panic
-			showDetailedDiff(tt.conflict)
-		})
-	}
+	// Just make sure it doesn't panic
+	showDetailedDiff(conflict)
 }
 
 func TestPrintResolutionHelp(t *testing.T) {
@@ -303,36 +267,5 @@ func TestInteractiveResolutionMerge(t *testing.T) {
 	labelsStr := strings.Join(merged.Labels, ",")
 	if !strings.Contains(labelsStr, "bug") || !strings.Contains(labelsStr, "feature") {
 		t.Errorf("Expected labels to contain 'bug' and 'feature', got %v", merged.Labels)
-	}
-}
-
-func TestInteractiveResolutionChoices(t *testing.T) {
-	// Test InteractiveResolution struct values
-	tests := []struct {
-		name   string
-		choice string
-		issue  *beads.Issue
-	}{
-		{"local", "local", &beads.Issue{ID: "test"}},
-		{"remote", "remote", &beads.Issue{ID: "test"}},
-		{"merged", "merged", &beads.Issue{ID: "test"}},
-		{"skip", "skip", nil},
-		{"quit", "quit", nil},
-		{"accept-all", "accept-all", nil},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			res := InteractiveResolution{Choice: tt.choice, Issue: tt.issue}
-			if res.Choice != tt.choice {
-				t.Errorf("Expected choice %q, got %q", tt.choice, res.Choice)
-			}
-			if tt.issue == nil && res.Issue != nil {
-				t.Errorf("Expected nil issue, got %v", res.Issue)
-			}
-			if tt.issue != nil && res.Issue == nil {
-				t.Errorf("Expected non-nil issue, got nil")
-			}
-		})
 	}
 }

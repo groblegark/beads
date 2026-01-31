@@ -18,81 +18,6 @@ import (
 	"github.com/steveyegge/beads/internal/syncbranch"
 )
 
-// SyncBranchContext holds sync-branch configuration detected from the store.
-// This consolidates the repeated pattern of checking for sync-branch config.
-type SyncBranchContext struct {
-	Branch   string // Sync branch name, empty if not configured
-	RepoRoot string // Git repository root path
-}
-
-// IsConfigured returns true if a sync branch is configured.
-func (s *SyncBranchContext) IsConfigured() bool {
-	return s.Branch != ""
-}
-
-// getSyncBranchContext detects sync-branch configuration from the store.
-// Returns a context with empty Branch if not configured or on error.
-func getSyncBranchContext(ctx context.Context) *SyncBranchContext {
-	sbc := &SyncBranchContext{}
-	if err := ensureStoreActive(); err != nil || store == nil {
-		return sbc
-	}
-	if sb, _ := syncbranch.Get(ctx, store); sb != "" {
-		sbc.Branch = sb
-		if rc, err := beads.GetRepoContext(); err == nil {
-			sbc.RepoRoot = rc.RepoRoot
-		}
-	}
-	return sbc
-}
-
-// commitAndPushBeads commits and pushes .beads changes using the appropriate method.
-// When sync-branch is configured, uses worktree-based commit/push.
-// Otherwise, uses standard git commit/push on the current branch.
-func commitAndPushBeads(ctx context.Context, sbc *SyncBranchContext, jsonlPath string, noPush bool, message string) error {
-	if sbc.IsConfigured() {
-		fmt.Printf("→ Committing to sync branch '%s'...\n", sbc.Branch)
-		commitResult, err := syncbranch.CommitToSyncBranch(ctx, sbc.RepoRoot, sbc.Branch, jsonlPath, !noPush)
-		if err != nil {
-			return fmt.Errorf("committing to sync branch: %w", err)
-		}
-		if commitResult.Committed {
-			fmt.Printf("  Committed: %s\n", commitResult.Message)
-			if commitResult.Pushed {
-				fmt.Println("  Pushed to remote")
-			}
-		} else {
-			fmt.Println("→ No changes to commit")
-		}
-		return nil
-	}
-
-	// Standard git workflow
-	hasChanges, err := gitHasBeadsChanges(ctx)
-	if err != nil {
-		return fmt.Errorf("checking git status: %w", err)
-	}
-
-	if hasChanges {
-		fmt.Println("→ Committing changes...")
-		if err := gitCommitBeadsDir(ctx, message); err != nil {
-			return fmt.Errorf("committing: %w", err)
-		}
-	} else {
-		fmt.Println("→ No changes to commit")
-	}
-
-	// Push to remote
-	if !noPush && hasChanges {
-		fmt.Println("→ Pushing to remote...")
-		if err := gitPush(ctx, ""); err != nil {
-			return fmt.Errorf("pushing: %w", err)
-		}
-	}
-
-	return nil
-}
-
 var syncCmd = &cobra.Command{
 	Use:     "sync",
 	GroupID: "sync",
@@ -120,9 +45,7 @@ The --manual flag shows a diff for each conflict and prompts you to choose:
   l/local  - Keep local version
   r/remote - Keep remote version
   m/merge  - Auto-merge (LWW for scalars, union for collections)
-  s/skip   - Skip (keep local, conflict remains for later)
-  a/all    - Accept auto-merge for all remaining conflicts
-  q/quit   - Quit and skip all remaining conflicts
+  s/skip   - Skip and leave unresolved
   d/diff   - Show full JSON diff
 
 The --full flag provides the legacy full sync behavior for backwards compatibility.`,
@@ -339,18 +262,16 @@ The --full flag provides the legacy full sync behavior for backwards compatibili
 		// GH#638: Check sync.branch BEFORE upstream check
 		// When sync.branch is configured, we should use worktree-based sync even if
 		// the current branch has no upstream (e.g., detached HEAD in jj, git worktrees)
-		sbc := getSyncBranchContext(ctx)
-
-		// GH#1166: Block sync if currently on the sync branch
-		// This must happen BEFORE worktree operations - after entering a worktree,
-		// GetCurrentBranch() would return the worktree's branch, not the original.
-		if sbc.IsConfigured() {
-			if syncbranch.IsSyncBranchSameAsCurrent(ctx, sbc.Branch) {
-				FatalError("Cannot sync to '%s': it's your current branch. "+
-					"Checkout a different branch first, or use a dedicated sync branch like 'beads-sync'.",
-					sbc.Branch)
+		var syncBranchName, syncBranchRepoRoot string
+		if err := ensureStoreActive(); err == nil && store != nil {
+			if sb, _ := syncbranch.Get(ctx, store); sb != "" {
+				syncBranchName = sb
+				if rc, err := beads.GetRepoContext(); err == nil {
+					syncBranchRepoRoot = rc.RepoRoot
+				}
 			}
 		}
+		hasSyncBranchConfig := syncBranchName != ""
 
 		// bd-wayc3: Check for redirect + sync-branch incompatibility
 		// Redirect and sync-branch are mutually exclusive:
@@ -360,7 +281,7 @@ The --full flag provides the legacy full sync behavior for backwards compatibili
 		// the beads files are in a different git repo than the current working directory.
 		redirectInfo := beads.GetRedirectInfo()
 		if redirectInfo.IsRedirected {
-			if sbc.IsConfigured() {
+			if hasSyncBranchConfig {
 				fmt.Printf("⚠️  Redirect active (-> %s), skipping sync-branch operations\n", redirectInfo.TargetDir)
 				fmt.Println("   Hint: Redirected clones should not have sync-branch configured")
 				fmt.Println("   The owner of the target .beads directory handles sync-branch")
@@ -385,7 +306,7 @@ The --full flag provides the legacy full sync behavior for backwards compatibili
 		// Preflight: check for upstream tracking
 		// If no upstream, automatically switch to --from-main mode (gt-ick9: ephemeral branch support)
 		// GH#638: Skip this fallback if sync.branch is explicitly configured
-		if !noPull && !gitHasUpstream() && !sbc.IsConfigured() {
+		if !noPull && !gitHasUpstream() && !hasSyncBranchConfig {
 			if hasGitRemote(ctx) {
 				// Remote exists but no upstream - use from-main mode
 				fmt.Println("→ No upstream configured, using --from-main mode")
@@ -401,7 +322,7 @@ The --full flag provides the legacy full sync behavior for backwards compatibili
 		// Pull-first sync: Pull → Merge → Export → Commit → Push
 		// This eliminates the export-before-pull data loss pattern (#911) by
 		// seeing remote changes before exporting local state.
-		if err := doPullFirstSync(ctx, jsonlPath, renameOnImport, noGitHistory, dryRun, noPush, noPull, message, acceptRebase, sbc); err != nil {
+		if err := doPullFirstSync(ctx, jsonlPath, renameOnImport, noGitHistory, dryRun, noPush, noPull, message, acceptRebase, syncBranchName, syncBranchRepoRoot); err != nil {
 			FatalError("%v", err)
 		}
 	},
@@ -420,7 +341,7 @@ The --full flag provides the legacy full sync behavior for backwards compatibili
 //
 // When noPull is true, skips the pull/merge steps and just does:
 // Export → Commit → Push
-func doPullFirstSync(ctx context.Context, jsonlPath string, renameOnImport, noGitHistory, dryRun, noPush, noPull bool, message string, acceptRebase bool, sbc *SyncBranchContext) error {
+func doPullFirstSync(ctx context.Context, jsonlPath string, renameOnImport, noGitHistory, dryRun, noPush, noPull bool, message string, acceptRebase bool, syncBranch, syncBranchRepoRoot string) error {
 	beadsDir := filepath.Dir(jsonlPath)
 	_ = acceptRebase // Reserved for future sync branch force-push detection
 
@@ -453,6 +374,9 @@ func doPullFirstSync(ctx context.Context, jsonlPath string, renameOnImport, noGi
 	if err := ensureStoreActive(); err != nil {
 		return fmt.Errorf("activating store: %w", err)
 	}
+
+	// Derive sync-branch config from parameters (detected at caller)
+	hasSyncBranchConfig := syncBranch != ""
 
 	localIssues, err := store.SearchIssues(ctx, "", beads.IssueFilter{IncludeTombstones: true})
 	if err != nil {
@@ -515,9 +439,9 @@ func doPullFirstSync(ctx context.Context, jsonlPath string, renameOnImport, noGi
 
 	// Git-based pull (for git-portable, belt-and-suspenders, or when Dolt not available)
 	if ShouldExportJSONL(ctx, store) {
-		if sbc.IsConfigured() {
-			fmt.Printf("→ Pulling from sync branch '%s'...\n", sbc.Branch)
-			pullResult, err := syncbranch.PullFromSyncBranch(ctx, sbc.RepoRoot, sbc.Branch, jsonlPath, false)
+		if hasSyncBranchConfig {
+			fmt.Printf("→ Pulling from sync branch '%s'...\n", syncBranch)
+			pullResult, err := syncbranch.PullFromSyncBranch(ctx, syncBranchRepoRoot, syncBranch, jsonlPath, false)
 			if err != nil {
 				return fmt.Errorf("pulling from sync branch: %w", err)
 			}
@@ -572,11 +496,6 @@ func doPullFirstSync(ctx context.Context, jsonlPath string, renameOnImport, noGi
 	fmt.Printf("    Local wins: %d, Remote wins: %d, Same: %d, Conflicts (LWW): %d\n",
 		localCount, remoteCount, sameCount, mergeResult.Conflicts)
 
-	// Display manual conflicts that need user resolution
-	if len(mergeResult.ManualConflicts) > 0 {
-		displayManualConflicts(mergeResult.ManualConflicts)
-	}
-
 	// Step 6: Import merged state to DB
 	// First, write merged result to JSONL so import can read it
 	fmt.Println("→ Writing merged state to JSONL...")
@@ -595,9 +514,46 @@ func doPullFirstSync(ctx context.Context, jsonlPath string, renameOnImport, noGi
 		return fmt.Errorf("exporting: %w", err)
 	}
 
-	// Step 8 & 9: Commit and push changes
-	if err := commitAndPushBeads(ctx, sbc, jsonlPath, noPush, message); err != nil {
-		return err
+	// Step 8: Check for changes and commit
+	// Step 9: Push to remote
+	// When sync.branch is configured, use worktree-based commit/push to sync branch
+	// Otherwise, use normal git commit/push on the current branch
+	if hasSyncBranchConfig {
+		fmt.Printf("→ Committing to sync branch '%s'...\n", syncBranch)
+		commitResult, err := syncbranch.CommitToSyncBranch(ctx, syncBranchRepoRoot, syncBranch, jsonlPath, !noPush)
+		if err != nil {
+			return fmt.Errorf("committing to sync branch: %w", err)
+		}
+		if commitResult.Committed {
+			fmt.Printf("  Committed: %s\n", commitResult.Message)
+			if commitResult.Pushed {
+				fmt.Println("  Pushed to remote")
+			}
+		} else {
+			fmt.Println("→ No changes to commit")
+		}
+	} else {
+		hasChanges, err := gitHasBeadsChanges(ctx)
+		if err != nil {
+			return fmt.Errorf("checking git status: %w", err)
+		}
+
+		if hasChanges {
+			fmt.Println("→ Committing changes...")
+			if err := gitCommitBeadsDir(ctx, message); err != nil {
+				return fmt.Errorf("committing: %w", err)
+			}
+		} else {
+			fmt.Println("→ No changes to commit")
+		}
+
+		// Push to remote
+		if !noPush && hasChanges {
+			fmt.Println("→ Pushing to remote...")
+			if err := gitPush(ctx, ""); err != nil {
+				return fmt.Errorf("pushing: %w", err)
+			}
+		}
 	}
 
 	// Step 10: Update base state for next sync (after successful push)
@@ -658,17 +614,32 @@ func doExportOnlySync(ctx context.Context, jsonlPath string, noPush bool, messag
 		return err
 	}
 
-	// GH#1173: Detect sync-branch configuration and use appropriate commit method
-	sbc := getSyncBranchContext(ctx)
-
 	fmt.Println("→ Exporting pending changes to JSONL...")
 	if err := exportToJSONL(ctx, jsonlPath); err != nil {
 		return fmt.Errorf("exporting: %w", err)
 	}
 
-	// Commit and push using the appropriate method (sync-branch worktree or regular git)
-	if err := commitAndPushBeads(ctx, sbc, jsonlPath, noPush, message); err != nil {
-		return err
+	// Check for changes and commit
+	hasChanges, err := gitHasBeadsChanges(ctx)
+	if err != nil {
+		return fmt.Errorf("checking git status: %w", err)
+	}
+
+	if hasChanges {
+		fmt.Println("→ Committing changes...")
+		if err := gitCommitBeadsDir(ctx, message); err != nil {
+			return fmt.Errorf("committing: %w", err)
+		}
+	} else {
+		fmt.Println("→ No changes to commit")
+	}
+
+	// Push to remote
+	if !noPush && hasChanges {
+		fmt.Println("→ Pushing to remote...")
+		if err := gitPush(ctx, ""); err != nil {
+			return fmt.Errorf("pushing: %w", err)
+		}
 	}
 
 	// Clear sync state on successful sync
@@ -711,6 +682,8 @@ func writeMergedStateToJSONL(path string, issues []*beads.Issue) error {
 // - git-portable, realtime: Export to JSONL
 // - dolt-native: Commit and push to Dolt remote (skip JSONL)
 // - belt-and-suspenders: Both JSONL export and Dolt push
+// Additionally, if auto_dolt_commit is enabled (default), always commits to Dolt
+// when using Dolt backend, regardless of sync mode. This prevents journal corruption.
 // Does NOT stage or commit to git - that's the user's job.
 func doExportSync(ctx context.Context, jsonlPath string, force, dryRun bool) error {
 	if err := ensureStoreActive(); err != nil {
@@ -719,49 +692,24 @@ func doExportSync(ctx context.Context, jsonlPath string, force, dryRun bool) err
 
 	syncMode := GetSyncMode(ctx, store)
 	shouldExportJSONL := ShouldExportJSONL(ctx, store)
-	shouldUseDolt := ShouldUseDoltRemote(ctx, store)
+	shouldUseDoltRemote := ShouldUseDoltRemote(ctx, store)
+	autoDoltCommit := ShouldAutoDoltCommit(ctx, store)
+	autoDoltPush := ShouldAutoDoltPush(ctx, store)
+
+	// Check if we have Dolt remote support
+	rs, hasDoltRemote := storage.AsRemote(store)
 
 	if dryRun {
 		if shouldExportJSONL {
 			fmt.Println("→ [DRY RUN] Would export database to JSONL")
 		}
-		if shouldUseDolt {
-			fmt.Println("→ [DRY RUN] Would commit and push to Dolt remote")
+		if hasDoltRemote && autoDoltCommit {
+			fmt.Println("→ [DRY RUN] Would commit to Dolt")
+		}
+		if hasDoltRemote && (shouldUseDoltRemote || autoDoltPush) {
+			fmt.Println("→ [DRY RUN] Would push to Dolt remote")
 		}
 		return nil
-	}
-
-	// Handle Dolt remote operations for dolt-native and belt-and-suspenders modes
-	if shouldUseDolt {
-		rs, ok := storage.AsRemote(store)
-		if !ok {
-			if syncMode == SyncModeDoltNative {
-				return fmt.Errorf("dolt-native sync mode requires Dolt backend (current backend doesn't support remote operations)")
-			}
-			// belt-and-suspenders: warn but continue with JSONL
-			fmt.Println("⚠ Dolt remote not available, falling back to JSONL-only")
-		} else {
-			fmt.Println("→ Committing to Dolt...")
-			// We are explicitly creating a Dolt commit inside sync; avoid redundant auto-commit in PersistentPostRun.
-			commandDidExplicitDoltCommit = true
-			if err := rs.Commit(ctx, "bd sync: auto-commit"); err != nil {
-				// Ignore "nothing to commit" errors
-				if !strings.Contains(err.Error(), "nothing to commit") {
-					return fmt.Errorf("dolt commit failed: %w", err)
-				}
-			}
-
-			fmt.Println("→ Pushing to Dolt remote...")
-			if err := rs.Push(ctx); err != nil {
-				// Don't fail if no remote configured
-				if !strings.Contains(err.Error(), "remote") {
-					return fmt.Errorf("dolt push failed: %w", err)
-				}
-				fmt.Println("⚠ No Dolt remote configured, skipping push")
-			} else {
-				fmt.Println("✓ Pushed to Dolt remote")
-			}
-		}
 	}
 
 	// Export to JSONL for git-portable, realtime, and belt-and-suspenders modes
@@ -779,8 +727,8 @@ func doExportSync(ctx context.Context, jsonlPath string, force, dryRun bool) err
 			}
 		}
 
-		// Export to JSONL (uses incremental export for large repos)
-		result, err := exportToJSONLIncrementalDeferred(ctx, jsonlPath)
+		// Export to JSONL
+		result, err := exportToJSONLDeferred(ctx, jsonlPath)
 		if err != nil {
 			return fmt.Errorf("exporting: %w", err)
 		}
@@ -800,6 +748,39 @@ func doExportSync(ctx context.Context, jsonlPath string, force, dryRun bool) err
 			fmt.Printf("✓ Exported %d issues\n", totalCount)
 		}
 		fmt.Printf("✓ %s updated\n", jsonlPath)
+	}
+
+	// Auto Dolt commit: Always commit when using Dolt backend (prevents journal corruption)
+	// This happens regardless of sync mode if auto_dolt_commit is enabled (default: true)
+	if hasDoltRemote && autoDoltCommit {
+		fmt.Println("→ Committing to Dolt...")
+		if err := rs.Commit(ctx, "bd sync: auto-commit"); err != nil {
+			// Ignore "nothing to commit" errors
+			if !strings.Contains(err.Error(), "nothing to commit") {
+				return fmt.Errorf("dolt commit failed: %w", err)
+			}
+			fmt.Println("  (nothing to commit)")
+		} else {
+			fmt.Println("✓ Committed to Dolt")
+		}
+	} else if !hasDoltRemote && syncMode == SyncModeDoltNative {
+		return fmt.Errorf("dolt-native sync mode requires Dolt backend (current backend doesn't support remote operations)")
+	}
+
+	// Dolt push: Push to remote if enabled by sync mode or auto_dolt_push
+	shouldPush := shouldUseDoltRemote || autoDoltPush
+	if hasDoltRemote && shouldPush {
+		fmt.Println("→ Pushing to Dolt remote...")
+		if err := rs.Push(ctx); err != nil {
+			// Don't fail if no remote configured
+			if strings.Contains(err.Error(), "remote") || strings.Contains(err.Error(), "no remotes") {
+				fmt.Println("⚠ No Dolt remote configured, skipping push")
+			} else {
+				return fmt.Errorf("dolt push failed: %w", err)
+			}
+		} else {
+			fmt.Println("✓ Pushed to Dolt remote")
+		}
 	}
 
 	return nil
@@ -822,7 +803,7 @@ func showSyncStateStatus(ctx context.Context, jsonlPath string) error {
 
 	// Sync mode (from config)
 	syncCfg := config.GetSyncConfig()
-	fmt.Printf("Sync mode: %s (%s)\n", syncCfg.Mode, SyncModeDescription(string(syncCfg.Mode)))
+	fmt.Printf("Sync mode: %s (%s)\n", syncCfg.Mode, SyncModeDescription(syncCfg.Mode))
 	fmt.Printf("  Export on: %s, Import on: %s\n", syncCfg.ExportOn, syncCfg.ImportOn)
 
 	// Conflict strategy
@@ -931,7 +912,6 @@ type SyncConflictRecord struct {
 // LoadSyncConflictState loads the sync conflict state from disk.
 func LoadSyncConflictState(beadsDir string) (*SyncConflictState, error) {
 	path := filepath.Join(beadsDir, "sync_conflicts.json")
-	// #nosec G304 -- path is derived from the workspace .beads directory
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -972,7 +952,7 @@ func ClearSyncConflictState(beadsDir string) error {
 //   - "ours": Keep local version
 //   - "theirs": Keep remote version
 //   - "manual": Interactive resolution with user prompts
-func resolveSyncConflicts(ctx context.Context, jsonlPath string, strategy config.ConflictStrategy, dryRun bool) error {
+func resolveSyncConflicts(ctx context.Context, jsonlPath string, strategy string, dryRun bool) error {
 	beadsDir := filepath.Dir(jsonlPath)
 
 	conflictState, err := LoadSyncConflictState(beadsDir)
@@ -1031,7 +1011,7 @@ func resolveSyncConflicts(ctx context.Context, jsonlPath string, strategy config
 
 	// Handle manual strategy with interactive resolution
 	if strategy == config.ConflictStrategyManual {
-		return resolveSyncConflictsManually(ctx, jsonlPath, beadsDir, conflictState, baseMap, localMap, remoteMap)
+		return resolveSyncConflictsManually(ctx, jsonlPath, beadsDir, conflictState, baseMap, localMap, remoteMap, baseIssues, localIssues, remoteIssues)
 	}
 
 	resolved := 0
@@ -1078,11 +1058,6 @@ func resolveSyncConflicts(ctx context.Context, jsonlPath string, strategy config
 	// Re-run merge with the resolved conflicts
 	mergeResult := MergeIssues(baseIssues, localIssues, remoteIssues)
 
-	// Display any remaining manual conflicts
-	if len(mergeResult.ManualConflicts) > 0 {
-		displayManualConflicts(mergeResult.ManualConflicts)
-	}
-
 	// Write merged state
 	if err := writeMergedStateToJSONL(jsonlPath, mergeResult.Merged); err != nil {
 		return fmt.Errorf("writing merged state: %w", err)
@@ -1114,7 +1089,8 @@ func resolveSyncConflicts(ctx context.Context, jsonlPath string, strategy config
 
 // resolveSyncConflictsManually handles manual conflict resolution with interactive prompts.
 func resolveSyncConflictsManually(ctx context.Context, jsonlPath, beadsDir string, conflictState *SyncConflictState,
-	baseMap, localMap, remoteMap map[string]*beads.Issue) error {
+	baseMap, localMap, remoteMap map[string]*beads.Issue,
+	baseIssues, localIssues, remoteIssues []*beads.Issue) error {
 
 	// Build interactive conflicts list
 	var interactiveConflicts []InteractiveConflict
@@ -1174,14 +1150,23 @@ func resolveSyncConflictsManually(ctx context.Context, jsonlPath, beadsDir strin
 	var mergedIssues []*beads.Issue
 	for id := range allIDSet {
 		if conflictIDSet[id] {
-			// This was a conflict
+			// This was a conflict - use the resolved version if available
 			if resolved, ok := resolvedMap[id]; ok {
-				// User resolved this conflict - use their choice
 				mergedIssues = append(mergedIssues, resolved)
-			} else {
-				// Skipped - keep local version in output, conflict remains for later
-				if local := localMap[id]; local != nil {
+			}
+			// If not in resolvedMap, it was skipped - use the automatic merge result
+			if _, ok := resolvedMap[id]; !ok {
+				// Fall back to field-level merge for skipped conflicts
+				local := localMap[id]
+				remote := remoteMap[id]
+				base := baseMap[id]
+				if local != nil && remote != nil {
+					merged, _ := mergeFieldLevel(base, local, remote)
+					mergedIssues = append(mergedIssues, merged)
+				} else if local != nil {
 					mergedIssues = append(mergedIssues, local)
+				} else if remote != nil {
+					mergedIssues = append(mergedIssues, remote)
 				}
 			}
 		} else {

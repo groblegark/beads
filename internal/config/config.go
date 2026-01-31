@@ -12,6 +12,25 @@ import (
 	"github.com/steveyegge/beads/internal/debug"
 )
 
+// Sync mode constants define how beads syncs with git/remotes.
+const (
+	// SyncModeGitPortable exports JSONL on push, imports on pull (default).
+	// This is the standard git-based workflow where JSONL is committed.
+	SyncModeGitPortable = "git-portable"
+
+	// SyncModeRealtime exports JSONL on every database change.
+	// Legacy behavior, more frequent writes but higher I/O.
+	SyncModeRealtime = "realtime"
+
+	// SyncModeDoltNative uses Dolt remotes directly (dolthub://, gs://, s3://).
+	// No JSONL export needed - Dolt handles sync.
+	SyncModeDoltNative = "dolt-native"
+
+	// SyncModeBeltAndSuspenders uses both Dolt remote AND JSONL backup.
+	// Maximum redundancy for critical data.
+	SyncModeBeltAndSuspenders = "belt-and-suspenders"
+)
+
 // Sync trigger constants define when sync operations occur.
 const (
 	// SyncTriggerPush triggers sync on git push operations.
@@ -22,6 +41,101 @@ const (
 
 	// SyncTriggerPull triggers import on git pull operations.
 	SyncTriggerPull = "pull"
+)
+
+// ValidSyncModes is the list of valid sync mode values
+var ValidSyncModes = []string{
+	SyncModeGitPortable,
+	SyncModeRealtime,
+	SyncModeDoltNative,
+	SyncModeBeltAndSuspenders,
+}
+
+// IsValidSyncMode returns true if the given mode is a valid sync mode.
+// Matching is case-insensitive and whitespace is trimmed.
+func IsValidSyncMode(mode string) bool {
+	mode = strings.ToLower(strings.TrimSpace(mode))
+	for _, valid := range ValidSyncModes {
+		if mode == valid {
+			return true
+		}
+	}
+	return false
+}
+
+// Conflict strategy constants define how sync conflicts are resolved.
+const (
+	// ConflictStrategyNewest keeps whichever version has the newer updated_at timestamp.
+	ConflictStrategyNewest = "newest"
+
+	// ConflictStrategyOurs keeps the local version on conflict.
+	ConflictStrategyOurs = "ours"
+
+	// ConflictStrategyTheirs keeps the remote version on conflict.
+	ConflictStrategyTheirs = "theirs"
+
+	// ConflictStrategyManual requires manual resolution of conflicts.
+	ConflictStrategyManual = "manual"
+)
+
+// FieldStrategy constants define per-field merge strategies
+const (
+	// FieldStrategyNewest uses the value from the issue with newer updated_at
+	FieldStrategyNewest = "newest"
+
+	// FieldStrategyMax uses the maximum value (for numeric fields like compaction_level)
+	FieldStrategyMax = "max"
+
+	// FieldStrategyUnion combines values from both (for arrays like labels)
+	FieldStrategyUnion = "union"
+
+	// FieldStrategyManual requires interactive resolution
+	FieldStrategyManual = "manual"
+)
+
+// GetFieldStrategies returns a map of field names to their merge strategies.
+// Fields not in the map use the default strategy (newest).
+func GetFieldStrategies() map[string]string {
+	result := make(map[string]string)
+
+	// Default field strategies
+	result["compaction_level"] = FieldStrategyMax
+	result["labels"] = FieldStrategyUnion
+
+	// Override with config values if available
+	if v != nil {
+		strategies := v.GetStringMapString("sync.field_strategies")
+		for field, strategy := range strategies {
+			result[field] = strategy
+		}
+	}
+
+	return result
+}
+
+// GetFieldStrategy returns the merge strategy for a specific field.
+// Returns "newest" (default) if not configured.
+func GetFieldStrategy(field string) string {
+	strategies := GetFieldStrategies()
+	if strategy, ok := strategies[field]; ok {
+		return strategy
+	}
+	return FieldStrategyNewest
+}
+
+// Federation sovereignty tiers define data sovereignty levels.
+const (
+	// SovereigntyT1 - Full sovereignty: data never leaves controlled infrastructure.
+	SovereigntyT1 = "T1"
+
+	// SovereigntyT2 - Regional sovereignty: data stays within region/jurisdiction.
+	SovereigntyT2 = "T2"
+
+	// SovereigntyT3 - Provider sovereignty: data with trusted cloud provider.
+	SovereigntyT3 = "T3"
+
+	// SovereigntyT4 - No restrictions: data can be anywhere (e.g., DoltHub public).
+	SovereigntyT4 = "T4"
 )
 
 var v *viper.Viper
@@ -111,13 +225,8 @@ func Initialize() error {
 	v.SetDefault("identity", "")
 	v.SetDefault("remote-sync-interval", "30s")
 
-	// Dolt configuration defaults
-	// Controls whether beads should automatically create Dolt commits after write commands.
-	// Values: off | on
-	v.SetDefault("dolt.auto-commit", "on")
-
 	// Routing configuration defaults
-	v.SetDefault("routing.mode", "")
+	v.SetDefault("routing.mode", "auto")
 	v.SetDefault("routing.default", ".")
 	v.SetDefault("routing.maintainer", ".")
 	v.SetDefault("routing.contributor", "~/.beads-planning")
@@ -127,16 +236,16 @@ func Initialize() error {
 
 	// Sync mode configuration (hq-ew1mbr.3)
 	// See docs/CONFIG.md for detailed documentation
-	v.SetDefault("sync.mode", SyncModeGitPortable)  // git-portable | realtime | dolt-native | belt-and-suspenders
-	v.SetDefault("sync.export_on", SyncTriggerPush) // push | change
-	v.SetDefault("sync.import_on", SyncTriggerPull) // pull | change
+	v.SetDefault("sync.mode", SyncModeGitPortable)      // git-portable | realtime | dolt-native | belt-and-suspenders
+	v.SetDefault("sync.export_on", SyncTriggerPush)     // push | change
+	v.SetDefault("sync.import_on", SyncTriggerPull)     // pull | change
 
 	// Conflict resolution configuration
 	v.SetDefault("conflict.strategy", ConflictStrategyNewest) // newest | ours | theirs | manual
 
 	// Federation configuration (optional Dolt remote)
-	v.SetDefault("federation.remote", "")      // e.g., dolthub://org/beads, gs://bucket/beads, s3://bucket/beads
-	v.SetDefault("federation.sovereignty", "") // T1 | T2 | T3 | T4 (empty = no restriction)
+	v.SetDefault("federation.remote", "")       // e.g., dolthub://org/beads, gs://bucket/beads, s3://bucket/beads
+	v.SetDefault("federation.sovereignty", "")  // T1 | T2 | T3 | T4 (empty = no restriction)
 
 	// Push configuration defaults
 	v.SetDefault("no-push", false)
@@ -351,6 +460,22 @@ func GetString(key string) string {
 	return v.GetString(key)
 }
 
+// IsSet checks if a key has been explicitly set (not just default)
+func IsSet(key string) bool {
+	if v == nil {
+		return false
+	}
+	return v.IsSet(key)
+}
+
+// InConfig checks if a key exists in the config file (not default or env)
+func InConfig(key string) bool {
+	if v == nil {
+		return false
+	}
+	return v.InConfig(key)
+}
+
 // GetBool retrieves a boolean configuration value
 func GetBool(key string) bool {
 	if v == nil {
@@ -425,6 +550,63 @@ func GetStringMapString(key string) map[string]string {
 		return map[string]string{}
 	}
 	return v.GetStringMapString(key)
+}
+
+// GetCustomTypesFromYAML returns custom issue types from the types.custom config key.
+// Returns nil if no custom types are configured.
+func GetCustomTypesFromYAML() []string {
+	customStr := GetString("types.custom")
+	if customStr == "" {
+		return nil
+	}
+	// Parse comma-separated list
+	var types []string
+	for _, t := range strings.Split(customStr, ",") {
+		t = strings.TrimSpace(t)
+		if t != "" {
+			types = append(types, t)
+		}
+	}
+	if len(types) == 0 {
+		return nil
+	}
+	return types
+}
+
+// GetCustomStatusesFromYAML returns custom statuses from the statuses.custom config key.
+// Returns nil if no custom statuses are configured.
+func GetCustomStatusesFromYAML() []string {
+	customStr := GetString("statuses.custom")
+	if customStr == "" {
+		return nil
+	}
+	// Parse comma-separated list
+	var statuses []string
+	for _, s := range strings.Split(customStr, ",") {
+		s = strings.TrimSpace(s)
+		if s != "" {
+			statuses = append(statuses, s)
+		}
+	}
+	if len(statuses) == 0 {
+		return nil
+	}
+	return statuses
+}
+
+// GetTownLevelRoles returns town-level agent roles from validation package.
+func GetTownLevelRoles() []string {
+	return []string{"mayor", "deacon"}
+}
+
+// GetRigLevelRoles returns rig-level singleton agent roles from validation package.
+func GetRigLevelRoles() []string {
+	return []string{"witness", "refinery"}
+}
+
+// GetNamedRoles returns agent roles that include a worker name.
+func GetNamedRoles() []string {
+	return []string{"crew", "polecat"}
 }
 
 // GetDirectoryLabels returns labels for the current working directory based on config.
@@ -566,9 +748,9 @@ func GetIdentity(flagValue string) string {
 
 // SyncConfig holds the sync mode configuration.
 type SyncConfig struct {
-	Mode     SyncMode // git-portable, realtime, dolt-native, belt-and-suspenders
-	ExportOn string   // push, change
-	ImportOn string   // pull, change
+	Mode     string // git-portable, realtime, dolt-native, belt-and-suspenders
+	ExportOn string // push, change
+	ImportOn string // pull, change
 }
 
 // GetSyncConfig returns the current sync configuration.
@@ -580,73 +762,74 @@ func GetSyncConfig() SyncConfig {
 	}
 }
 
+// GetSyncMode returns the configured sync mode.
+// Returns git-portable if not configured or invalid.
+func GetSyncMode() string {
+	mode := GetString("sync.mode")
+	if mode == "" {
+		return SyncModeGitPortable
+	}
+	// Validate mode
+	switch mode {
+	case SyncModeGitPortable, SyncModeRealtime, SyncModeDoltNative, SyncModeBeltAndSuspenders:
+		return mode
+	default:
+		return SyncModeGitPortable
+	}
+}
+
+// IsSyncModeValid checks if the given sync mode is valid.
+func IsSyncModeValid(mode string) bool {
+	switch mode {
+	case SyncModeGitPortable, SyncModeRealtime, SyncModeDoltNative, SyncModeBeltAndSuspenders:
+		return true
+	default:
+		return false
+	}
+}
+
 // ConflictConfig holds the conflict resolution configuration.
 type ConflictConfig struct {
-	Strategy ConflictStrategy          // newest, ours, theirs, manual (default for all fields)
-	Fields   map[string]FieldStrategy  // Per-field strategy overrides
+	Strategy string // newest, ours, theirs, manual
 }
 
 // GetConflictConfig returns the current conflict resolution configuration.
 func GetConflictConfig() ConflictConfig {
 	return ConflictConfig{
 		Strategy: GetConflictStrategy(),
-		Fields:   GetFieldStrategies(),
 	}
 }
 
-// GetFieldStrategies retrieves per-field conflict resolution strategies from config.
-// Returns a map of field name to strategy (e.g., {"labels": "union", "compaction_level": "max"}).
-// Invalid strategies are logged and skipped.
-//
-// Config key: conflict.fields
-// Example:
-//
-//	conflict:
-//	  strategy: newest
-//	  fields:
-//	    compaction_level: max
-//	    labels: union
-//	    waiters: union
-//	    estimated_minutes: manual
-func GetFieldStrategies() map[string]FieldStrategy {
-	result := make(map[string]FieldStrategy)
-	if v == nil {
-		return result
+// GetConflictStrategy returns the configured conflict resolution strategy.
+// Returns newest if not configured or invalid.
+func GetConflictStrategy() string {
+	strategy := GetString("conflict.strategy")
+	if strategy == "" {
+		return ConflictStrategyNewest
 	}
-
-	// Get the raw map from config
-	fieldsMap := v.GetStringMapString("conflict.fields")
-	if fieldsMap == nil {
-		return result
-	}
-
-	for field, strategyStr := range fieldsMap {
-		strategy := FieldStrategy(strings.ToLower(strings.TrimSpace(strategyStr)))
-		if !validFieldStrategies[strategy] {
-			logConfigWarning("Warning: invalid conflict.fields.%s strategy %q (valid: %s), skipping\n",
-				field, strategyStr, strings.Join(ValidFieldStrategies(), ", "))
-			continue
-		}
-		result[field] = strategy
-	}
-
-	return result
-}
-
-// GetFieldStrategy returns the merge strategy for a specific field.
-// Returns the per-field strategy if configured, otherwise returns "newest" (default).
-func GetFieldStrategy(field string) FieldStrategy {
-	fields := GetFieldStrategies()
-	if strategy, ok := fields[field]; ok {
+	// Validate strategy
+	switch strategy {
+	case ConflictStrategyNewest, ConflictStrategyOurs, ConflictStrategyTheirs, ConflictStrategyManual:
 		return strategy
+	default:
+		return ConflictStrategyNewest
 	}
-	return FieldStrategyNewest // Default
+}
+
+// IsConflictStrategyValid checks if the given conflict strategy is valid.
+func IsConflictStrategyValid(strategy string) bool {
+	switch strategy {
+	case ConflictStrategyNewest, ConflictStrategyOurs, ConflictStrategyTheirs, ConflictStrategyManual:
+		return true
+	default:
+		return false
+	}
 }
 
 // FederationConfig holds the federation (Dolt remote) configuration.
 type FederationConfig struct {
-	Remote      string      // dolthub://org/beads, gs://bucket/beads, s3://bucket/beads
-	Sovereignty Sovereignty // T1, T2, T3, T4
+	Remote      string // dolthub://org/beads, gs://bucket/beads, s3://bucket/beads
+	Sovereignty string // T1, T2, T3, T4
 }
 
 // GetFederationConfig returns the current federation configuration.
@@ -657,23 +840,27 @@ func GetFederationConfig() FederationConfig {
 	}
 }
 
-// IsSyncModeValid checks if the given sync mode string is valid.
-func IsSyncModeValid(mode string) bool {
-	return validSyncModes[SyncMode(mode)]
-}
-
-// IsConflictStrategyValid checks if the given conflict strategy string is valid.
-func IsConflictStrategyValid(strategy string) bool {
-	return validConflictStrategies[ConflictStrategy(strategy)]
-}
-
-// IsSovereigntyValid checks if the given sovereignty tier string is valid.
-// Note: empty string is valid (means no restriction).
-func IsSovereigntyValid(sovereignty string) bool {
-	if sovereignty == "" {
-		return true
+// GetSovereignty returns the configured data sovereignty tier.
+// Returns empty string if not configured.
+func GetSovereignty() string {
+	sovereignty := GetString("federation.sovereignty")
+	// Validate sovereignty tier
+	switch sovereignty {
+	case SovereigntyT1, SovereigntyT2, SovereigntyT3, SovereigntyT4:
+		return sovereignty
+	default:
+		return ""
 	}
-	return validSovereigntyTiers[Sovereignty(sovereignty)]
+}
+
+// IsSovereigntyValid checks if the given sovereignty tier is valid.
+func IsSovereigntyValid(sovereignty string) bool {
+	switch sovereignty {
+	case "", SovereigntyT1, SovereigntyT2, SovereigntyT3, SovereigntyT4:
+		return true
+	default:
+		return false
+	}
 }
 
 // ShouldExportOnChange returns true if sync.export_on is set to "change".
@@ -696,58 +883,4 @@ func NeedsDoltRemote() bool {
 func NeedsJSONL() bool {
 	mode := GetSyncMode()
 	return mode == SyncModeGitPortable || mode == SyncModeRealtime || mode == SyncModeBeltAndSuspenders
-}
-
-// GetCustomTypesFromYAML retrieves custom issue types from config.yaml.
-// This is used as a fallback when the database doesn't have types.custom set yet
-// (e.g., during bd init auto-import before the database is fully configured).
-// Returns nil if no custom types are configured in config.yaml.
-func GetCustomTypesFromYAML() []string {
-	if v == nil {
-		return nil
-	}
-
-	// Try to get types.custom from viper (config.yaml or env var)
-	value := v.GetString("types.custom")
-	if value == "" {
-		return nil
-	}
-
-	// Parse comma-separated list
-	parts := strings.Split(value, ",")
-	result := make([]string, 0, len(parts))
-	for _, p := range parts {
-		trimmed := strings.TrimSpace(p)
-		if trimmed != "" {
-			result = append(result, trimmed)
-		}
-	}
-	return result
-}
-
-// GetCustomStatusesFromYAML retrieves custom statuses from config.yaml.
-// This is used as a fallback when the database doesn't have status.custom set yet
-// or when the database connection is temporarily unavailable.
-// Returns nil if no custom statuses are configured in config.yaml.
-func GetCustomStatusesFromYAML() []string {
-	if v == nil {
-		return nil
-	}
-
-	// Try to get status.custom from viper (config.yaml or env var)
-	value := v.GetString("status.custom")
-	if value == "" {
-		return nil
-	}
-
-	// Parse comma-separated list
-	parts := strings.Split(value, ",")
-	result := make([]string, 0, len(parts))
-	for _, p := range parts {
-		trimmed := strings.TrimSpace(p)
-		if trimmed != "" {
-			result = append(result, trimmed)
-		}
-	}
-	return result
 }

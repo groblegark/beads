@@ -18,6 +18,12 @@ import (
 	"github.com/steveyegge/beads/internal/storage"
 )
 
+// commandDidWriteTipMetadata tracks if tip metadata was written during the command
+var commandDidWriteTipMetadata bool
+
+// commandTipIDsShown tracks which tip IDs were shown during the current command
+var commandTipIDsShown map[string]struct{}
+
 // Tip represents a contextual hint that can be shown to users after successful commands
 type Tip struct {
 	ID          string

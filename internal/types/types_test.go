@@ -539,7 +539,7 @@ func TestIssueTypeIsValid(t *testing.T) {
 		issueType IssueType
 		valid     bool
 	}{
-		// Core work types are always valid
+// Core work types are always valid
 		{TypeBug, true},
 		{TypeFeature, true},
 		{TypeTask, true},
@@ -551,13 +551,15 @@ func TestIssueTypeIsValid(t *testing.T) {
 		{TypeGate, true},
 		{TypeAgent, true},
 		{TypeRole, true},
+		{TypeRig, true},
 		{TypeConvoy, true},
 		{TypeEvent, true},
 		{TypeSlot, true},
-		{TypeRig, true},
 		{TypeWarrant, true},
 		{TypeSkill, true},
 		{TypeMessage, true},
+		{TypeWisp, true},
+		{TypeAdvice, true},
 		// Invalid types
 		{IssueType("invalid"), false},
 		{IssueType(""), false},

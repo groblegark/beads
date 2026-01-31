@@ -458,7 +458,7 @@ func TestBranchPerAgentMergeRace(t *testing.T) {
 		t.Fatalf("failed to checkout main: %v", err)
 	}
 
-	// First merge should succeed
+// First merge should succeed
 	conflicts1, err1 := store.Merge(ctx, "agent-1")
 
 	// Second merge may conflict (both modified same row)

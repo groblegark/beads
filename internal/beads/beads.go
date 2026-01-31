@@ -249,8 +249,11 @@ func findDatabaseInBeadsDir(beadsDir string, warnOnIssues bool) string {
 	if cfg, err := configfile.Load(beadsDir); err == nil && cfg != nil {
 		backend := cfg.GetBackend()
 		if backend == configfile.BackendDolt {
-			// For Dolt server mode, database is on the server - no local directory required
+			// For Dolt server mode, don't require local database to exist
+			// We'll connect to the remote server instead
 			if cfg.IsDoltServerMode() {
+				// Return the configured path even if it doesn't exist locally
+				// The factory will connect to the server at cfg.DoltServerHost:cfg.DoltServerPort
 				return cfg.DatabasePath(beadsDir)
 			}
 			// For embedded Dolt, check if the configured database directory exists
@@ -812,4 +815,14 @@ func FindAllDatabases() []DatabaseInfo {
 	}
 
 	return databases
+}
+
+// GetConfiguredBackend returns the backend type from the beads directory config.
+// Returns the string backend name (e.g., "sqlite", "dolt") or empty string if no config.
+func GetConfiguredBackend(beadsDir string) string {
+	cfg, err := configfile.Load(beadsDir)
+	if err != nil || cfg == nil {
+		return ""
+	}
+	return string(cfg.GetBackend())
 }

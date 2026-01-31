@@ -28,9 +28,9 @@ var CategoryOrder = []string{
 	CategoryRuntime,
 	CategoryPerformance,
 	CategoryIntegration,
-	CategoryFederation,
 	CategoryMetadata,
 	CategoryMaintenance,
+	CategoryFederation,
 }
 
 // MinSyncBranchHookVersion is the minimum hook version that supports sync-branch bypass (issue #532)

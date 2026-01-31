@@ -45,6 +45,7 @@ type Options struct {
 	OrphanHandling             OrphanHandling       // How to handle missing parent issues (default: allow)
 	ClearDuplicateExternalRefs bool                 // Clear duplicate external_ref values instead of erroring
 	ProtectLocalExportIDs      map[string]time.Time // IDs from left snapshot with timestamps for timestamp-aware protection (GH#865)
+	DeletionIDs                []string             // IDs to delete (from JSONL deletion markers)
 }
 
 // Result contains statistics about the import operation
@@ -53,6 +54,7 @@ type Result struct {
 	Updated             int               // Existing issues updated
 	Unchanged           int               // Existing issues that matched exactly (idempotent)
 	Skipped             int               // Issues skipped (duplicates, errors)
+	Deleted             int               // Issues deleted (from deletion markers)
 	Collisions          int               // Collisions detected
 	IDMapping           map[string]string // Mapping of remapped IDs (old -> new)
 	CollisionIDs        []string          // IDs that collided
@@ -163,6 +165,19 @@ func ImportIssues(ctx context.Context, dbPath string, store storage.Storage, iss
 	if err != nil {
 		return result, err
 	}
+
+	// Process deletion markers in dry-run mode (count only)
+	// This must happen before the early return so dry-run reports accurate counts
+	if opts.DryRun && len(opts.DeletionIDs) > 0 {
+		for _, id := range opts.DeletionIDs {
+			existing, err := store.GetIssue(ctx, id)
+			if err != nil || existing == nil {
+				continue
+			}
+			result.Deleted++
+		}
+	}
+
 	if opts.DryRun && result.Collisions == 0 {
 		return result, nil
 	}
@@ -211,6 +226,24 @@ func ImportIssues(ctx context.Context, dbPath string, store storage.Storage, iss
 			}
 		} else {
 			return nil, err
+		}
+	}
+
+	// Process deletion markers (delete issues by ID)
+	// Note: Dry-run mode returns early above, so this only runs for actual deletions
+	if len(opts.DeletionIDs) > 0 {
+		for _, id := range opts.DeletionIDs {
+			// Check if issue exists before deleting
+			existing, err := store.GetIssue(ctx, id)
+			if err != nil || existing == nil {
+				// Issue doesn't exist, skip
+				continue
+			}
+			// Actually delete the issue
+			if err := store.DeleteIssue(ctx, id); err != nil {
+				return nil, fmt.Errorf("failed to delete issue %s: %w", id, err)
+			}
+			result.Deleted++
 		}
 	}
 

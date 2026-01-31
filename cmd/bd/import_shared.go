@@ -2,12 +2,35 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 
 	"github.com/steveyegge/beads/internal/importer"
 	"github.com/steveyegge/beads/internal/storage"
 	"github.com/steveyegge/beads/internal/types"
 )
+
+// DeletionMarker represents a deletion marker in JSONL format.
+// When importing, entries with _deleted: true indicate the issue should be deleted.
+type DeletionMarker struct {
+	ID        string     `json:"id"`
+	Deleted   bool       `json:"_deleted"`
+	DeletedAt *time.Time `json:"_deleted_at,omitempty"`
+}
+
+// isDeletionMarker checks if the given JSON data represents a deletion marker.
+// Returns the marker and true if it's a valid deletion marker, nil and false otherwise.
+func isDeletionMarker(data []byte) (*DeletionMarker, bool) {
+	var marker DeletionMarker
+	if err := json.Unmarshal(data, &marker); err != nil {
+		return nil, false
+	}
+	// A deletion marker must have an ID and _deleted must be true
+	if marker.ID == "" || !marker.Deleted {
+		return nil, false
+	}
+	return &marker, true
+}
 
 // fieldComparator handles comparison logic for a specific field type
 type fieldComparator struct {
@@ -167,6 +190,7 @@ type ImportOptions struct {
 	ClearDuplicateExternalRefs bool              // Clear duplicate external_ref values instead of erroring
 	OrphanHandling             string            // Orphan handling mode: strict/resurrect/skip/allow (empty = use config)
 	ProtectLocalExportIDs      map[string]time.Time // IDs from left snapshot with timestamps for timestamp-aware protection (GH#865)
+	DeletionIDs                []string          // IDs to delete (from JSONL deletion markers)
 }
 
 // ImportResult contains statistics about the import operation
@@ -175,6 +199,7 @@ type ImportResult struct {
 	Updated             int               // Existing issues updated
 	Unchanged           int               // Existing issues that matched exactly (idempotent)
 	Skipped             int               // Issues skipped (duplicates, errors)
+	Deleted             int               // Issues deleted (from deletion markers)
 	Collisions          int               // Collisions detected
 	IDMapping           map[string]string // Mapping of remapped IDs (old -> new)
 	CollisionIDs        []string          // IDs that collided
@@ -222,6 +247,7 @@ func importIssuesCore(ctx context.Context, dbPath string, store storage.Storage,
 		ClearDuplicateExternalRefs: opts.ClearDuplicateExternalRefs,
 		OrphanHandling:             importer.OrphanHandling(orphanHandling),
 		ProtectLocalExportIDs:      opts.ProtectLocalExportIDs,
+		DeletionIDs:                opts.DeletionIDs,
 	}
 
 	// Delegate to the importer package
@@ -236,6 +262,7 @@ func importIssuesCore(ctx context.Context, dbPath string, store storage.Storage,
 		Updated:             result.Updated,
 		Unchanged:           result.Unchanged,
 		Skipped:             result.Skipped,
+		Deleted:             result.Deleted,
 		Collisions:          result.Collisions,
 		IDMapping:           result.IDMapping,
 		CollisionIDs:        result.CollisionIDs,

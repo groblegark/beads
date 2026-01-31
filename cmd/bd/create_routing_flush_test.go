@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/steveyegge/beads/internal/config"
 	"github.com/steveyegge/beads/internal/types"
 )
 
@@ -32,6 +33,19 @@ func TestFlushRoutedRepo_DirectExport(t *testing.T) {
 	// Create empty JSONL in target (simulates fresh planning repo)
 	if err := os.WriteFile(targetJSONLPath, []byte{}, 0644); err != nil {
 		t.Fatalf("failed to create target JSONL: %v", err)
+	}
+
+	// Create config.yaml with git-portable sync mode (needed for JSONL export)
+	// Without this, the project's dolt-native config would be used
+	targetConfigPath := filepath.Join(targetBeadsDir, "config.yaml")
+	if err := os.WriteFile(targetConfigPath, []byte("sync:\n  mode: git-portable\n"), 0644); err != nil {
+		t.Fatalf("failed to create target config.yaml: %v", err)
+	}
+
+	// Change to target directory and reinitialize config for the test
+	t.Chdir(targetDir)
+	if err := config.Initialize(); err != nil {
+		t.Fatalf("failed to initialize config: %v", err)
 	}
 
 	// Create database in target repo with a test issue
@@ -228,6 +242,19 @@ repos:
 	planningJSONL := filepath.Join(planningBeadsDir, "issues.jsonl")
 	if err := os.WriteFile(planningJSONL, []byte{}, 0644); err != nil {
 		t.Fatalf("failed to create planning JSONL: %v", err)
+	}
+
+	// Create config.yaml in planning repo with git-portable sync mode
+	// (needed for JSONL export - without this, the project's dolt-native config would be used)
+	planningConfigPath := filepath.Join(planningBeadsDir, "config.yaml")
+	if err := os.WriteFile(planningConfigPath, []byte("sync:\n  mode: git-portable\n"), 0644); err != nil {
+		t.Fatalf("failed to create planning config.yaml: %v", err)
+	}
+
+	// Change to planning directory and reinitialize config for the test
+	t.Chdir(planningDir)
+	if err := config.Initialize(); err != nil {
+		t.Fatalf("failed to initialize config: %v", err)
 	}
 
 	// Create database in planning repo

@@ -112,7 +112,7 @@ type Issue struct {
 	RoleBead     string     `json:"role_bead,omitempty"`     // Role definition bead (required for agents)
 	AgentState   AgentState `json:"agent_state,omitempty"`   // Agent state: idle|running|stuck|stopped
 	LastActivity *time.Time `json:"last_activity,omitempty"` // Updated on each action (timeout detection)
-	RoleType     string     `json:"role_type,omitempty"`     // Role: polecat|crew|witness|refinery|mayor|deacon
+	RoleType     string     `json:"role_type,omitempty"`     // Agent role type (application-defined)
 	Rig          string     `json:"rig,omitempty"`           // Rig name (empty for town-level agents)
 
 	// ===== Molecule Type Fields (swarm coordination) =====
@@ -127,7 +127,7 @@ type Issue struct {
 	Target    string `json:"target,omitempty"`     // Entity URI or bead ID affected
 	Payload   string `json:"payload,omitempty"`    // Event-specific JSON data
 
-	// ===== Skill Fields (capability tracking - hq-yhdzq) =====
+// ===== Skill Fields (capability tracking - hq-yhdzq) =====
 	SkillName       string   `json:"skill_name,omitempty"`        // Canonical skill name: "go-testing"
 	SkillVersion    string   `json:"skill_version,omitempty"`     // Semver: "1.0.0"
 	SkillCategory   string   `json:"skill_category,omitempty"`    // Category: "testing", "devops", "docs"
@@ -141,7 +141,6 @@ type Issue struct {
 	AdviceTargetRig   string `json:"advice_target_rig,omitempty"`   // Target rig (e.g., "beads")
 	AdviceTargetRole  string `json:"advice_target_role,omitempty"`  // Target role type (e.g., "polecat")
 	AdviceTargetAgent string `json:"advice_target_agent,omitempty"` // Target agent ID (e.g., "beads/polecats/garnet")
-
 }
 
 // ComputeContentHash creates a deterministic hash of the issue's content.
@@ -521,21 +520,14 @@ type IssueType string
 // Core work type constants - these are the built-in types that beads validates.
 // All other types require configuration via types.custom in config.yaml.
 const (
-	TypeBug     IssueType = "bug"
-	TypeFeature IssueType = "feature"
-	TypeTask    IssueType = "task"
-	TypeEpic    IssueType = "epic"
-	TypeChore   IssueType = "chore"
-)
-
-// Well-known custom types - constants for code convenience.
-// These are NOT built-in types and require types.custom configuration for validation.
-// Used by Gas Town and other infrastructure that extends beads.
-const (
+	TypeBug          IssueType = "bug"
+	TypeFeature      IssueType = "feature"
+	TypeTask         IssueType = "task"
+	TypeEpic         IssueType = "epic"
+	TypeChore        IssueType = "chore"
 	TypeMessage      IssueType = "message"       // Ephemeral communication between workers
 	TypeMergeRequest IssueType = "merge-request" // Merge queue entry for refinery processing
 	TypeMolecule     IssueType = "molecule"      // Template molecule for issue hierarchies
-	TypeWisp         IssueType = "wisp"          // Ephemeral molecule instance (not synced via git)
 	TypeGate         IssueType = "gate"          // Async coordination gate
 	TypeAgent        IssueType = "agent"         // Agent identity bead
 	TypeRole         IssueType = "role"          // Agent role definition
@@ -544,13 +536,16 @@ const (
 	TypeEvent        IssueType = "event"         // Operational state change record
 	TypeSlot         IssueType = "slot"          // Exclusive access slot (merge-slot gate)
 	TypeWarrant      IssueType = "warrant"       // Session termination warrant
-	TypeSkill        IssueType = "skill"         // Capability definition bead (hq-yhdzq)
-	TypeAdvice       IssueType = "advice"        // Agent advice bead with hierarchical targeting
+	TypeSkill        IssueType = "skill"         // Agent skill/capability definition
+	TypeWisp         IssueType = "wisp"          // Ephemeral issue type (bonded molecule variant)
 )
+
+// TypeAdvice is a Gas Town custom type for agent advice beads.
+const TypeAdvice IssueType = "advice" // Agent advice bead with hierarchical targeting
 
 // IsValid checks if the issue type is a defined type constant.
 // This includes core work types (bug, feature, task, epic, chore) and
-// extended types (merge-request, molecule, gate, agent, role, rig, convoy, event, slot, warrant).
+// extended types (message, merge-request, molecule, gate, agent, role, rig, convoy, event, slot, warrant, advice).
 // All defined type constants are valid without requiring custom configuration.
 func (t IssueType) IsValid() bool {
 	switch t {
@@ -781,7 +776,7 @@ const (
 	// Delegation types (work delegation chains)
 	DepDelegatedFrom DependencyType = "delegated-from" // Work delegated from parent; completion cascades up
 
-	// Skill types (capability matching - hq-yhdzq)
+// Skill types (capability matching - hq-yhdzq)
 	DepRequiresSkill DependencyType = "requires-skill" // Issue/formula requires a skill
 	DepProvidesSkill DependencyType = "provides-skill" // Agent provides/has a skill
 )
@@ -801,7 +796,7 @@ func (d DependencyType) IsWellKnown() bool {
 		DepRepliesTo, DepRelatesTo, DepDuplicates, DepSupersedes,
 		DepAuthoredBy, DepAssignedTo, DepApprovedBy, DepAttests, DepTracks,
 		DepUntil, DepCausedBy, DepValidates, DepDelegatedFrom,
-		DepRequiresSkill, DepProvidesSkill:
+DepRequiresSkill, DepProvidesSkill:
 		return true
 	}
 	return false
@@ -1176,7 +1171,7 @@ type DecisionPoint struct {
 	ReminderCount  int        `json:"reminder_count"`             // Number of reminders sent
 	Urgency        string     `json:"urgency,omitempty"`          // Priority level: high, medium, low
 	CreatedAt      time.Time  `json:"created_at"`
-	RequestedBy    string     `json:"requested_by,omitempty"`     // Agent/session that requested this decision (for wake notifications)
+RequestedBy    string     `json:"requested_by,omitempty"`     // Agent/session that requested this decision (for wake notifications)
 	ParentBeadID   string     `json:"parent_bead_id,omitempty"`   // Parent bead (epic/molecule) this decision belongs to
 }
 

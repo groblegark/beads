@@ -116,10 +116,11 @@ func finalizeExport(ctx context.Context, result *ExportResult) {
 	// This prevents validatePreExport from incorrectly blocking on next export.
 	//
 	// Dolt backend does not use a SQLite DB file, so this check is SQLite-only.
+	// Use store.Path() to get the actual database location, not the JSONL directory,
+	// since sync-branch exports write JSONL to a worktree but the DB stays in the main repo.
 	if result.JSONLPath != "" {
-		if _, ok := store.(*sqlite.SQLiteStorage); ok {
-			beadsDir := filepath.Dir(result.JSONLPath)
-			dbPath := filepath.Join(beadsDir, "beads.db")
+		if sqliteStore, ok := store.(*sqlite.SQLiteStorage); ok {
+			dbPath := sqliteStore.Path()
 			if err := TouchDatabaseFile(dbPath, result.JSONLPath); err != nil {
 				// Non-fatal warning
 				fmt.Fprintf(os.Stderr, "Warning: failed to update database mtime: %v\n", err)
@@ -234,6 +235,21 @@ func exportToJSONLDeferred(ctx context.Context, jsonlPath string) (*ExportResult
 			return nil, fmt.Errorf("failed to get comments for %s: %w", issue.ID, err)
 		}
 		issue.Comments = comments
+	}
+
+	// Populate decision points for issues that have them (hq-946577.12)
+	allDecisionPoints, err := store.ListAllDecisionPoints(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get decision points: %w", err)
+	}
+	dpByIssue := make(map[string]*types.DecisionPoint)
+	for _, dp := range allDecisionPoints {
+		dpByIssue[dp.IssueID] = dp
+	}
+	for _, issue := range issues {
+		if dp, ok := dpByIssue[issue.ID]; ok {
+			issue.DecisionPoint = dp
+		}
 	}
 
 	// Create temp file for atomic write

@@ -225,7 +225,7 @@ func (s *DoltStore) GetAllDependencyRecords(ctx context.Context) (map[string][]*
 	return result, rows.Err()
 }
 
-// GetDependencyRecordsForIssues returns dependency records for specific issues
+// GetDependencyRecordsForIssues returns dependency records for multiple issues
 func (s *DoltStore) GetDependencyRecordsForIssues(ctx context.Context, issueIDs []string) (map[string][]*types.Dependency, error) {
 	if len(issueIDs) == 0 {
 		return make(map[string][]*types.Dependency), nil

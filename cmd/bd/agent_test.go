@@ -1,7 +1,11 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
+
+	"github.com/steveyegge/beads/internal/config"
 )
 
 func TestValidAgentStates(t *testing.T) {
@@ -50,6 +54,33 @@ func TestFormatTimeOrNil(t *testing.T) {
 }
 
 func TestParseAgentIDFields(t *testing.T) {
+	// Set up config with agent roles for testing
+	tmpDir := t.TempDir()
+	beadsDir := filepath.Join(tmpDir, ".beads")
+	if err := os.MkdirAll(beadsDir, 0755); err != nil {
+		t.Fatalf("failed to create .beads directory: %v", err)
+	}
+
+	// Write config with test agent roles
+	configContent := `
+agent_roles:
+  town_level: "mayor,deacon"
+  rig_level: "witness,refinery"
+  named: "crew,polecat"
+`
+	configPath := filepath.Join(beadsDir, "config.yaml")
+	if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
+		t.Fatalf("failed to write config file: %v", err)
+	}
+
+	// Change to tmp directory and initialize config
+	t.Chdir(tmpDir)
+
+	config.ResetForTesting()
+	if err := config.Initialize(); err != nil {
+		t.Fatalf("config.Initialize() returned error: %v", err)
+	}
+
 	tests := []struct {
 		name         string
 		agentID      string

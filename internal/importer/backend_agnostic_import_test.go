@@ -5,16 +5,23 @@ package importer
 
 import (
 	"context"
+	"path/filepath"
 	"testing"
 	"time"
 
-	"github.com/steveyegge/beads/internal/storage/memory"
+	"github.com/steveyegge/beads/internal/storage/sqlite"
 	"github.com/steveyegge/beads/internal/types"
 )
 
 func TestImportIssues_BackendAgnostic_DepsLabelsCommentsTombstone(t *testing.T) {
 	ctx := context.Background()
-	store := memory.New("")
+	// Create SQLite store (importer now requires SQLite backend)
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	store, err := sqlite.New(ctx, dbPath)
+	if err != nil {
+		t.Fatalf("create SQLite storage: %v", err)
+	}
+	defer store.Close()
 	if err := store.SetConfig(ctx, "issue_prefix", "test"); err != nil {
 		t.Fatalf("set issue_prefix: %v", err)
 	}
