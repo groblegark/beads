@@ -14,7 +14,7 @@ const ConfigFileName = "metadata.json"
 type Config struct {
 	Database    string `json:"database"`
 	JSONLExport string `json:"jsonl_export,omitempty"`
-	Backend     string `json:"backend,omitempty"` // "sqlite" (default) or "dolt"
+	Backend     string `json:"backend,omitempty"` // "sqlite" or "dolt" (default)
 
 	// Dolt remote URL for bootstrap from remote (enables JSONL-free fresh clones)
 	// When set and Dolt backend is configured, fresh clones will bootstrap by

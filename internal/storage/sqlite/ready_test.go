@@ -904,7 +904,9 @@ func TestGetReadyWorkExternalDeps(t *testing.T) {
 	}
 
 	// Create config file for external project
+	// Explicitly set SQLite backend since DefaultConfig now defaults to Dolt
 	cfg := configfile.DefaultConfig()
+	cfg.Backend = configfile.BackendSQLite
 	if err := cfg.Save(beadsDir); err != nil {
 		t.Fatalf("failed to save external config: %v", err)
 	}
@@ -1156,7 +1158,9 @@ func TestGetBlockedIssuesFiltersExternalDeps(t *testing.T) {
 	}
 
 	// Create config file for external project
+	// Explicitly set SQLite backend since DefaultConfig now defaults to Dolt
 	cfg := configfile.DefaultConfig()
+	cfg.Backend = configfile.BackendSQLite
 	if err := cfg.Save(beadsDir); err != nil {
 		t.Fatalf("failed to save external config: %v", err)
 	}
@@ -1296,7 +1300,9 @@ func TestGetBlockedIssuesPartialExternalDeps(t *testing.T) {
 		t.Fatalf("failed to create .beads dir: %v", err)
 	}
 
+	// Explicitly set SQLite backend since DefaultConfig now defaults to Dolt
 	cfg := configfile.DefaultConfig()
+	cfg.Backend = configfile.BackendSQLite
 	if err := cfg.Save(beadsDir); err != nil {
 		t.Fatalf("failed to save external config: %v", err)
 	}
@@ -1535,7 +1541,9 @@ func TestCheckExternalDepsBatching(t *testing.T) {
 	if err := os.MkdirAll(beadsDir, 0755); err != nil {
 		t.Fatalf("failed to create beads dir: %v", err)
 	}
+	// Explicitly set SQLite backend since DefaultConfig now defaults to Dolt
 	cfg := configfile.DefaultConfig()
+	cfg.Backend = configfile.BackendSQLite
 	if err := cfg.Save(beadsDir); err != nil {
 		t.Fatalf("failed to save config: %v", err)
 	}
