@@ -631,6 +631,68 @@ func (c *Client) MolBurn(args *MolBurnArgs) (*MolBurnResult, error) {
 	return &result, nil
 }
 
+// KV operations (bd-hdq5)
+
+// KVSet sets a key-value pair via the daemon
+func (c *Client) KVSet(args *KVSetArgs) (*KVSetResult, error) {
+	resp, err := c.Execute(OpKVSet, args)
+	if err != nil {
+		return nil, err
+	}
+
+	var result KVSetResult
+	if err := json.Unmarshal(resp.Data, &result); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal kv set response: %w", err)
+	}
+
+	return &result, nil
+}
+
+// KVGet gets a value by key via the daemon
+func (c *Client) KVGet(args *KVGetArgs) (*KVGetResult, error) {
+	resp, err := c.Execute(OpKVGet, args)
+	if err != nil {
+		return nil, err
+	}
+
+	var result KVGetResult
+	if err := json.Unmarshal(resp.Data, &result); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal kv get response: %w", err)
+	}
+
+	return &result, nil
+}
+
+// KVClear deletes a key via the daemon
+func (c *Client) KVClear(args *KVClearArgs) (*KVClearResult, error) {
+	resp, err := c.Execute(OpKVClear, args)
+	if err != nil {
+		return nil, err
+	}
+
+	var result KVClearResult
+	if err := json.Unmarshal(resp.Data, &result); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal kv clear response: %w", err)
+	}
+
+	return &result, nil
+}
+
+// KVList lists all key-value pairs via the daemon
+func (c *Client) KVList(args *KVListArgs) (*KVListResult, error) {
+	resp, err := c.Execute(OpKVList, args)
+	if err != nil {
+		return nil, err
+	}
+
+	var result KVListResult
+	if err := json.Unmarshal(resp.Data, &result); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal kv list response: %w", err)
+	}
+
+	return &result, nil
+}
+
 // cleanupStaleDaemonArtifacts removes stale daemon.pid file when socket is missing and lock is free.
 // This prevents stale artifacts from accumulating after daemon crashes.
 // Only removes pid file - lock file is managed by OS (released on process exit).

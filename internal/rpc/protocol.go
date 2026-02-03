@@ -62,6 +62,12 @@ const (
 	OpMolBond   = "mol_bond"
 	OpMolSquash = "mol_squash"
 	OpMolBurn   = "mol_burn"
+
+	// KV operations (bd-hdq5)
+	OpKVSet   = "kv_set"
+	OpKVGet   = "kv_get"
+	OpKVClear = "kv_clear"
+	OpKVList  = "kv_list"
 )
 
 // Request represents an RPC request from client to daemon
@@ -754,5 +760,52 @@ type MolBurnResult struct {
 	DeletedIDs   []string `json:"deleted_ids"`
 	DeletedCount int      `json:"deleted_count"`
 	FailedCount  int      `json:"failed_count"`
+}
+
+// KV operations (bd-hdq5)
+
+// KVSetArgs represents arguments for the kv set operation
+type KVSetArgs struct {
+	Key   string `json:"key"`
+	Value string `json:"value"`
+}
+
+// KVSetResult represents the result of a kv set operation
+type KVSetResult struct {
+	Key   string `json:"key"`
+	Value string `json:"value"`
+}
+
+// KVGetArgs represents arguments for the kv get operation
+type KVGetArgs struct {
+	Key string `json:"key"`
+}
+
+// KVGetResult represents the result of a kv get operation
+type KVGetResult struct {
+	Key   string `json:"key"`
+	Value string `json:"value"`
+	Found bool   `json:"found"`
+}
+
+// KVClearArgs represents arguments for the kv clear operation
+type KVClearArgs struct {
+	Key string `json:"key"`
+}
+
+// KVClearResult represents the result of a kv clear operation
+type KVClearResult struct {
+	Key     string `json:"key"`
+	Deleted bool   `json:"deleted"`
+}
+
+// KVListArgs represents arguments for the kv list operation
+type KVListArgs struct {
+	// No args needed, lists all kv pairs
+}
+
+// KVListResult represents the result of a kv list operation
+type KVListResult struct {
+	Pairs map[string]string `json:"pairs"`
 }
 

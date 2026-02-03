@@ -307,6 +307,15 @@ func (s *Server) executeOperation(req *Request) Response {
 		resp = s.handleMolSquash(req)
 	case OpMolBurn:
 		resp = s.handleMolBurn(req)
+	// KV operations (bd-hdq5)
+	case OpKVSet:
+		resp = s.handleKVSet(req)
+	case OpKVGet:
+		resp = s.handleKVGet(req)
+	case OpKVClear:
+		resp = s.handleKVClear(req)
+	case OpKVList:
+		resp = s.handleKVList(req)
 	default:
 		return Response{
 			Success: false,
