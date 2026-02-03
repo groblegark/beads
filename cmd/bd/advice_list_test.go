@@ -649,6 +649,176 @@ func TestBuildAgentSubscriptions(t *testing.T) {
 	}
 }
 
+// TestParseGroups tests the parseGroups function that extracts group numbers from label prefixes
+func TestParseGroups(t *testing.T) {
+	tests := []struct {
+		name     string
+		labels   []string
+		expected map[int][]string
+	}{
+		{
+			name:     "single group",
+			labels:   []string{"g0:role:polecat", "g0:rig:beads"},
+			expected: map[int][]string{0: {"role:polecat", "rig:beads"}},
+		},
+		{
+			name:     "multiple groups",
+			labels:   []string{"g0:role:polecat", "g1:role:crew"},
+			expected: map[int][]string{0: {"role:polecat"}, 1: {"role:crew"}},
+		},
+		{
+			name:   "no prefix backward compat",
+			labels: []string{"role:polecat", "rig:beads"},
+			// Should be separate groups (OR behavior preserved)
+			// Each unprefixed label gets its own group starting at 1000
+			expected: map[int][]string{1000: {"role:polecat"}, 1001: {"rig:beads"}},
+		},
+		{
+			name:   "mixed prefixed and unprefixed",
+			labels: []string{"g0:role:polecat", "global"},
+			// g0 group + separate group for 'global'
+			expected: map[int][]string{0: {"role:polecat"}, 1000: {"global"}},
+		},
+		{
+			name:     "empty labels",
+			labels:   []string{},
+			expected: map[int][]string{},
+		},
+		{
+			name:     "complex multi-group",
+			labels:   []string{"g0:role:polecat", "g0:rig:beads", "g1:role:crew", "g1:rig:gastown"},
+			expected: map[int][]string{0: {"role:polecat", "rig:beads"}, 1: {"role:crew", "rig:gastown"}},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := parseGroups(tt.labels)
+
+			// Check that we have the same number of groups
+			if len(got) != len(tt.expected) {
+				t.Errorf("parseGroups(%v) got %d groups, want %d groups\ngot: %v\nwant: %v",
+					tt.labels, len(got), len(tt.expected), got, tt.expected)
+				return
+			}
+
+			// Check each expected group
+			for groupNum, expectedLabels := range tt.expected {
+				gotLabels, ok := got[groupNum]
+				if !ok {
+					t.Errorf("parseGroups(%v) missing group %d, got %v", tt.labels, groupNum, got)
+					continue
+				}
+				if len(gotLabels) != len(expectedLabels) {
+					t.Errorf("parseGroups(%v) group %d: got %v, want %v",
+						tt.labels, groupNum, gotLabels, expectedLabels)
+					continue
+				}
+				for i, label := range expectedLabels {
+					if gotLabels[i] != label {
+						t.Errorf("parseGroups(%v) group %d label %d: got %q, want %q",
+							tt.labels, groupNum, i, gotLabels[i], label)
+					}
+				}
+			}
+		})
+	}
+}
+
+// TestMatchesSubscriptionsWithGroups tests the group-based AND/OR matching logic
+func TestMatchesSubscriptionsWithGroups(t *testing.T) {
+	tests := []struct {
+		name          string
+		issueLabels   []string
+		subscriptions []string
+		expected      bool
+	}{
+		{
+			name:          "AND group all match",
+			issueLabels:   []string{"g0:role:polecat", "g0:rig:beads"},
+			subscriptions: []string{"role:polecat", "rig:beads"},
+			expected:      true,
+		},
+		{
+			name:          "AND group partial match fails",
+			issueLabels:   []string{"g0:role:polecat", "g0:rig:beads"},
+			subscriptions: []string{"role:polecat"}, // missing rig:beads
+			expected:      false,
+		},
+		{
+			name:          "OR across groups",
+			issueLabels:   []string{"g0:role:polecat", "g1:role:crew"},
+			subscriptions: []string{"role:crew"}, // matches g1
+			expected:      true,
+		},
+		{
+			name:          "complex: (polecat+beads) OR crew",
+			issueLabels:   []string{"g0:role:polecat", "g0:rig:beads", "g1:role:crew"},
+			subscriptions: []string{"role:crew"},
+			expected:      true, // matches g1
+		},
+		{
+			name:          "complex: (polecat+beads) OR crew - match first group",
+			issueLabels:   []string{"g0:role:polecat", "g0:rig:beads", "g1:role:crew"},
+			subscriptions: []string{"role:polecat", "rig:beads"},
+			expected:      true, // matches g0
+		},
+		{
+			name:          "complex: neither group matches",
+			issueLabels:   []string{"g0:role:polecat", "g0:rig:beads", "g1:role:crew"},
+			subscriptions: []string{"role:polecat"}, // partial g0, no g1
+			expected:      false,
+		},
+		{
+			name:          "backward compat: unprefixed labels OR",
+			issueLabels:   []string{"role:polecat", "role:crew"},
+			subscriptions: []string{"role:crew"}, // matches one
+			expected:      true,
+		},
+		{
+			name:          "backward compat: unprefixed labels no match",
+			issueLabels:   []string{"role:polecat", "rig:beads"},
+			subscriptions: []string{"role:crew"},
+			expected:      false,
+		},
+		{
+			name:          "empty issue labels",
+			issueLabels:   []string{},
+			subscriptions: []string{"role:polecat"},
+			expected:      false,
+		},
+		{
+			name:          "empty subscriptions",
+			issueLabels:   []string{"g0:role:polecat"},
+			subscriptions: []string{},
+			expected:      false,
+		},
+		{
+			name:          "global label match",
+			issueLabels:   []string{"global"},
+			subscriptions: []string{"global", "role:polecat"},
+			expected:      true,
+		},
+		{
+			name:          "mixed prefixed and unprefixed",
+			issueLabels:   []string{"g0:role:polecat", "g0:rig:beads", "global"},
+			subscriptions: []string{"global"}, // matches unprefixed global
+			expected:      true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// matchesSubscriptions takes an issue but only uses labels
+			got := matchesSubscriptions(nil, tt.issueLabels, tt.subscriptions)
+			if got != tt.expected {
+				t.Errorf("matchesSubscriptions(_, %v, %v) = %v, want %v",
+					tt.issueLabels, tt.subscriptions, got, tt.expected)
+			}
+		})
+	}
+}
+
 // TestBuildAgentSubscriptionsWithNativeFields tests that buildAgentSubscriptions
 // reads AdviceSubscriptions and AdviceSubscriptionsExclude from agent beads (gt-w2mh8a.5)
 func TestBuildAgentSubscriptionsWithNativeFields(t *testing.T) {

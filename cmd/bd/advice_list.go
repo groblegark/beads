@@ -227,14 +227,44 @@ func matchesAnyLabel(issueLabels []string, filterLabels []string) bool {
 	return false
 }
 
+// parseGroups extracts group numbers from label prefixes (g0:, g1:, etc.)
+// Labels without prefix are treated as separate groups (backward compat - OR behavior)
+func parseGroups(labels []string) map[int][]string {
+	groups := make(map[int][]string)
+	nextUnprefixedGroup := 1000 // High number to separate from explicit groups
+
+	for _, label := range labels {
+		if len(label) >= 3 && label[0] == 'g' {
+			// Try to parse gN: prefix
+			colonIdx := strings.Index(label, ":")
+			if colonIdx > 1 {
+				var groupNum int
+				if _, err := fmt.Sscanf(label[:colonIdx], "g%d", &groupNum); err == nil {
+					groups[groupNum] = append(groups[groupNum], label[colonIdx+1:])
+					continue
+				}
+			}
+		}
+		// No valid prefix - treat as separate group (OR behavior preserved)
+		groups[nextUnprefixedGroup] = append(groups[nextUnprefixedGroup], label)
+		nextUnprefixedGroup++
+	}
+	return groups
+}
+
 // matchesSubscriptions checks if advice should be shown based on subscriptions.
 //
 // Matching rules:
-//   - If advice has rig:X label, agent MUST be subscribed to rig:X (required match)
-//   - If advice has agent:X label, agent MUST be subscribed to agent:X (required match)
-//   - For other labels (role:X, global, topics), ANY match is sufficient
+//   - For labels with group prefix (gN:): AND within group, OR across groups
+//   - For unprefixed labels: rig: and agent: labels require exact match,
+//     other labels (role:, global, topics) use OR matching
 //
-// This prevents rig-scoped advice from leaking to other rigs via role matches.
+// Backward compatibility: Unprefixed rig: and agent: labels act as gates -
+// if present, they MUST match or the advice is filtered out.
+//
+// Example with groups:
+//   - Labels [g0:role:polecat, g0:rig:beads] = must match BOTH role:polecat AND rig:beads
+//   - Labels [g0:role:polecat, g1:role:crew] = must match role:polecat OR role:crew
 func matchesSubscriptions(issue *types.Issue, issueLabels []string, subscriptions []string) bool {
 	// Build subscription set
 	subSet := make(map[string]bool)
@@ -242,6 +272,42 @@ func matchesSubscriptions(issue *types.Issue, issueLabels []string, subscription
 		subSet[s] = true
 	}
 
+	// Check if any labels have group prefixes
+	hasGroupedLabels := false
+	for _, l := range issueLabels {
+		if len(l) >= 3 && l[0] == 'g' && l[1] >= '0' && l[1] <= '9' {
+			hasGroupedLabels = true
+			break
+		}
+	}
+
+	// If we have grouped labels, use group-based matching
+	if hasGroupedLabels {
+		groups := parseGroups(issueLabels)
+		if len(groups) == 0 {
+			return false
+		}
+
+		// OR across groups: if any group fully matches, advice applies
+		for _, groupLabels := range groups {
+			if len(groupLabels) == 0 {
+				continue
+			}
+			allMatch := true
+			for _, label := range groupLabels {
+				if !subSet[label] {
+					allMatch = false
+					break
+				}
+			}
+			if allMatch {
+				return true
+			}
+		}
+		return false
+	}
+
+	// Backward compatible behavior for unprefixed labels:
 	// Check for required labels (rig:X, agent:X) - these MUST match
 	for _, l := range issueLabels {
 		if strings.HasPrefix(l, "rig:") {
