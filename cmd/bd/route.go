@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -8,6 +9,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/steveyegge/beads/internal/beads"
 	"github.com/steveyegge/beads/internal/routing"
+	"github.com/steveyegge/beads/internal/rpc"
 	"github.com/steveyegge/beads/internal/types"
 )
 
@@ -97,28 +99,48 @@ func runRouteMigrate(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	// Get storage for creating route beads
-	store := getStore()
-	if store == nil {
-		return fmt.Errorf("storage not available - ensure daemon is running")
-	}
-
 	// Check for existing route beads to avoid duplicates
 	ctx := cmd.Context()
 	existingRoutes := make(map[string]bool)
 
-	// Query existing route beads
-	filter := types.IssueFilter{}
-	issueType := types.IssueType("route")
-	filter.IssueType = &issueType
-
-	existing, err := store.SearchIssues(ctx, "", filter)
-	if err == nil {
-		for _, issue := range existing {
-			// Extract prefix from title
-			route := routing.ParseRouteFromTitle(issue.Title)
-			if route.Prefix != "" {
-				existingRoutes[route.Prefix] = true
+	// Query existing route beads via daemon or direct store
+	if daemonClient != nil {
+		// Daemon mode - use RPC
+		listArgs := &rpc.ListArgs{
+			IssueType: "route",
+			Status:    "open",
+		}
+		resp, err := daemonClient.List(listArgs)
+		if err == nil {
+			var issues []*types.Issue
+			if err := json.Unmarshal(resp.Data, &issues); err == nil {
+				for _, issue := range issues {
+					route := routing.ParseRouteFromTitle(issue.Title)
+					if route.Prefix != "" {
+						existingRoutes[route.Prefix] = true
+					}
+				}
+			}
+		}
+	} else {
+		// Direct mode - use store
+		if err := ensureStoreActive(); err != nil {
+			return fmt.Errorf("failed to initialize storage: %w", err)
+		}
+		store := getStore()
+		if store == nil {
+			return fmt.Errorf("no database connection")
+		}
+		filter := types.IssueFilter{}
+		issueType := types.IssueType("route")
+		filter.IssueType = &issueType
+		existing, err := store.SearchIssues(ctx, "", filter)
+		if err == nil {
+			for _, issue := range existing {
+				route := routing.ParseRouteFromTitle(issue.Title)
+				if route.Prefix != "" {
+					existingRoutes[route.Prefix] = true
+				}
 			}
 		}
 	}
@@ -156,20 +178,45 @@ func runRouteMigrate(cmd *cobra.Command, args []string) error {
 
 		// Create route bead
 		title := fmt.Sprintf("%s → %s", r.Prefix, r.Path)
-		issue := &types.Issue{
-			Title:       title,
-			Description: fmt.Sprintf("Route for prefix %s to path %s", r.Prefix, r.Path),
-			IssueType:   types.IssueType("route"),
-			Status:      types.StatusOpen,
-			Priority:    2,
+		description := fmt.Sprintf("Route for prefix %s to path %s", r.Prefix, r.Path)
+
+		if daemonClient != nil {
+			// Daemon mode - use RPC
+			createArgs := &rpc.CreateArgs{
+				Title:       title,
+				Description: description,
+				IssueType:   "route",
+				Priority:    2,
+			}
+			resp, err := daemonClient.Create(createArgs)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "  Error creating route bead for %s: %v\n", r.Prefix, err)
+				continue
+			}
+			// Parse response to get created issue ID
+			var issue types.Issue
+			if err := json.Unmarshal(resp.Data, &issue); err != nil {
+				fmt.Fprintf(os.Stderr, "  Error parsing response for %s: %v\n", r.Prefix, err)
+				continue
+			}
+			fmt.Printf("  Created %s: %s\n", issue.ID, title)
+		} else {
+			// Direct mode - use store
+			store := getStore()
+			issue := &types.Issue{
+				Title:       title,
+				Description: description,
+				IssueType:   types.IssueType("route"),
+				Status:      types.StatusOpen,
+				Priority:    2,
+			}
+			if err := store.CreateIssue(ctx, issue, getActor()); err != nil {
+				fmt.Fprintf(os.Stderr, "  Error creating route bead for %s: %v\n", r.Prefix, err)
+				continue
+			}
+			fmt.Printf("  Created %s: %s\n", issue.ID, title)
 		}
 
-		if err := store.CreateIssue(ctx, issue, getActor()); err != nil {
-			fmt.Fprintf(os.Stderr, "  Error creating route bead for %s: %v\n", r.Prefix, err)
-			continue
-		}
-
-		fmt.Printf("  Created %s: %s\n", issue.ID, title)
 		existingRoutes[r.Prefix] = true
 		created++
 	}
