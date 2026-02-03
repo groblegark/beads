@@ -309,6 +309,11 @@ func (s *Server) executeOperation(req *Request) Response {
 		resp = s.handleMolBurn(req)
 	case OpMolCurrent:
 		resp = s.handleMolCurrent(req)
+	// Sync operations (bd-wn2g)
+	case OpSyncExport:
+		resp = s.handleSyncExport(req)
+	case OpSyncStatus:
+		resp = s.handleSyncStatus(req)
 	default:
 		return Response{
 			Success: false,
