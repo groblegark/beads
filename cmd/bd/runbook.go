@@ -25,15 +25,23 @@ var runbookCmd = &cobra.Command{
 Runbook beads store the full content of OJ runbook files (HCL/TOML/JSON)
 in the beads database, enabling versioning, sharing, and materialization.
 
+Scope hierarchy (most-specific wins for same-name runbooks):
+  global           Available everywhere (specificity 0)
+  town:<name>      Available within a town (specificity 1)
+  rig:<name>       Available within a rig (specificity 2)
+  role:<name>      Available to a specific role (specificity 3)
+  agent:<name>     Available to a specific agent (specificity 4)
+
 Search paths for filesystem runbooks:
   1. .oj/runbooks/ (project)
   2. library/ (project libraries)
 
 Commands:
-  list     List runbook beads from database and/or filesystem
-  show     Show runbook details
-  create   Create a runbook bead from a file
-  import   Batch import runbooks from filesystem into database`,
+  list         List runbook beads from database and/or filesystem
+  show         Show runbook details
+  create       Create a runbook bead from a file
+  import       Batch import runbooks from filesystem into database
+  materialize  Write runbook beads to filesystem`,
 }
 
 // runbookListCmd lists all runbook beads.
@@ -48,11 +56,14 @@ Use --source to control where runbooks are listed from:
   --source=files  List only runbooks from filesystem
 
 Use --all to discover runbooks across all rigs in a Gas Town workspace.
+Use --scope to filter by scope level (global, rig, role, etc.).
 
 Examples:
   bd runbook list
   bd runbook list --json
   bd runbook list --source=db
+  bd runbook list --scope=rig:beads
+  bd runbook list --scope=global
   bd runbook list --all`,
 	Run: runRunbookList,
 }
@@ -121,12 +132,18 @@ var runbookMaterializeCmd = &cobra.Command{
 This is the reverse of 'bd runbook import': it reads runbook content from
 beads and writes them as files to .oj/runbooks/ for the OJ daemon to use.
 
+When multiple runbooks share the same name, the most-specific scope wins:
+  agent > role > rig > town > global
+
+Use --scope to only materialize runbooks matching a specific scope level.
+
 Examples:
-  bd runbook materialize base            # Write single runbook
-  bd runbook materialize --all           # Write all runbook beads
-  bd runbook materialize --all --dry-run # Preview without writing
-  bd runbook materialize base --dir=/tmp # Write to custom directory
-  bd runbook materialize --all --force   # Overwrite existing files`,
+  bd runbook materialize base              # Write single runbook
+  bd runbook materialize --all             # Write all (most-specific-wins)
+  bd runbook materialize --all --dry-run   # Preview without writing
+  bd runbook materialize base --dir=/tmp   # Write to custom directory
+  bd runbook materialize --all --force     # Overwrite existing files
+  bd runbook materialize --all --scope=rig:beads  # Only rig-scoped runbooks`,
 	Run: runRunbookMaterialize,
 }
 
@@ -135,6 +152,7 @@ type RunbookListEntry struct {
 	Name     string `json:"name"`
 	Format   string `json:"format"`
 	Source   string `json:"source"`
+	Scope    string `json:"scope"`
 	Jobs     int    `json:"jobs"`
 	Commands int    `json:"commands"`
 	Workers  int    `json:"workers"`
@@ -143,16 +161,20 @@ type RunbookListEntry struct {
 var (
 	rbListSource       string
 	rbListAllRigs      bool
+	rbListScope        string
 	rbShowContent      bool
 	rbCreateFile       string
 	rbCreateForce      bool
+	rbCreateScope      string
 	rbImportAll        bool
 	rbImportForce      bool
 	rbImportDir        string
+	rbImportScope      string
 	rbMaterializeAll   bool
 	rbMaterializeForce bool
 	rbMaterializeDry   bool
 	rbMaterializeDir   string
+	rbMaterializeScope string
 )
 
 func runRunbookList(cmd *cobra.Command, args []string) {
@@ -202,6 +224,17 @@ func runRunbookList(cmd *cobra.Command, args []string) {
 		}
 	}
 
+	// Apply --scope filter if provided
+	if rbListScope != "" {
+		var filtered []RunbookListEntry
+		for _, e := range entries {
+			if matchesScope(e.Scope, rbListScope) {
+				filtered = append(filtered, e)
+			}
+		}
+		entries = filtered
+	}
+
 	sort.Slice(entries, func(i, j int) bool {
 		return entries[i].Name < entries[j].Name
 	})
@@ -213,6 +246,9 @@ func runRunbookList(cmd *cobra.Command, args []string) {
 
 	if len(entries) == 0 {
 		fmt.Println("No runbooks found.")
+		if rbListScope != "" {
+			fmt.Printf("  (filtered by scope: %s)\n", rbListScope)
+		}
 		if source == "all" || source == "files" {
 			fmt.Println("\nSearch paths:")
 			for _, p := range getRunbookSearchPaths() {
@@ -223,8 +259,8 @@ func runRunbookList(cmd *cobra.Command, args []string) {
 	}
 
 	fmt.Printf("Runbooks (%d found)\n\n", len(entries))
-	fmt.Printf("  %-25s %-6s %-8s %s\n", "NAME", "FMT", "SOURCE", "CONTENTS")
-	fmt.Printf("  %-25s %-6s %-8s %s\n", "----", "---", "------", "--------")
+	fmt.Printf("  %-25s %-6s %-8s %-18s %s\n", "NAME", "FMT", "SOURCE", "SCOPE", "CONTENTS")
+	fmt.Printf("  %-25s %-6s %-8s %-18s %s\n", "----", "---", "------", "-----", "--------")
 	for _, e := range entries {
 		var parts []string
 		if e.Jobs > 0 {
@@ -240,7 +276,11 @@ func runRunbookList(cmd *cobra.Command, args []string) {
 		if contents == "" {
 			contents = "-"
 		}
-		fmt.Printf("  %-25s %-6s %-8s %s\n", e.Name, e.Format, e.Source, contents)
+		scope := e.Scope
+		if scope == "" {
+			scope = "global"
+		}
+		fmt.Printf("  %-25s %-6s %-8s %-18s %s\n", e.Name, e.Format, e.Source, scope, contents)
 	}
 }
 
@@ -282,10 +322,16 @@ func runRunbookListAll() {
 		}
 		var entries []RunbookListEntry
 		for _, rb := range files {
+			// Filesystem runbooks discovered via --all are inferred as rig-scoped
+			scope := rb.Scope
+			if scope == "" {
+				scope = "rig:" + rigName
+			}
 			entries = append(entries, RunbookListEntry{
 				Name:     rb.Name,
 				Format:   rb.Format,
 				Source:   "file",
+				Scope:    scope,
 				Jobs:     len(rb.Jobs),
 				Commands: len(rb.Commands),
 				Workers:  len(rb.Workers),
@@ -307,7 +353,11 @@ func runRunbookListAll() {
 	for _, g := range groups {
 		fmt.Printf("%s (%d runbooks)\n", g.Rig, len(g.Entries))
 		for _, e := range g.Entries {
-			fmt.Printf("  %-25s %-6s %d jobs, %d cmds\n", e.Name, e.Format, e.Jobs, e.Commands)
+			scope := e.Scope
+			if scope == "" {
+				scope = "global"
+			}
+			fmt.Printf("  %-25s %-6s %-18s %d jobs, %d cmds\n", e.Name, e.Format, scope, e.Jobs, e.Commands)
 		}
 		fmt.Println()
 	}
@@ -340,6 +390,11 @@ func runRunbookShow(cmd *cobra.Command, args []string) {
 	if rb.Source != "" {
 		fmt.Printf("  Source: %s\n", rb.Source)
 	}
+	scope := rb.Scope
+	if scope == "" {
+		scope = "global"
+	}
+	fmt.Printf("  Scope:  %s (specificity: %d)\n", scope, runbook.ScopeSpecificity(scope))
 	fmt.Println()
 
 	if len(rb.Jobs) > 0 {
@@ -398,6 +453,9 @@ func runRunbookCreate(cmd *cobra.Command, args []string) {
 	format := detectFormat(rbCreateFile)
 	rb := runbook.ParseRunbookFile(name, string(content), format)
 	rb.Source = rbCreateFile
+	if rbCreateScope != "" {
+		rb.Scope = rbCreateScope
+	}
 
 	result, err := saveRunbookToDB(rb)
 	if err != nil {
@@ -409,7 +467,11 @@ func runRunbookCreate(cmd *cobra.Command, args []string) {
 	if !result.created {
 		action = "Updated"
 	}
-	fmt.Printf("%s %s runbook %q as %s\n", ui.RenderPass("✓"), action, name, result.id)
+	scopeInfo := ""
+	if rb.Scope != "" {
+		scopeInfo = fmt.Sprintf(" (scope: %s)", rb.Scope)
+	}
+	fmt.Printf("%s %s runbook %q as %s%s\n", ui.RenderPass("✓"), action, name, result.id, scopeInfo)
 }
 
 func runRunbookImport(cmd *cobra.Command, args []string) {
@@ -437,6 +499,9 @@ func runRunbookImport(cmd *cobra.Command, args []string) {
 	format := detectFormat(path)
 	rb := runbook.ParseRunbookFile(name, string(content), format)
 	rb.Source = path
+	if rbImportScope != "" {
+		rb.Scope = rbImportScope
+	}
 
 	result, err := saveRunbookToDB(rb)
 	if err != nil {
@@ -470,6 +535,10 @@ func importAllRunbooks() {
 				continue
 			}
 			seen[rb.Name] = true
+
+			if rbImportScope != "" {
+				rb.Scope = rbImportScope
+			}
 
 			result, err := saveRunbookToDB(rb)
 			if err != nil {
@@ -546,10 +615,27 @@ func materializeAll(outDir string) {
 		os.Exit(1)
 	}
 
-	written := 0
-	skipped := 0
-	errors := 0
+	// Batch-load labels for scope resolution
+	var issueIDs []string
+	for _, issue := range issues {
+		if issue.Status != types.StatusClosed {
+			issueIDs = append(issueIDs, issue.ID)
+		}
+	}
+	labelsMap := make(map[string][]string)
+	if len(issueIDs) > 0 {
+		if lm, err := s.GetLabelsForIssues(ctx, issueIDs); err == nil {
+			labelsMap = lm
+		}
+	}
 
+	// Collect all runbooks with their scope, then resolve by most-specific-wins
+	type scopedRunbook struct {
+		rb    *runbook.RunbookContent
+		scope string
+	}
+
+	bestByName := make(map[string]*scopedRunbook)
 	for _, issue := range issues {
 		if issue.Status == types.StatusClosed {
 			continue
@@ -557,19 +643,37 @@ func materializeAll(outDir string) {
 		rb, err := runbook.IssueToRunbook(issue)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "  %s %s: %v\n", ui.RenderFail("✗"), issue.ID, err)
-			errors++
 			continue
 		}
 
-		err = materializeOne(rb, outDir)
+		scope := runbook.ParseScopeFromLabels(labelsMap[issue.ID])
+
+		// Apply --scope filter if provided
+		if rbMaterializeScope != "" && !matchesScope(scope, rbMaterializeScope) {
+			continue
+		}
+
+		// Most-specific-wins: keep the runbook with highest specificity for each name
+		spec := runbook.ScopeSpecificity(scope)
+		if existing, ok := bestByName[rb.Name]; !ok || spec > runbook.ScopeSpecificity(existing.scope) {
+			bestByName[rb.Name] = &scopedRunbook{rb: rb, scope: scope}
+		}
+	}
+
+	written := 0
+	skipped := 0
+	errors := 0
+
+	for _, sr := range bestByName {
+		err := materializeOne(sr.rb, outDir)
 		if err != nil {
 			if strings.Contains(err.Error(), "already exists") {
 				skipped++
 				if !rbMaterializeDry {
-					fmt.Fprintf(os.Stderr, "  skipped %s (exists, use --force)\n", rb.Name)
+					fmt.Fprintf(os.Stderr, "  skipped %s (exists, use --force)\n", sr.rb.Name)
 				}
 			} else {
-				fmt.Fprintf(os.Stderr, "  %s %s: %v\n", ui.RenderFail("✗"), rb.Name, err)
+				fmt.Fprintf(os.Stderr, "  %s %s: %v\n", ui.RenderFail("✗"), sr.rb.Name, err)
 				errors++
 			}
 			continue
@@ -613,6 +717,54 @@ func materializeOne(rb *runbook.RunbookContent, outDir string) error {
 	return nil
 }
 
+// --- Scope helpers ---
+
+// matchesScope checks if a runbook's scope matches the given filter.
+// Exact match or prefix match (e.g., filter "rig:" matches "rig:beads").
+func matchesScope(entryScope, filter string) bool {
+	if filter == "" {
+		return true
+	}
+	if entryScope == "" {
+		entryScope = "global"
+	}
+	if entryScope == filter {
+		return true
+	}
+	// Allow prefix matching: --scope=rig matches all rig:X scopes
+	if !strings.Contains(filter, ":") {
+		return strings.HasPrefix(entryScope, filter+":")  || entryScope == filter
+	}
+	return false
+}
+
+// resolveRunbooksByScope takes a list of runbook entries and resolves
+// name conflicts using most-specific-wins. When multiple runbooks share
+// a name, the one with the highest specificity score wins.
+func resolveRunbooksByScope(entries []RunbookListEntry) []RunbookListEntry {
+	bestByName := make(map[string]RunbookListEntry)
+	bestSpec := make(map[string]int)
+
+	for _, e := range entries {
+		scope := e.Scope
+		if scope == "" {
+			scope = "global"
+		}
+		spec := runbook.ScopeSpecificity(scope)
+		if existing, ok := bestByName[e.Name]; !ok || spec > bestSpec[e.Name] {
+			_ = existing
+			bestByName[e.Name] = e
+			bestSpec[e.Name] = spec
+		}
+	}
+
+	result := make([]RunbookListEntry, 0, len(bestByName))
+	for _, e := range bestByName {
+		result = append(result, e)
+	}
+	return result
+}
+
 // --- Helper functions ---
 
 // listRunbooksFromDB queries the database for runbook-type issues.
@@ -631,6 +783,20 @@ func listRunbooksFromDB() []RunbookListEntry {
 		return nil
 	}
 
+	// Batch-load labels for scope resolution
+	var issueIDs []string
+	for _, issue := range issues {
+		if issue.Status != types.StatusClosed {
+			issueIDs = append(issueIDs, issue.ID)
+		}
+	}
+	labelsMap := make(map[string][]string)
+	if len(issueIDs) > 0 {
+		if lm, err := s.GetLabelsForIssues(ctx, issueIDs); err == nil {
+			labelsMap = lm
+		}
+	}
+
 	var entries []RunbookListEntry
 	for _, issue := range issues {
 		if issue.Status == types.StatusClosed {
@@ -642,10 +808,13 @@ func listRunbooksFromDB() []RunbookListEntry {
 			continue
 		}
 
+		scope := runbook.ParseScopeFromLabels(labelsMap[issue.ID])
+
 		entries = append(entries, RunbookListEntry{
 			Name:     rb.Name,
 			Format:   rb.Format,
 			Source:   "db",
+			Scope:    scope,
 			Jobs:     len(rb.Jobs),
 			Commands: len(rb.Commands),
 			Workers:  len(rb.Workers),
@@ -869,20 +1038,24 @@ func saveRunbookToDB(rb *runbook.RunbookContent) (*runbookSaveResult, error) {
 func init() {
 	runbookListCmd.Flags().StringVar(&rbListSource, "source", "all", "Source to list from: db, files, or all (default)")
 	runbookListCmd.Flags().BoolVar(&rbListAllRigs, "all", false, "Discover runbooks across all rigs (requires GT_ROOT)")
+	runbookListCmd.Flags().StringVar(&rbListScope, "scope", "", "Filter by scope (global, town:X, rig:X, role:X, agent:X)")
 
 	runbookShowCmd.Flags().BoolVar(&rbShowContent, "content", false, "Show full runbook file content")
 
 	runbookCreateCmd.Flags().StringVar(&rbCreateFile, "file", "", "Path to runbook file (required)")
 	runbookCreateCmd.Flags().BoolVar(&rbCreateForce, "force", false, "Overwrite existing runbook in database")
+	runbookCreateCmd.Flags().StringVar(&rbCreateScope, "scope", "", "Scope level: global, town:X, rig:X, role:X, agent:X")
 
 	runbookImportCmd.Flags().BoolVar(&rbImportAll, "all", false, "Import all runbooks from search paths")
 	runbookImportCmd.Flags().BoolVar(&rbImportForce, "force", false, "Overwrite existing runbooks in database")
 	runbookImportCmd.Flags().StringVar(&rbImportDir, "dir", "", "Import from specific directory")
+	runbookImportCmd.Flags().StringVar(&rbImportScope, "scope", "", "Scope level for imported runbooks: global, town:X, rig:X, role:X, agent:X")
 
 	runbookMaterializeCmd.Flags().BoolVar(&rbMaterializeAll, "all", false, "Materialize all runbook beads")
 	runbookMaterializeCmd.Flags().BoolVar(&rbMaterializeForce, "force", false, "Overwrite existing files")
 	runbookMaterializeCmd.Flags().BoolVar(&rbMaterializeDry, "dry-run", false, "Preview without writing files")
 	runbookMaterializeCmd.Flags().StringVar(&rbMaterializeDir, "dir", "", "Output directory (default: .oj/runbooks/)")
+	runbookMaterializeCmd.Flags().StringVar(&rbMaterializeScope, "scope", "", "Filter by scope (global, town:X, rig:X, role:X, agent:X)")
 
 	runbookCmd.AddCommand(runbookListCmd)
 	runbookCmd.AddCommand(runbookShowCmd)
