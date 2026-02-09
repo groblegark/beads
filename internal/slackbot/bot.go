@@ -57,6 +57,9 @@ type Bot struct {
 
 	// User notification preferences
 	preferenceManager *PreferenceManager
+
+	// Chat relay for bidirectional Slack↔Agent messaging (bd-viux)
+	chatRelay *ChatRelay
 }
 
 // BotConfig holds configuration for the Slack bot.
@@ -2166,15 +2169,8 @@ func (b *Bot) handleThreadReply(ev *slackevents.MessageEvent) {
 	}
 
 	decisionID := b.getDecisionByThread(ev.Channel, ev.ThreadTimeStamp)
-	if decisionID == "" {
-		return
-	}
 
 	ctx := context.Background()
-	decision, err := b.decisions.GetDecision(ctx, decisionID)
-	if err != nil || decision.RequestedBy == "" || decision.RequestedBy == "unknown" {
-		return
-	}
 
 	userName := ev.User
 	if userInfo, err := b.client.GetUserInfo(ev.User); err == nil {
@@ -2185,8 +2181,42 @@ func (b *Bot) handleThreadReply(ev *slackevents.MessageEvent) {
 		}
 	}
 
+	// Try chat relay first: if this thread has a registered chat session,
+	// publish the message to NATS for agent consumption (bd-viux).
+	if b.chatRelay != nil {
+		session := b.chatRelay.GetSessionByThread(ev.Channel, ev.ThreadTimeStamp)
+		if session != nil && session.Status != "closed" {
+			if err := b.chatRelay.PublishInbound(ctx, session.SessionTag,
+				userName, ev.User, ev.Text, ev.Channel, ev.ThreadTimeStamp); err != nil {
+				log.Printf("slackbot: chat relay publish failed: %v", err)
+			} else {
+				log.Printf("slackbot: relayed thread reply from %s to session %s",
+					userName, session.SessionTag)
+				return
+			}
+		}
+	}
+
+	// Fall back to decision thread handling.
+	if decisionID == "" {
+		return
+	}
+
+	decision, err := b.decisions.GetDecision(ctx, decisionID)
+	if err != nil || decision.RequestedBy == "" || decision.RequestedBy == "unknown" {
+		return
+	}
+
 	log.Printf("slackbot: thread reply from %s on decision %s (agent: %s)",
 		userName, decisionID, decision.RequestedBy)
+
+	// If the decision has a session, also relay to chat (bd-viux).
+	if b.chatRelay != nil && decision.RequestedBy != "" {
+		if err := b.chatRelay.PublishInbound(ctx, decision.RequestedBy,
+			userName, ev.User, ev.Text, ev.Channel, ev.ThreadTimeStamp); err != nil {
+			log.Printf("slackbot: chat relay publish for decision thread failed: %v", err)
+		}
+	}
 }
 
 func (b *Bot) getDecisionByThread(channelID, threadTS string) string {
@@ -2224,6 +2254,15 @@ func (b *Bot) handleAgentChannelMessage(ev *slackevents.MessageEvent) {
 	}
 
 	log.Printf("slackbot: channel message from %s in agent channel for %s", userName, agentAddress)
+
+	// Relay to chat session for the agent (bd-viux).
+	if b.chatRelay != nil {
+		// Use agent address as session tag for agent-channel messages.
+		if err := b.chatRelay.PublishInbound(context.Background(), agentAddress,
+			userName, ev.User, ev.Text, ev.Channel, ""); err != nil {
+			log.Printf("slackbot: chat relay publish for agent channel failed: %v", err)
+		}
+	}
 }
 
 // ---------- Peek (agent terminal output) ----------
