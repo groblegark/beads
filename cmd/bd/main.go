@@ -416,6 +416,7 @@ var rootCmd = &cobra.Command{
 			"repair",
 			"resolve-conflicts",
 			"setup",
+			"chat",
 			"slack",
 			"version",
 			"zsh",
