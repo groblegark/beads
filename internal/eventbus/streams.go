@@ -24,11 +24,17 @@ const (
 
 	// SubjectOjPrefix is the subject prefix for OddJobs events.
 	SubjectOjPrefix = "oj."
+
+	// StreamChatEvents is the JetStream stream for chat events (bd-viux).
+	StreamChatEvents = "CHAT_EVENTS"
+
+	// SubjectChatPrefix is the subject prefix for chat events.
+	SubjectChatPrefix = "chat."
 )
 
 // SubjectForEvent returns the NATS subject for a given event type.
 // Hook events use "hooks.<type>"; decision events use "decisions.<type>";
-// OJ events use "oj.<type>".
+// OJ events use "oj.<type>"; chat events use "chat.<type>".
 func SubjectForEvent(eventType EventType) string {
 	if eventType.IsDecisionEvent() {
 		return SubjectDecisionPrefix + string(eventType)
@@ -36,7 +42,17 @@ func SubjectForEvent(eventType EventType) string {
 	if eventType.IsOjEvent() {
 		return SubjectOjPrefix + string(eventType)
 	}
+	if eventType.IsChatEvent() {
+		return SubjectChatPrefix + string(eventType)
+	}
 	return SubjectHookPrefix + string(eventType)
+}
+
+// SubjectForChatSession returns a NATS subject scoped to a specific chat
+// session and direction. Used for targeted subscriptions.
+// Example: "chat.session.abc123.in" or "chat.session.abc123.out"
+func SubjectForChatSession(sessionTag, direction string) string {
+	return SubjectChatPrefix + "session." + sessionTag + "." + direction
 }
 
 // EnsureStreams creates the required JetStream streams if they don't already
@@ -82,6 +98,20 @@ func EnsureStreams(js nats.JetStreamContext) error {
 		})
 		if err != nil {
 			return fmt.Errorf("create %s stream: %w", StreamOjEvents, err)
+		}
+	}
+
+	// Chat events stream (bd-viux): bidirectional Slack↔Agent messages.
+	if _, err := js.StreamInfo(StreamChatEvents); err != nil {
+		_, err = js.AddStream(&nats.StreamConfig{
+			Name:     StreamChatEvents,
+			Subjects: []string{SubjectChatPrefix + ">"},
+			Storage:  nats.FileStorage,
+			MaxMsgs:  10000,
+			MaxBytes: 100 << 20,
+		})
+		if err != nil {
+			return fmt.Errorf("create %s stream: %w", StreamChatEvents, err)
 		}
 	}
 

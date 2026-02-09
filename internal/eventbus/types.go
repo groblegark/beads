@@ -35,6 +35,11 @@ const (
 	EventDecisionEscalated EventType = "DecisionEscalated"
 	EventDecisionExpired   EventType = "DecisionExpired"
 
+	// Chat events (bd-viux): bidirectional Slack↔Agent chat.
+	EventChatMessageIn  EventType = "ChatMessageIn"  // Slack user → agent
+	EventChatMessageOut EventType = "ChatMessageOut" // Agent → Slack user
+	EventChatStatus     EventType = "ChatStatus"     // Session lifecycle (open/closed/typing)
+
 	// OddJobs lifecycle events (bd-4q86.4).
 	EventOjJobCreated        EventType = "OjJobCreated"
 	EventOjStepAdvanced      EventType = "OjStepAdvanced"
@@ -77,6 +82,16 @@ func (t EventType) IsDecisionEvent() bool {
 	switch t {
 	case EventDecisionCreated, EventDecisionResponded,
 		EventDecisionEscalated, EventDecisionExpired:
+		return true
+	}
+	return false
+}
+
+// IsChatEvent returns true if the event type belongs to the chat
+// event category (bd-viux).
+func (t EventType) IsChatEvent() bool {
+	switch t {
+	case EventChatMessageIn, EventChatMessageOut, EventChatStatus:
 		return true
 	}
 	return false
@@ -143,6 +158,28 @@ type DecisionEventPayload struct {
 	ChosenLabel string `json:"chosen_label,omitempty"`
 	ResolvedBy  string `json:"resolved_by,omitempty"`
 	Rationale   string `json:"rationale,omitempty"`
+}
+
+// ChatMessagePayload carries data for chat message events (bd-viux).
+// Used by ChatMessageIn (Slack→agent) and ChatMessageOut (agent→Slack).
+type ChatMessagePayload struct {
+	SessionTag string    `json:"session_tag"`           // Agent session identifier
+	ThreadTS   string    `json:"thread_ts,omitempty"`   // Slack thread timestamp
+	ChannelID  string    `json:"channel_id,omitempty"`  // Slack channel ID
+	Sender     string    `json:"sender"`                // User display name or agent ID
+	SenderID   string    `json:"sender_id,omitempty"`   // Slack user ID (for inbound)
+	Content    string    `json:"content"`               // Message text
+	Timestamp  time.Time `json:"timestamp"`             // When the message was sent
+	Seq        uint64    `json:"seq,omitempty"`         // JetStream sequence for ordering
+}
+
+// ChatStatusPayload carries data for chat session status events (bd-viux).
+type ChatStatusPayload struct {
+	SessionTag string `json:"session_tag"`
+	Status     string `json:"status"` // "open", "closed", "listening", "typing"
+	AgentName  string `json:"agent_name,omitempty"`
+	ChannelID  string `json:"channel_id,omitempty"`
+	ThreadTS   string `json:"thread_ts,omitempty"`
 }
 
 // Result aggregates handler responses for an event.
