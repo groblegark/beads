@@ -187,6 +187,12 @@ func newBotForTest(slackAPI SlackAPI, decisions DecisionProvider, channelID stri
 	}
 }
 
+// SetChatRelay attaches a chat relay for bidirectional Slack↔Agent messaging (bd-viux).
+// Must be called before Run.
+func (b *Bot) SetChatRelay(relay *ChatRelay) {
+	b.chatRelay = relay
+}
+
 // Run starts the bot event loop. Blocks until context is canceled.
 func (b *Bot) Run(ctx context.Context) error {
 	authResp, err := b.client.AuthTest()

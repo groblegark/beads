@@ -194,6 +194,15 @@ func runSlackStart(cmd *cobra.Command, args []string) error {
 		}
 	}()
 
+	// Start chat relay for bidirectional Slack↔Agent messaging (bd-viux)
+	chatRelay := slackbot.NewChatRelay(natsURL, natsToken, bot)
+	bot.SetChatRelay(chatRelay)
+	go func() {
+		if err := chatRelay.Run(ctx); err != nil {
+			log.Printf("slackbot: chat relay error: %v", err)
+		}
+	}()
+
 	// Run bot (blocks until context canceled)
 	log.Printf("slackbot: starting (channel=%s, nats=%s, daemon=%s)", channelID, natsURL, daemonHost)
 	return bot.Run(ctx)
