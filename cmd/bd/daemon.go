@@ -16,6 +16,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/steveyegge/beads/cmd/bd/doctor"
 	"github.com/steveyegge/beads/internal/beads"
+	"github.com/steveyegge/beads/internal/chat"
 	"github.com/steveyegge/beads/internal/config"
 	"github.com/steveyegge/beads/internal/configfile"
 	"github.com/steveyegge/beads/internal/daemon"
@@ -880,6 +881,9 @@ The daemon will now exit.`, strings.ToUpper(backend))
 		}
 	}
 
+	// Register chat status handler (bd-viux, bd-4kvl) — needs lazy JetStream access
+	bus.Register(eventbus.NewChatStatusHandler(bus.JetStreamContext))
+
 	server.SetBus(bus)
 
 	// Wire NATS health into RPC status reporting
@@ -896,6 +900,10 @@ The daemon will now exit.`, strings.ToUpper(backend))
 			}
 		})
 	}
+
+	// Wire chat session registry for RPC chat operations (bd-viux)
+	chatRegistry := chat.NewRegistry()
+	server.SetChatRegistry(chat.NewRPCAdapter(chatRegistry))
 
 	log.Info("event bus initialized", "handlers", len(bus.Handlers()), "jetstream", jsCtx != nil)
 
