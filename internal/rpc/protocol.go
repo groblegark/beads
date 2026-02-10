@@ -178,6 +178,12 @@ const (
 	OpFedRemoveRemote = "fed_remove_remote"
 	OpFedAddPeer      = "fed_add_peer"
 
+	// Chat operations (bd-viux)
+	OpChatSend    = "chat_send"    // Publish a chat message (in or out)
+	OpChatListen  = "chat_listen"  // Subscribe and wait for inbound message
+	OpChatStatus  = "chat_status"  // Query/list chat sessions
+	OpChatSession = "chat_session" // Create or close a chat session
+
 	// History query operations (bd-ma0s.3)
 	OpHistoryIssue            = "history_issue"
 	OpHistoryDiff             = "history_diff"
@@ -2192,4 +2198,84 @@ type VersionedDiffEntryRPC struct {
 // VersionedDiffResult represents the result of a versioned_diff operation.
 type VersionedDiffResult struct {
 	Entries []VersionedDiffEntryRPC `json:"entries"`
+}
+
+// ===== Chat Operations (bd-viux) =====
+
+// ChatSendArgs represents arguments for the chat_send operation.
+type ChatSendArgs struct {
+	SessionTag string `json:"session_tag"`           // Target session tag
+	Content    string `json:"content"`               // Message content
+	Sender     string `json:"sender"`                // Sender display name
+	SenderID   string `json:"sender_id,omitempty"`   // Slack user ID (inbound only)
+	Direction  string `json:"direction"`             // "in" (Slack→agent) or "out" (agent→Slack)
+	ChannelID  string `json:"channel_id,omitempty"`  // Slack channel ID
+	ThreadTS   string `json:"thread_ts,omitempty"`   // Slack thread timestamp
+}
+
+// ChatSendResult represents the result of a chat_send operation.
+type ChatSendResult struct {
+	Seq     uint64 `json:"seq"`              // JetStream sequence number
+	Subject string `json:"subject"`          // NATS subject published to
+}
+
+// ChatListenArgs represents arguments for the chat_listen operation.
+type ChatListenArgs struct {
+	SessionTag string `json:"session_tag"`           // Session to listen on
+	TimeoutMs  int64  `json:"timeout_ms,omitempty"`  // Max wait (default: 30s for RPC)
+	Drain      bool   `json:"drain,omitempty"`       // Return all queued + next new
+}
+
+// ChatListenResult represents the result of a chat_listen operation.
+type ChatListenResult struct {
+	Messages []ChatMessageRPC `json:"messages"` // One or more messages received
+}
+
+// ChatMessageRPC is the RPC transport form of a chat message.
+type ChatMessageRPC struct {
+	SessionTag string `json:"session_tag"`
+	Sender     string `json:"sender"`
+	SenderID   string `json:"sender_id,omitempty"`
+	Content    string `json:"content"`
+	ChannelID  string `json:"channel_id,omitempty"`
+	ThreadTS   string `json:"thread_ts,omitempty"`
+	Timestamp  string `json:"timestamp"`           // RFC3339
+	Seq        uint64 `json:"seq,omitempty"`
+}
+
+// ChatStatusArgs represents arguments for the chat_status operation.
+type ChatStatusArgs struct {
+	SessionTag string `json:"session_tag,omitempty"` // Empty = list all sessions
+}
+
+// ChatStatusResult represents the result of a chat_status operation.
+type ChatStatusResult struct {
+	Sessions []ChatSessionInfo `json:"sessions"`
+}
+
+// ChatSessionInfo describes an active chat session.
+type ChatSessionInfo struct {
+	SessionTag string `json:"session_tag"`
+	ChannelID  string `json:"channel_id,omitempty"`
+	ThreadTS   string `json:"thread_ts,omitempty"`
+	AgentName  string `json:"agent_name,omitempty"`
+	Status     string `json:"status"`              // "open", "closed", "listening"
+	CreatedAt  string `json:"created_at"`          // RFC3339
+	UpdatedAt  string `json:"updated_at"`          // RFC3339
+}
+
+// ChatSessionArgs represents arguments for the chat_session operation.
+type ChatSessionArgs struct {
+	Action     string `json:"action"`              // "create" or "close"
+	SessionTag string `json:"session_tag"`
+	ChannelID  string `json:"channel_id,omitempty"`
+	ThreadTS   string `json:"thread_ts,omitempty"`
+	AgentName  string `json:"agent_name,omitempty"`
+}
+
+// ChatSessionResult represents the result of a chat_session operation.
+type ChatSessionResult struct {
+	SessionTag string `json:"session_tag"`
+	Status     string `json:"status"`
+	Created    bool   `json:"created,omitempty"` // True if newly created
 }

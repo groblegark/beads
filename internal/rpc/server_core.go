@@ -12,6 +12,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/steveyegge/beads/internal/chat"
 	"github.com/steveyegge/beads/internal/eventbus"
 	"github.com/steveyegge/beads/internal/storage"
 	"github.com/steveyegge/beads/internal/types"
@@ -115,6 +116,8 @@ type Server struct {
 	bus *eventbus.Bus
 	// NATS health provider (returns status for bus_status RPC)
 	natsHealthFn func() NATSHealthInfo
+	// Chat session registry for bidirectional Slack↔Agent messaging (bd-viux)
+	chatRegistry *chat.RPCAdapter
 }
 
 // Mutation event types
@@ -415,6 +418,13 @@ func (s *Server) SetBus(bus *eventbus.Bus) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.bus = bus
+}
+
+// SetChatRegistry sets the chat session registry for chat RPC operations (bd-viux).
+func (s *Server) SetChatRegistry(reg *chat.RPCAdapter) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.chatRegistry = reg
 }
 
 // NATSHealthInfo contains NATS health data for bus_status reporting.

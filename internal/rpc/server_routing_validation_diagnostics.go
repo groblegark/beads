@@ -483,6 +483,15 @@ func (s *Server) executeOperation(req *Request) Response {
 		resp = s.handleHistoryResolveConflicts(req)
 	case OpVersionedDiff:
 		resp = s.handleVersionedDiff(req)
+	// Chat operations (bd-viux)
+	case OpChatSend:
+		resp = s.handleChatSend(req)
+	case OpChatListen:
+		resp = s.handleChatListen(req)
+	case OpChatStatus:
+		resp = s.handleChatStatus(req)
+	case OpChatSession:
+		resp = s.handleChatSession(req)
 	default:
 		return Response{
 			Success: false,

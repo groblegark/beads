@@ -419,6 +419,12 @@ func operationToHTTPMethod(operation string) string {
 		OpBusEmit:     "BusEmit",
 		OpBusStatus:   "BusStatus",
 		OpBusHandlers: "BusHandlers",
+
+		// Chat operations (bd-viux)
+		OpChatSend:    "ChatSend",
+		OpChatListen:  "ChatListen",
+		OpChatStatus:  "ChatStatus",
+		OpChatSession: "ChatSession",
 	}
 
 	return methodMap[operation]

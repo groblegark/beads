@@ -1857,6 +1857,72 @@ func (c *Client) VersionedDiff(args *VersionedDiffArgs) (*VersionedDiffResult, e
 	return &result, nil
 }
 
+// ===== Chat Operations (bd-viux) =====
+
+// ChatSend publishes a chat message via the daemon.
+func (c *Client) ChatSend(args *ChatSendArgs) (*ChatSendResult, error) {
+	resp, err := c.Execute(OpChatSend, args)
+	if err != nil {
+		return nil, err
+	}
+	if !resp.Success {
+		return nil, fmt.Errorf("chat_send: %s", resp.Error)
+	}
+	var result ChatSendResult
+	if err := json.Unmarshal(resp.Data, &result); err != nil {
+		return nil, fmt.Errorf("unmarshal chat_send result: %w", err)
+	}
+	return &result, nil
+}
+
+// ChatListen waits for an inbound chat message via the daemon.
+func (c *Client) ChatListen(args *ChatListenArgs) (*ChatListenResult, error) {
+	resp, err := c.Execute(OpChatListen, args)
+	if err != nil {
+		return nil, err
+	}
+	if !resp.Success {
+		return nil, fmt.Errorf("chat_listen: %s", resp.Error)
+	}
+	var result ChatListenResult
+	if err := json.Unmarshal(resp.Data, &result); err != nil {
+		return nil, fmt.Errorf("unmarshal chat_listen result: %w", err)
+	}
+	return &result, nil
+}
+
+// ChatStatus queries chat session information via the daemon.
+func (c *Client) ChatStatus(args *ChatStatusArgs) (*ChatStatusResult, error) {
+	resp, err := c.Execute(OpChatStatus, args)
+	if err != nil {
+		return nil, err
+	}
+	if !resp.Success {
+		return nil, fmt.Errorf("chat_status: %s", resp.Error)
+	}
+	var result ChatStatusResult
+	if err := json.Unmarshal(resp.Data, &result); err != nil {
+		return nil, fmt.Errorf("unmarshal chat_status result: %w", err)
+	}
+	return &result, nil
+}
+
+// ChatSession creates or closes a chat session via the daemon.
+func (c *Client) ChatSession(args *ChatSessionArgs) (*ChatSessionResult, error) {
+	resp, err := c.Execute(OpChatSession, args)
+	if err != nil {
+		return nil, err
+	}
+	if !resp.Success {
+		return nil, fmt.Errorf("chat_session: %s", resp.Error)
+	}
+	var result ChatSessionResult
+	if err := json.Unmarshal(resp.Data, &result); err != nil {
+		return nil, fmt.Errorf("unmarshal chat_session result: %w", err)
+	}
+	return &result, nil
+}
+
 // cleanupStaleDaemonArtifacts removes stale daemon.pid file when socket is missing and lock is free.
 // This prevents stale artifacts from accumulating after daemon crashes.
 // Only removes pid file - lock file is managed by OS (released on process exit).

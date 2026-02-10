@@ -114,6 +114,77 @@ func (r *Registry) All() []*Session {
 	return out
 }
 
+// RPCAdapter wraps a Registry to satisfy the rpc.ChatRegistry interface.
+// This avoids a circular dependency between the chat and rpc packages.
+type RPCAdapter struct {
+	reg *Registry
+}
+
+// NewRPCAdapter creates an adapter that bridges chat.Registry to rpc.ChatRegistry.
+func NewRPCAdapter(reg *Registry) *RPCAdapter {
+	return &RPCAdapter{reg: reg}
+}
+
+// RPCSessionSnapshot is the RPC-compatible session snapshot.
+// Must match rpc.ChatSessionSnapshot field names exactly.
+type RPCSessionSnapshot struct {
+	SessionTag string
+	ChannelID  string
+	ThreadTS   string
+	AgentName  string
+	Status     string
+	CreatedAt  string // RFC3339
+	UpdatedAt  string // RFC3339
+}
+
+// Register creates or updates a session.
+func (a *RPCAdapter) Register(tag, channelID, threadTS, agentName string) {
+	a.reg.Register(&Session{
+		SessionTag: tag,
+		ChannelID:  channelID,
+		ThreadTS:   threadTS,
+		AgentName:  agentName,
+		Status:     "open",
+		CreatedAt:  time.Now(),
+	})
+}
+
+// Close marks a session as closed.
+func (a *RPCAdapter) Close(tag string) bool {
+	return a.reg.Close(tag)
+}
+
+// GetByTag returns an RPC-compatible snapshot of a session.
+func (a *RPCAdapter) GetByTag(tag string) *RPCSessionSnapshot {
+	s := a.reg.GetByTag(tag)
+	if s == nil {
+		return nil
+	}
+	return sessionToSnapshot(s)
+}
+
+// All returns all sessions as RPC-compatible snapshots.
+func (a *RPCAdapter) All() []*RPCSessionSnapshot {
+	sessions := a.reg.All()
+	out := make([]*RPCSessionSnapshot, len(sessions))
+	for i, s := range sessions {
+		out[i] = sessionToSnapshot(s)
+	}
+	return out
+}
+
+func sessionToSnapshot(s *Session) *RPCSessionSnapshot {
+	return &RPCSessionSnapshot{
+		SessionTag: s.SessionTag,
+		ChannelID:  s.ChannelID,
+		ThreadTS:   s.ThreadTS,
+		AgentName:  s.AgentName,
+		Status:     s.Status,
+		CreatedAt:  s.CreatedAt.Format(time.RFC3339),
+		UpdatedAt:  s.UpdatedAt.Format(time.RFC3339),
+	}
+}
+
 // Broker handles publishing and subscribing to chat messages over NATS JetStream.
 type Broker struct {
 	js       nats.JetStreamContext

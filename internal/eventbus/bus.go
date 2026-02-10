@@ -43,6 +43,26 @@ func (b *Bus) JetStreamEnabled() bool {
 	return b.js != nil
 }
 
+// JetStreamContext returns the underlying JetStream context for direct pub/sub.
+// Returns nil if JetStream is not configured.
+func (b *Bus) JetStreamContext() nats.JetStreamContext {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.js
+}
+
+// JetStreamPublish publishes data directly to a NATS JetStream subject.
+// Returns the publish ack or an error. Nil if JetStream is not configured.
+func (b *Bus) JetStreamPublish(subject string, data []byte) (*nats.PubAck, error) {
+	b.mu.RLock()
+	js := b.js
+	b.mu.RUnlock()
+	if js == nil {
+		return nil, fmt.Errorf("JetStream not configured")
+	}
+	return js.Publish(subject, data)
+}
+
 // Register adds a handler to the bus. Handlers are sorted by priority on
 // each Dispatch call, so registration order does not matter.
 func (b *Bus) Register(h Handler) {

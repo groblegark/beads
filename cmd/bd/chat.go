@@ -106,6 +106,30 @@ func runChatSend(cmd *cobra.Command, args []string) error {
 		sender = os.Getenv("USER")
 	}
 
+	// Prefer daemon RPC when available.
+	if daemonClient != nil {
+		result, err := daemonClient.ChatSend(&rpc.ChatSendArgs{
+			SessionTag: sessionTag,
+			Content:    content,
+			Sender:     sender,
+			SenderID:   senderID,
+			Direction:  "in",
+			ChannelID:  channelID,
+			ThreadTS:   threadTS,
+		})
+		if err == nil {
+			if jsonOutput {
+				out, _ := json.Marshal(result)
+				fmt.Println(string(out))
+			} else {
+				fmt.Fprintf(os.Stderr, "Sent to %s via daemon (seq=%d)\n", sessionTag, result.Seq)
+			}
+			return nil
+		}
+		fmt.Fprintf(os.Stderr, "daemon RPC failed, falling back to direct NATS: %v\n", err)
+	}
+
+	// Fallback: direct NATS connection.
 	nc, js, err := connectChatNATS()
 	if err != nil {
 		return err
@@ -173,6 +197,10 @@ func runChatListen(cmd *cobra.Command, args []string) error {
 		timeout = d
 	}
 
+	// Note: chat listen intentionally uses direct NATS even when daemon is
+	// available, because the RPC timeout cap (5m) is too short for the typical
+	// 30m background task pattern. Direct NATS subscription is more appropriate
+	// for long-running listeners.
 	nc, js, err := connectChatNATS()
 	if err != nil {
 		return err
@@ -249,6 +277,27 @@ func runChatReply(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	// Prefer daemon RPC when available.
+	if daemonClient != nil {
+		result, err := daemonClient.ChatSend(&rpc.ChatSendArgs{
+			SessionTag: sessionTag,
+			Content:    content,
+			Sender:     agentName,
+			Direction:  "out",
+		})
+		if err == nil {
+			if jsonOutput {
+				out, _ := json.Marshal(result)
+				fmt.Println(string(out))
+			} else {
+				fmt.Fprintf(os.Stderr, "Reply sent on %s via daemon (seq=%d)\n", sessionTag, result.Seq)
+			}
+			return nil
+		}
+		fmt.Fprintf(os.Stderr, "daemon RPC failed, falling back to direct NATS: %v\n", err)
+	}
+
+	// Fallback: direct NATS connection.
 	nc, js, err := connectChatNATS()
 	if err != nil {
 		return err
@@ -295,18 +344,57 @@ Examples:
 }
 
 func runChatStatus(cmd *cobra.Command, args []string) error {
-	// For now, publish a status query event. Full implementation will
-	// use daemon RPC once OpChatStatus is wired.
-	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "Session listing requires daemon RPC (not yet implemented).")
-		fmt.Fprintln(os.Stderr, "Specify a session tag to query: bd chat status <session-tag>")
+	if daemonClient == nil {
+		return fmt.Errorf("chat status requires a running daemon (start with 'bd daemon start')")
+	}
+
+	var sessionTag string
+	if len(args) > 0 {
+		sessionTag = args[0]
+	}
+
+	result, err := daemonClient.ChatStatus(&rpc.ChatStatusArgs{
+		SessionTag: sessionTag,
+	})
+	if err != nil {
+		return err
+	}
+
+	if jsonOutput {
+		out, _ := json.Marshal(result)
+		fmt.Println(string(out))
 		return nil
 	}
 
-	sessionTag := args[0]
-	fmt.Fprintf(os.Stderr, "Session: %s\n", sessionTag)
-	fmt.Fprintln(os.Stderr, "Status: (query via daemon RPC not yet implemented)")
-	fmt.Fprintln(os.Stderr, "Use 'bd bus subscribe --filter=ChatStatus' to watch status events.")
+	if len(result.Sessions) == 0 {
+		if sessionTag != "" {
+			fmt.Fprintf(os.Stderr, "No session found for %q\n", sessionTag)
+		} else {
+			fmt.Fprintln(os.Stderr, "No active chat sessions.")
+		}
+		return nil
+	}
+
+	for _, s := range result.Sessions {
+		fmt.Printf("Session: %s\n", s.SessionTag)
+		fmt.Printf("  Status:    %s\n", s.Status)
+		if s.AgentName != "" {
+			fmt.Printf("  Agent:     %s\n", s.AgentName)
+		}
+		if s.ChannelID != "" {
+			fmt.Printf("  Channel:   %s\n", s.ChannelID)
+		}
+		if s.ThreadTS != "" {
+			fmt.Printf("  Thread:    %s\n", s.ThreadTS)
+		}
+		if s.CreatedAt != "" {
+			fmt.Printf("  Created:   %s\n", s.CreatedAt)
+		}
+		if s.UpdatedAt != "" {
+			fmt.Printf("  Updated:   %s\n", s.UpdatedAt)
+		}
+		fmt.Println()
+	}
 	return nil
 }
 
