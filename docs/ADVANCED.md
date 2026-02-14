@@ -225,7 +225,7 @@ The redirect file should contain a single path (relative or absolute) to the tar
 repo/
 ├── main-clone/
 │   └── .beads/
-│       └── beads.db      ← Actual database
+│       └── dolt/         ← Actual database
 ├── agent-1/
 │   └── .beads/
 │       └── redirect      ← Points to ../main-clone/.beads
@@ -243,7 +243,7 @@ bd where
 # /path/to/main-clone/.beads
 #   (via redirect from /path/to/agent-1/.beads)
 #   prefix: bd
-#   database: /path/to/main-clone/.beads/beads.db
+#   database: /path/to/main-clone/.beads/dolt/
 
 bd where --json
 # {"path": "...", "redirected_from": "...", "prefix": "bd", "database_path": "..."}

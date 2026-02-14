@@ -127,7 +127,7 @@ Use the beads MCP server for native function calls instead of shell commands:
 - ✅ Test with `BEADS_DB=/tmp/test.db`
 - ❌ Do NOT create markdown TODO lists
 - ❌ Do NOT create test issues in production DB
-- ❌ Do NOT commit `.beads/beads.db` (JSONL only)
+- ❌ Do NOT commit `.beads/dolt/` (JSONL only)
 
 ---
 

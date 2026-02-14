@@ -46,7 +46,7 @@ BEADS_DB=/tmp/test.db ./bd create "Test feature" -p 1
 ```go
 func TestMyFeature(t *testing.T) {
     tmpDir := t.TempDir()
-    testDB := filepath.Join(tmpDir, ".beads", "beads.db")
+    testDB := filepath.Join(tmpDir, ".beads", "dolt")
     s := newTestStore(t, testDB)
     // ... test code
 }

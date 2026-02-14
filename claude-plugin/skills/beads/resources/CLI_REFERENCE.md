@@ -78,7 +78,7 @@ bd info --json
 
 # Example output:
 # {
-#   "database_path": "/path/to/.beads/beads.db",
+#   "database_path": "/path/to/.beads/dolt/",
 #   "issue_prefix": "bd",
 #   "daemon_running": true
 # }
@@ -408,7 +408,7 @@ bd --no-auto-flush <command>    # Disable auto-export to JSONL
 bd --no-auto-import <command>   # Disable auto-import from JSONL
 
 # Custom database path
-bd --db /path/to/.beads/beads.db <command>
+bd --db /path/to/.beads/dolt/ <command>
 
 # Custom actor for audit trail
 bd --actor alice <command>

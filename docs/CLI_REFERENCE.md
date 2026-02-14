@@ -24,7 +24,7 @@ bd info --json
 
 # Example output:
 # {
-#   "database_path": "/path/to/.beads/beads.db",
+#   "database_path": "/path/to/.beads/dolt/",
 #   "issue_prefix": "bd",
 #   "daemon_running": true,
 #   "agent_mail_enabled": false
@@ -312,7 +312,7 @@ bd --no-auto-flush <command>    # Disable auto-export to JSONL
 bd --no-auto-import <command>   # Disable auto-import from JSONL
 
 # Custom database path
-bd --db /path/to/.beads/beads.db <command>
+bd --db /path/to/.beads/dolt/ <command>
 
 # Custom actor for audit trail
 bd --actor alice <command>
@@ -344,7 +344,7 @@ bd orphans
 
 # Cross-repo: scan CODE repo's commits against external BEADS database
 cd ~/my-code-repo
-bd orphans --db ~/my-beads-repo/.beads/beads.db
+bd orphans --db ~/my-beads-repo/.beads/dolt/
 
 # JSON output
 bd orphans --json

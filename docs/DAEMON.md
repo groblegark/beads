@@ -29,7 +29,7 @@ bd connect --url https://your-daemon.example.com --token your-token
 
 ### Troubleshooting Connection Issues
 
-If you see `beads.db` errors, `bd init` prompts, or `no beads database found` messages,
+If you see database errors, `bd init` prompts, or `no beads database found` messages,
 you are **not connected to the daemon**. Fix with:
 
 ```bash

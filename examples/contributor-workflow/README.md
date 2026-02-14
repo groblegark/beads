@@ -132,7 +132,7 @@ bd close bd-abc --reason "PR merged"
 
 ## Configuration
 
-The wizard configures these settings in `.beads/beads.db`:
+The wizard configures these settings in `.beads/config.yaml`:
 
 ```yaml
 routing:

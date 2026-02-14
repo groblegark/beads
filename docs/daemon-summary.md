@@ -24,7 +24,7 @@ A comprehensive analysis of the beads daemon implementation, with learnings appl
 
 ## Overview
 
-The `bd daemon` is a background process that provides automatic synchronization between the local SQLite database and the git-tracked JSONL file. It follows an **LSP-style model** with one daemon per workspace, communicating via Unix domain sockets (or named pipes on Windows).
+The `bd daemon` is a background process that provides automatic synchronization between the local Dolt database and the git-tracked JSONL file. It follows an **LSP-style model** with one daemon per workspace, communicating via Unix domain sockets (or named pipes on Windows).
 
 **Key insight:** The daemon exists primarily to automate a single operation - `bd export` before git commits. Everything else is secondary.
 
@@ -37,7 +37,7 @@ The `bd daemon` is a background process that provides automatic synchronization 
 | Goal | How Daemon Achieves It | Value |
 |------|------------------------|-------|
 | **Data safety** | Auto-exports changes to JSONL (500ms debounce) | Users don't lose work if they forget `bd sync` |
-| **Multi-agent coordination** | Single point of database access via RPC | Prevents SQLite locking conflicts |
+| **Multi-agent coordination** | Single point of database access via RPC | Prevents database locking conflicts |
 | **Team collaboration** | Auto-commit/push in background | Changes reach remote without manual intervention |
 
 ### Secondary Goals
@@ -66,7 +66,7 @@ flowchart TB
         rpc["RPC Server<br/>(bd.sock)"]
         mutation["Mutation Channel<br/>(512 buffer)"]
         debounce["Debouncer<br/>(500ms)"]
-        sqlite["SQLite Store"]
+        dolt["Dolt Store"]
         sync["Sync Engine<br/>(export/import)"]
         watcher["File Watcher<br/>(fsnotify)"]
     end
@@ -74,8 +74,8 @@ flowchart TB
     rpc --> mutation
     mutation --> debounce
     debounce --> sync
-    rpc --> sqlite
-    sqlite --> sync
+    rpc --> dolt
+    dolt --> sync
     sync --> jsonl["issues.jsonl"]
     sync --> git["git commit/push"]
     watcher --> jsonl
@@ -131,27 +131,16 @@ sequenceDiagram
 
 | Component | Memory | Notes |
 |-----------|--------|-------|
-| **SQLite connection pool** | 12-20 MB | `NumCPU + 1` connections, WASM runtime |
-| **WASM runtime (wazero)** | 5-10 MB | JIT-compiled SQLite, cached on disk |
+| **Dolt database** | 12-20 MB | Database engine runtime |
 | **Go runtime** | 5-8 MB | GC, scheduler, runtime structures |
 | **RPC buffers** | 0.4-12.8 MB | 128KB per active connection |
 | **Mutation channel** | ~200 KB | 512-event buffer, 300-400 bytes each |
 | **File watcher** | ~10 KB | 4 watched paths |
 | **Goroutine stacks** | ~220 KB | ~110 goroutines x 2KB each |
 
-### Why SQLite Uses So Much Memory
+### Why the Database Uses Memory
 
-The beads daemon uses `ncruces/go-sqlite3`, which embeds SQLite as **WebAssembly** via the wazero runtime. This has tradeoffs:
-
-**Pros:**
-- No CGO required - pure Go, cross-compiles easily
-- Works on all platforms including WASM
-- First startup compiles to native code (~220ms), then cached (~20ms subsequent)
-
-**Cons:**
-- Higher baseline memory than CGO-based sqlite drivers
-- Per-connection overhead includes WASM instance state
-- Connection pool multiplies the overhead
+The beads daemon uses Dolt as its storage engine, which provides version-controlled SQL with native branching and merging.
 
 ### Memory by Connection Count
 
@@ -170,7 +159,7 @@ The beads daemon uses `ncruces/go-sqlite3`, which embeds SQLite as **WebAssembly
 - Typical Go HTTP server: ~20-40 MB
 - Docker daemon: ~50-100 MB
 
-The beads daemon is **efficient for what it does**. The memory is dominated by SQLite, which provides actual value (query performance, connection pooling).
+The beads daemon is **efficient for what it does**. The memory is dominated by the database engine, which provides actual value (query performance, version control).
 
 ### Memory Optimization Options
 
@@ -247,7 +236,7 @@ func myCommand() {
 func myCommand() {
     if store == nil {
         // Initialize direct store as fallback
-        store, _ = sqlite.Open(dbPath)
+        store, _ = storage.Open(dbPath)
         defer store.Close()
     }
     result := store.Query(...)
@@ -355,7 +344,7 @@ The beads daemon's primary value is **auto-sync to JSONL** (avoiding manual `bd 
 
 ### Verdict for Beads
 
-**The daemon should ONLY exist when using SQLite storage for auto-sync.**
+**The daemon exists to provide auto-sync between the Dolt database and JSONL.**
 
 Without a database:
 - No sync needed (git is the only source)
@@ -363,7 +352,7 @@ Without a database:
 - No connection pooling benefits
 - No async operations that improve UX
 
-**Recommendation:** Document that daemon mode requires SQLite and serves ONLY to automate `bd export`. Don't expand daemon scope beyond this clear purpose.
+**Recommendation:** The daemon serves to automate `bd export`. Don't expand daemon scope beyond this clear purpose.
 
 ---
 
@@ -724,7 +713,7 @@ Based on git history analysis:
 
 1. **Event-driven mode** - <500ms latency with ~60% less CPU than polling
 2. **Graceful degradation** - CLI works seamlessly without daemon
-3. **Memory efficiency** - 30-35MB is reasonable for SQLite + WASM runtime
+3. **Memory efficiency** - 30-35MB is reasonable for the database engine runtime
 4. **Robust lifecycle** - File locks, version checking, auto-restart
 5. **Cross-platform** - Works on macOS, Linux; degrades gracefully on Windows
 

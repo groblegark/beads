@@ -179,7 +179,7 @@ if repoPath != "." {
     if err := ensureBeadsDir(targetBeadsDir); err != nil {
         return fmt.Errorf("failed to initialize target repo: %w", err)
     }
-    store, err = storage.OpenStore(filepath.Join(targetBeadsDir, "beads.db"))
+    store, err = storage.OpenStore(filepath.Join(targetBeadsDir, "dolt"))
     if err != nil {
         return fmt.Errorf("failed to open target store: %w", err)
     }

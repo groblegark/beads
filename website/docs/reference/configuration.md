@@ -37,7 +37,7 @@ bd config reset import.orphan_handling
 
 ```toml
 [database]
-path = ".beads/beads.db"     # Database file location
+path = ".beads/dolt/"        # Database directory location
 ```
 
 ### ID Generation
