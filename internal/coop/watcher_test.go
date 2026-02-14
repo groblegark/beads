@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -171,5 +172,128 @@ func TestWatcherClose(t *testing.T) {
 		}
 	case <-time.After(3 * time.Second):
 		t.Fatal("timed out waiting for channel close")
+	}
+}
+
+// TestWatcherReconnectsAfterServerRestart verifies that the Watcher
+// automatically reconnects after the WebSocket server goes down and comes
+// back up (simulating a coopmux restart). This is the core reconnection
+// scenario that was causing flakiness in production.
+//
+// Uses a proxy approach: a stable listener stays open while we swap the
+// backend between "accepting connections" and "rejecting connections" to
+// simulate the server going down and coming back.
+func TestWatcherReconnectsAfterServerRestart(t *testing.T) {
+	var connectCount atomic.Int32
+	var phase atomic.Int32 // 1=serve, 2=reject, 3=serve-again
+	phase.Store(1)
+
+	phase1Events := []StateChangeEvent{
+		{Type: WSTypeStateChange, Prev: StateStarting, Next: StateWorking, Seq: 1},
+	}
+	phase3Events := []StateChangeEvent{
+		{Type: WSTypeStateChange, Prev: StateWorking, Next: StateWaitingForInput, Seq: 50},
+	}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		p := phase.Load()
+
+		// Phase 2: reject connections (simulate server down).
+		if p == 2 {
+			http.Error(w, "service unavailable", http.StatusServiceUnavailable)
+			return
+		}
+
+		connectCount.Add(1)
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+
+		// Send events based on phase.
+		var events []StateChangeEvent
+		if p == 1 {
+			events = phase1Events
+		} else {
+			events = phase3Events
+		}
+
+		for _, ev := range events {
+			data, _ := json.Marshal(ev)
+			if err := conn.WriteMessage(websocket.TextMessage, data); err != nil {
+				return
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+
+		if p == 1 {
+			// Phase 1: close connection after sending events (simulate crash).
+			conn.WriteMessage(websocket.CloseMessage,
+				websocket.FormatCloseMessage(websocket.CloseGoingAway, "restarting"))
+			return
+		}
+
+		// Phase 3: hold connection open.
+		for {
+			if _, _, err := conn.ReadMessage(); err != nil {
+				return
+			}
+		}
+	}))
+	defer srv.Close()
+
+	w := NewWatcher(srv.URL)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	ch, err := w.Watch(ctx)
+	if err != nil {
+		t.Fatalf("Watch error: %v", err)
+	}
+
+	// Collect phase 1 event.
+	select {
+	case ev := <-ch:
+		if ev.Next != StateWorking {
+			t.Errorf("phase1: got Next=%q, want %q", ev.Next, StateWorking)
+		}
+		t.Logf("phase1: received event seq=%d (%s → %s)", ev.Seq, ev.Prev, ev.Next)
+	case <-time.After(5 * time.Second):
+		t.Fatal("phase1: timed out waiting for event")
+	}
+
+	// Phase 2: switch to rejecting connections (simulates mux restart window).
+	phase.Store(2)
+	t.Log("phase2: server now rejecting — watcher should detect disconnect and backoff")
+
+	// Wait for watcher to attempt reconnection and fail a few times.
+	time.Sleep(2 * time.Second)
+
+	// Phase 3: server comes back, start accepting with new events.
+	phase.Store(3)
+	t.Log("phase3: server accepting again — watcher should reconnect")
+
+	// Collect phase 3 event — proves reconnection worked.
+	select {
+	case ev := <-ch:
+		if ev.Next != StateWaitingForInput {
+			t.Errorf("phase3: got Next=%q, want %q", ev.Next, StateWaitingForInput)
+		}
+		t.Logf("phase3: received event seq=%d (%s → %s) — reconnection successful", ev.Seq, ev.Prev, ev.Next)
+	case <-time.After(10 * time.Second):
+		t.Fatal("phase3: timed out waiting for reconnection event")
+	}
+
+	// Verify we connected at least twice (phase 1 + phase 3).
+	connections := connectCount.Load()
+	if connections < 2 {
+		t.Errorf("expected >= 2 WebSocket upgrades, got %d", connections)
+	}
+	t.Logf("total WebSocket connections: %d (including reconnect retries)", connections)
+
+	cancel()
+	for range ch {
 	}
 }
