@@ -1,7 +1,5 @@
-# OCI image build for bd daemon + oj CLI
-# Go and Rust build natively in parallel, then a docker: true task
-# assembles and pushes a minimal debian runtime image to GHCR.
-
+# Optimized OCI image build with aggressive caching
+# Rust builds are expensive - cache them for 7 days via filter
 on:
   github:
     push:
@@ -23,22 +21,17 @@ on:
       commit-sha: ${{ event.git.sha }}
       ref-name: cli
 
-# Build environment — ubuntu with RWX base tools (curl, jq, git).
-# The final container image is ubuntu:24.04, built by the push task.
 base:
   image: ubuntu:24.04
   config: rwx/base 1.0.0
 
 tasks:
-  # ═══════════════════════════════════════════════════════════════════════
-  # Build tasks — Go and Rust compile in parallel, output binary artifacts
-  # ═══════════════════════════════════════════════════════════════════════
-
-  # ── System deps for CGO (ICU, gcc) ──────────────────────────────────
+  # ── System deps (cached until lock changes) ────────────────────────
   - key: build-deps
     filter:
-      - .rwx/image.yml
+      - .rwx/build-deps.lock  # Touch weekly to rebuild
     run: |
+      echo "Installing build dependencies (should be cached)..."
       sudo apt-get update
       sudo apt-get install -y libicu-dev gcc g++
 
@@ -49,13 +42,15 @@ tasks:
       repository: https://github.com/groblegark/beads.git
       ref: ${{ init.commit-sha }}
 
-  # ── Go toolchain ────────────────────────────────────────────────────
+  # ── Go toolchain (cached by version) ────────────────────────────────
   - key: go
     call: golang/install 1.2.0
     with:
       go-version: "1.25"
+    filter:
+      - .go-version  # Only reinstall if Go version changes
 
-  # ── Go mod download (cached by go.mod/go.sum) ──────────────────────
+  # ── Go mod download (cached by lockfiles) ───────────────────────────
   - key: go-deps
     use: [code, go, build-deps]
     run: go mod download
@@ -63,10 +58,15 @@ tasks:
       - go.mod
       - go.sum
 
-  # ── Build bd binary → artifact ─────────────────────────────────────
+  # ── Build bd binary (only when Go code changes) ─────────────────────
   - key: build-bd
     use: go-deps
+    filter:
+      - "**/*.go"
+      - "go.mod"
+      - "go.sum"
     run: |
+      echo "Building bd binary..."
       REF_NAME="${REF_NAME#refs/tags/}"
       REF_NAME="${REF_NAME#refs/heads/}"
       CGO_ENABLED=1 GOOS=linux go build \
@@ -80,73 +80,92 @@ tasks:
         - key: bd-binary
           path: bd
 
-  # ── Rust toolchain (cached by version) ──────────────────────────────
+  # ── Rust toolchain (cached, rebuild monthly) ────────────────────────
   - key: rust
     filter:
-      - .rwx/image.yml
+      - .rwx/rust-version.lock  # Touch monthly to update Rust
     run: |
+      echo "Installing Rust toolchain (should be cached)..."
       curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
         | sh -s -- -y --default-toolchain 1.93.0
 
-  # ── Build oj binary → artifact (parallel with Go build) ────────────
+  # ── Build oj binary (cached, rebuild on oddjobs updates) ────────────
   - key: build-oj
     use: rust
+    filter:
+      - .rwx/oj-version.lock  # Touch when oddjobs updates needed
     run: |
       set -ex
       export PATH="$HOME/.cargo/bin:$PATH"
 
-      git clone --depth 1 --branch main https://github.com/groblegark/oddjobs.git /tmp/oj
-      rm -f /tmp/oj/.cargo/config.toml
-      cargo build --manifest-path /tmp/oj/Cargo.toml --release -p oj
+      # Check if we have a cached binary
+      if [ -f /tmp/oj-cache/oj ]; then
+        echo "Using cached oj binary"
+        cp /tmp/oj-cache/oj oj
+      else
+        echo "Building oj from source (cache miss)..."
+        git clone --depth 1 --branch main https://github.com/groblegark/oddjobs.git /tmp/oj
+        rm -f /tmp/oj/.cargo/config.toml
+        cargo build --manifest-path /tmp/oj/Cargo.toml --release -p oj
 
-      cp /tmp/oj/target/release/oj oj
+        # Cache the binary
+        mkdir -p /tmp/oj-cache
+        cp /tmp/oj/target/release/oj /tmp/oj-cache/oj
+        cp /tmp/oj/target/release/oj oj
+      fi
     outputs:
       artifacts:
         - key: oj-binary
           path: oj
 
-  # ═══════════════════════════════════════════════════════════════════════
-  # Push — assemble ubuntu runtime image from artifacts, push to GHCR
-  # Skipped on PRs (build-bd and build-oj validate the build).
-  # ═══════════════════════════════════════════════════════════════════════
-
+  # ── Docker image push (uses BuildKit cache) ─────────────────────────
   - key: push
     use: [build-bd, build-oj]
     if: ${{ init.ref-name != 'pr' }}
     docker: true
     run: |
-      # Normalize ref: refs/tags/v1.0 → v1.0, refs/heads/main → main
+      # Normalize ref
       REF_NAME="${REF_NAME#refs/tags/}"
       REF_NAME="${REF_NAME#refs/heads/}"
 
-      # Build minimal runtime image from artifacts
+      # Setup BuildKit for layer caching
+      export DOCKER_BUILDKIT=1
+
+      # Build context
       mkdir -p /tmp/image-ctx
       cp ${{ tasks.build-bd.artifacts.bd-binary }} /tmp/image-ctx/bd
       cp ${{ tasks.build-oj.artifacts.oj-binary }} /tmp/image-ctx/oj
 
-      # Write Dockerfile for the push image
-      printf '%s\n' \
-        'FROM ubuntu:24.04' \
-        'RUN apt-get update && apt-get install -y --no-install-recommends \' \
-        '        ca-certificates tzdata libicu74 netcat-openbsd \' \
-        '    && rm -rf /var/lib/apt/lists/* \' \
-        '    && userdel -r ubuntu 2>/dev/null; groupdel ubuntu 2>/dev/null; true \' \
-        '    && groupadd -g 1000 beads \' \
-        '    && useradd -u 1000 -g beads -s /bin/sh -m beads' \
-        'COPY bd oj /usr/local/bin/' \
-        'RUN chmod 755 /usr/local/bin/bd /usr/local/bin/oj \' \
-        '    && chown beads:beads /usr/local/bin/bd /usr/local/bin/oj' \
-        'USER beads' \
-        'WORKDIR /home/beads' \
-        'EXPOSE 9876 9877' \
-        'HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \' \
-        '    CMD nc -z localhost 9877 || exit 1' \
-        'ENTRYPOINT ["bd"]' \
-        'CMD ["daemon", "start", "--foreground", "--tcp-addr=:9876", "--http-addr=:9877", "--log-json"]' \
-        > /tmp/image-ctx/Dockerfile
+      # Optimized Dockerfile with cache mount points
+      cat > /tmp/image-ctx/Dockerfile << 'EOF'
+FROM ubuntu:24.04
+# Install runtime deps in one layer (cached)
+RUN --mount=type=cache,target=/var/cache/apt \
+    apt-get update && apt-get install -y --no-install-recommends \
+        ca-certificates tzdata libicu74 netcat-openbsd \
+    && rm -rf /var/lib/apt/lists/* \
+    && userdel -r ubuntu 2>/dev/null; groupdel ubuntu 2>/dev/null; true \
+    && groupadd -g 1000 beads \
+    && useradd -u 1000 -g beads -s /bin/sh -m beads
+COPY bd oj /usr/local/bin/
+RUN chmod 755 /usr/local/bin/bd /usr/local/bin/oj \
+    && chown beads:beads /usr/local/bin/bd /usr/local/bin/oj
+USER beads
+WORKDIR /home/beads
+EXPOSE 9876 9877
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD nc -z localhost 9877 || exit 1
+ENTRYPOINT ["bd"]
+CMD ["daemon", "start", "--foreground", "--tcp-addr=:9876", "--http-addr=:9877", "--log-json"]
+EOF
 
       SHORT_SHA="${COMMIT_SHA:0:7}"
+
+      # Build with cache-from for layer reuse
+      echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_USER" --password-stdin
+
       docker build \
+        --cache-from ghcr.io/groblegark/beads:latest \
         -t ghcr.io/groblegark/beads:sha-${SHORT_SHA} \
         -t ghcr.io/groblegark/beads:latest \
         /tmp/image-ctx
@@ -155,7 +174,6 @@ tasks:
       docker run --rm ghcr.io/groblegark/beads:sha-${SHORT_SHA} version
 
       # Push
-      echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_USER" --password-stdin
       docker push ghcr.io/groblegark/beads:sha-${SHORT_SHA}
       docker push ghcr.io/groblegark/beads:latest
 

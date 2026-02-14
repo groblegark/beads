@@ -1,0 +1,80 @@
+on:
+  github:
+    push:
+      if: ${{ starts-with(event.git.tag, 'v') }}
+      init:
+        commit-sha: ${{ event.git.sha }}
+        tag: ${{ event.git.tag }}
+      status-checks:
+        name: Release
+  cli:
+    init:
+      commit-sha: ${{ event.git.sha }}
+      tag: dev
+
+base:
+  image: ubuntu:24.04
+  config: rwx/base 1.0.0
+
+tasks:
+  - key: system-deps
+    filter:
+      - .rwx/release.yml
+    run: |
+      sudo apt-get update
+      sudo apt-get install -y libicu-dev gcc g++
+
+  - key: code
+    use: system-deps
+    call: git/clone 2.0.3
+    with:
+      repository: https://github.com/groblegark/beads.git
+      ref: ${{ init.commit-sha }}
+      preserve-git-dir: true
+      fetch-full-depth: true
+
+  # ── Go toolchain (replaces manual curl) ─────────────────────────────
+  - key: go
+    call: golang/install 1.2.0
+    with:
+      go-version: "1.25"
+
+  # ── GoReleaser install (cached by version, parallel with clone) ─────
+  - key: goreleaser-install
+    filter:
+      - .rwx/release.yml
+    run: |
+      curl -sSfL https://github.com/goreleaser/goreleaser/releases/download/v2.8.2/goreleaser_Linux_x86_64.tar.gz \
+        | sudo tar xz -C /usr/local/bin goreleaser
+
+  - key: goreleaser
+    use: [code, go, goreleaser-install]
+    run: |
+      # Fetch tags for GoReleaser changelog
+      git fetch --tags
+
+      # Run GoReleaser (dry run for CLI trigger, real release for tag push)
+      if [ "$TAG" = "dev" ]; then
+        GITHUB_TOKEN="$GH_TOKEN" goreleaser release --clean --config .goreleaser.fork.yml --snapshot
+      else
+        GITHUB_TOKEN="$GH_TOKEN" goreleaser release --clean --config .goreleaser.fork.yml
+      fi
+    env:
+      GH_TOKEN: ${{ secrets.GH_TOKEN }}
+      CGO_ENABLED: "1"
+      TAG: ${{ init.tag }}
+
+  - key: dispatch-gastown
+    use: goreleaser
+    if: ${{ init.tag != 'dev' }}
+    run: |
+      # Trigger gastown agent image rebuild via RWX dispatch API
+      DISPATCH_ID=$(curl -sSf -X POST https://cloud.rwx.com/mint/api/runs/dispatches \
+        -H "Authorization: Bearer $RWX_TOKEN" \
+        -H "Content-Type: application/json" \
+        -d "{\"key\": \"gastown-agent-rebuild\", \"params\": {\"trigger-source\": \"beads-release-$TAG\"}, \"ref\": \"main\", \"title\": \"Agent rebuild (beads $TAG)\"}" \
+        | python3 -c "import sys,json; print(json.load(sys.stdin).get('dispatch_id',''))")
+      echo "Dispatched gastown-agent-rebuild via RWX (dispatch_id=$DISPATCH_ID, tag=$TAG)"
+    env:
+      RWX_TOKEN: ${{ secrets.RWX_ACCESS_TOKEN }}
+      TAG: ${{ init.tag }}

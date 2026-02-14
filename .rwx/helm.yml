@@ -1,3 +1,4 @@
+# Optimized Helm chart CI/CD with caching
 on:
   github:
     push:
@@ -29,13 +30,22 @@ tasks:
       repository: https://github.com/groblegark/beads.git
       ref: ${{ init.commit-sha }}
 
+  # ── Helm installation (cached until version changes) ────────────────
   - key: helm-setup
     filter:
-      - .rwx/helm.yml
-    run: curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+      - .rwx/helm-version.lock  # Touch to update Helm version
+    run: |
+      echo "Installing Helm (should be cached)..."
+      curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
 
+  # ── Helm lint (only when charts change) ─────────────────────────────
   - key: helm-lint
     use: [code, helm-setup]
+    filter:
+      - "helm/**/*.yaml"
+      - "helm/**/*.yml"
+      - "helm/**/values.yaml"
+      - "helm/**/Chart.yaml"
     run: |
       for chart in helm/*/; do
         if [ -f "$chart/Chart.yaml" ]; then
@@ -46,22 +56,40 @@ tasks:
         fi
       done
 
+  # ── Helm publish (only when charts change & not PR) ─────────────────
   - key: helm-publish
     use: helm-lint
     if: ${{ init.ref-name != 'pr' }}
+    filter:
+      - "helm/**/*.yaml"
+      - "helm/**/*.yml"
     run: |
       echo "$GHCR_TOKEN" | helm registry login ghcr.io -u "$GITHUB_USER" --password-stdin
+
+      # Check if charts actually changed
+      CHANGED=false
       for chart in helm/*/; do
         if [ -f "$chart/Chart.yaml" ]; then
           name=$(basename "$chart")
           version=$(grep '^version:' "$chart/Chart.yaml" | awk '{print $2}')
-          echo "Publishing $name v$version..."
-          helm dependency build "$chart" 2>/dev/null || true
-          helm package "$chart" --destination /tmp/helm-packages
-          helm push "/tmp/helm-packages/${name}-${version}.tgz" "oci://ghcr.io/groblegark/charts"
-          echo "Published: oci://ghcr.io/groblegark/charts/${name}:${version}"
+
+          # Check if this version already exists in registry
+          if helm pull "oci://ghcr.io/groblegark/charts/${name}" --version "${version}" 2>/dev/null; then
+            echo "Chart ${name} v${version} already exists, skipping..."
+          else
+            echo "Publishing ${name} v${version}..."
+            helm dependency build "$chart" 2>/dev/null || true
+            helm package "$chart" --destination /tmp/helm-packages
+            helm push "/tmp/helm-packages/${name}-${version}.tgz" "oci://ghcr.io/groblegark/charts"
+            echo "Published: oci://ghcr.io/groblegark/charts/${name}:${version}"
+            CHANGED=true
+          fi
         fi
       done
+
+      if [ "$CHANGED" = "false" ]; then
+        echo "No chart changes to publish"
+      fi
     env:
       GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
       GITHUB_USER: ${{ secrets.GITHUB_USER }}

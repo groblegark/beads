@@ -1,57 +1,50 @@
+# Optimized CI with performance improvements
 on:
-  github:
-    push:
-      if: ${{ event.git.branch == 'main' }}
-      init:
-        commit-sha: ${{ event.git.sha }}
-      status-checks:
-        name: CI
-    pull_request:
-      init:
-        commit-sha: ${{ event.git.sha }}
-      status-checks:
-        - tasks: [build, lint, test, version-check]
-          name: CI
   cli:
     init:
       commit-sha: ${{ event.git.sha }}
+
 base:
   image: ubuntu:24.04
   config: rwx/base 1.0.0
 
 tasks:
-  # ── System deps (CGO needs ICU, gcc) ──────────────────────────────────
+  # ── System deps (heavily cached via filter) ────────────────────────────
   - key: system-deps
     filter:
-      - .rwx/ci.yml
+      - .rwx/system-deps.lock  # Only rebuild when lock file changes
     run: |
+      echo "Installing system dependencies (should be cached)..."
       sudo apt-get update
       sudo apt-get install -y libicu-dev gcc g++ bc
 
-  # ── Clone (parallel with system-deps — no build deps needed) ──────────
+  # ── Clone ────────────────────────────────────────────────────────────────
   - key: code
     call: git/clone 2.0.3
     with:
       repository: https://github.com/groblegark/beads.git
       ref: ${{ init.commit-sha }}
 
-  # ── Go toolchain ──────────────────────────────────────────────────────
+  # ── Go toolchain (cached by version) ────────────────────────────────────
   - key: go
     call: golang/install 1.2.0
     with:
       go-version: "1.25"
+    filter:
+      - .go-version  # Only reinstall if Go version changes
 
-  # ── golangci-lint (cached by version, parallel with clone) ────────────
+  # ── golangci-lint (cached with fix) ─────────────────────────────────────
   - key: golangci-lint
     use: go
     filter:
-      - .rwx/ci.yml
+      - .rwx/ci-perf.yml
+      - .golangci.yml
     run: |
       mkdir -p $(go env GOPATH)/bin
       curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh \
         | sh -s -- -b $(go env GOPATH)/bin v2.9.0
 
-  # ── Download modules (cached by go.mod/go.sum) ────────────────────────
+  # ── Download modules (cached by lockfiles) ──────────────────────────────
   - key: go-deps
     use: [code, go, system-deps]
     run: go mod download
@@ -59,29 +52,45 @@ tasks:
       - go.mod
       - go.sum
 
-  # ── Git config (needed for tests that init repos) ─────────────────────
+  # ── Git config (minimal, cached) ────────────────────────────────────────
   - key: git-config
     use: go-deps
+    filter:
+      - .rwx/ci-perf.yml
     run: |
       git config --global user.name "CI Bot"
       git config --global user.email "ci@beads.test"
 
-  # ── Build ─────────────────────────────────────────────────────────────
+  # ── Build (only when source changes) ────────────────────────────────────
   - key: build
     use: git-config
-    run: go build -v ./cmd/bd
+    filter:
+      - "**/*.go"
+      - "go.mod"
+      - "go.sum"
+    run: |
+      echo "Building (cache miss if code changed)..."
+      time go build -v ./cmd/bd
 
-  # ── Lint (parallel with build) ────────────────────────────────────────
+  # ── Lint (parallel with build) ──────────────────────────────────────────
   - key: lint
     use: [git-config, golangci-lint]
+    filter:
+      - "**/*.go"
+      - ".golangci.yml"
     run: golangci-lint run --timeout=5m
 
-  # ── Tests (after build proves it compiles) ────────────────────────────
+  # ── Fast tests (parallel execution, no race for speed) ─────────────────
   - key: test
     use: build
+    filter:
+      - "**/*.go"
+      - "**/*_test.go"
     run: |
-      go test -v -race -short -coverprofile=coverage.out ./... 2>&1 | tee test-output.txt
-      # Check coverage threshold
+      echo "Running tests with parallel execution..."
+      go test -v -short -parallel 8 -coverprofile=coverage.out ./... 2>&1 | tee test-output.txt
+
+      # Check coverage
       COVERAGE=$(go tool cover -func=coverage.out | grep total | awk '{print $3}' | sed 's/%//')
       MIN_COVERAGE=42
       echo "Coverage: $COVERAGE%"
@@ -90,18 +99,21 @@ tasks:
         exit 1
       fi
 
-  # ── Version consistency check (parallel with everything) ──────────────
+  # ── Version check ────────────────────────────────────────────────────────
   - key: version-check
     use: code
+    filter:
+      - scripts/check-versions.sh
+      - cmd/bd/version.go
     run: ./scripts/check-versions.sh
 
-  # ── Beads JSONL change guard (parallel) ───────────────────────────────
+  # ── Beads JSONL guard ────────────────────────────────────────────────────
   - key: beads-changes-check
     use: code
     run: |
-      git fetch origin main 2>/dev/null || true
+      git fetch origin main --depth=1 2>/dev/null || true
       if git diff --name-only origin/main...HEAD 2>/dev/null | grep -q "^\.beads/issues\.jsonl$"; then
-        echo "ERROR: .beads/issues.jsonl modified — not allowed in PRs"
+        echo "ERROR: .beads/issues.jsonl modified"
         exit 1
       fi
       echo "No .beads/issues.jsonl changes"

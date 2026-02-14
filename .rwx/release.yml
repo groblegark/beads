@@ -1,80 +1,118 @@
+# Optimized release workflow with caching
 on:
   github:
     push:
       if: ${{ starts-with(event.git.tag, 'v') }}
       init:
         commit-sha: ${{ event.git.sha }}
-        tag: ${{ event.git.tag }}
+        ref-name: ${{ event.git.ref }}
       status-checks:
         name: Release
   cli:
     init:
       commit-sha: ${{ event.git.sha }}
-      tag: dev
+      ref-name: dev
 
 base:
   image: ubuntu:24.04
   config: rwx/base 1.0.0
 
 tasks:
+  # ── System deps (cached until lock changes) ─────────────────────────
   - key: system-deps
     filter:
-      - .rwx/release.yml
+      - .rwx/release-deps.lock  # Touch monthly to update
     run: |
+      echo "Installing release dependencies (should be cached)..."
       sudo apt-get update
       sudo apt-get install -y libicu-dev gcc g++
 
+  # ── Full clone with history (required for GoReleaser) ───────────────
   - key: code
-    use: system-deps
     call: git/clone 2.0.3
     with:
       repository: https://github.com/groblegark/beads.git
       ref: ${{ init.commit-sha }}
-      preserve-git-dir: true
-      fetch-full-depth: true
+      depth: 0  # Full history needed for changelog generation
 
-  # ── Go toolchain (replaces manual curl) ─────────────────────────────
+  # ── Go toolchain (cached by version) ────────────────────────────────
   - key: go
     call: golang/install 1.2.0
     with:
       go-version: "1.25"
-
-  # ── GoReleaser install (cached by version, parallel with clone) ─────
-  - key: goreleaser-install
     filter:
-      - .rwx/release.yml
-    run: |
-      curl -sSfL https://github.com/goreleaser/goreleaser/releases/download/v2.8.2/goreleaser_Linux_x86_64.tar.gz \
-        | sudo tar xz -C /usr/local/bin goreleaser
+      - .go-version
 
+  # ── GoReleaser (cached by version) ──────────────────────────────────
   - key: goreleaser
-    use: [code, go, goreleaser-install]
+    use: go
+    filter:
+      - .rwx/goreleaser-version.lock  # Touch to update version
     run: |
-      # Fetch tags for GoReleaser changelog
-      git fetch --tags
+      echo "Installing GoReleaser (should be cached)..."
+      mkdir -p $(go env GOPATH)/bin
+      curl -sfL https://install.goreleaser.com/github.com/goreleaser/goreleaser.sh \
+        | sh -s -- -b $(go env GOPATH)/bin v2.8.2
 
-      # Run GoReleaser (dry run for CLI trigger, real release for tag push)
-      if [ "$TAG" = "dev" ]; then
-        GITHUB_TOKEN="$GH_TOKEN" goreleaser release --clean --config .goreleaser.fork.yml --snapshot
+  # ── Go deps (cached by lockfiles) ───────────────────────────────────
+  - key: go-deps
+    use: [code, go, system-deps]
+    filter:
+      - go.mod
+      - go.sum
+    run: go mod download
+
+  # ── Run GoReleaser (only rebuilds changed binaries) ─────────────────
+  - key: release
+    use: [go-deps, goreleaser]
+    filter:
+      - "**/*.go"
+      - ".goreleaser.fork.yml"
+      - "go.mod"
+      - "go.sum"
+    run: |
+      REF_NAME="${REF_NAME#refs/tags/}"
+      REF_NAME="${REF_NAME#refs/heads/}"
+
+      # Configure git for GoReleaser
+      git config --global user.name "CI Bot"
+      git config --global user.email "ci@beads.test"
+
+      if [[ "$REF_NAME" == "dev" ]]; then
+        echo "Running snapshot release for dev..."
+        goreleaser release --clean --snapshot --config .goreleaser.fork.yml
       else
-        GITHUB_TOKEN="$GH_TOKEN" goreleaser release --clean --config .goreleaser.fork.yml
+        echo "Running full release for $REF_NAME..."
+        goreleaser release --clean --config .goreleaser.fork.yml
       fi
     env:
-      GH_TOKEN: ${{ secrets.GH_TOKEN }}
-      CGO_ENABLED: "1"
-      TAG: ${{ init.tag }}
+      REF_NAME: ${{ init.ref-name }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+  # ── Dispatch to gastown (only for real releases) ────────────────────
   - key: dispatch-gastown
-    use: goreleaser
-    if: ${{ init.tag != 'dev' }}
+    use: release
+    if: ${{ init.ref-name != 'dev' }}
     run: |
-      # Trigger gastown agent image rebuild via RWX dispatch API
-      DISPATCH_ID=$(curl -sSf -X POST https://cloud.rwx.com/mint/api/runs/dispatches \
-        -H "Authorization: Bearer $RWX_TOKEN" \
-        -H "Content-Type: application/json" \
-        -d "{\"key\": \"gastown-agent-rebuild\", \"params\": {\"trigger-source\": \"beads-release-$TAG\"}, \"ref\": \"main\", \"title\": \"Agent rebuild (beads $TAG)\"}" \
-        | python3 -c "import sys,json; print(json.load(sys.stdin).get('dispatch_id',''))")
-      echo "Dispatched gastown-agent-rebuild via RWX (dispatch_id=$DISPATCH_ID, tag=$TAG)"
+      REF_NAME="${REF_NAME#refs/tags/}"
+      REF_NAME="${REF_NAME#refs/heads/}"
+
+      # Only dispatch if this is a version tag
+      if [[ "$REF_NAME" == v* ]]; then
+        echo "Dispatching to gastown for rebuild..."
+        curl -X POST https://api.rwx.com/v1/dispatches \
+          -H "Authorization: Bearer $RWX_ACCESS_TOKEN" \
+          -H "Content-Type: application/json" \
+          -d "{
+            \"repository\": \"gastown\",
+            \"workflow\": \"gastown-agent-rebuild\",
+            \"parameters\": {
+              \"trigger\": \"beads-release-$REF_NAME\"
+            }
+          }"
+      else
+        echo "Not a version tag, skipping gastown dispatch"
+      fi
     env:
-      RWX_TOKEN: ${{ secrets.RWX_ACCESS_TOKEN }}
-      TAG: ${{ init.tag }}
+      REF_NAME: ${{ init.ref-name }}
+      RWX_ACCESS_TOKEN: ${{ secrets.RWX_ACCESS_TOKEN }}
