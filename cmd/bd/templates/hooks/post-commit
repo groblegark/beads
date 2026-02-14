@@ -1,3 +1,0 @@
-#!/bin/bash
-# Default post-commit hook
-exit 0
