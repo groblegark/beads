@@ -102,9 +102,6 @@ tasks:
   # ── Version check ────────────────────────────────────────────────────────
   - key: version-check
     use: code
-    filter:
-      - scripts/check-versions.sh
-      - cmd/bd/version.go
     run: ./scripts/check-versions.sh
 
   # ── Beads JSONL guard ────────────────────────────────────────────────────
