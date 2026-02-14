@@ -136,28 +136,28 @@ tasks:
       cp ${{ tasks.build-bd.artifacts.bd-binary }} /tmp/image-ctx/bd
       cp ${{ tasks.build-oj.artifacts.oj-binary }} /tmp/image-ctx/oj
 
-      # Optimized Dockerfile with cache mount points
-      cat > /tmp/image-ctx/Dockerfile << 'EOF'
-FROM ubuntu:24.04
-# Install runtime deps in one layer (cached)
-RUN --mount=type=cache,target=/var/cache/apt \
-    apt-get update && apt-get install -y --no-install-recommends \
-        ca-certificates tzdata libicu74 netcat-openbsd \
-    && rm -rf /var/lib/apt/lists/* \
-    && userdel -r ubuntu 2>/dev/null; groupdel ubuntu 2>/dev/null; true \
-    && groupadd -g 1000 beads \
-    && useradd -u 1000 -g beads -s /bin/sh -m beads
-COPY bd oj /usr/local/bin/
-RUN chmod 755 /usr/local/bin/bd /usr/local/bin/oj \
-    && chown beads:beads /usr/local/bin/bd /usr/local/bin/oj
-USER beads
-WORKDIR /home/beads
-EXPOSE 9876 9877
-HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD nc -z localhost 9877 || exit 1
-ENTRYPOINT ["bd"]
-CMD ["daemon", "start", "--foreground", "--tcp-addr=:9876", "--http-addr=:9877", "--log-json"]
-EOF
+      # Write optimized Dockerfile
+      printf '%s\n' \
+        'FROM ubuntu:24.04' \
+        '# Install runtime deps in one layer (cached)' \
+        'RUN --mount=type=cache,target=/var/cache/apt \' \
+        '    apt-get update && apt-get install -y --no-install-recommends \' \
+        '        ca-certificates tzdata libicu74 netcat-openbsd \' \
+        '    && rm -rf /var/lib/apt/lists/* \' \
+        '    && userdel -r ubuntu 2>/dev/null; groupdel ubuntu 2>/dev/null; true \' \
+        '    && groupadd -g 1000 beads \' \
+        '    && useradd -u 1000 -g beads -s /bin/sh -m beads' \
+        'COPY bd oj /usr/local/bin/' \
+        'RUN chmod 755 /usr/local/bin/bd /usr/local/bin/oj \' \
+        '    && chown beads:beads /usr/local/bin/bd /usr/local/bin/oj' \
+        'USER beads' \
+        'WORKDIR /home/beads' \
+        'EXPOSE 9876 9877' \
+        'HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \' \
+        '    CMD nc -z localhost 9877 || exit 1' \
+        'ENTRYPOINT ["bd"]' \
+        'CMD ["daemon", "start", "--foreground", "--tcp-addr=:9876", "--http-addr=:9877", "--log-json"]' \
+        > /tmp/image-ctx/Dockerfile
 
       SHORT_SHA="${COMMIT_SHA:0:7}"
 
