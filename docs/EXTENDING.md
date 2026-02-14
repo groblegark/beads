@@ -1,8 +1,8 @@
 # Extending bd with Custom Tables
 
 > **⚠️ DEPRECATED**: This document describes extending bd via custom SQLite tables.
-> This approach is being deprecated as bd migrates from SQLite to Dolt as the
-> storage backend. Dolt does not support hosting custom tables in the same database.
+> bd has migrated from SQLite to Dolt as the storage backend.
+> Dolt does not support hosting custom tables in the same database.
 >
 > **For external integrations** (syncing with Jira, Shortcut, Linear, etc.), build
 > a standalone sync tool following the pattern of [jira-beads-sync](https://github.com/conallob/jira-beads-sync).

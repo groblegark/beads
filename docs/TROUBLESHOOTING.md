@@ -174,24 +174,6 @@ bd version      # Should show the expected version
 
 **Recommendation:** Choose one installation method (Homebrew recommended) and stick with it. Avoid mixing `go install` with package managers.
 
-### `zsh: killed bd` or crashes on macOS
-
-Some users report crashes when running `bd init` or other commands on macOS. This is typically caused by CGO/SQLite compatibility issues.
-
-**Workaround:**
-```bash
-# Build with CGO enabled
-CGO_ENABLED=1 go install github.com/steveyegge/beads/cmd/bd@latest
-
-# Or if building from source
-git clone https://github.com/steveyegge/beads
-cd beads
-CGO_ENABLED=1 go build -o bd ./cmd/bd
-sudo mv bd /usr/local/bin/
-```
-
-If you installed via Homebrew, this shouldn't be necessary as the formula already enables CGO. If you're still seeing crashes with the Homebrew version, please [file an issue](https://github.com/steveyegge/beads/issues).
-
 ## Antivirus False Positives
 
 ### Antivirus software flags bd as malware
@@ -234,18 +216,15 @@ If you installed via Homebrew, this shouldn't be necessary as the formula alread
 
 ### `database is locked`
 
-Another bd process is accessing the database, or SQLite didn't close properly. Solutions:
+Another bd process is accessing the database. Solutions:
 
 ```bash
 # Find and kill hanging processes
 ps aux | grep bd
 kill <pid>
-
-# Remove lock files (safe if no bd processes running)
-rm .beads/*.db-journal .beads/*.db-wal .beads/*.db-shm
 ```
 
-**Note**: bd uses a pure Go SQLite driver (`modernc.org/sqlite`) for better portability. Under extreme concurrent load (100+ simultaneous operations), you may see "database is locked" errors. This is a known limitation of the pure Go implementation and does not affect normal usage. For very high concurrency scenarios, consider using the CGO-enabled driver or PostgreSQL (planned for future release).
+For concurrent access, use Dolt server mode which supports multiple writers.
 
 ### `bd init` fails with "directory not empty"
 
@@ -269,7 +248,7 @@ You're trying to import issues that conflict with existing ones. Options:
 bd import -i issues.jsonl --skip-existing
 
 # Or clear database and re-import everything
-rm .beads/*.db
+rm -rf .beads/dolt
 bd import -i .beads/issues.jsonl
 ```
 
@@ -378,16 +357,16 @@ bd config set sync.branch ""  # Disable sync branch feature
 
 ### Database corruption
 
-**Important**: Distinguish between **logical consistency issues** (ID collisions, wrong prefixes) and **physical SQLite corruption**.
+**Important**: Distinguish between **logical consistency issues** (ID collisions, wrong prefixes) and **physical database corruption**.
 
 For **physical database corruption** (disk failures, power loss, filesystem errors):
 
 ```bash
-# Check database integrity
-sqlite3 .beads/*.db "PRAGMA integrity_check;"
+# Run doctor for diagnostics
+bd doctor --deep
 
 # If corrupted, reimport from JSONL (source of truth in git)
-mv .beads/*.db .beads/*.db.backup
+rm -rf .beads/dolt
 bd init
 bd import -i .beads/issues.jsonl
 ```
@@ -399,7 +378,7 @@ For **logical consistency issues** (ID collisions from branch merges, parallel w
 bd import -i .beads/issues.jsonl
 ```
 
-See [FAQ](FAQ.md#whats-the-difference-between-sqlite-corruption-and-id-collisions) for the distinction.
+See [FAQ](FAQ.md#whats-the-difference-between-database-corruption-and-id-collisions) for the distinction.
 
 ### Multiple databases detected warning
 
@@ -473,7 +452,7 @@ Example resolution:
 # After resolving conflicts manually
 git add .beads/issues.jsonl
 git commit
-bd import -i .beads/issues.jsonl  # Sync to SQLite
+bd import -i .beads/issues.jsonl  # Sync to database
 ```
 
 See [ADVANCED.md](ADVANCED.md) for detailed merge strategies.
@@ -770,7 +749,7 @@ bd --no-daemon --no-auto-flush --no-auto-import <command>
 ```
 
 **What sandbox mode does:**
-- Disables daemon (uses direct SQLite mode)
+- Disables daemon (uses direct database mode)
 - Disables auto-export to JSONL
 - Disables auto-import from JSONL
 - Allows bd to work in network-restricted environments

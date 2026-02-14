@@ -1,16 +1,16 @@
 ---
 sidebar_position: 2
 title: Database Corruption
-description: Recover from SQLite database corruption
+description: Recover from Dolt database corruption
 ---
 
 # Database Corruption Recovery
 
-This runbook helps you recover from SQLite database corruption in Beads.
+This runbook helps you recover from Dolt database corruption in Beads.
 
 ## Symptoms
 
-- SQLite error messages during `bd` commands
+- Database error messages during `bd` commands
 - "database is locked" errors that persist
 - Missing issues that should exist
 - Inconsistent state between JSONL and database
@@ -22,10 +22,10 @@ This runbook helps you recover from SQLite database corruption in Beads.
 bd status
 
 # Look for corruption indicators
-ls -la .beads/beads.db*
+ls -la .beads/dolt/
 ```
 
-If you see `-wal` or `-shm` files alongside `beads.db`, a transaction may have been interrupted.
+If the `.beads/dolt/` directory is missing or has incomplete files, a transaction may have been interrupted.
 
 ## Solution
 

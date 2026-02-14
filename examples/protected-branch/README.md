@@ -179,7 +179,7 @@ my-project/
 │   │           └── issues.jsonl
 │   └── ...
 ├── .beads/                    # Main beads directory (in your workspace)
-│   ├── beads.db               # SQLite database
+│   ├── dolt/                  # Dolt database
 │   ├── issues.jsonl            # JSONL export
 │   └── bd.sock                # Daemon socket (if running)
 ├── src/                       # Your application code

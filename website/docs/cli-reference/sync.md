@@ -164,7 +164,7 @@ This is no longer required. Dolt manages sync natively.
 ### Without Daemon
 
 Use `--no-daemon` flag:
-- Changes only written to SQLite
+- Changes only written to the local database
 - Use `bd export` or `bd import` for manual data transfer
 
 ```bash

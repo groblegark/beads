@@ -24,14 +24,6 @@ export PATH="$PATH:$(go env GOPATH)/bin"
 go install github.com/steveyegge/beads/cmd/bd@latest
 ```
 
-### `zsh: killed bd` on macOS
-
-CGO/SQLite compatibility issue:
-
-```bash
-CGO_ENABLED=1 go install github.com/steveyegge/beads/cmd/bd@latest
-```
-
 ### Permission denied
 
 ```bash
@@ -46,8 +38,8 @@ chmod +x $(which bd)
 # Initialize beads
 bd init --quiet
 
-# Or specify database
-bd --db .beads/beads.db list
+# Or specify database directory
+bd --db .beads/dolt/ list
 ```
 
 ### Database locked
@@ -64,7 +56,7 @@ bd list
 
 ```bash
 # Restore from JSONL
-rm .beads/beads.db
+rm -rf .beads/dolt/
 bd import -i .beads/issues.jsonl
 ```
 
@@ -194,7 +186,7 @@ bd config set import.orphan_handling allow
 
 ```bash
 # Check database size
-ls -lh .beads/beads.db
+du -sh .beads/dolt/
 
 # Compact if large
 bd admin compact --analyze

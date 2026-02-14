@@ -78,7 +78,7 @@ To access from other machines on your network:
 If your database is not in the current directory:
 
 ```bash
-./monitor-webui -db /path/to/your/beads.db
+./monitor-webui -db /path/to/your/dolt/
 ```
 
 ### Custom Socket Path
@@ -86,7 +86,7 @@ If your database is not in the current directory:
 If you need to specify a custom daemon socket:
 
 ```bash
-./monitor-webui -socket /path/to/beads.db.sock
+./monitor-webui -socket /path/to/bd.sock
 ```
 
 ## Command-Line Flags
@@ -228,7 +228,7 @@ Make sure you've initialized a beads database with `bd init` or specify the data
 
 ### "Daemon is not running"
 
-The monitor requires the daemon to avoid SQLite locking conflicts. Start the daemon first:
+The monitor requires the daemon to avoid database locking conflicts. Start the daemon first:
 
 ```bash
 bd daemon start

@@ -97,7 +97,7 @@ MCP Server (one instance)
     ↓
 Per-Project Daemons (one per workspace)
     ↓
-SQLite Databases (complete isolation)
+Dolt Databases (complete isolation)
 ```
 
 **Why per-project daemons?**

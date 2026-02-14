@@ -6,7 +6,7 @@ description: Understanding Beads' three-layer data model
 
 # Architecture Overview
 
-This document explains how Beads' three-layer architecture works: Git, JSONL, and SQLite.
+This document explains how Beads' three-layer architecture works: Git, JSONL, and Dolt.
 
 ## The Three Layers
 
@@ -22,8 +22,8 @@ flowchart TD
         J[("issues.jsonl<br/><i>Operational Source of Truth</i>")]
     end
 
-    subgraph SQL["⚡ Layer 3: SQLite"]
-        D[("beads.db<br/><i>Fast Queries / Derived State</i>")]
+    subgraph SQL["⚡ Layer 3: Dolt"]
+        D[("dolt/<br/><i>Fast Queries / Derived State</i>")]
     end
 
     G <-->|"Dolt sync"| J
@@ -41,9 +41,9 @@ flowchart TD
 :::info Historical vs Operational Truth
 **Git** is the *historical* source of truth—commits preserve the full history of your issues and can be recovered from any point in time.
 
-**JSONL** is the *operational* source of truth—when recovering from database corruption, Beads rebuilds SQLite from JSONL files, not directly from Git commits.
+**JSONL** is the *operational* source of truth—when recovering from database corruption, Beads rebuilds the Dolt database from JSONL files, not directly from Git commits.
 
-This layered model enables recovery: if SQLite is corrupted but JSONL is intact, run `bd import -i .beads/issues.jsonl` to rebuild. If JSONL is corrupted, recover it from Git history first. Note: `bd sync` is deprecated; Dolt handles synchronization automatically.
+This layered model enables recovery: if the database is corrupted but JSONL is intact, run `bd import -i .beads/issues.jsonl` to rebuild. If JSONL is corrupted, recover it from Git history first. Note: `bd sync` is deprecated; Dolt handles synchronization automatically.
 :::
 
 ### Layer 1: Git Repository
@@ -59,7 +59,7 @@ Git is the *historical* source of truth. All issue data lives in the repository 
 
 ### Layer 2: JSONL Files
 
-JSONL (JSON Lines) files store issue data in an append-only format. This is the *operational* source of truth—SQLite databases are rebuilt from JSONL.
+JSONL (JSON Lines) files store issue data in an append-only format. This is the *operational* source of truth—Dolt databases are rebuilt from JSONL.
 
 **Location:** `.beads/*.jsonl`
 
@@ -68,26 +68,27 @@ JSONL (JSON Lines) files store issue data in an append-only format. This is the 
 - Git-mergeable (append-only reduces conflicts)
 - Portable across systems
 - Can be recovered from Git history
-- **Recovery source**: `bd import -i .beads/issues.jsonl` rebuilds SQLite from JSONL (previously `bd sync --import-only`, now deprecated)
+- **Recovery source**: `bd import -i .beads/issues.jsonl` rebuilds Dolt from JSONL (previously `bd sync --import-only`, now deprecated)
 
-### Layer 3: SQLite Database
+### Layer 3: Dolt Database
 
-SQLite provides fast local queries without network latency. This is *derived state*—it can always be rebuilt from JSONL.
+Dolt provides fast local queries without network latency, plus native version control. This is *derived state*—it can always be rebuilt from JSONL.
 
-**Location:** `.beads/beads.db`
+**Location:** `.beads/dolt/`
 
-**Why SQLite?**
+**Why Dolt?**
 - Instant queries (no network)
 - Complex filtering and sorting
+- Native version control with branching and merging
 - Derived from JSONL (always rebuildable)
-- Safe to delete and rebuild: `rm .beads/beads.db* && bd import -i .beads/issues.jsonl`
+- Safe to delete and rebuild: `rm -rf .beads/dolt && bd import -i .beads/issues.jsonl`
 
 ## Data Flow
 
 ### Write Path
 ```text
 User runs bd create
-    → SQLite updated
+    → Dolt updated
     → JSONL appended
     → Git commit (on sync)
 ```
@@ -95,7 +96,7 @@ User runs bd create
 ### Read Path
 ```text
 User runs bd list
-    → SQLite queried
+    → Dolt queried
     → Results returned immediately
 ```
 
@@ -103,7 +104,7 @@ User runs bd list
 ```text
 Dolt handles sync automatically (bd sync is deprecated)
     → JSONL merged
-    → SQLite rebuilt if needed
+    → Dolt rebuilt if needed
 ```
 
 ### Sync Modes
@@ -119,8 +120,8 @@ Dolt handles bidirectional synchronization automatically. No manual sync command
 ```bash
 bd import -i .beads/issues.jsonl
 ```
-Rebuilds the SQLite database from JSONL. Use this when:
-- SQLite is corrupted or missing
+Rebuilds the Dolt database from JSONL. Use this when:
+- Database is corrupted or missing
 - Recovering from a fresh clone
 - Rebuilding after database migration issues
 
@@ -130,7 +131,7 @@ This is the safest recovery option when JSONL is intact.
 ```bash
 bd export
 ```
-Exports the SQLite database to JSONL. Use this for manual data transfer or backups.
+Exports the Dolt database to JSONL. Use this for manual data transfer or backups.
 
 ### Multi-Machine Sync Considerations
 
@@ -154,7 +155,7 @@ The Beads daemon (`bd daemon`) handles background synchronization:
 
 - Watches for file changes
 - Triggers sync on changes
-- Keeps SQLite in sync with JSONL
+- Keeps Dolt in sync with JSONL
 - Manages lock files
 
 :::tip
@@ -197,7 +198,7 @@ See [Sync Failures Recovery](/recovery/sync-failures) for daemon race condition 
 
 The three-layer architecture makes recovery straightforward because each layer can rebuild from the one above it:
 
-1. **Lost SQLite?** → Rebuild from JSONL: `bd import -i .beads/issues.jsonl`
+1. **Lost database?** → Rebuild from JSONL: `bd import -i .beads/issues.jsonl`
 2. **Lost JSONL?** → Recover from Git history: `git checkout HEAD~1 -- .beads/issues.jsonl`
 3. **Conflicts?** → Git merge, then rebuild
 
@@ -210,7 +211,7 @@ This sequence resolves the majority of reported issues:
 ```bash
 bd daemons killall           # Stop daemons (prevents race conditions)
 git worktree prune           # Clean orphaned worktrees
-rm .beads/beads.db*          # Remove potentially corrupted database
+rm -rf .beads/dolt/          # Remove potentially corrupted database
 bd import -i .beads/issues.jsonl  # Rebuild from JSONL source of truth
 ```
 
@@ -233,13 +234,13 @@ See [Recovery](/recovery) for specific procedures and [Database Corruption Recov
 
 ## Design Decisions
 
-### Why not just SQLite?
+### Why not just Dolt?
 
-SQLite alone doesn't travel with Git or merge well across branches. Binary database files create merge conflicts that are nearly impossible to resolve.
+Dolt alone doesn't travel with Git or merge well across branches. Database files create merge conflicts that are nearly impossible to resolve.
 
 ### Why not just JSONL?
 
-JSONL is slow for complex queries. Scanning thousands of lines for filtering and sorting is inefficient. SQLite provides indexed lookups in milliseconds.
+JSONL is slow for complex queries. Scanning thousands of lines for filtering and sorting is inefficient. Dolt provides indexed lookups in milliseconds.
 
 ### Why append-only JSONL?
 

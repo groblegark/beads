@@ -4,7 +4,7 @@ This example demonstrates how to extend bd with custom tables for application-sp
 
 ## What This Example Shows
 
-1. **Schema Extension**: Adding custom tables (`example_executions`, `example_checkpoints`) to bd's SQLite database
+1. **Schema Extension**: Adding custom tables (`example_executions`, `example_checkpoints`) to bd's Dolt database
 2. **Foreign Key Integration**: Linking extension tables to bd's `issues` table with proper cascading
 3. **Dual-Layer Access**: Using bd's Go API for issue management while directly querying extension tables
 4. **Complex Queries**: Joining bd's issues with extension tables for powerful insights
@@ -82,7 +82,7 @@ The binary will be installed as `bd-example-extension-go` in your `$GOPATH/bin` 
 bd-example-extension-go
 
 # Or specify database path
-bd-example-extension-go -db .beads/demo.db
+bd-example-extension-go -db .beads/dolt/
 ```
 
 **Output:**
@@ -162,7 +162,7 @@ if dbPath == "" {
 }
 
 // Open bd storage
-store, err := beads.NewSQLiteStorage(dbPath)
+store, err := beads.NewDoltStorage(dbPath)
 
 // Find ready work
 readyIssues, err := store.GetReadyWork(ctx, beads.WorkFilter{Limit: 10})
@@ -182,7 +182,7 @@ jsonlPath := beads.FindJSONLPath(dbPath)
 
 ```go
 // Open same database for extension tables
-db, err := sql.Open("sqlite3", dbPath)
+db, err := sql.Open("dolt", dbPath)
 
 // Initialize extension schema
 _, err = db.Exec(Schema)
@@ -213,7 +213,7 @@ rows, err := db.Query("SELECT * FROM example_executions WHERE status = ?", "runn
 4. **Check the results:**
    ```bash
    bd list
-   sqlite3 .beads/demo.db "SELECT * FROM example_executions"
+   cd .beads/dolt && dolt sql -q "SELECT * FROM example_executions"
    ```
 
 ## Real-World Usage

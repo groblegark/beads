@@ -159,7 +159,7 @@ The payload is the original Claude Code hook JSON, published as-is.
         "question": "Which database should we use?",
         "options": [
           {"label": "PostgreSQL (Recommended)"},
-          {"label": "SQLite"},
+          {"label": "Dolt"},
           {"label": "MySQL"}
         ]
       }

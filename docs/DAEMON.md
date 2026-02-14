@@ -87,7 +87,7 @@ MCP Server (one instance)
     ↓
 Per-Project Daemons (one per workspace)
     ↓
-SQLite Databases (complete isolation)
+Dolt Databases (complete isolation)
 ```
 
 Each workspace gets its own daemon:
@@ -577,13 +577,13 @@ Database file was replaced externally (e.g., by `git pull`, `git merge`, or manu
 
 ```bash
 # 1. Check if database file was replaced
-ls -li .beads/beads.db
+ls -la .beads/dolt/
 
 # 2. Enable debug logging
 BD_DEBUG_FRESHNESS=1 bd daemon restart
 
 # 3. Check if daemon has file descriptors to deleted files
-lsof -p $(pgrep -f "bd.*daemon") | grep beads.db
+lsof -p $(pgrep -f "bd.*daemon") | grep dolt
 ```
 
 ### Solutions

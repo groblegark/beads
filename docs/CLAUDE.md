@@ -14,7 +14,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 1. **Storage Layer** (`internal/storage/`)
    - Interface-based design in `storage.go`
-   - SQLite implementation in `storage/sqlite/`
+   - Dolt implementation in `storage/dolt/`
    - Memory backend in `storage/memory/` for testing
    - Extensions can add custom tables via `UnderlyingDB()` (see EXTENDING.md)
 
@@ -26,24 +26,24 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 3. **CLI Layer** (`cmd/bd/`)
    - Cobra-based commands (one file per command: `create.go`, `list.go`, etc.)
-   - Commands try daemon RPC first, fall back to direct database access
+   - Commands communicate with daemon via RPC
    - All commands support `--json` for programmatic use
    - Main entry point in `main.go`
 
 ### Distributed Database Pattern
 
-The "magic" is in the auto-sync between SQLite and JSONL:
+The "magic" is in the auto-sync between Dolt and JSONL:
 
 ```
-SQLite DB (.beads/beads.db, gitignored)
+Dolt DB (.beads/dolt/, gitignored)
     ↕ auto-sync (5s debounce)
 JSONL (.beads/issues.jsonl, git-tracked)
     ↕ git push/pull
 Remote JSONL (shared across machines)
 ```
 
-- **Write path**: CLI → SQLite → JSONL export → git commit
-- **Read path**: git pull → JSONL import → SQLite → CLI
+- **Write path**: CLI → Dolt → JSONL export → git commit
+- **Read path**: git pull → JSONL import → Dolt → CLI
 - **Hash-based IDs**: Automatic collision prevention (v0.20+)
 
 Core implementation:
@@ -93,7 +93,7 @@ golangci-lint run ./...
 ## Testing Philosophy
 
 - Unit tests live next to implementation (`*_test.go`)
-- Integration tests use real SQLite databases (`:memory:` or temp files)
+- Integration tests use real databases (in-memory or temp files)
 - Script-based tests in `cmd/bd/testdata/*.txt` (see `scripttest_test.go`)
 - RPC layer has extensive isolation and edge case coverage
 

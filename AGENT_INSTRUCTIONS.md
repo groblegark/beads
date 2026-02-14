@@ -21,7 +21,7 @@ beads/
 ├── internal/
 │   ├── types/           # Core data types
 │   └── storage/         # Storage layer
-│       └── sqlite/      # SQLite implementation
+│       └── dolt/        # Dolt implementation
 ├── examples/            # Integration examples
 └── *.md                 # Documentation
 ```
@@ -357,10 +357,10 @@ Max iterations: 3 (configurable via `--max-iterations`)
 
 ### Adding Storage Features
 
-1. Update schema in `internal/storage/sqlite/schema.go`
+1. Update schema in `internal/storage/dolt/schema.go`
 2. Add migration if needed
 3. Update `internal/types/types.go` if new types
-4. Implement in `internal/storage/sqlite/sqlite.go`
+4. Implement in `internal/storage/dolt/dolt.go`
 5. Add tests
 6. Update export/import in `cmd/bd/export.go` and `cmd/bd/import.go`
 

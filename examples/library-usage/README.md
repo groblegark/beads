@@ -37,7 +37,7 @@ func main() {
     
     // Find and open database
     dbPath := beads.FindDatabasePath()
-    store, err := beads.NewSQLiteStorage(dbPath)
+    store, err := beads.NewDoltStorage(dbPath)
     if err != nil {
         log.Fatal(err)
     }
@@ -146,7 +146,7 @@ type VCStorage struct {
 }
 
 func NewVCStorage(dbPath string) (*VCStorage, error) {
-    store, err := beads.NewSQLiteStorage(dbPath)
+    store, err := beads.NewDoltStorage(dbPath)
     if err != nil {
         return nil, err
     }

@@ -266,7 +266,7 @@ bd --no-daemon --no-auto-flush --no-auto-import <command>
 ```
 
 **What it does:**
-- Disables daemon (uses direct SQLite mode)
+- Disables daemon (uses direct database mode)
 - Disables auto-export to JSONL
 - Disables auto-import from JSONL
 

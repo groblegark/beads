@@ -13,17 +13,18 @@ bd's core design enables a distributed, git-backed issue tracker that feels like
 │  bd create, list, update, close, ready, show, dep, sync, ...    │
 │  - Cobra commands in cmd/bd/                                     │
 │  - All commands support --json for programmatic use              │
-│  - Tries daemon RPC first, falls back to direct DB access        │
+│  - Communicates with daemon via RPC                              │
 └──────────────────────────────┬──────────────────────────────────┘
                                │
                                v
 ┌─────────────────────────────────────────────────────────────────┐
-│                     SQLite Database                              │
-│                     (.beads/beads.db)                            │
+│                      Dolt Database                               │
+│                     (.beads/dolt/)                                │
 │                                                                  │
 │  - Local working copy (gitignored)                               │
 │  - Fast queries, indexes, foreign keys                           │
 │  - Issues, dependencies, labels, comments, events                │
+│  - Version-controlled SQL with native branching/merging          │
 │  - Each machine has its own copy                                 │
 └──────────────────────────────┬──────────────────────────────────┘
                                │
@@ -56,7 +57,7 @@ bd's core design enables a distributed, git-backed issue tracker that feels like
 
 ### Why This Design?
 
-**SQLite for speed:** Local queries complete in milliseconds. Complex dependency graphs, full-text search, and joins are fast.
+**Dolt for speed and version control:** Local queries complete in milliseconds. Complex dependency graphs, full-text search, and joins are fast. Dolt adds native branching, merging, and cell-level conflict resolution.
 
 **JSONL for git:** One entity per line means git diffs are readable and merges usually succeed automatically. No binary database files in version control.
 
@@ -68,7 +69,7 @@ When you create or modify an issue:
 
 ```
 ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│   CLI Command   │───▶│  SQLite Write   │───▶│  Mark Dirty     │
+│   CLI Command   │───▶│  Dolt Write     │───▶│  Mark Dirty     │
 │   (bd create)   │    │  (immediate)    │    │  (trigger sync) │
 └─────────────────┘    └─────────────────┘    └────────┬────────┘
                                                        │
@@ -81,7 +82,7 @@ When you create or modify an issue:
 └─────────────────┘    └─────────────────┘    └─────────────────┘
 ```
 
-1. **Command executes:** `bd create "New feature"` writes to SQLite immediately
+1. **Command executes:** `bd create "New feature"` writes to Dolt immediately
 2. **Mark dirty:** The operation marks the database as needing export
 3. **Debounce window:** Wait 5 seconds for batch operations (configurable)
 4. **Export to JSONL:** Only changed entities are appended/updated
@@ -90,7 +91,7 @@ When you create or modify an issue:
 Key implementation:
 - Export: `cmd/bd/export.go`, `cmd/bd/autoflush.go`
 - FlushManager: `internal/flush/` (see [INTERNALS.md](INTERNALS.md))
-- Dirty tracking: `internal/storage/sqlite/dirty_issues.go`
+- Dirty tracking: `internal/storage/dolt/dirty_issues.go`
 
 ## Read Path
 
@@ -98,7 +99,7 @@ When you query issues after a `git pull`:
 
 ```
 ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│   git pull      │───▶│  Auto-Import    │───▶│  SQLite Update  │
+│   git pull      │───▶│  Auto-Import    │───▶│  Dolt Update    │
 │   (new JSONL)   │    │  (on next cmd)  │    │  (merge logic)  │
 └─────────────────┘    └─────────────────┘    └────────┬────────┘
                                                        │
@@ -111,8 +112,8 @@ When you query issues after a `git pull`:
 
 1. **Git pull:** Fetches updated JSONL from remote
 2. **Auto-import detection:** First bd command checks if JSONL is newer than DB
-3. **Import to SQLite:** Parse JSONL, merge with local state using content hashes
-4. **Query:** Commands read from fast local SQLite
+3. **Import to Dolt:** Parse JSONL, merge with local state using content hashes
+4. **Query:** Commands read from fast local Dolt database
 
 Key implementation:
 - Import: `cmd/bd/import.go`, `cmd/bd/autoimport.go`
@@ -183,14 +184,12 @@ Each workspace runs its own background daemon for auto-sync:
 │                            │                                     │
 │                            v                                     │
 │                   ┌─────────────┐                                │
-│                   │   SQLite    │                                │
+│                   │    Dolt     │                                │
 │                   │   Database  │                                │
 │                   └─────────────┘                                │
 └─────────────────────────────────────────────────────────────────┘
 
      CLI commands ───RPC───▶ Daemon ───SQL───▶ Database
-                              or
-     CLI commands ───SQL───▶ Database (if daemon unavailable)
 ```
 
 **Why daemons?**
@@ -202,14 +201,16 @@ Each workspace runs its own background daemon for auto-sync:
 **Communication:**
 - Unix domain socket at `.beads/bd.sock` (Windows: named pipes)
 - Protocol defined in `internal/rpc/protocol.go`
-- CLI tries daemon first, falls back to direct DB access
+- CLI communicates with daemon via RPC
 
 **Lifecycle:**
-- Auto-starts on first bd command (unless `BEADS_NO_DAEMON=1`)
+- Auto-starts on first bd command
 - Auto-restarts after version upgrades
 - Managed via `bd daemons` command
 
 See [DAEMON.md](DAEMON.md) for operational details.
+
+**Note:** The Dolt backend is the sole storage backend. There is no SQLite backend.
 
 ## Data Types
 
@@ -315,7 +316,7 @@ Each issue in `.beads/issues.jsonl` is a JSON object with the following fields. 
 
 ```
 .beads/
-├── beads.db          # SQLite database (gitignored)
+├── dolt/             # Dolt database directory (gitignored)
 ├── issues.jsonl      # JSONL source of truth (git-tracked)
 ├── bd.sock           # Daemon socket (gitignored)
 ├── daemon.log        # Daemon logs (gitignored)
@@ -329,7 +330,7 @@ Each issue in `.beads/issues.jsonl` is a JSON object with the following fields. 
 |------|-------|
 | CLI entry | `cmd/bd/main.go` |
 | Storage interface | `internal/storage/storage.go` |
-| SQLite implementation | `internal/storage/sqlite/` |
+| Dolt implementation | `internal/storage/dolt/` |
 | RPC protocol | `internal/rpc/protocol.go`, `server_*.go` |
 | Export logic | `cmd/bd/export.go`, `autoflush.go` |
 | Import logic | `cmd/bd/import.go`, `internal/importer/` |
@@ -351,14 +352,14 @@ Each issue in `.beads/issues.jsonl` is a JSON object with the following fields. 
 ```
 
 1. **Create:** Create wisps from a molecule template
-2. **Execute:** Agent works through wisp steps (local SQLite only)
+2. **Execute:** Agent works through wisp steps (local database only)
 3. **Squash:** Compress wisps into a permanent digest issue
 
 ### Why Wisps Don't Sync
 
 Wisps are intentionally **local-only**:
 
-- They exist only in the spawning agent's SQLite database
+- They exist only in the spawning agent's local database
 - They are **never exported to JSONL**
 - They cannot resurrect from other clones (they were never there)
 - They are **hard-deleted** when squashed (no tombstones needed)
@@ -392,7 +393,7 @@ The `bd mol squash` command uses hard delete intentionally - tombstones would be
 - [MOLECULES.md](MOLECULES.md) - Molecular chemistry metaphor (protos, pour, bond, squash, burn)
 - [INTERNALS.md](INTERNALS.md) - FlushManager, Blocked Cache implementation details
 - [DAEMON.md](DAEMON.md) - Daemon management and configuration
-- [EXTENDING.md](EXTENDING.md) - Adding custom tables to SQLite
+- [EXTENDING.md](EXTENDING.md) - Adding custom tables to the database
 - [TROUBLESHOOTING.md](TROUBLESHOOTING.md) - Recovery procedures and common issues
 - [FAQ.md](FAQ.md) - Common questions about the architecture
 - [COLLISION_MATH.md](COLLISION_MATH.md) - Hash collision probability analysis

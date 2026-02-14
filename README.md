@@ -36,7 +36,7 @@ bd version
 * **Git as Database:** Issues stored as JSONL in `.beads/`. Versioned, branched, and merged like code.
 * **Agent-Optimized:** JSON output, dependency tracking, and auto-ready task detection.
 * **Zero Conflict:** Hash-based IDs (`bd-a1b2`) prevent merge collisions in multi-agent/multi-branch workflows.
-* **Invisible Infrastructure:** SQLite local cache for speed; background daemon for auto-sync.
+* **Invisible Infrastructure:** Dolt database for speed and version control; background daemon for auto-sync.
 * **Compaction:** Semantic "memory decay" summarizes old closed tasks to save context window.
 
 ## 📖 Essential Commands

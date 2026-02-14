@@ -58,10 +58,6 @@ Tool-level settings you can configure:
 | `daemon-log-max-age` | - | `BEADS_DAEMON_LOG_MAX_AGE` | `30` | Max days to keep old log files |
 | `daemon-log-compress` | - | `BEADS_DAEMON_LOG_COMPRESS` | `true` | Compress rotated log files |
 
-**Backend note (SQLite vs Dolt):**
-- **SQLite** supports daemon mode and auto-start.
-- **Dolt (embedded)** is treated as **single-process-only**. Daemon mode and auto-start are disabled; `auto-start-daemon` has no effect. If you need daemon mode, use the SQLite backend (`bd init --backend sqlite`).
-
 ### Dolt Auto-Commit (SQL commit vs Dolt commit)
 
 When using the **Dolt backend**, there are two different kinds of “commit”:
@@ -252,8 +248,8 @@ Agents benefit from `bd config`'s structured CLI interface over manual YAML edit
 ### Overview
 
 Project configuration is:
-- **Per-project**: Isolated to each `.beads/*.db` database
-- **Version-control-friendly**: Stored in SQLite, queryable and scriptable
+- **Per-project**: Isolated to each `.beads/dolt/` database
+- **Version-control-friendly**: Stored in the database, queryable and scriptable
 - **Machine-readable**: JSON output for automation
 - **Namespace-based**: Organized by integration or purpose
 

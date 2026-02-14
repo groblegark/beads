@@ -14,7 +14,7 @@
 ## Tech Stack
 
 - **Language**: Go 1.21+
-- **Storage**: SQLite (internal/storage/sqlite/)
+- **Storage**: Dolt (internal/storage/dolt/)
 - **CLI Framework**: Cobra
 - **Testing**: Go standard testing + table-driven tests
 - **CI/CD**: GitHub Actions
@@ -90,13 +90,13 @@ beads/
 ├── internal/
 │   ├── types/           # Core data types
 │   └── storage/         # Storage layer
-│       └── sqlite/      # SQLite implementation
+│       └── dolt/        # Dolt implementation
 ├── integrations/
 │   └── beads-mcp/       # MCP server (Python)
 ├── examples/            # Integration examples
 ├── docs/                # Documentation
 └── .beads/
-    ├── beads.db         # SQLite database (DO NOT COMMIT)
+    ├── dolt/            # Dolt database (DO NOT COMMIT)
     └── issues.jsonl     # Git-synced issue storage
 ```
 

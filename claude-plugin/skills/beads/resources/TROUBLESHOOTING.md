@@ -119,13 +119,13 @@ This is **expected behavior**, not a bug. Understanding requires knowing bd's ar
 
 **BD Architecture:**
 - **JSONL files** (`.beads/issues.jsonl`): Human-readable export format
-- **SQLite database** (`.beads/*.db`): Source of truth for queries
-- **Daemon**: Syncs JSONL ↔ SQLite every 5 minutes
+- **Dolt database** (`.beads/dolt/`): Source of truth for queries
+- **Daemon**: Syncs JSONL and Dolt database periodically
 
 **What `--no-daemon` actually does:**
 - **Writes**: Go directly to JSONL file
-- **Reads**: Still come from SQLite database
-- **Sync delay**: Daemon imports JSONL → SQLite periodically
+- **Reads**: Still come from Dolt database
+- **Sync delay**: Daemon imports JSONL into Dolt periodically
 
 ### Resolution
 
@@ -217,14 +217,14 @@ bd init myproject
 ```
 
 ### Root Cause
-**SQLite incompatibility with cloud sync filesystems.**
+**Database incompatibility with cloud sync filesystems.**
 
 Cloud services (Google Drive, Dropbox, OneDrive, iCloud) don't support:
-- POSIX file locking (required by SQLite)
+- POSIX file locking (required by the database)
 - Consistent file handles across sync operations
 - Atomic write operations
 
-This is a **known SQLite limitation**, not a bd bug.
+This is a **known database limitation**, not a bd bug.
 
 ### Resolution
 
@@ -328,7 +328,7 @@ for item in "${items[@]}"; do
     bd --no-daemon create "$item" -t feature
 done
 
-# Daemon syncs JSONL → SQLite in background
+# Daemon syncs JSONL → Dolt in background
 sleep 5  # Wait for final sync
 
 # Query results

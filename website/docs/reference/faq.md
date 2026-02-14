@@ -26,9 +26,9 @@ Yes, beads is used in production for AI-assisted development. The API is stable 
 
 ## Architecture
 
-### Why SQLite + JSONL instead of just one?
+### Why Dolt + JSONL instead of just one?
 
-- **SQLite** for fast local queries and complex filtering
+- **Dolt** for fast local queries and complex filtering
 - **JSONL** for git-friendly versioning and sync
 - Auto-sync keeps them aligned
 

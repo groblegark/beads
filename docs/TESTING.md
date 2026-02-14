@@ -127,7 +127,7 @@ Most tests are <0.01s and very fast.
 ```
 cmd/bd/           - Main CLI tests (82 test files, most of the suite)
 internal/beads/   - Core beads library tests
-internal/storage/ - Storage backend tests (SQLite, memory)
+internal/storage/ - Storage backend tests (Dolt, memory)
 internal/rpc/     - RPC protocol tests
 internal/*/       - Various internal package tests
 ```

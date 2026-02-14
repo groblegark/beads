@@ -83,7 +83,7 @@ bd sync
 
 Step-by-step:
 
-1. **Load local state** - Read all issues from SQLite database into memory
+1. **Load local state** - Read all issues from Dolt database into memory
 2. **Load base state** - Read `sync_base.jsonl` (last successful sync snapshot)
 3. **Pull** - Fetch and merge remote git changes
 4. **Load remote state** - Parse `issues.jsonl` after pull
@@ -180,7 +180,7 @@ For maximum reliability, ensure machine clocks are synchronized via NTP.
 | `.beads/issues.jsonl` | Current state (git-tracked) |
 | `.beads/sync_base.jsonl` | Last-synced state (not tracked, per-machine) |
 | `.beads/.sync.lock` | Concurrency guard (not tracked) |
-| `.beads/beads.db` | SQLite database (not tracked) |
+| `.beads/dolt/` | Dolt database (not tracked) |
 
 The JSONL files are the source of truth for git. The database is derived from JSONL on each machine.
 
@@ -247,7 +247,7 @@ syncbranch.PullFromSyncBranch   with forceOverwrite flag
 
 ### Why Two Paths?
 
-SQLite connections become stale when the daemon holds them while the CLI operates on the same database. The CLI path forces daemon closure before sync to prevent connection corruption. The daemon path operates directly since it owns the connection.
+Database connections become stale when the daemon holds them while the CLI operates on the same database. The CLI path forces daemon closure before sync to prevent connection corruption. The daemon path operates directly since it owns the connection.
 
 ### Test Isolation Strategy
 

@@ -215,7 +215,7 @@ Tombstones exist to prevent resurrection during sync. Wisps don't sync:
 | Can resurrect | Yes | No |
 | Tombstone on delete | Yes | No (hard delete) |
 
-Since wisps never leave the local SQLite database, they cannot resurrect from remote clones. Creating tombstones for them would be unnecessary overhead.
+Since wisps never leave the local database, they cannot resurrect from remote clones. Creating tombstones for them would be unnecessary overhead.
 
 ### How Wisp Deletion Works
 
@@ -224,13 +224,13 @@ When `bd mol squash` compresses wisps into a digest:
 1. The digest issue is created (permanent, syncs normally)
 2. Wisp children are **hard-deleted** via `DeleteIssue()`
 3. No tombstones are created
-4. The wisps simply disappear from local SQLite
+4. The wisps simply disappear from local database
 
 This is intentional, not a bug. See [ARCHITECTURE.md](ARCHITECTURE.md#wisps-and-molecules) for the full design rationale.
 
 ### If You Need Wisp History
 
-Wisps are stored in the main database with `Wisp=true` flag and are not exported to JSONL. They exist in local SQLite until garbage collected or squashed. Future enhancements may include:
+Wisps are stored in the main database with `Wisp=true` flag and are not exported to JSONL. They exist locally until garbage collected or squashed. Future enhancements may include:
 
 - Configurable wisp retention policies
 - Automatic staleness detection based on dependency graph pressure

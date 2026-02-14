@@ -75,7 +75,7 @@ bd restore bd-42 --to-file issue.json
 bd info --schema --json
 
 # Raw database query (advanced)
-sqlite3 .beads/beads.db "SELECT * FROM issues LIMIT 5"
+cd .beads/dolt && dolt sql -q "SELECT * FROM issues LIMIT 5"
 ```
 
 ## Custom Tables
@@ -141,7 +141,7 @@ Use beads as a Go library:
 ```go
 import "github.com/steveyegge/beads/internal/storage"
 
-db, _ := storage.NewSQLite(".beads/beads.db")
+db, _ := storage.NewDoltStorage(".beads/dolt/")
 issues, _ := db.ListIssues(storage.ListOptions{
     Status: "open",
 })

@@ -122,7 +122,7 @@ Create `.github/workflows/publish-npm.yml` to auto-publish on GitHub releases.
 - ✅ **Zero-config installation** - Just `npm install`
 - ✅ **Automatic binary download** - No manual steps
 - ✅ **Platform detection** - Works on macOS, Linux, Windows
-- ✅ **Full feature parity** - Native SQLite, all commands work
+- ✅ **Full feature parity** - Native Dolt database, all commands work
 - ✅ **Claude Code ready** - Perfect for SessionStart hooks
 - ✅ **Git-backed** - Issues version controlled
 - ✅ **Multi-agent** - Shared database via git

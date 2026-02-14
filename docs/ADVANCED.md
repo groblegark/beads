@@ -367,7 +367,7 @@ chmod +x .git/hooks/pre-commit .git/hooks/post-merge .git/hooks/post-checkout
 
 ## Extensible Database
 
-bd uses SQLite, which you can extend with your own tables and queries. This allows you to:
+bd uses Dolt (a SQL database with version control), which you can extend with your own tables and queries. This allows you to:
 
 - Add custom metadata to issues
 - Build integrations with other tools
@@ -404,7 +404,7 @@ GROUP BY i.id;
 Understanding the role of each component:
 
 ### Beads (Core)
-- **SQLite database** - The source of truth for all issues, dependencies, labels
+- **Dolt database** - The source of truth for all issues, dependencies, labels
 - **Storage layer** - CRUD operations, dependency resolution, collision detection
 - **Business logic** - Ready work calculation, merge operations, import/export
 - **CLI commands** - Direct database access via `bd` command

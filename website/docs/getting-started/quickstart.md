@@ -16,9 +16,6 @@ First time in a repository:
 # Basic setup
 bd init
 
-# Dolt backend (version-controlled SQL database)
-bd init --backend dolt
-
 # For AI agents (non-interactive)
 bd init --quiet
 
@@ -37,16 +34,10 @@ The wizard will:
 - Import existing issues from git (if any)
 - Prompt to install git hooks (recommended)
 - Prompt to configure git merge driver (recommended)
-- Auto-start daemon for sync (SQLite backend only)
+- Auto-start daemon for sync
 
 Notes:
-- SQLite backend stores data in `.beads/beads.db`.
-- Dolt backend stores data in `.beads/dolt/` and records `"database": "dolt"` in `.beads/metadata.json`.
-- Dolt backend runs **single-process-only**; daemon mode is disabled.
-
-Notes:
-- SQLite backend stores data in `.beads/beads.db`.
-- Dolt backend stores data in `.beads/dolt/` and records `"database": "dolt"` in `.beads/metadata.json`.
+- Data is stored in `.beads/dolt/` (Dolt database directory).
 
 ## Your First Issues
 
@@ -154,7 +145,7 @@ bd stats
 
 ## Database Location
 
-By default, the database is in `.beads/beads.db` (gitignored).
+By default, the database is in `.beads/dolt/` (gitignored).
 
 The JSONL file `.beads/issues.jsonl` is git-tracked and syncs automatically.
 

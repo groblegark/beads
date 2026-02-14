@@ -20,7 +20,7 @@ Beads uses git for:
 
 ```
 .beads/
-├── beads.db           # SQLite database (gitignored)
+├── dolt/              # Dolt database (gitignored)
 ├── issues.jsonl       # Issue data (git-tracked)
 ├── deletions.jsonl    # Deletion manifest (git-tracked)
 ├── config.toml        # Project config (git-tracked)

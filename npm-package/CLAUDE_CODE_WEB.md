@@ -237,7 +237,7 @@ If it's consistently slow, consider:
 
 This npm package wraps the **native** bd binary rather than using WebAssembly because:
 
-- ✅ **Full SQLite support**: No custom VFS or compatibility issues
+- ✅ **Full Dolt database support**: No compatibility issues
 - ✅ **All features work**: 100% feature parity with standalone bd
 - ✅ **Better performance**: Native speed vs WASM overhead
 - ✅ **Simpler maintenance**: Single binary build, no WASM-specific code

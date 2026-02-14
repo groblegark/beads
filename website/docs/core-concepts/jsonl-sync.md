@@ -17,7 +17,7 @@ How beads synchronizes issues across git.
 Beads uses a dual-storage architecture:
 
 ```
-SQLite DB (.beads/beads.db, gitignored)
+Dolt DB (.beads/dolt/, gitignored)
     ↕ auto-sync (5s debounce)
 JSONL (.beads/issues.jsonl, git-tracked)
     ↕ git push/pull
@@ -25,13 +25,13 @@ Remote JSONL (shared across machines)
 ```
 
 **Why this design?**
-- SQLite for fast local queries
+- Dolt for fast local queries
 - JSONL for git-friendly versioning
 - Automatic sync keeps them aligned
 
 ## Auto-Sync Behavior
 
-### Export (SQLite → JSONL)
+### Export (Dolt → JSONL)
 
 Triggers:
 - Any database change
@@ -46,7 +46,7 @@ bd export --dry-run
 bd export
 ```
 
-### Import (JSONL → SQLite)
+### Import (JSONL → Dolt)
 
 Triggers:
 - After `git pull` (via git hooks)

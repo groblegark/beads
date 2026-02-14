@@ -1,61 +1,33 @@
 # Dolt Backend for Beads
 
-Beads supports Dolt as an alternative storage backend to SQLite. Dolt provides version-controlled SQL database capabilities, enabling powerful workflows for multi-agent environments and team collaboration.
+Beads uses Dolt as its storage backend. Dolt provides version-controlled SQL database capabilities, enabling powerful workflows for multi-agent environments and team collaboration.
 
-## Why Use Dolt?
+## Why Dolt?
 
-| Feature | SQLite | Dolt |
-|---------|--------|------|
-| Version control | Via JSONL export | Native (cell-level) |
-| Multi-writer | Single process | Server mode supported |
-| Merge conflicts | Line-based JSONL | Cell-level 3-way merge |
-| History | Git commits | Dolt commits + Git |
-| Branching | Via Git branches | Native Dolt branches |
+| Feature | Description |
+|---------|-------------|
+| Version control | Native cell-level version control |
+| Multi-writer | Server mode supports concurrent writers |
+| Merge conflicts | Cell-level 3-way merge |
+| History | Dolt commits + Git |
+| Branching | Native Dolt branches |
 
-**Recommended for:**
+**Key benefits:**
 - Multi-agent environments (Gas Town)
-- Teams wanting database-level version control
-- Projects needing cell-level conflict resolution
-
-**Stick with SQLite for:**
-- Simple single-user setups
-- Maximum compatibility
-- Minimal dependencies
+- Database-level version control
+- Cell-level conflict resolution
 
 ## Getting Started
 
-### New Project with Dolt
+### New Project
 
 ```bash
-# Embedded mode (single writer)
-bd init --backend dolt
+# Standard setup (embedded mode, single writer)
+bd init
 
 # Server mode (multi-writer)
 gt dolt start                    # Start the Dolt server
-bd init --backend dolt --server  # Initialize with server mode
-```
-
-### Migrate Existing Project to Dolt
-
-```bash
-# Preview the migration
-bd migrate --to-dolt --dry-run
-
-# Run the migration
-bd migrate --to-dolt
-
-# Optionally clean up SQLite files
-bd migrate --to-dolt --cleanup
-```
-
-Migration creates backups automatically. Your original SQLite database is preserved as `beads.backup-pre-dolt-*.db`.
-
-### Migrate Back to SQLite (Escape Hatch)
-
-If you need to revert:
-
-```bash
-bd migrate --to-sqlite
+bd init --server                 # Initialize with server mode
 ```
 
 ## Modes of Operation
@@ -318,24 +290,6 @@ bd doctor                  # Checks hook health
 bd hooks install --beads --force
 ```
 
-### Migration Failed Halfway
-
-**Symptom:** Both SQLite and Dolt exist, unclear state.
-
-**Recovery:**
-```bash
-# Check what exists
-ls .beads/*.db .beads/dolt/
-
-# If Dolt looks incomplete, restart migration
-rm -rf .beads/dolt
-bd migrate --to-dolt
-
-# If you want to abandon migration
-rm -rf .beads/dolt
-# SQLite remains as primary
-```
-
 ### Lock Contention (Embedded Mode)
 
 **Symptom:** "database is locked" errors.
@@ -354,7 +308,7 @@ bd config set dolt.mode server
 # .beads/config.yaml
 
 # Database backend
-database: dolt           # sqlite | dolt
+database: dolt
 
 # Dolt-specific settings
 dolt:
@@ -377,7 +331,6 @@ sync:
 
 | Variable | Purpose |
 |----------|---------|
-| `BD_BACKEND` | Override backend (sqlite/dolt) |
 | `BD_DOLT_MODE` | Override mode (embedded/server) |
 | `BEADS_DOLT_PASSWORD` | Server mode password |
 | `BD_DOLT_AUTO_COMMIT` | Override auto-commit setting |
@@ -436,27 +389,18 @@ Server runs on port 3307 (avoids MySQL conflict on 3306).
 └── gastown/             # Gas Town database
 ```
 
-## Migration Cleanup
+## Database Maintenance
 
-After successful migration, you may have backup files:
-
-```
-.beads/beads.backup-pre-dolt-20260122-213600.db
-.beads/sqlite.backup-pre-dolt-20260123-192812.db
-```
-
-These are safe to delete once you've verified Dolt is working:
+Keep your Dolt database healthy:
 
 ```bash
-# Verify Dolt works
+# Verify database health
 bd list
 bd doctor
 
-# Then clean up (after appropriate waiting period)
-rm .beads/*.backup-*.db
+# Garbage collect for performance
+cd .beads/dolt && dolt gc
 ```
-
-**Recommendation:** Keep backups for at least a week before deleting.
 
 ## See Also
 

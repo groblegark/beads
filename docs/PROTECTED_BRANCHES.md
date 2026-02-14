@@ -57,7 +57,7 @@ Files that should be committed to your protected branch (main):
 - `.gitattributes` - Configures merge driver for intelligent JSONL conflict resolution
 
 Files that are automatically gitignored (do NOT commit):
-- `.beads/beads.db` - SQLite database (local only, regenerated from JSONL)
+- `.beads/dolt/` - Dolt database (local only, regenerated from JSONL)
 - `.beads/daemon.lock`, `daemon.log`, `daemon.pid` - Runtime files
 - `.beads/beads.left.jsonl`, `beads.right.jsonl` - Temporary merge artifacts
 
@@ -102,7 +102,7 @@ your-project/
 │           └── .beads/
 │               └── issues.jsonl
 ├── .beads/                  # Your main copy
-│   ├── beads.db
+│   ├── dolt/
 │   ├── issues.jsonl
 │   └── .gitignore
 ├── .gitattributes           # Merge driver config (in main branch)
@@ -121,7 +121,7 @@ Sync branch (beads-sync):
 - `.beads/config.yaml` - Configuration template
 
 Not tracked (gitignored):
-- `.beads/beads.db` - SQLite database (local only)
+- `.beads/dolt/` - Dolt database (local only)
 - `.beads/daemon.*` - Runtime files
 
 **Key points:**
@@ -135,7 +135,7 @@ Not tracked (gitignored):
 
 When you update an issue:
 
-1. Issue is updated in `.beads/beads.db` (SQLite database)
+1. Issue is updated in `.beads/dolt/` (Dolt database)
 2. Daemon exports to `.beads/issues.jsonl` (JSONL file)
 3. JSONL is copied to worktree (`.git/beads-worktrees/beads-sync/.beads/`)
 4. Daemon commits the change in the worktree to `beads-sync` branch

@@ -186,15 +186,6 @@ go list -f {{.Target}} github.com/steveyegge/beads/cmd/bd
 export PATH="$PATH:$(go env GOPATH)/bin"
 ```
 
-### `zsh: killed bd` or crashes on macOS
-
-This is typically caused by CGO/SQLite compatibility issues:
-
-```bash
-# Build with CGO enabled
-CGO_ENABLED=1 go install github.com/steveyegge/beads/cmd/bd@latest
-```
-
 ## Updating bd
 
 ### Homebrew

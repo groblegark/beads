@@ -73,14 +73,14 @@ See the [Claude Code integration](/integrations/claude-code) for detailed agent 
 ## Architecture
 
 ```
-SQLite DB (.beads/beads.db, gitignored)
+Dolt DB (.beads/dolt/, gitignored)
     ↕ auto-sync (5s debounce)
 JSONL (.beads/issues.jsonl, git-tracked)
     ↕ git push/pull
 Remote JSONL (shared across machines)
 ```
 
-The magic is automatic synchronization between a local SQLite database and git-tracked JSONL files.
+The magic is automatic synchronization between a local Dolt database and git-tracked JSONL files.
 
 ## Next Steps
 

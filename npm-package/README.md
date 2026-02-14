@@ -109,7 +109,7 @@ For complete documentation, see the [beads GitHub repository](https://github.com
 
 This npm package wraps the native bd binary rather than using WebAssembly because:
 
-- ✅ Full SQLite support (no custom VFS needed)
+- ✅ Full Dolt database support
 - ✅ All features work identically to native bd
 - ✅ Better performance (native vs WASM overhead)
 - ✅ Simpler maintenance

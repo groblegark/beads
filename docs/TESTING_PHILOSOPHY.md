@@ -30,7 +30,7 @@ This document covers **what to test** and **what not to test**. For how to run t
 - Business logic validation
 - Mock all external dependencies
 
-**In beads**: Core logic tests using `newTestStore()` with in-memory SQLite
+**In beads**: Core logic tests using `newTestStore()` with in-memory database
 
 ### Tier 2: Integration Tests (< 30 seconds)
 
@@ -233,7 +233,7 @@ TestPriority(5)  // boundary - first invalid
 | Area | Why It's Well-Tested |
 |------|---------------------|
 | Sync/Export/Import | Data integrity critical - comprehensive edge cases |
-| SQLite transactions | Rollback safety, atomicity guarantees |
+| Database transactions | Rollback safety, atomicity guarantees |
 | Merge operations | 3-way merge with conflict resolution |
 | Daemon locking | Prevents corruption from multiple instances |
 
@@ -249,7 +249,7 @@ TestPriority(5)  // boundary - first invalid
 
 - Display formatting tests (manually verify)
 - Simple getters/setters
-- Tests that duplicate SQLite's guarantees
+- Tests that duplicate database engine guarantees
 
 ---
 

@@ -14,7 +14,7 @@ bd integrates deeply with git for issue tracking synchronization. This guide cov
 ### How It Works
 
 Git worktrees share the same `.git` directory and `.beads` database:
-- All worktrees use the same `.beads/beads.db` file in the main repository
+- All worktrees use the same `.beads/dolt/` database in the main repository
 - Database discovery prioritizes main repository location
 - Worktree-aware git operations prevent conflicts
 - Git hooks automatically adapt to worktree context
@@ -90,7 +90,7 @@ bd automatically detects worktrees and shows prominent warnings if daemon mode i
 
 - **Shared Database:** Eliminates data duplication and sync conflicts
 - **Priority Search:** Main repository database takes precedence
-- **SQLite Locking:** Prevents corruption during concurrent access
+- **Database Locking:** Prevents corruption during concurrent access
 - **Git Integration:** Hooks and sync operations adapt to context
 - **Clear Warnings:** Users are guided to safe usage patterns
 
@@ -456,7 +456,7 @@ See [MULTI_REPO_MIGRATION.md](MULTI_REPO_MIGRATION.md) for complete guide.
 
 ### Automatic Sync (Default)
 
-**With daemon running (SQLite backend):**
+**With daemon running:**
 - Export to JSONL: 30-second debounce after changes
 - Import from JSONL: when file is newer than DB
 - Commit/push: configurable via `--auto-commit` / `--auto-push`
@@ -504,8 +504,7 @@ export BEADS_NO_DAEMON=1  # Direct mode
 
 ```
 # bd database (not tracked - JSONL is source of truth)
-.beads/beads.db
-.beads/beads.db-*
+.beads/dolt/
 .beads/bd.sock
 .beads/bd.pipe
 

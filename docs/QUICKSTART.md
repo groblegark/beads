@@ -38,9 +38,6 @@ First time in a repository:
 # Basic setup (prompts for contributor mode)
 bd init
 
-# Dolt backend (version-controlled SQL database)
-bd init --backend dolt
-
 # OSS contributor (fork workflow with separate planning repo)
 bd init --contributor
 
@@ -57,13 +54,11 @@ The wizard will:
 - Import existing issues from git (if any)
 - Prompt to install git hooks (recommended)
 - Prompt to configure git merge driver (recommended)
-- Auto-start daemon for sync (SQLite backend only)
+- Auto-start daemon for sync
 
 Notes:
-- SQLite backend stores data in `.beads/beads.db`.
-- Dolt backend stores data in `.beads/dolt/` and records `"database": "dolt"` in `.beads/metadata.json`.
-- Dolt backend runs **single-process-only**; daemon mode is disabled.
-- Dolt backend **auto-commits** after each successful write command by default (`dolt.auto-commit: on`). Disable with `bd --dolt-auto-commit off ...` or config.
+- Data is stored in `.beads/dolt/` using the Dolt database engine.
+- Dolt **auto-commits** after each successful write command by default (`dolt.auto-commit: on`). Disable with `bd --dolt-auto-commit off ...` or config.
 
 ### Role Configuration
 
@@ -209,12 +204,12 @@ Now bd-2 is ready! 🎉
 
 ## Database Location
 
-By default: `~/.beads/default.db`
+Data is stored in `.beads/dolt/` within your project directory.
 
-You can use project-specific databases:
+You can use project-specific databases by initializing in different directories:
 
 ```bash
-./bd --db ./my-project.db create "Task"
+cd ~/my-project && bd init --prefix myproj
 ```
 
 ## Migrating Databases
@@ -231,7 +226,7 @@ After upgrading bd, use `bd migrate` to check for and migrate old database files
 # Preview migration changes
 ./bd migrate --dry-run
 
-# Migrate old databases to beads.db
+# Migrate old databases
 ./bd migrate
 
 # Migrate and clean up old files

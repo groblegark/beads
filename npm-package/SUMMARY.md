@@ -156,7 +156,7 @@ All success criteria from bd-febc met:
 **Chosen approach: Native binary wrapper**
 
 Advantages:
-- Full SQLite support (no custom VFS)
+- Full Dolt database support
 - 100% feature parity with standalone bd
 - Better performance (native vs WASM)
 - Simpler implementation (~4 hours vs ~2 days)

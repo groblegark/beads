@@ -4,19 +4,19 @@ This document describes the performance benchmarks available in the beads projec
 
 ## Running Benchmarks
 
-### All SQLite Benchmarks
+### All Dolt Benchmarks
 ```bash
-go test -tags=bench -bench=. -benchmem ./internal/storage/sqlite/...
+go test -tags=bench -bench=. -benchmem ./internal/storage/dolt/...
 ```
 
 ### Specific Benchmark
 ```bash
-go test -tags=bench -bench=BenchmarkGetReadyWork_Large -benchmem ./internal/storage/sqlite/...
+go test -tags=bench -bench=BenchmarkGetReadyWork_Large -benchmem ./internal/storage/dolt/...
 ```
 
 ### With CPU Profiling
 ```bash
-go test -tags=bench -bench=BenchmarkGetReadyWork_Large -cpuprofile=cpu.prof ./internal/storage/sqlite/...
+go test -tags=bench -bench=BenchmarkGetReadyWork_Large -cpuprofile=cpu.prof ./internal/storage/dolt/...
 go tool pprof -http=:8080 cpu.prof
 ```
 
@@ -80,12 +80,12 @@ rm /tmp/beads-bench-cache/*.db
 
 ## Adding New Benchmarks
 
-Follow the pattern in `sqlite_bench_test.go`:
+Follow the pattern in `dolt_benchmark_test.go`:
 
 ```go
 // BenchmarkMyTest benchmarks a specific operation
 func BenchmarkMyTest(b *testing.B) {
-	runBenchmark(b, setupLargeBenchDB, func(store *SQLiteStorage, ctx context.Context) error {
+	runBenchmark(b, setupLargeBenchDB, func(store *DoltStorage, ctx context.Context) error {
 		// Your test code here
 		return err
 	})
@@ -131,10 +131,10 @@ This generates a flamegraph showing where time is spent across all benchmarks.
 Example:
 ```bash
 # Baseline
-go test -tags=bench -bench=BenchmarkGetReadyWork_Large -benchmem ./internal/storage/sqlite/...
+go test -tags=bench -bench=BenchmarkGetReadyWork_Large -benchmem ./internal/storage/dolt/...
 
 # Make changes...
 
 # Measure improvement
-go test -tags=bench -bench=BenchmarkGetReadyWork_Large -benchmem ./internal/storage/sqlite/...
+go test -tags=bench -bench=BenchmarkGetReadyWork_Large -benchmem ./internal/storage/dolt/...
 ```

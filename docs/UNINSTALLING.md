@@ -102,7 +102,7 @@ The `.beads/` directory contains:
 
 | File/Dir | Description |
 |----------|-------------|
-| `beads.db` | SQLite database with issues |
+| `dolt/` | Dolt database directory with issues |
 | `issues.jsonl` | Git-tracked issue data |
 | `daemon.pid` | Running daemon PID |
 | `daemon.log` | Daemon logs |

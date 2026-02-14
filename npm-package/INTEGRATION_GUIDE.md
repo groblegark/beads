@@ -234,7 +234,7 @@ bd init --quiet 2>&1 | grep -v "already initialized"
 - ✅ **Auditability**: Full history of issue changes
 - ✅ **Collaboration**: Multiple agents share same issue database
 - ✅ **Portability**: Works locally and in cloud sessions
-- ✅ **No servers**: Everything is git and SQLite
+- ✅ **No servers**: Everything is git and Dolt
 
 ### vs Markdown TODOs
 

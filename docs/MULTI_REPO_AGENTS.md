@@ -31,7 +31,7 @@ MCP Server (one instance)
     ↓
 Per-Project Daemons (one per workspace)
     ↓
-SQLite Databases (complete isolation)
+Dolt Databases (complete isolation)
 ```
 
 ### Multi-Repo Config Options
@@ -130,7 +130,7 @@ bd list --json | jq '.[] | select(.source_repo == "~/.beads-planning")'
 
 **How it works:**
 1. Beads reads JSONL from all configured repos
-2. Imports into unified SQLite database
+2. Imports into unified Dolt database
 3. Maintains `source_repo` field for provenance
 4. Exports route issues back to correct JSONL files
 
@@ -388,7 +388,7 @@ bd info --json
 
 # Sample output:
 {
-  "database_path": "/Users/you/projects/myapp/.beads/beads.db",
+  "database_path": "/Users/you/projects/myapp/.beads/dolt/",
   "config": {
     "routing": {
       "mode": "auto",

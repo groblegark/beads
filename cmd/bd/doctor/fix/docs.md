@@ -22,7 +22,7 @@ The `cmd/bd/doctor/fix` directory contains automated remediation functions for i
 
 **Database-JSONL Sync** (`sync.go`):
 
-The `DBJSONLSync()` function fixes synchronization issues between the SQLite database and JSONL export files by detecting data direction and running the appropriate sync command:
+The `DBJSONLSync()` function fixes synchronization issues between the Dolt database and JSONL export files by detecting data direction and running the appropriate sync command:
 
 1. **Bidirectional Detection** (lines 23-97):
    - Counts issues in both database (via SQL query) and JSONL file (via line-by-line JSON parsing)
@@ -43,7 +43,7 @@ The `DBJSONLSync()` function fixes synchronization issues between the SQLite dat
    - Returns early if either database or JSONL is missing (nothing to sync)
 
 4. **Helper Functions**:
-   - `countDatabaseIssues()` (lines 124-139): Opens SQLite database and queries `COUNT(*) FROM issues`
+   - `countDatabaseIssues()` (lines 124-139): Opens database and queries `COUNT(*) FROM issues`
    - `countJSONLIssues()` (lines 141-174): Iterates through JSONL file line-by-line, parsing JSON and counting valid issues with IDs. Skips malformed JSON lines gracefully.
 
 5. **Command Execution** (lines 106-120):
@@ -153,7 +153,7 @@ The `@/cmd/bd/migrate_tombstones.go` command creates tombstones using `convertDe
 **State Machine for Deleted Issues**:
 
 There are now two ways an issue can be marked as deleted:
-1. **Database state**: Issue has `status = "tombstone"` in the database (from `@/internal/storage/sqlite`)
+1. **Database state**: Issue has `status = "tombstone"` in the database (from `@/internal/storage/dolt`)
 2. **Manifest state**: Issue ID appears in `deletions.jsonl` (from `@/internal/deletions`)
 
 The deletion hydration logic treats deletions manifest as the source of truth for what SHOULD be deleted, then applies those deletions to the database. The fix ensures the manifest only contains legitimate deletions, not tombstones that were migrated from the manifest.

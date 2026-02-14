@@ -14,7 +14,7 @@ Beads was built with these principles:
 
 1. **Git as source of truth** - Issues sync via JSONL files, enabling collaboration across branches
 2. **AI-native workflows** - Hash-based IDs, JSON output, dependency-aware execution
-3. **Local-first operation** - SQLite database for fast queries, background sync
+3. **Local-first operation** - Dolt database for fast queries, background sync
 4. **Declarative workflows** - Formulas define repeatable patterns
 
 ## Key Components
@@ -53,7 +53,7 @@ Background process per workspace:
 The synchronization mechanism:
 
 ```
-SQLite DB (.beads/beads.db)
+Dolt DB (.beads/dolt/)
     ↕ auto-sync
 JSONL (.beads/issues.jsonl)
     ↕ git

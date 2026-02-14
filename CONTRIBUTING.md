@@ -38,7 +38,8 @@ beads/
 ├── internal/
 │   ├── types/           # Core data types (Issue, Dependency, etc.)
 │   └── storage/         # Storage interface and implementations
-│       └── sqlite/      # SQLite backend
+│       ├── dolt/        # Dolt backend (primary)
+│       └── memory/      # In-memory backend (testing)
 ├── .golangci.yml        # Linter configuration
 └── .github/workflows/   # CI/CD pipelines
 ```
@@ -54,7 +55,7 @@ go test -v -coverprofile=coverage.out ./...
 go tool cover -html=coverage.out
 
 # Run specific package tests
-go test ./internal/storage/sqlite -v
+go test ./internal/storage/dolt -v
 
 # Run tests with race detection
 go test -race ./...
@@ -180,7 +181,7 @@ go test -race -coverprofile=coverage.out ./...
 
 ### Dual-Mode Testing Pattern
 
-**IMPORTANT**: bd supports two execution modes: *direct mode* (SQLite access) and *daemon mode* (RPC via background process). Commands must work identically in both modes. To prevent bugs like GH#719, GH#751, and bd-fu83, use the dual-mode test framework for testing commands.
+**IMPORTANT**: bd supports two execution modes: *direct mode* (Dolt database access) and *daemon mode* (RPC via background process). Commands must work identically in both modes. To prevent bugs like GH#719, GH#751, and bd-fu83, use the dual-mode test framework for testing commands.
 
 ```go
 // cmd/bd/dual_mode_test.go provides the framework
@@ -312,8 +313,8 @@ go build -o bd ./cmd/bd && ./bd init --prefix test
 ### Database Inspection
 
 ```bash
-# Inspect the SQLite database directly
-sqlite3 .beads/test.db
+# Inspect the Dolt database directly
+cd .beads/dolt && dolt sql
 
 # Useful queries
 SELECT * FROM issues;
