@@ -260,15 +260,15 @@ spec:
             - name: BD_NATS_URL
               value: {{ include "bd-daemon.natsURL" . | quote }}
             {{- end }}
-            {{- if .Values.slackBot.coopBrokerURL }}
-            - name: COOP_BROKER_URL
-              value: {{ .Values.slackBot.coopBrokerURL | quote }}
+            {{- if .Values.slackBot.coopmuxURL }}
+            - name: COOPMUX_URL
+              value: {{ .Values.slackBot.coopmuxURL | quote }}
             {{- end }}
-            {{- if .Values.slackBot.coopBrokerTokenSecret }}
-            - name: COOP_BROKER_TOKEN
+            {{- if .Values.slackBot.coopmuxTokenSecret }}
+            - name: COOPMUX_TOKEN
               valueFrom:
                 secretKeyRef:
-                  name: {{ .Values.slackBot.coopBrokerTokenSecret }}
+                  name: {{ .Values.slackBot.coopmuxTokenSecret }}
                   key: token
             {{- end }}
           volumeMounts:

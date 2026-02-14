@@ -19,12 +19,12 @@ import (
 
 // CoopCredWatcher subscribes to coop credential events on core NATS
 // and posts reauth notifications to Slack. When a user replies with
-// an authorization code, it completes the reauth flow via the broker API.
+// an authorization code, it completes the reauth flow via the coopmux API.
 type CoopCredWatcher struct {
 	natsURL   string
 	natsToken string
-	brokerURL string // e.g. "http://gastown-next-coopmux:9800"
-	authToken string // Bearer token for broker API
+	coopmuxURL string // e.g. "http://gastown-next-coopmux:9800"
+	authToken string // Bearer token for coopmux API
 	bot       *Bot
 	conn      *nats.Conn
 	sub       *nats.Subscription
@@ -55,11 +55,11 @@ type credentialEventPayload struct {
 
 // NewCoopCredWatcher creates a watcher that subscribes to coop credential
 // events and forwards reauth URLs to Slack.
-func NewCoopCredWatcher(natsURL, natsToken, brokerURL, authToken string, bot *Bot) *CoopCredWatcher {
+func NewCoopCredWatcher(natsURL, natsToken, coopmuxURL, authToken string, bot *Bot) *CoopCredWatcher {
 	return &CoopCredWatcher{
 		natsURL:          natsURL,
 		natsToken:        natsToken,
-		brokerURL:        strings.TrimRight(brokerURL, "/"),
+		coopmuxURL:       strings.TrimRight(coopmuxURL, "/"),
 		authToken:        authToken,
 		bot:              bot,
 		reauthThreads:    make(map[string]reauthInfo),
@@ -199,8 +199,8 @@ func (w *CoopCredWatcher) handleMessage(msg *nats.Msg) {
 		log.Printf("slackbot/cred: account %s refresh failed: %s", payload.Account, errMsg)
 
 		// If we haven't already posted a reauth notification for this account,
-		// pull the auth URL from the broker. This handles the race where the
-		// broker emitted reauth_required on core NATS before we subscribed.
+		// pull the auth URL from the coopmux. This handles the race where the
+		// coopmux emitted reauth_required on core NATS before we subscribed.
 		w.reauthThreadsMu.RLock()
 		recentlyNotified := false
 		for _, info := range w.reauthThreads {
@@ -299,16 +299,16 @@ func (w *CoopCredWatcher) HandleThreadReply(channelID, threadTS, text, userID st
 		return false
 	}
 
-	// Submit the code to the broker.
+	// Submit the code to the coopmux.
 	go w.submitReauthCode(info, code, channelID, threadTS, userID)
 	return true
 }
 
-// submitReauthCode POSTs the authorization code to the broker's complete endpoint.
+// submitReauthCode POSTs the authorization code to coopmux's complete endpoint.
 func (w *CoopCredWatcher) submitReauthCode(info reauthInfo, code, channelID, threadTS, userID string) {
-	if w.brokerURL == "" {
+	if w.coopmuxURL == "" {
 		w.bot.postThreadReply(channelID, threadTS,
-			"Broker URL not configured (set COOP_BROKER_URL)")
+			"Coopmux URL not configured (set COOPMUX_URL)")
 		return
 	}
 
@@ -330,7 +330,7 @@ func (w *CoopCredWatcher) submitReauthCode(info reauthInfo, code, channelID, thr
 
 	log.Printf("slackbot/cred: submitting reauth code for %s (code_len=%d)", info.account, len(code))
 
-	url := w.brokerURL + "/api/v1/credentials/exchange"
+	url := w.coopmuxURL + "/api/v1/credentials/exchange"
 	req, err := http.NewRequest("POST", url, bytes.NewReader(body))
 	if err != nil {
 		log.Printf("slackbot/cred: create request: %v", err)
@@ -344,9 +344,9 @@ func (w *CoopCredWatcher) submitReauthCode(info reauthInfo, code, channelID, thr
 	client := &http.Client{Timeout: 30 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		log.Printf("slackbot/cred: broker request failed: %v", err)
+		log.Printf("slackbot/cred: coopmux request failed: %v", err)
 		w.bot.postThreadReply(channelID, threadTS,
-			fmt.Sprintf("Failed to submit code to broker: %v", err))
+			fmt.Sprintf("Failed to submit code to coopmux: %v", err))
 		return
 	}
 	defer resp.Body.Close()
@@ -365,7 +365,7 @@ func (w *CoopCredWatcher) submitReauthCode(info reauthInfo, code, channelID, thr
 		w.bot.postThreadReply(channelID, threadTS,
 			fmt.Sprintf(":white_check_mark: Re-authentication successful for account *%s*.", info.account))
 	} else {
-		log.Printf("slackbot/cred: broker returned %d: %s", resp.StatusCode, string(respBody))
+		log.Printf("slackbot/cred: coopmux returned %d: %s", resp.StatusCode, string(respBody))
 		detail := string(respBody)
 		if len(detail) > 500 {
 			detail = detail[:500] + "..."
@@ -374,7 +374,7 @@ func (w *CoopCredWatcher) submitReauthCode(info reauthInfo, code, channelID, thr
 			fmt.Sprintf("Re-authentication failed (HTTP %d):\n```\n%s\n```\nCheck the code and try again.", resp.StatusCode, detail))
 
 		// Clear the stale thread so a fresh reauth notification can be posted.
-		// The old auth URL and state are likely invalid (e.g. broker restarted
+		// The old auth URL and state are likely invalid (e.g. coopmux restarted
 		// with a new PKCE session), so keeping the thread suppresses all future
 		// reauth notifications for this account.
 		w.reauthThreadsMu.Lock()
@@ -386,12 +386,12 @@ func (w *CoopCredWatcher) submitReauthCode(info reauthInfo, code, channelID, thr
 // fetchReauthState calls coopmux's reauth endpoint to get a fresh OAuth state
 // token for an account. Used when recovering reauth threads after pod restart.
 func (w *CoopCredWatcher) fetchReauthState(account string) string {
-	if w.brokerURL == "" {
+	if w.coopmuxURL == "" {
 		return ""
 	}
 
 	reqBody, _ := json.Marshal(map[string]string{"account": account})
-	reqURL := w.brokerURL + "/api/v1/credentials/reauth"
+	reqURL := w.coopmuxURL + "/api/v1/credentials/reauth"
 	req, err := http.NewRequest("POST", reqURL, bytes.NewReader(reqBody))
 	if err != nil {
 		log.Printf("slackbot/cred: create reauth state request: %v", err)
@@ -558,16 +558,16 @@ func looksLikeAuthCode(s string) bool {
 }
 
 // pullReauthURL calls coopmux's reauth endpoint to initiate an OAuth flow
-// and posts the auth URL to Slack. This handles the race where the broker
+// and posts the auth URL to Slack. This handles the race where the coopmux
 // emitted reauth_required before the slackbot subscribed.
 func (w *CoopCredWatcher) pullReauthURL(account string) {
-	if w.brokerURL == "" {
-		log.Printf("slackbot/cred: cannot pull reauth URL — broker URL not configured")
+	if w.coopmuxURL == "" {
+		log.Printf("slackbot/cred: cannot pull reauth URL — coopmux URL not configured")
 		return
 	}
 
 	reqBody, _ := json.Marshal(map[string]string{"account": account})
-	url := w.brokerURL + "/api/v1/credentials/reauth"
+	url := w.coopmuxURL + "/api/v1/credentials/reauth"
 	req, err := http.NewRequest("POST", url, bytes.NewReader(reqBody))
 	if err != nil {
 		log.Printf("slackbot/cred: create reauth request: %v", err)
@@ -581,14 +581,14 @@ func (w *CoopCredWatcher) pullReauthURL(account string) {
 	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		log.Printf("slackbot/cred: broker reauth request failed: %v", err)
+		log.Printf("slackbot/cred: coopmux reauth request failed: %v", err)
 		return
 	}
 	defer resp.Body.Close()
 
 	body, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != http.StatusOK {
-		log.Printf("slackbot/cred: broker reauth returned %d: %s", resp.StatusCode, string(body))
+		log.Printf("slackbot/cred: coopmux reauth returned %d: %s", resp.StatusCode, string(body))
 		return
 	}
 
@@ -602,7 +602,7 @@ func (w *CoopCredWatcher) pullReauthURL(account string) {
 		return
 	}
 	if session.AuthURL == "" {
-		log.Printf("slackbot/cred: broker returned empty auth_url for %s", account)
+		log.Printf("slackbot/cred: coopmux returned empty auth_url for %s", account)
 		return
 	}
 
