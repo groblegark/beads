@@ -19,7 +19,7 @@ func TestEnsureWorktree(t *testing.T) {
 
 	t.Run("returns empty when sync-branch not configured", func(t *testing.T) {
 		// Create a regular git repository without sync-branch configured
-		tmpDir := t.TempDir()
+		tmpDir := resolvedTempDir(t)
 		setupGitRepo(t, tmpDir)
 
 		// Change to the repo directory
@@ -41,7 +41,7 @@ func TestEnsureWorktree(t *testing.T) {
 
 	t.Run("creates worktree when sync-branch configured via env", func(t *testing.T) {
 		// Create a regular git repository
-		tmpDir := t.TempDir()
+		tmpDir := resolvedTempDir(t)
 		setupGitRepo(t, tmpDir)
 
 		// Change to the repo directory
@@ -77,7 +77,7 @@ func TestEnsureWorktree(t *testing.T) {
 
 	t.Run("creates worktree with existing remote branch", func(t *testing.T) {
 		// Create a "remote" repository with beads-sync branch
-		remoteDir := t.TempDir()
+		remoteDir := resolvedTempDir(t)
 		setupGitRepo(t, remoteDir)
 
 		// Create beads-sync branch in "remote"
@@ -95,7 +95,7 @@ func TestEnsureWorktree(t *testing.T) {
 		runCmd(t, remoteDir, "git", "checkout", "main")
 
 		// Clone the "remote" to create our local repo
-		tmpDir := t.TempDir()
+		tmpDir := resolvedTempDir(t)
 		localDir := filepath.Join(tmpDir, "local")
 		runCmd(t, tmpDir, "git", "clone", remoteDir, localDir)
 		runCmd(t, localDir, "git", "config", "user.email", "test@test.com")
@@ -133,7 +133,7 @@ func TestEnsureWorktree(t *testing.T) {
 
 	t.Run("is idempotent - second call returns same path", func(t *testing.T) {
 		// Create a regular git repository
-		tmpDir := t.TempDir()
+		tmpDir := resolvedTempDir(t)
 		setupGitRepo(t, tmpDir)
 
 		// Change to the repo directory
@@ -164,7 +164,7 @@ func TestEnsureWorktree(t *testing.T) {
 
 	t.Run("returns empty when not in git repo", func(t *testing.T) {
 		// Create a non-git directory
-		tmpDir := t.TempDir()
+		tmpDir := resolvedTempDir(t)
 
 		// Change to the directory
 		oldWd, _ := os.Getwd()
@@ -184,6 +184,22 @@ func TestEnsureWorktree(t *testing.T) {
 			t.Errorf("Expected empty path for non-git dir, got %q", path)
 		}
 	})
+}
+
+// resolvedTempDir returns a temporary directory with symlinks resolved.
+// On macOS, t.TempDir() returns paths under /var/folders/... but /var is a
+// symlink to /private/var. Git commands resolve symlinks, so paths returned
+// by git (e.g., git rev-parse --show-toplevel) use /private/var/..., causing
+// string comparison failures. This helper resolves the symlinks upfront so
+// all paths are consistent.
+func resolvedTempDir(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	resolved, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		t.Fatalf("Failed to resolve symlinks for temp dir %s: %v", dir, err)
+	}
+	return resolved
 }
 
 // setupGitRepo creates a git repository with an initial commit
@@ -228,7 +244,7 @@ func TestFreshCloneScenario(t *testing.T) {
 	ctx := context.Background()
 
 	// Create a "remote" repository simulating the broken state
-	remoteDir := t.TempDir()
+	remoteDir := resolvedTempDir(t)
 	setupGitRepo(t, remoteDir)
 
 	// Create stale issues on main (simulating the broken state)
@@ -265,7 +281,7 @@ func TestFreshCloneScenario(t *testing.T) {
 	runCmd(t, remoteDir, "git", "checkout", "main")
 
 	// Clone to simulate fresh clone (gets main branch)
-	tmpDir := t.TempDir()
+	tmpDir := resolvedTempDir(t)
 	localDir := filepath.Join(tmpDir, "local")
 	runCmd(t, tmpDir, "git", "clone", remoteDir, localDir)
 	runCmd(t, localDir, "git", "config", "user.email", "test@test.com")
@@ -310,20 +326,13 @@ func TestFreshCloneScenario(t *testing.T) {
 		t.Errorf("Should not have stale issues in worktree")
 	}
 
-	// Verify getBeadsWorktreePath returns the worktree path
+	// Verify getBeadsWorktreePath returns the worktree path.
+	// Since we use resolvedTempDir (which resolves /var -> /private/var upfront),
+	// paths from git commands and from our test variables are consistent.
 	repoRoot := localDir
 	gotPath := getBeadsWorktreePath(ctx, repoRoot, "beads-sync")
-	// Resolve symlinks before comparing because macOS /var -> /private/var
-	resolvedGot, err := filepath.EvalSymlinks(gotPath)
-	if err != nil {
-		resolvedGot = gotPath
-	}
-	resolvedExpected, err := filepath.EvalSymlinks(worktreePath)
-	if err != nil {
-		resolvedExpected = worktreePath
-	}
-	if resolvedGot != resolvedExpected {
-		t.Errorf("getBeadsWorktreePath returned %q, expected %q (resolved: %q vs %q)", gotPath, worktreePath, resolvedGot, resolvedExpected)
+	if gotPath != worktreePath {
+		t.Errorf("getBeadsWorktreePath returned %q, expected %q", gotPath, worktreePath)
 	}
 
 	t.Logf("Fresh clone scenario test passed: worktree created at %s with current issues", worktreePath)

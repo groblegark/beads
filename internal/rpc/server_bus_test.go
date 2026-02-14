@@ -1836,13 +1836,7 @@ func TestHandleBusEmitOjConcurrent(t *testing.T) {
 	server, client, cleanup := setupTestServer(t)
 	defer cleanup()
 
-	// Increase client timeout: 20 goroutines share a single unsynchronized socket,
-	// so requests serialize and can exceed the default 30s deadline with Dolt's
-	// heavier per-query overhead.
-	client.SetTimeout(120 * time.Second)
-
 	bus := eventbus.New()
-	var ojCount, hookCount sync.WaitGroup
 	var ojTotal, hookTotal int
 	var mu sync.Mutex
 
@@ -1869,14 +1863,33 @@ func TestHandleBusEmitOjConcurrent(t *testing.T) {
 		},
 	})
 	server.SetBus(bus)
-	_ = ojCount
-	_ = hookCount
+
+	// Each goroutine gets its own client connection to avoid concurrent
+	// read/write on a single unsynchronized Unix socket (the root cause of
+	// the flaky timeout: interleaved writes corrupt the JSON framing and
+	// concurrent reads steal each other's responses).
+	socketPath := client.socketPath
+	dbPath := client.dbPath
 
 	const goroutines = 8
 	done := make(chan error, goroutines)
 
 	for i := 0; i < goroutines; i++ {
 		go func(i int) {
+			// Create a per-goroutine connection so writes/reads never interleave.
+			conn, err := dialRPC(socketPath, 5*time.Second)
+			if err != nil {
+				done <- fmt.Errorf("goroutine %d dial: %v", i, err)
+				return
+			}
+			gc := &Client{
+				conn:       conn,
+				socketPath: socketPath,
+				timeout:    30 * time.Second,
+				dbPath:     dbPath,
+			}
+			defer gc.Close()
+
 			var hookType string
 			var payload string
 			switch i % 4 {
@@ -1899,7 +1912,7 @@ func TestHandleBusEmitOjConcurrent(t *testing.T) {
 				EventJSON: json.RawMessage(payload),
 				SessionID: fmt.Sprintf("concurrent-%d", i),
 			}
-			resp, err := client.Execute(OpBusEmit, args)
+			resp, err := gc.Execute(OpBusEmit, args)
 			if err != nil {
 				done <- fmt.Errorf("goroutine %d: %v", i, err)
 				return
