@@ -79,6 +79,8 @@ tasks:
     filter:
       - "**/*.go"
       - ".golangci.yml"
+      - "go.mod"
+      - "go.sum"
     run: golangci-lint run --timeout=5m
 
   # ── Fast tests (parallel execution, no race for speed) ─────────────────
@@ -87,6 +89,8 @@ tasks:
     filter:
       - "**/*.go"
       - "**/*_test.go"
+      - "go.mod"
+      - "go.sum"
     run: |
       echo "Running tests with parallel execution..."
       go test -v -short -parallel 8 -coverprofile=coverage.out ./... 2>&1 | tee test-output.txt
