@@ -68,6 +68,7 @@ tasks:
       - "**/*.go"
       - "go.mod"
       - "go.sum"
+      - "cmd/bd/templates/**"
     run: |
       echo "Building (cache miss if code changed)..."
       time go build -v ./cmd/bd
