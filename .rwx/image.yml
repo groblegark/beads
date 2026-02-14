@@ -188,3 +188,72 @@ tasks:
       REF_NAME: ${{ init.ref-name }}
       GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
       GITHUB_USER: ${{ secrets.GITHUB_USER }}
+
+  # ── Toolchain image (agent runtime with full dev tools) ────────────
+  - key: push-toolchain
+    use: [build-bd, build-oj]
+    if: ${{ init.ref-name != 'pr' }}
+    docker: true
+    filter:
+      - .rwx/toolchain-version.lock  # Touch to rebuild toolchain image
+    run: |
+      export DOCKER_BUILDKIT=1
+      SHORT_SHA="${COMMIT_SHA:0:7}"
+
+      echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_USER" --password-stdin
+
+      # Build context with bd + oj binaries
+      mkdir -p /tmp/toolchain-ctx
+      cp ${{ tasks.build-bd.artifacts.bd-binary }} /tmp/toolchain-ctx/bd
+      cp ${{ tasks.build-oj.artifacts.oj-binary }} /tmp/toolchain-ctx/oj
+
+      # Full toolchain image: Go + Rust + Node + common build tools
+      cat > /tmp/toolchain-ctx/Dockerfile <<'DOCKERFILE'
+FROM ubuntu:24.04
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ca-certificates tzdata libicu74 netcat-openbsd \
+        git curl wget jq make gcc g++ libicu-dev \
+        build-essential pkg-config libssl-dev \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd -g 1000 agent \
+    && useradd -u 1000 -g agent -s /bin/bash -m agent
+ENV GO_VERSION=1.25
+RUN curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" \
+    | tar -C /usr/local -xzf -
+ENV PATH="/usr/local/go/bin:/home/agent/go/bin:${PATH}"
+USER agent
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+    | sh -s -- -y --default-toolchain 1.93.0
+ENV PATH="/home/agent/.cargo/bin:${PATH}"
+USER root
+RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
+    && apt-get install -y nodejs \
+    && rm -rf /var/lib/apt/lists/*
+COPY bd oj /usr/local/bin/
+RUN chmod 755 /usr/local/bin/bd /usr/local/bin/oj
+USER agent
+WORKDIR /home/agent
+DOCKERFILE
+
+      # Build and tag as both :latest and :full
+      docker build \
+        --cache-from ghcr.io/groblegark/gastown-toolchain:latest \
+        -t ghcr.io/groblegark/gastown-toolchain:latest \
+        -t ghcr.io/groblegark/gastown-toolchain:full \
+        -t ghcr.io/groblegark/gastown-toolchain:sha-${SHORT_SHA} \
+        /tmp/toolchain-ctx
+
+      # Smoke test: verify key tools are available
+      docker run --rm ghcr.io/groblegark/gastown-toolchain:latest bash -c \
+        'go version && rustc --version && cargo --version && node --version && bd version'
+
+      # Push all tags
+      docker push ghcr.io/groblegark/gastown-toolchain:sha-${SHORT_SHA}
+      docker push ghcr.io/groblegark/gastown-toolchain:full
+      docker push ghcr.io/groblegark/gastown-toolchain:latest
+
+      echo "Toolchain image pushed: ghcr.io/groblegark/gastown-toolchain:latest (full)"
+    env:
+      COMMIT_SHA: ${{ init.commit-sha }}
+      GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+      GITHUB_USER: ${{ secrets.GITHUB_USER }}

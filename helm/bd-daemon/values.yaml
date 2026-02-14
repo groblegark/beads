@@ -411,5 +411,43 @@ securityContext:
     drop:
       - ALL
 
+# --- Agent toolchain sidecars ---
+# Profiles referenced by agent pods via sidecar_profile metadata.
+# The gastown agent controller reads these to inject init containers.
+sidecarProfiles:
+  toolchain-full:
+    image:
+      repository: ghcr.io/groblegark/gastown-toolchain
+      tag: "latest"
+    resources:
+      requests:
+        cpu: "250m"
+        memory: "512Mi"
+      limits:
+        cpu: "2"
+        memory: "4Gi"
+  toolchain-minimal:
+    image:
+      repository: ghcr.io/groblegark/gastown-toolchain
+      tag: "minimal"
+    resources:
+      requests:
+        cpu: "50m"
+        memory: "128Mi"
+      limits:
+        cpu: "500m"
+        memory: "512Mi"
+
+# Default sidecar profile for agent pods (empty = no sidecar)
+defaultSidecarProfile: ""
+
+# Security constraints for custom sidecars
+sidecarSecurity:
+  registryAllowlist:
+    - "ghcr.io/groblegark/"
+  maxCPU: "2"
+  maxMemory: "4Gi"
+  maxChangesPerHour: 3
+
 # Additional environment variables
 extraEnv: []
