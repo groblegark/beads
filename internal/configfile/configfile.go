@@ -267,14 +267,14 @@ const (
 
 // IsDoltServerMode returns true if Dolt SQL server mode is enabled.
 // Server mode connects via TCP instead of embedded driver, enabling multi-writer support.
-// Checks BEADS_DOLT_SERVER_MODE env var first (set by Gas Town tmux sessions),
+// Checks BEADS_DOLT_SERVER_MODE env var first (set by Gas Town K8s pods),
 // then DoltServerEnabled (legacy) and DoltMode (preferred).
 // Only applies when backend is "dolt" — ignored for sqlite.
 func (c *Config) IsDoltServerMode() bool {
 	if c.GetBackend() != BackendDolt {
 		return false
 	}
-	// Check env var first (set by Gas Town tmux sessions)
+	// Check env var first (set by Gas Town K8s pods)
 	if os.Getenv("BEADS_DOLT_SERVER_MODE") == "1" {
 		return true
 	}

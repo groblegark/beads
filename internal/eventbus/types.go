@@ -189,7 +189,7 @@ type OjStepEventPayload struct {
 type OjAgentEventPayload struct {
 	JobID     string `json:"job_id"`
 	AgentName string `json:"agent_name"`
-	SessionID string `json:"session_id,omitempty"` // tmux/coop session
+	SessionID string `json:"session_id,omitempty"` // Coop session
 	BeadID    string `json:"bead_id,omitempty"`
 	Reason    string `json:"reason,omitempty"` // For escalated
 }

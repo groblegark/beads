@@ -13,8 +13,7 @@ import (
 )
 
 // Watcher subscribes to Coop's WebSocket state_change events and delivers
-// them to a channel. It replaces polling tmux + screen parsing for agent
-// state detection.
+// them to a channel for agent state detection.
 type Watcher struct {
 	wsURL string
 	token string

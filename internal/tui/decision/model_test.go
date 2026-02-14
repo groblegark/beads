@@ -37,7 +37,7 @@ func TestSortDecisionsByUrgency(t *testing.T) {
 	}
 }
 
-// TestGetSessionName tests converting RequestedBy to tmux session name.
+// TestGetSessionName tests converting RequestedBy to a session name.
 func TestGetSessionName(t *testing.T) {
 	tests := []struct {
 		name        string

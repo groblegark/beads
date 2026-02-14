@@ -116,7 +116,7 @@ func (m *Model) SetNotify(notify bool) {
 	m.notify = notify
 }
 
-// SetBackend sets the session backend for terminal peek (tmux or coop).
+// SetBackend sets the session backend for terminal peek.
 func (m *Model) SetBackend(b coop.SessionBackend) {
 	m.backend = b
 }
@@ -292,7 +292,7 @@ func (m *Model) dismissDecision(decisionID, reason string) tea.Cmd {
 	}
 }
 
-// getSessionName converts a RequestedBy path to a tmux session name.
+// getSessionName converts a RequestedBy path to a session name.
 // Delegates to coop.GetSessionName for the shared implementation.
 func getSessionName(requestedBy string) (string, error) {
 	return coop.GetSessionName(requestedBy)

@@ -15,8 +15,7 @@ type SessionBackend interface {
 	// CapturePane returns the terminal text content (last N lines of scrollback).
 	CapturePane(ctx context.Context, session string, lines int) (string, error)
 
-	// AgentState returns the structured agent state, or nil if not supported
-	// (e.g. tmux backend cannot classify state).
+	// AgentState returns the structured agent state.
 	AgentState(ctx context.Context, session string) (*AgentStateResponse, error)
 
 	// Name returns a human-readable backend name for status display.
@@ -65,7 +64,7 @@ func ResolveBackend(podIP string, coopPort int, opts ...Option) (SessionBackend,
 	return NewCoopSessionBackend(baseURL, opts...), nil
 }
 
-// GetSessionName converts a RequestedBy agent path to a tmux session name.
+// GetSessionName converts a RequestedBy agent path to a session name.
 // e.g., "gastown/crew/decision_point" -> "bd-gastown-crew-decision_point"
 func GetSessionName(requestedBy string) (string, error) {
 	if requestedBy == "" {

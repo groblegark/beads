@@ -3,7 +3,7 @@
 // Coop (github.com/alfredjeanlab/coop) is a standalone Rust binary that spawns
 // AI agents on PTYs, classifies agent state via structured detection, and exposes
 // HTTP/WS/gRPC APIs. This client wraps Coop's REST API for use as a session
-// backend in Gas Town, replacing tmux-based session management.
+// backend in Gas Town.
 package coop
 
 import (
@@ -59,7 +59,7 @@ func NewClient(baseURL string, opts ...Option) *Client {
 // --- Session interface methods ---
 
 // HasSession returns true if the Coop sidecar is healthy and the agent process
-// has not exited. This replaces `tmux has-session -t <name>`.
+// has not exited.
 func (c *Client) HasSession(ctx context.Context) (bool, error) {
 	var resp HealthResponse
 	if err := c.getJSON(ctx, "/api/v1/health", &resp); err != nil {
@@ -68,8 +68,7 @@ func (c *Client) HasSession(ctx context.Context) (bool, error) {
 	return resp.Status != ProcessExited, nil
 }
 
-// CapturePane returns the current terminal text. This replaces
-// `tmux capture-pane -t <name> -p -S -100`.
+// CapturePane returns the current terminal text from the Coop screen API.
 func (c *Client) CapturePane(ctx context.Context) (string, error) {
 	return c.getText(ctx, "/api/v1/screen/text")
 }
@@ -83,8 +82,7 @@ func (c *Client) Screen(ctx context.Context) (*ScreenResponse, error) {
 	return &resp, nil
 }
 
-// NudgeSession sends a message to an idle agent. This replaces
-// `tmux send-keys -t <name> "<message>" Enter`.
+// NudgeSession sends a message to an idle agent via the Coop nudge API.
 func (c *Client) NudgeSession(ctx context.Context, message string) (*NudgeResponse, error) {
 	var resp NudgeResponse
 	err := c.postJSON(ctx, "/api/v1/agent/nudge", NudgeRequest{Message: message}, &resp)

@@ -131,7 +131,7 @@ func mailAddressToAgentID(address string) string {
 
 // resolveCoopURLFromBead looks up an agent bead via `bd show --json` and
 // extracts coop_url from the notes field. Returns empty string if the agent
-// doesn't have a coop_url (e.g., local tmux agent).
+// doesn't have a coop_url.
 func resolveCoopURLFromBead(ctx context.Context, cwd, agentID string) (string, error) {
 	stdout, _, err := runBDCommand(ctx, cwd, "show", agentID, "--json")
 	if err != nil {

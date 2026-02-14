@@ -320,7 +320,7 @@ type UpdateArgs struct {
 	PodIP         *string `json:"pod_ip,omitempty"`         // Pod IP address
 	PodNode       *string `json:"pod_node,omitempty"`       // K8s node name
 	PodStatus     *string `json:"pod_status,omitempty"`     // Pod status: pending|running|terminating|terminated
-	ScreenSession *string `json:"screen_session,omitempty"` // Screen/tmux session name
+	ScreenSession *string `json:"screen_session,omitempty"` // Screen session name
 	// Event fields (only valid when IssueType == "event")
 	EventCategory *string `json:"event_category,omitempty"` // Namespaced category (e.g., patrol.muted, agent.started)
 	EventActor    *string `json:"event_actor,omitempty"`    // Entity URI who caused this event
@@ -1755,7 +1755,7 @@ type AgentPodRegisterArgs struct {
 	PodIP         string `json:"pod_ip,omitempty"`         // Pod IP address
 	PodNode       string `json:"pod_node,omitempty"`       // K8s node name
 	PodStatus     string `json:"pod_status,omitempty"`     // Pod status (default: "running")
-	ScreenSession string `json:"screen_session,omitempty"` // Screen/tmux session name
+	ScreenSession string `json:"screen_session,omitempty"` // Screen session name
 }
 
 // AgentPodRegisterResult is returned after pod registration.

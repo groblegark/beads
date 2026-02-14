@@ -87,7 +87,7 @@ func DefaultMonitorConfig() MonitorConfig {
 
 // AgentMonitor polls agent session backends and emits MonitorEvents when
 // agents need attention. It bridges beads agent state tracking with the
-// Coop/tmux session layer.
+// Coop session layer.
 type AgentMonitor struct {
 	config MonitorConfig
 	opts   []Option // passed to CoopSessionBackend
