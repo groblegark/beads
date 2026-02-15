@@ -3,7 +3,6 @@ package main
 import (
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 )
 
@@ -82,11 +81,10 @@ func TestDoltSingleProcess_DaemonGuardBlocksStartCommand(t *testing.T) {
 	cmd.Flags().Bool("help", false, "help")
 	// Note: federation flag is already registered in init()
 	err := guardDaemonStartForDolt(cmd, nil)
-	if err == nil {
-		t.Fatalf("expected daemon guard error for dolt backend without --federation")
-	}
-	// Guardrail wording may evolve; assert a stable intent.
-	if !strings.Contains(err.Error(), "daemon mode is not supported") {
-		t.Fatalf("expected error to mention daemon mode unsupported, got: %v", err)
+	// The dolt-backend guard was removed; guardDaemonStartForDolt now only
+	// checks for --federation flag and systemd service status. On macOS (no
+	// systemd), it should return nil.
+	if err != nil {
+		t.Fatalf("expected no error from guardDaemonStartForDolt (dolt guard removed), got: %v", err)
 	}
 }

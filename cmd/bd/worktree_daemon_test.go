@@ -118,7 +118,7 @@ func TestShouldDisableDaemonForWorktree(t *testing.T) {
 		cleanupTestWorktree(t, mainDir, worktreeDir)
 	})
 
-	t.Run("returns false in worktree with sync-branch configured", func(t *testing.T) {
+	t.Run("returns true in worktree with sync-branch configured (sync-branch removed)", func(t *testing.T) {
 		// Create a git repo with a worktree
 		mainDir, worktreeDir := setupWorktreeTestRepo(t)
 
@@ -142,19 +142,21 @@ func TestShouldDisableDaemonForWorktree(t *testing.T) {
 			t.Fatalf("Failed to reinitialize config: %v", err)
 		}
 
-		// Sync-branch configured via environment variable
+		// Sync-branch configured via environment variable (no longer checked)
 		os.Setenv("BEADS_SYNC_BRANCH", "beads-metadata")
 
+		// With sync-branch support removed, shouldDisableDaemonForWorktree
+		// always returns true in worktrees regardless of sync-branch config
 		result := shouldDisableDaemonForWorktree()
-		if result {
-			t.Error("Expected shouldDisableDaemonForWorktree() to return false in worktree with sync-branch")
+		if !result {
+			t.Error("Expected shouldDisableDaemonForWorktree() to return true in worktree (sync-branch support removed)")
 		}
 
 		// Cleanup
 		cleanupTestWorktree(t, mainDir, worktreeDir)
 	})
 
-	t.Run("returns false in worktree with sync-branch in database config", func(t *testing.T) {
+	t.Run("returns true in worktree with sync-branch in database config (sync-branch removed)", func(t *testing.T) {
 		// Create a git repo with a worktree AND a database with sync.branch config
 		mainDir, worktreeDir := setupWorktreeTestRepoWithDB(t, "beads-metadata")
 
@@ -193,9 +195,11 @@ func TestShouldDisableDaemonForWorktree(t *testing.T) {
 		// NO env var or config.yaml sync-branch - only database config
 		os.Unsetenv("BEADS_SYNC_BRANCH")
 
+		// With sync-branch support removed, shouldDisableDaemonForWorktree
+		// always returns true in worktrees regardless of database config
 		result := shouldDisableDaemonForWorktree()
-		if result {
-			t.Error("Expected shouldDisableDaemonForWorktree() to return false in worktree with sync-branch in database")
+		if !result {
+			t.Error("Expected shouldDisableDaemonForWorktree() to return true in worktree (sync-branch support removed)")
 		}
 
 		// Cleanup
@@ -271,7 +275,7 @@ func TestShouldAutoStartDaemonWorktreeIntegration(t *testing.T) {
 		cleanupTestWorktree(t, mainDir, worktreeDir)
 	})
 
-	t.Run("enables auto-start in worktree with sync-branch", func(t *testing.T) {
+	t.Run("disables auto-start in worktree with sync-branch (sync-branch removed)", func(t *testing.T) {
 		// Create a git repo with a worktree
 		mainDir, worktreeDir := setupWorktreeTestRepo(t)
 
@@ -295,14 +299,16 @@ func TestShouldAutoStartDaemonWorktreeIntegration(t *testing.T) {
 			t.Fatalf("Failed to reinitialize config: %v", err)
 		}
 
-		// Clear daemon env vars but set sync-branch
+		// Clear daemon env vars but set sync-branch (no longer checked)
 		os.Unsetenv("BEADS_NO_DAEMON")
 		os.Unsetenv("BEADS_AUTO_START_DAEMON")
 		os.Setenv("BEADS_SYNC_BRANCH", "beads-metadata")
 
+		// With sync-branch support removed, shouldAutoStartDaemon returns
+		// false in worktrees regardless of sync-branch config
 		result := shouldAutoStartDaemon()
-		if !result {
-			t.Error("Expected shouldAutoStartDaemon() to return true in worktree with sync-branch")
+		if result {
+			t.Error("Expected shouldAutoStartDaemon() to return false in worktree (sync-branch support removed)")
 		}
 
 		// Cleanup

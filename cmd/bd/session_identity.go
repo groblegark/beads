@@ -110,7 +110,7 @@ func getGitUserName() string {
 	if err != nil {
 		return ""
 	}
-	data, err := os.ReadFile(filepath.Join(home, ".gitconfig"))
+	data, err := os.ReadFile(filepath.Clean(filepath.Join(home, ".gitconfig")))
 	if err != nil {
 		return ""
 	}

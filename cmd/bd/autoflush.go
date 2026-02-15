@@ -571,7 +571,7 @@ type flushState struct {
 
 // flushToJSONLWithState is a no-op in dolt-native mode.
 // Retained because callers (flush_manager, import, tests) still invoke it.
-func flushToJSONLWithState(state flushState) {
+func flushToJSONLWithState(_ flushState) {
 	// Check if store is still active (not closed) and not nil
 	storeMutex.Lock()
 	if !storeActive || store == nil {

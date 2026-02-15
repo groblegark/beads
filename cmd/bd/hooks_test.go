@@ -16,7 +16,7 @@ func TestGetEmbeddedHooks(t *testing.T) {
 		t.Fatalf("getEmbeddedHooks() failed: %v", err)
 	}
 
-	expectedHooks := []string{"pre-commit", "post-merge", "pre-push", "post-checkout"}
+	expectedHooks := []string{"prepare-commit-msg", "post-merge", "pre-push", "post-checkout"}
 	for _, hookName := range expectedHooks {
 		content, ok := hooks[hookName]
 		if !ok {
@@ -92,7 +92,7 @@ func TestInstallHooksBackup(t *testing.T) {
 			t.Fatalf("Failed to create hooks directory: %v", err)
 		}
 
-		existingHook := filepath.Join(gitDir, "pre-commit")
+		existingHook := filepath.Join(gitDir, "prepare-commit-msg")
 		existingContent := "#!/bin/sh\necho old hook\n"
 		if err := os.WriteFile(existingHook, []byte(existingContent), 0755); err != nil {
 			t.Fatalf("Failed to create existing hook: %v", err)
@@ -138,7 +138,7 @@ func TestInstallHooksForce(t *testing.T) {
 			t.Fatalf("Failed to create hooks directory: %v", err)
 		}
 
-		existingHook := filepath.Join(gitDir, "pre-commit")
+		existingHook := filepath.Join(gitDir, "prepare-commit-msg")
 		if err := os.WriteFile(existingHook, []byte("old"), 0755); err != nil {
 			t.Fatalf("Failed to create existing hook: %v", err)
 		}
@@ -299,8 +299,8 @@ func TestInstallHooksChaining(t *testing.T) {
 			t.Fatalf("Failed to create hooks directory: %v", err)
 		}
 
-		// Create an existing hook
-		existingHook := filepath.Join(gitDir, "pre-commit")
+		// Create an existing hook (use prepare-commit-msg since pre-commit was renamed)
+		existingHook := filepath.Join(gitDir, "prepare-commit-msg")
 		existingContent := "#!/bin/sh\necho old hook\n"
 		if err := os.WriteFile(existingHook, []byte(existingContent), 0755); err != nil {
 			t.Fatalf("Failed to create existing hook: %v", err)
@@ -332,7 +332,7 @@ func TestInstallHooksChaining(t *testing.T) {
 
 		// Verify new hook was installed
 		if _, err := os.Stat(existingHook); os.IsNotExist(err) {
-			t.Errorf("New pre-commit hook was not installed")
+			t.Errorf("New prepare-commit-msg hook was not installed")
 		}
 
 		// Verify .backup was NOT created (chain mode uses .old, not .backup)
@@ -480,8 +480,8 @@ func TestInstallHooksChainingSkipsBdShim(t *testing.T) {
 		}
 
 		// Create an existing hook that IS a bd shim
-		existingHook := filepath.Join(gitDir, "pre-commit")
-		shimContent := "#!/bin/sh\n# bd-shim v1\nexec bd hooks run pre-commit \"$@\"\n"
+		existingHook := filepath.Join(gitDir, "prepare-commit-msg")
+		shimContent := "#!/bin/sh\n# bd-shim v1\nexec bd hooks run prepare-commit-msg \"$@\"\n"
 		if err := os.WriteFile(existingHook, []byte(shimContent), 0755); err != nil {
 			t.Fatalf("Failed to create existing shim hook: %v", err)
 		}
@@ -504,7 +504,7 @@ func TestInstallHooksChainingSkipsBdShim(t *testing.T) {
 
 		// Verify new hook was installed (overwrote the shim)
 		if _, err := os.Stat(existingHook); os.IsNotExist(err) {
-			t.Errorf("New pre-commit hook was not installed")
+			t.Errorf("New prepare-commit-msg hook was not installed")
 		}
 	})
 }
@@ -636,10 +636,10 @@ func TestInstallHooksChainingSkipsInlineHook(t *testing.T) {
 		}
 
 		// Create an existing hook that IS an inline bd hook (from bd init)
-		existingHook := filepath.Join(gitDir, "pre-commit")
+		existingHook := filepath.Join(gitDir, "prepare-commit-msg")
 		inlineContent := `#!/bin/sh
 #
-# bd (beads) pre-commit hook (chained)
+# bd (beads) prepare-commit-msg hook (chained)
 #
 bd sync --flush-only
 `
@@ -665,7 +665,7 @@ bd sync --flush-only
 
 		// Verify new hook was installed (overwrote the inline hook)
 		if _, err := os.Stat(existingHook); os.IsNotExist(err) {
-			t.Errorf("New pre-commit hook was not installed")
+			t.Errorf("New prepare-commit-msg hook was not installed")
 		}
 	})
 }
@@ -690,14 +690,14 @@ func TestInstallHooksChainingPreservesExistingOld(t *testing.T) {
 		}
 
 		// Create the user's original hook as .old (simulating bd init already ran)
-		originalHook := filepath.Join(gitDir, "pre-commit.old")
+		originalHook := filepath.Join(gitDir, "prepare-commit-msg.old")
 		originalContent := "#!/bin/sh\necho 'User original hook'\n"
 		if err := os.WriteFile(originalHook, []byte(originalContent), 0755); err != nil {
 			t.Fatalf("Failed to create original .old hook: %v", err)
 		}
 
 		// Create a current hook that is NOT a bd hook (e.g., user modified it)
-		currentHook := filepath.Join(gitDir, "pre-commit")
+		currentHook := filepath.Join(gitDir, "prepare-commit-msg")
 		currentContent := "#!/bin/sh\necho 'Some other hook'\n"
 		if err := os.WriteFile(currentHook, []byte(currentContent), 0755); err != nil {
 			t.Fatalf("Failed to create current hook: %v", err)
@@ -724,7 +724,7 @@ func TestInstallHooksChainingPreservesExistingOld(t *testing.T) {
 
 		// Verify new hook was installed
 		if _, err := os.Stat(currentHook); os.IsNotExist(err) {
-			t.Errorf("New pre-commit hook was not installed")
+			t.Errorf("New prepare-commit-msg hook was not installed")
 		}
 	})
 }
@@ -749,10 +749,10 @@ func TestRunChainedHookSkipsInlineHook(t *testing.T) {
 		}
 
 		// Create a .old hook that IS an inline bd hook
-		oldHook := filepath.Join(gitDir, "pre-commit.old")
+		oldHook := filepath.Join(gitDir, "prepare-commit-msg.old")
 		inlineContent := `#!/bin/sh
 #
-# bd (beads) pre-commit hook (chained)
+# bd (beads) prepare-commit-msg hook (chained)
 #
 bd sync --flush-only
 `
@@ -761,7 +761,7 @@ bd sync --flush-only
 		}
 
 		// runChainedHook should return 0 (skip the inline hook) instead of executing it
-		exitCode := runChainedHook("pre-commit", nil)
+		exitCode := runChainedHook("prepare-commit-msg", nil)
 		if exitCode != 0 {
 			t.Errorf("runChainedHook() = %d, want 0 (should skip inline bd hook)", exitCode)
 		}

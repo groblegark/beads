@@ -23,17 +23,21 @@ func TestRemoteDaemonDoesNotRequireLocalDB(t *testing.T) {
 	t.Setenv("BEADS_DB", "")
 	t.Setenv("HOME", tmpDir)
 
-	// Verify no local database is found
-	dbPath := beads.FindDatabasePath()
-	if dbPath != "" {
-		t.Fatalf("expected no database path in temp dir, got %s", dbPath)
-	}
+	// Must chdir to temp dir so findDatabaseInTree doesn't traverse up
+	// from the project directory and find the real .beads/dolt
+	runInDir(t, tmpDir, func() {
+		// Verify no local database is found
+		dbPath := beads.FindDatabasePath()
+		if dbPath != "" {
+			t.Fatalf("expected no database path in temp dir, got %s", dbPath)
+		}
 
-	// The key assertion: when BD_DAEMON_HOST is set, GetDaemonHost() should
-	// return non-empty. This means PersistentPreRun in main.go will skip the
-	// "no beads database found" exit and proceed to daemon connection instead.
-	host := rpc.GetDaemonHost()
-	if host == "" {
-		t.Fatal("expected GetDaemonHost() to return non-empty when BD_DAEMON_HOST is set")
-	}
+		// The key assertion: when BD_DAEMON_HOST is set, GetDaemonHost() should
+		// return non-empty. This means PersistentPreRun in main.go will skip the
+		// "no beads database found" exit and proceed to daemon connection instead.
+		host := rpc.GetDaemonHost()
+		if host == "" {
+			t.Fatal("expected GetDaemonHost() to return non-empty when BD_DAEMON_HOST is set")
+		}
+	})
 }

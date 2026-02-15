@@ -1260,175 +1260,24 @@ func TestExportDiagnosticsInvalidPath(t *testing.T) {
 }
 
 // TestCheckSyncBranchHookCompatibility tests the sync-branch hook compatibility check (issue #532)
-// Note: We use BEADS_SYNC_BRANCH env var to control sync-branch detection because the config
-// package reads from the actual beads repo's config.yaml. Only test cases with syncBranchEnv
-// set to a non-empty value are reliable.
+// sync-branch support has been removed. The check now always returns OK with "N/A (sync-branch support removed)".
 func TestCheckSyncBranchHookCompatibility(t *testing.T) {
-	tests := []struct {
-		name           string
-		syncBranchEnv  string // BEADS_SYNC_BRANCH env var (must be non-empty to override config.yaml)
-		hasGitDir      bool
-		hookVersion    string // Empty means no hook, "custom" means non-bd hook
-		expectedStatus string
-	}{
-		{
-			name:           "sync-branch configured, no git repo",
-			syncBranchEnv:  "beads-sync",
-			hasGitDir:      false,
-			hookVersion:    "",
-			expectedStatus: doctor.StatusOK, // N/A case
-		},
-		{
-			name:           "sync-branch configured, no pre-push hook",
-			syncBranchEnv:  "beads-sync",
-			hasGitDir:      true,
-			hookVersion:    "",
-			expectedStatus: doctor.StatusOK, // Covered by other check
-		},
-		{
-			name:           "sync-branch configured, custom hook",
-			syncBranchEnv:  "beads-sync",
-			hasGitDir:      true,
-			hookVersion:    "custom",
-			expectedStatus: doctor.StatusWarning,
-		},
-		{
-			name:           "sync-branch configured, old hook (0.24.2)",
-			syncBranchEnv:  "beads-sync",
-			hasGitDir:      true,
-			hookVersion:    "0.24.2",
-			expectedStatus: doctor.StatusError,
-		},
-		{
-			name:           "sync-branch configured, old hook (0.28.0)",
-			syncBranchEnv:  "beads-sync",
-			hasGitDir:      true,
-			hookVersion:    "0.28.0",
-			expectedStatus: doctor.StatusError,
-		},
-		{
-			name:           "sync-branch configured, compatible hook (0.29.0)",
-			syncBranchEnv:  "beads-sync",
-			hasGitDir:      true,
-			hookVersion:    "0.29.0",
-			expectedStatus: doctor.StatusOK,
-		},
-		{
-			name:           "sync-branch configured, newer hook (0.30.0)",
-			syncBranchEnv:  "beads-sync",
-			hasGitDir:      true,
-			hookVersion:    "0.30.0",
-			expectedStatus: doctor.StatusOK,
-		},
+	check := doctor.CheckSyncBranchHookCompatibility(t.TempDir())
+
+	if check.Status != doctor.StatusOK {
+		t.Errorf("Expected status %s, got %s (message: %s)", doctor.StatusOK, check.Status, check.Message)
 	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			tmpDir := t.TempDir()
-
-			// Always set environment variable to control sync-branch detection
-			// This overrides any config.yaml value in the actual beads repo
-			t.Setenv("BEADS_SYNC_BRANCH", tc.syncBranchEnv)
-
-			if tc.hasGitDir {
-				// Initialize a real git repo (git rev-parse needs this)
-				cmd := exec.Command("git", "init")
-				cmd.Dir = tmpDir
-				if err := cmd.Run(); err != nil {
-					t.Fatal(err)
-				}
-
-				// Create pre-push hook if specified
-				if tc.hookVersion != "" {
-					hooksDir := filepath.Join(tmpDir, ".git", "hooks")
-					hookPath := filepath.Join(hooksDir, "pre-push")
-					var hookContent string
-					if tc.hookVersion == "custom" {
-						hookContent = "#!/bin/sh\n# Custom hook\nexit 0\n"
-					} else {
-						hookContent = fmt.Sprintf("#!/bin/sh\n# bd-hooks-version: %s\nexit 0\n", tc.hookVersion)
-					}
-					if err := os.WriteFile(hookPath, []byte(hookContent), 0755); err != nil {
-						t.Fatal(err)
-					}
-				}
-			}
-
-			check := doctor.CheckSyncBranchHookCompatibility(tmpDir)
-
-			if check.Status != tc.expectedStatus {
-				t.Errorf("Expected status %s, got %s (message: %s)", tc.expectedStatus, check.Status, check.Message)
-			}
-
-			// Error case should have a fix message
-			if tc.expectedStatus == doctor.StatusError && check.Fix == "" {
-				t.Error("Expected fix message for error status")
-			}
-		})
+	if check.Message != "N/A (sync-branch support removed)" {
+		t.Errorf("Expected message %q, got %q", "N/A (sync-branch support removed)", check.Message)
 	}
 }
 
 // TestCheckSyncBranchHookQuick tests the quick sync-branch hook check (issue #532)
-// Note: We use BEADS_SYNC_BRANCH env var to control sync-branch detection.
+// sync-branch support has been removed. The check now always returns empty string.
 func TestCheckSyncBranchHookQuick(t *testing.T) {
-	tests := []struct {
-		name          string
-		syncBranchEnv string
-		hasGitDir     bool
-		hookVersion   string
-		expectIssue   bool
-	}{
-		{
-			name:          "old hook with sync-branch",
-			syncBranchEnv: "beads-sync",
-			hasGitDir:     true,
-			hookVersion:   "0.24.0",
-			expectIssue:   true,
-		},
-		{
-			name:          "compatible hook with sync-branch",
-			syncBranchEnv: "beads-sync",
-			hasGitDir:     true,
-			hookVersion:   "0.29.0",
-			expectIssue:   false,
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			tmpDir := t.TempDir()
-
-			// Always set environment variable to control sync-branch detection
-			// This overrides any config.yaml value in the actual beads repo
-			t.Setenv("BEADS_SYNC_BRANCH", tc.syncBranchEnv)
-
-			if tc.hasGitDir {
-				// Initialize a real git repo (git rev-parse needs this)
-				cmd := exec.Command("git", "init")
-				cmd.Dir = tmpDir
-				if err := cmd.Run(); err != nil {
-					t.Fatal(err)
-				}
-
-				if tc.hookVersion != "" {
-					hooksDir := filepath.Join(tmpDir, ".git", "hooks")
-					hookPath := filepath.Join(hooksDir, "pre-push")
-					hookContent := fmt.Sprintf("#!/bin/sh\n# bd-hooks-version: %s\nexit 0\n", tc.hookVersion)
-					if err := os.WriteFile(hookPath, []byte(hookContent), 0755); err != nil {
-						t.Fatal(err)
-					}
-				}
-			}
-
-			issue := doctor.CheckSyncBranchHookQuick(tmpDir)
-
-			if tc.expectIssue && issue == "" {
-				t.Error("Expected issue to be reported, got empty string")
-			}
-			if !tc.expectIssue && issue != "" {
-				t.Errorf("Expected no issue, got: %s", issue)
-			}
-		})
+	issue := doctor.CheckSyncBranchHookQuick(t.TempDir())
+	if issue != "" {
+		t.Errorf("Expected empty string (sync-branch removed), got: %s", issue)
 	}
 }
 

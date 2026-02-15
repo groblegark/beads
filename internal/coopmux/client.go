@@ -96,7 +96,7 @@ func (c *Client) Health(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("coopmux: health check: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode >= 400 {
 		return c.parseError(resp)
 	}
@@ -148,7 +148,7 @@ func (c *Client) postJSON(ctx context.Context, path string, body interface{}, ou
 	if err != nil {
 		return fmt.Errorf("coopmux: POST %s: %w", path, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode >= 400 {
 		return c.parseError(resp)

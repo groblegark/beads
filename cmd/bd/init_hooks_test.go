@@ -23,6 +23,8 @@ func TestDetectExistingHooks(t *testing.T) {
 		}
 		hooksDir := filepath.Join(gitDirPath, "hooks")
 
+		// detectExistingHooks now only returns post-merge and pre-push
+		// (pre-commit was renamed to prepare-commit-msg)
 		tests := []struct {
 			name                     string
 			setupHook                string
@@ -38,21 +40,21 @@ func TestDetectExistingHooks(t *testing.T) {
 			},
 			{
 				name:         "bd hook",
-				setupHook:    "pre-commit",
-				hookContent:  "#!/bin/sh\n# bd (beads) pre-commit hook\necho test",
+				setupHook:    "post-merge",
+				hookContent:  "#!/bin/sh\n# bd (beads) post-merge hook\necho test",
 				wantExists:   true,
 				wantIsBdHook: true,
 			},
 			{
 				name:                     "pre-commit framework hook",
-				setupHook:                "pre-commit",
+				setupHook:                "post-merge",
 				hookContent:              "#!/bin/sh\n# pre-commit framework\npre-commit run",
 				wantExists:               true,
 				wantIsPreCommitFramework: true,
 			},
 			{
 				name:        "custom hook",
-				setupHook:   "pre-commit",
+				setupHook:   "post-merge",
 				hookContent: "#!/bin/sh\necho custom",
 				wantExists:  true,
 			},
@@ -74,14 +76,14 @@ func TestDetectExistingHooks(t *testing.T) {
 
 				var found *hookInfo
 				for i := range hooks {
-					if hooks[i].name == "pre-commit" {
+					if hooks[i].name == "post-merge" {
 						found = &hooks[i]
 						break
 					}
 				}
 
 				if found == nil {
-					t.Fatal("pre-commit hook not found in results")
+					t.Fatal("post-merge hook not found in results")
 				}
 
 				if found.exists != tt.wantExists {
@@ -115,17 +117,17 @@ func TestInstallGitHooks_NoExistingHooks(t *testing.T) {
 		// This test verifies the logic works when no existing hooks present
 		// For full testing, we'd need to mock user input
 
-		// Check hooks were created
-		preCommitPath := filepath.Join(hooksDir, "pre-commit")
+		// Check hooks were created (prepare-commit-msg replaced pre-commit)
+		prepareCommitMsgPath := filepath.Join(hooksDir, "prepare-commit-msg")
 		postMergePath := filepath.Join(hooksDir, "post-merge")
 
-		if _, err := os.Stat(preCommitPath); err == nil {
-			content, _ := os.ReadFile(preCommitPath)
+		if _, err := os.Stat(prepareCommitMsgPath); err == nil {
+			content, _ := os.ReadFile(prepareCommitMsgPath)
 			if !strings.Contains(string(content), "bd (beads)") {
-				t.Error("pre-commit hook doesn't contain bd marker")
+				t.Error("prepare-commit-msg hook doesn't contain bd marker")
 			}
 			if strings.Contains(string(content), "chained") {
-				t.Error("pre-commit hook shouldn't be chained when no existing hooks")
+				t.Error("prepare-commit-msg hook shouldn't be chained when no existing hooks")
 			}
 		}
 
@@ -156,10 +158,10 @@ func TestInstallGitHooks_ExistingHookBackup(t *testing.T) {
 			t.Fatalf("Failed to create hooks directory: %v", err)
 		}
 
-		// Create an existing pre-commit hook
-		preCommitPath := filepath.Join(hooksDir, "pre-commit")
+		// Create an existing post-merge hook (detectExistingHooks no longer includes pre-commit)
+		postMergePath := filepath.Join(hooksDir, "post-merge")
 		existingContent := "#!/bin/sh\necho existing hook"
-		if err := os.WriteFile(preCommitPath, []byte(existingContent), 0700); err != nil {
+		if err := os.WriteFile(postMergePath, []byte(existingContent), 0700); err != nil {
 			t.Fatal(err)
 		}
 
@@ -168,7 +170,7 @@ func TestInstallGitHooks_ExistingHookBackup(t *testing.T) {
 
 		hasExisting := false
 		for _, hook := range hooks {
-			if hook.exists && !hook.isBdHook && hook.name == "pre-commit" {
+			if hook.exists && !hook.isBdHook && hook.name == "post-merge" {
 				hasExisting = true
 				break
 			}

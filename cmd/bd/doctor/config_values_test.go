@@ -148,12 +148,12 @@ func TestCheckMetadataConfigValues(t *testing.T) {
 		t.Fatalf("failed to create .beads dir: %v", err)
 	}
 
-	// Test with valid metadata
+	// Test with valid metadata (dolt backend)
 	t.Run("valid metadata", func(t *testing.T) {
 		metadataContent := `{
-  "database": "beads.db",
+  "database": "dolt",
   "jsonl_export": "issues.jsonl",
-  "backend": "sqlite"
+  "backend": "dolt"
 }`
 		if err := os.WriteFile(filepath.Join(beadsDir, "metadata.json"), []byte(metadataContent), 0644); err != nil {
 			t.Fatalf("failed to write metadata.json: %v", err)

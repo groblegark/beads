@@ -466,6 +466,9 @@ func TestCheckMergeDriver_PartiallyConfigured(t *testing.T) {
 // Edge case tests for CheckSyncBranchConfig
 
 func TestCheckSyncBranchConfig_MultipleRemotes(t *testing.T) {
+	// sync-branch support has been removed. The check now hardcodes syncBranch=""
+	// and only returns warning for "sync-branch not configured" when remotes exist,
+	// or "N/A (no remote configured)" when no remotes.
 	tests := []struct {
 		name           string
 		setup          func(t *testing.T, dir string)
@@ -488,7 +491,7 @@ func TestCheckSyncBranchConfig_MultipleRemotes(t *testing.T) {
 			expectInMsg:    "not configured",
 		},
 		{
-			name: "multiple remotes with sync-branch configured via env",
+			name: "multiple remotes with sync-branch env var (ignored, sync-branch removed)",
 			setup: func(t *testing.T, dir string) {
 				setupGitRepoInDir(t, dir)
 				// add multiple remotes
@@ -498,12 +501,12 @@ func TestCheckSyncBranchConfig_MultipleRemotes(t *testing.T) {
 				cmd = exec.Command("git", "remote", "add", "upstream", "https://github.com/upstream/repo.git")
 				cmd.Dir = dir
 				_ = cmd.Run()
-				// use env var to configure sync-branch since config package reads from cwd
+				// env var is no longer read by CheckSyncBranchConfig
 				os.Setenv("BEADS_SYNC_BRANCH", "beads-sync")
 				t.Cleanup(func() { os.Unsetenv("BEADS_SYNC_BRANCH") })
 			},
-			expectedStatus: "ok",
-			expectInMsg:    "Configured",
+			expectedStatus: "warning",
+			expectInMsg:    "not configured",
 		},
 		{
 			name: "no remotes at all",
@@ -514,19 +517,19 @@ func TestCheckSyncBranchConfig_MultipleRemotes(t *testing.T) {
 			expectInMsg:    "no remote configured",
 		},
 		{
-			name: "on sync branch itself via env (error case)",
+			name: "on sync branch itself via env (no longer detected, sync-branch removed)",
 			setup: func(t *testing.T, dir string) {
 				setupGitRepoInDir(t, dir)
 				// create and checkout sync branch
 				cmd := exec.Command("git", "checkout", "-b", "beads-sync")
 				cmd.Dir = dir
 				_ = cmd.Run()
-				// use env var to configure sync-branch
+				// env var is no longer read by CheckSyncBranchConfig
 				os.Setenv("BEADS_SYNC_BRANCH", "beads-sync")
 				t.Cleanup(func() { os.Unsetenv("BEADS_SYNC_BRANCH") })
 			},
-			expectedStatus: "error",
-			expectInMsg:    "On sync branch",
+			expectedStatus: "ok",
+			expectInMsg:    "no remote configured",
 		},
 	}
 
@@ -651,133 +654,15 @@ func TestCheckSyncBranchHealth_DetachedHEAD(t *testing.T) {
 // Edge case tests for CheckSyncBranchHookCompatibility
 
 func TestCheckSyncBranchHookCompatibility_OldHookFormat(t *testing.T) {
-	tests := []struct {
-		name           string
-		setup          func(t *testing.T, dir string)
-		expectedStatus string
-		expectInMsg    string
-	}{
-		{
-			name: "old hook without version marker",
-			setup: func(t *testing.T, dir string) {
-				setupGitRepoInDir(t, dir)
-				// create old-style pre-push hook without version
-				gitDir := filepath.Join(dir, ".git")
-				hooksDir := filepath.Join(gitDir, "hooks")
-				os.MkdirAll(hooksDir, 0755)
-				hookContent := "#!/bin/sh\n# Old hook without version\nbd sync\n"
-				os.WriteFile(filepath.Join(hooksDir, "pre-push"), []byte(hookContent), 0755)
-				// use env var to configure sync-branch
-				os.Setenv("BEADS_SYNC_BRANCH", "beads-sync")
-				t.Cleanup(func() { os.Unsetenv("BEADS_SYNC_BRANCH") })
-			},
-			expectedStatus: "warning",
-			expectInMsg:    "not a bd hook",
-		},
-		{
-			name: "hook with version 0.28.0 (old format)",
-			setup: func(t *testing.T, dir string) {
-				setupGitRepoInDir(t, dir)
-				gitDir := filepath.Join(dir, ".git")
-				hooksDir := filepath.Join(gitDir, "hooks")
-				os.MkdirAll(hooksDir, 0755)
-				hookContent := "#!/bin/sh\n# bd-hooks-version: 0.28.0\nbd sync\n"
-				os.WriteFile(filepath.Join(hooksDir, "pre-push"), []byte(hookContent), 0755)
-				// use env var to configure sync-branch
-				os.Setenv("BEADS_SYNC_BRANCH", "beads-sync")
-				t.Cleanup(func() { os.Unsetenv("BEADS_SYNC_BRANCH") })
-			},
-			expectedStatus: "error",
-			expectInMsg:    "incompatible",
-		},
-		{
-			name: "hook with version 0.29.0 (compatible)",
-			setup: func(t *testing.T, dir string) {
-				setupGitRepoInDir(t, dir)
-				gitDir := filepath.Join(dir, ".git")
-				hooksDir := filepath.Join(gitDir, "hooks")
-				os.MkdirAll(hooksDir, 0755)
-				hookContent := "#!/bin/sh\n# bd-hooks-version: 0.29.0\nbd sync\n"
-				os.WriteFile(filepath.Join(hooksDir, "pre-push"), []byte(hookContent), 0755)
-				// use env var to configure sync-branch
-				os.Setenv("BEADS_SYNC_BRANCH", "beads-sync")
-				t.Cleanup(func() { os.Unsetenv("BEADS_SYNC_BRANCH") })
-			},
-			expectedStatus: "ok",
-			expectInMsg:    "compatible",
-		},
-		{
-			name: "hook with malformed version",
-			setup: func(t *testing.T, dir string) {
-				setupGitRepoInDir(t, dir)
-				gitDir := filepath.Join(dir, ".git")
-				hooksDir := filepath.Join(gitDir, "hooks")
-				os.MkdirAll(hooksDir, 0755)
-				hookContent := "#!/bin/sh\n# bd-hooks-version: invalid\nbd sync\n"
-				os.WriteFile(filepath.Join(hooksDir, "pre-push"), []byte(hookContent), 0755)
-				// use env var to configure sync-branch
-				os.Setenv("BEADS_SYNC_BRANCH", "beads-sync")
-				t.Cleanup(func() { os.Unsetenv("BEADS_SYNC_BRANCH") })
-			},
-			expectedStatus: "error",
-			expectInMsg:    "incompatible",
-		},
-		{
-			name: "hook with version marker but no value",
-			setup: func(t *testing.T, dir string) {
-				setupGitRepoInDir(t, dir)
-				gitDir := filepath.Join(dir, ".git")
-				hooksDir := filepath.Join(gitDir, "hooks")
-				os.MkdirAll(hooksDir, 0755)
-				hookContent := "#!/bin/sh\n# bd-hooks-version:\nbd sync\n"
-				os.WriteFile(filepath.Join(hooksDir, "pre-push"), []byte(hookContent), 0755)
-				// use env var to configure sync-branch
-				os.Setenv("BEADS_SYNC_BRANCH", "beads-sync")
-				t.Cleanup(func() { os.Unsetenv("BEADS_SYNC_BRANCH") })
-			},
-			expectedStatus: "warning",
-			expectInMsg:    "Could not determine",
-		},
-		// Note: core.hooksPath is NOT respected by this check (or CheckGitHooks)
-		// Both functions use .git/hooks/ for consistency. This is a known limitation.
-		// A future fix could make both respect core.hooksPath.
-		{
-			name: "hook in standard location with core.hooksPath set elsewhere",
-			setup: func(t *testing.T, dir string) {
-				setupGitRepoInDir(t, dir)
-				// Put hook in standard .git/hooks location
-				gitDir := filepath.Join(dir, ".git")
-				hooksDir := filepath.Join(gitDir, "hooks")
-				os.MkdirAll(hooksDir, 0755)
-				hookContent := "#!/bin/sh\n# bd-hooks-version: 0.29.0\nbd sync\n"
-				os.WriteFile(filepath.Join(hooksDir, "pre-push"), []byte(hookContent), 0755)
-				// configure core.hooksPath (ignored by this check)
-				cmd := exec.Command("git", "config", "core.hooksPath", ".git-hooks")
-				cmd.Dir = dir
-				_ = cmd.Run()
-				// use env var to configure sync-branch
-				os.Setenv("BEADS_SYNC_BRANCH", "beads-sync")
-				t.Cleanup(func() { os.Unsetenv("BEADS_SYNC_BRANCH") })
-			},
-			expectedStatus: "ok",
-			expectInMsg:    "compatible",
-		},
+	// sync-branch support has been removed. CheckSyncBranchHookCompatibility
+	// now always returns OK with "N/A (sync-branch support removed)".
+	check := CheckSyncBranchHookCompatibility(t.TempDir())
+
+	if check.Status != "ok" {
+		t.Errorf("expected status %q, got %q (message: %s)", "ok", check.Status, check.Message)
 	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			tmpDir := t.TempDir()
-			tt.setup(t, tmpDir)
-
-			check := CheckSyncBranchHookCompatibility(tmpDir)
-
-			if check.Status != tt.expectedStatus {
-				t.Errorf("expected status %q, got %q (message: %s)", tt.expectedStatus, check.Status, check.Message)
-			}
-			if tt.expectInMsg != "" && !strings.Contains(check.Message, tt.expectInMsg) {
-				t.Errorf("expected message to contain %q, got %q", tt.expectInMsg, check.Message)
-			}
-		})
+	if !strings.Contains(check.Message, "sync-branch support removed") {
+		t.Errorf("expected message to contain %q, got %q", "sync-branch support removed", check.Message)
 	}
 }
 
