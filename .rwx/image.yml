@@ -141,16 +141,11 @@ tasks:
         ca-certificates tzdata libicu74 netcat-openbsd
       sudo rm -rf /var/lib/apt/lists/*
 
-      # Create beads user with UID/GID 1000 (matches Helm securityContext).
-      # Ubuntu 24.04 base has ubuntu:1000/1000 — remove it first, then
-      # rename/repurpose the GID 1000 group.
-      sudo userdel -r ubuntu 2>/dev/null || true
-      if getent group ubuntu >/dev/null 2>&1; then
-        sudo groupmod -n beads ubuntu
-      elif ! getent group beads >/dev/null 2>&1; then
-        sudo groupadd -g 1000 beads
-      fi
-      sudo useradd -u 1000 -g beads -s /bin/sh -m beads
+      # Repurpose the default ubuntu:1000 user as beads:1000 (matches Helm
+      # securityContext runAsUser/fsGroup 1000). RWX also runs as UID 1000,
+      # so we can't delete+recreate — just rename in place.
+      sudo usermod -l beads -d /home/beads -m -s /bin/sh ubuntu 2>/dev/null || true
+      sudo groupmod -n beads ubuntu 2>/dev/null || true
 
       # Install binaries
       sudo cp ${{ tasks.build-bd.artifacts.bd-binary }} /usr/local/bin/bd
