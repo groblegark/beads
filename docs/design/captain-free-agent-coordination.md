@@ -4,7 +4,7 @@
 
 This document describes a **lightweight multi-agent coordination pattern** using three already-built primitives: decisions, inbox, and beads. It works at two scales:
 
-1. **Free-agent mode** — N Claude Code sessions on a laptop, coordinated by a human or AI captain via `bd decision captain auto`. No infrastructure beyond the `bd` CLI.
+1. **Free-agent mode** — N Claude Code sessions on a laptop, coordinated by a human or AI captain. The captain is itself a Claude Code session that reasons about decisions intelligently. No infrastructure beyond the `bd` CLI.
 
 2. **K8s gastown mode** — The same pattern running inside Kubernetes, where the captain maps to Mayor+Deacon roles and agents run as pods managed by the agent-controller.
 
@@ -21,7 +21,9 @@ Agents generate **decision points** when they need human/captain input. The stop
 ```
 Agent (stop hook) -> bd decision create -> decision_points table
                                               |
-Captain (polling) -> bd decision captain auto -> reads pending decisions
+Captain (watch)  -> bd decision captain watch -> receives new decision
+                                              |
+Captain reasons  -> reads context, analyzes options, decides intelligently
                                               |
 Captain responds -> bd decision captain respond -> resolves decision
                                               |
@@ -30,11 +32,9 @@ Response pushed -> inbox table -> agent drains on next hook
 
 **Decision structure**: prompt, options (JSON array with id/label), context, urgency, requested_by (agent name).
 
-**Captain auto rules**:
-- `--default-action continue` — select first non-stop option (keep agents working)
-- `--default-action stop` — select "stop" option (shut agents down)
-- `--urgent-action ask` — escalate high-urgency to human (print to stdout)
-- `--sweep-age 30m` — auto-resolve stale decisions from dead sessions
+**The captain is an intelligent agent, not a rules engine.** It reads the decision context, reasons about what the agent should do, and responds with a thoughtful rationale. The captain uses `bd decision captain watch` to block until a decision arrives, then thinks and responds via `bd decision captain respond`.
+
+Stale decisions from dead sessions can be cleaned up with `bd decision captain sweep`.
 
 ### 2.2 Inbox (Captain -> Agent)
 
@@ -78,7 +78,8 @@ Agent finishes       -> bd close <id>
 
 ```
                          CAPTAIN
-       (human terminal or bd decision captain auto)
+       (Claude Code session running as intelligent supervisor)
+       bd decision captain watch -> reason -> respond -> loop
                     |              |
            watches decisions    sends inbox msgs
                     |              |
@@ -99,9 +100,9 @@ Agent finishes       -> bd close <id>
 **Bootstrap**:
 1. Human starts daemon: `bd daemon start` (or it auto-starts)
 2. Human opens N terminals, each with `BD_ACTOR=<name> claude`
-3. Human runs captain: `bd decision captain auto --default-action continue`
+3. Human starts captain: another Claude Code session that watches decisions and reasons about them
 4. Agents run `bd ready`, claim work, do it, close it
-5. Stop hooks fire decisions, captain responds, agents continue
+5. Stop hooks fire decisions, captain reads context and responds intelligently
 
 **No infrastructure beyond bd CLI.** No NATS, no coop, no K8s, no gastown.
 
@@ -150,26 +151,26 @@ Without gastown Deacon, health is inferred from activity:
 | In-progress work but no decision in 2h | Probably dead |
 | No in-progress work, no decisions | Idle or not started |
 
-The captain sweep mechanism (`--sweep-age 30m`) handles dead agents by auto-resolving their stale decisions.
+The captain can periodically run `bd decision captain sweep` to clean up stale decisions from dead agents.
 
 **Gap**: No `bd news --agents` command for a quick agent activity summary. This is the biggest observability gap.
 
 ### 3.6 Lifecycle
 
 - **Start**: Human opens terminals. (Future: `bd captain spawn <n>` script)
-- **Continue/Stop**: Captain responds to decisions with continue or stop
-- **Crash recovery**: Agent restarts, `bd prime` shows in-progress work, resumes
-- **Shutdown**: Captain sends "stop" to all decisions, or `bd decision captain sweep --age 0`
+- **Continue/Stop**: Captain reasons about each decision and responds with appropriate action + rationale
+- **Crash recovery**: Agent restarts, `bd prime` shows in-progress work, resumes. No coordination needed.
+- **Shutdown**: Captain responds "stop" to decisions when it judges work is complete, or runs `bd decision captain sweep --age 0` to resolve all stale decisions
 
 ### 3.7 Escalation
 
 ```
-Normal decision -> captain auto-responds (continue/stop per rules)
-Urgent decision -> captain prints to stdout -> human responds manually
-Stale decision  -> captain sweeps -> agent stops
+Normal decision  -> captain reasons about it, responds with action + rationale
+Complex decision -> captain sends inbox message asking human for guidance
+Stale decision   -> captain sweeps (bd decision captain sweep)
 ```
 
-Config: `--default-action continue --urgent-action ask --sweep-age 30m`
+The captain is an LLM — it can judge urgency, complexity, and risk. It escalates to the human when it's unsure, not based on rigid rules.
 
 ---
 
@@ -207,9 +208,9 @@ In K8s, the same primitives operate but with richer infrastructure:
 |  +---------+ +--------+ +--------+|                              |
 |                                    |                              |
 |  +--------------------------------+|                              |
-|  | Captain (bd decision captain   ||                              |
-|  |   auto, runs as agent or       ||                              |
-|  |   standalone deployment)       ||                              |
+|  | Captain Pod                    ||                              |
+|  | (Claude Code session,          ||                              |
+|  |  watches + reasons + responds) ||                              |
 |  +--------------------------------+|                              |
 +-----------------------------------------------------------------+
 ```
@@ -221,7 +222,7 @@ In K8s, the same primitives operate but with richer infrastructure:
 | `BD_ACTOR=alice` | `GT_ROLE=gastown/polecats/toast`, injected by pod manager |
 | `bd ready` (pull work) | Hooked beads (GUPP): issue marked `status=hooked`, assigned to agent |
 | `bd decision create` (stop hook) | Same — agents create decisions identically |
-| `bd decision captain auto` | Mayor + Deacon: Mayor handles escalations, Deacon monitors health |
+| Captain agent (watch + reason + respond) | Mayor + Deacon: Mayor handles escalations, Deacon monitors health |
 | `bd inbox push` | Same — inbox works identically via daemon RPC |
 | Daemon session names (in-memory) | Agent beads with `gt:agent` label (persistent, controller-managed) |
 | `bd news` (activity discovery) | Agent beads with `agent_state` field (spawning/working/stuck/done) |
@@ -235,7 +236,7 @@ Three options, in order of preference:
 
 **Option A: Run captain as an agent pod (recommended for gastown)**
 
-The captain is just another agent. It runs `bd decision captain auto` as its main loop. The controller creates its pod like any other agent. This is the simplest option and requires no new infrastructure.
+The captain is just another agent — a Claude Code session with a supervisory role. It uses `bd decision captain watch` to receive decisions, reasons about them, and responds via `bd decision captain respond`. The controller creates its pod like any other agent. This is the simplest option and requires no new infrastructure.
 
 ```yaml
 # Agent bead for captain
@@ -247,38 +248,14 @@ labels: [gt:agent, role:captain]
 # Pod gets:
 GT_ROLE=captain
 BD_ACTOR=captain
-# Runs: bd decision captain auto --default-action continue
+# Runs: Claude Code session with captain prompt/workflow
 ```
 
-Advantages: No new Helm templates, reuses existing agent pod infrastructure, gets coop/credentials automatically, can be managed like any other agent.
+Advantages: No new Helm templates, reuses existing agent pod infrastructure, gets coop/credentials automatically, can be managed like any other agent. The captain reasons intelligently about each decision rather than applying static rules.
 
-**Option B: Dedicated deployment (recommended for free-agent-first setups)**
+**Option B: Integrated into existing Mayor/Deacon**
 
-A standalone Deployment in the gastown namespace, similar to coop-broker:
-
-```yaml
-captain:
-  enabled: false
-  image:
-    repository: ghcr.io/groblegark/beads
-    tag: "latest"
-  resources:
-    requests: { cpu: 100m, memory: 256Mi }
-    limits: { cpu: 500m, memory: 512Mi }
-  config:
-    defaultAction: continue
-    urgentAction: ask
-    sweepAge: 30m
-    pollInterval: 5s
-```
-
-Pod runs: `bd decision captain auto` with config from ConfigMap. Gets daemon token, NATS URL, coop broker URL via env vars.
-
-Advantages: Independent lifecycle, clear RBAC, can be enabled/disabled per namespace.
-
-**Option C: Integrated into existing Mayor/Deacon**
-
-Captain logic could be merged into the Mayor's workflow. Mayor already handles escalations; captain auto-respond is a subset of that.
+Captain responsibilities could be folded into the Mayor's workflow. Mayor already handles escalations and strategic decisions — the captain role is a natural subset.
 
 This is the eventual convergence point but requires gastown code changes.
 
@@ -297,7 +274,7 @@ Things the K8s deployment gets for free that free agents lack:
 
 | Role | Free-Agent Equivalent | Notes |
 |---|---|---|
-| Mayor | Human captain + `bd decision captain auto` | Strategic decisions, escalation handling |
+| Mayor | Captain agent (intelligent supervisor) | Strategic decisions, escalation handling |
 | Deacon | Captain sweep + activity inference | Health monitoring, stuck detection |
 | Witness | N/A (single project scope) | Per-rig monitoring, not needed for single-project |
 | Polecat | Free agent (ephemeral worker) | Short-lived, task-focused |
@@ -317,7 +294,7 @@ Full gastown K8s:
 
 Captain + free agents (daemon only):
   Decisions (stop hook) + Inbox (DB + drain) + Beads (shared queue)
-  + Captain auto-respond + Activity inference + Pull-based work
+  + Captain agent (intelligent reasoning) + Activity inference + Pull-based work
 
 Single agent (minimal):
   bd ready + bd close + stop hook (creates decision, times out, agent stops)
@@ -338,10 +315,11 @@ Each layer adds capability without breaking the layer below. A free agent that w
 - Critical for captain observability — the biggest gap today
 - Effort: Small (query + formatting in news.go)
 
-**B. Captain config defaults**
-- Store captain preferences in `bd config`: `captain.default-action`, `captain.urgent-action`, `captain.sweep-age`, `captain.poll-interval`
-- `bd decision captain auto` reads from config, CLI flags override
-- Effort: Small (read config in captain auto, add config keys)
+**B. Captain workflow prompt/primer**
+- Define a captain-specific `bd prime` output that teaches the captain agent its role
+- Include: how to watch for decisions, how to reason about them, when to escalate
+- Could be a `.beads/CAPTAIN.md` or a captain-specific prime mode
+- Effort: Small (template in prime.go)
 
 **C. Agent name persistence**
 - Daemon session registry is in-memory only, lost on restart
@@ -354,7 +332,7 @@ Each layer adds capability without breaking the layer below. A free agent that w
 **D. `bd captain start <n>` — Launch script**
 - Opens N terminal sessions with BD_ACTOR set
 - Creates initial work assignments from `bd ready`
-- Starts captain auto in a dedicated terminal
+- Starts captain in a dedicated terminal
 - Effort: Medium (shell script or Go command)
 
 **E. `bd captain dashboard` — Live TUI**
@@ -382,57 +360,51 @@ Each layer adds capability without breaking the layer below. A free agent that w
 # Terminal 1: Start daemon
 bd daemon start
 
-# Terminal 2: Captain (human watches stdout)
-bd decision captain auto --default-action continue --urgent-action ask
-
-# Terminals 3-5: Agents
+# Terminals 2-4: Worker agents
 BD_ACTOR=alice claude   # Agent picks from bd ready, works, closes
 BD_ACTOR=bob claude     # Same
 BD_ACTOR=carol claude   # Same
 
-# Captain sees decisions as they arrive:
-# captain auto: hq-abc123 [continue] -> "Alice completed task, what next?" (auto-continue)
-# captain auto: hq-def456 [URGENT] -> prints to stdout, human types response
+# Terminal 5: Human responds to decisions as they arrive
+bd decision captain list        # See what's pending
+bd decision captain watch       # Block until next decision
+bd decision captain respond hq-abc123 --select=continue --text="Good work, keep going"
 ```
 
 ### 7.2 AI Captain, N Free Agents (Laptop)
 
 ```bash
-# Captain runs unattended
-bd decision captain auto \
-  --default-action continue \
-  --sweep-age 30m \
-  --notify
+# Terminal 1: Captain (Claude Code session with captain role)
+BD_ACTOR=captain claude
+# Captain's workflow:
+#   bd prime                            # Get context
+#   bd decision captain watch           # Block until decision arrives
+#   (reads decision context, reasons)   # Think about what agent should do
+#   bd decision captain respond <id> --select=... --text="rationale"
+#   bd decision captain send <agent> "follow-up instructions"
+#   (loop)
 
-# Agents work autonomously
-# Captain auto-continues normal decisions
-# Captain sweeps stale decisions from dead agents
-# Captain sends inbox notifications on each response
+# Terminals 2-N: Worker agents
+BD_ACTOR=alice claude   # Works autonomously, generates decisions via stop hook
+BD_ACTOR=bob claude     # Same
 ```
 
 ### 7.3 K8s Gastown Deployment
 
 ```yaml
-# Helm values
-captain:
-  enabled: true
-  config:
-    defaultAction: continue
-    urgentAction: ask
-    sweepAge: 30m
-
-# Controller spawns agents as pods
-# Captain watches decisions from all agent pods
+# Captain runs as an agent pod with role=captain
+# Controller spawns it like any other agent
+# Captain uses same watch/reason/respond loop
 # Inbox delivery via JetStream (real-time)
-# Captain logs to stdout (collected by log aggregator)
+# Captain agent reasons about each decision with full LLM capability
 ```
 
 ---
 
 ## 8. Security Considerations
 
-- **Single captain per daemon**: Multiple captain auto instances would race on decisions. Enforce via lock file or singleton check.
-- **Captain identity**: Captain responds as `responded_by: "captain-auto"` (or custom `--by` flag). Audit trail shows who responded.
+- **Single captain per daemon**: Multiple captain agents watching the same decisions would race. Coordinate via convention (one captain role per project).
+- **Captain identity**: Captain responds as `responded_by: "captain"` (or custom `--by` flag). Audit trail shows who responded.
 - **Inbox trust**: Agents should verify inbox messages come from expected sources. Currently no auth on inbox items — trust is based on daemon access.
 - **Decision spoofing**: Anyone with daemon access can create/respond to decisions. In K8s, daemon token is per-namespace secret. In free-agent mode, daemon is localhost-only.
 
@@ -440,8 +412,7 @@ captain:
 
 ## 9. Future Directions
 
-1. **Captain-as-agent**: Captain itself runs as a Claude Code session, can analyze decisions with LLM reasoning before responding (beyond simple rules)
-2. **Multi-project captains**: Watch decisions across multiple beads databases / daemon instances
+1. **Multi-project captains**: Watch decisions across multiple beads databases / daemon instances
 3. **Slack escalation**: Captain sends Slack notifications for urgent decisions (reuse existing slackbot infra)
 4. **Captain handoff**: Smooth transition from free-agent captain to gastown Mayor/Deacon as project scales
 5. **Federation**: Multiple captains across organizations, coordinating via beads sync
