@@ -267,12 +267,9 @@ var configValidateCmd = &cobra.Command{
 	Long: `Validate sync-related configuration settings.
 
 Checks:
-  - sync.mode is a valid value (local, git-branch, external)
-  - conflict.strategy is valid (lww, manual, ours, theirs)
+  - conflict.strategy is valid (newest, ours, theirs, manual)
   - federation.sovereignty is valid (if set)
-  - federation.remote is set when sync.mode requires it
-  - Remote URL format is valid (dolthub://, gs://, s3://, file://)
-  - sync.branch is a valid git branch name
+  - federation.remote URL format is valid (dolthub://, gs://, s3://, file://)
   - routing.mode is valid (auto, maintainer, contributor)
 
 Examples:
