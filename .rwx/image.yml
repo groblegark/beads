@@ -141,9 +141,12 @@ tasks:
         ca-certificates tzdata libicu74 netcat-openbsd
       sudo rm -rf /var/lib/apt/lists/*
 
-      # Create beads user (don't modify running ubuntu user)
-      sudo groupadd -g 1001 beads
-      sudo useradd -u 1001 -g beads -s /bin/sh -m beads
+      # Create beads user with UID/GID 1000 (matches Helm securityContext).
+      # Ubuntu 24.04 base has ubuntu:1000 — remove it first.
+      sudo userdel -r ubuntu 2>/dev/null || true
+      sudo groupdel ubuntu 2>/dev/null || true
+      sudo groupadd -g 1000 beads
+      sudo useradd -u 1000 -g beads -s /bin/sh -m beads
 
       # Install binaries
       sudo cp ${{ tasks.build-bd.artifacts.bd-binary }} /usr/local/bin/bd
