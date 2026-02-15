@@ -156,6 +156,12 @@ func (m *mockStorage) GetDirtyIssueHash(ctx context.Context, issueID string) (st
 func (m *mockStorage) ClearDirtyIssuesByID(ctx context.Context, issueIDs []string) error {
 	return nil
 }
+func (m *mockStorage) DirtyCount(ctx context.Context) (int, error) {
+	return 0, nil
+}
+func (m *mockStorage) FlushStaleDirtyIssues(ctx context.Context) (int64, int64, error) {
+	return 0, 0, nil
+}
 func (m *mockStorage) GetExportHash(ctx context.Context, issueID string) (string, error) {
 	return "", nil
 }
@@ -248,6 +254,18 @@ func (m *mockStorage) UnderlyingDB() *sql.DB {
 }
 func (m *mockStorage) UnderlyingConn(ctx context.Context) (*sql.Conn, error) {
 	return nil, nil
+}
+func (m *mockStorage) InboxPush(ctx context.Context, item *types.InboxItem) error {
+	return nil
+}
+func (m *mockStorage) InboxList(ctx context.Context, agentName string, includeDelivered bool) ([]*types.InboxItem, error) {
+	return nil, nil
+}
+func (m *mockStorage) InboxDrain(ctx context.Context, agentName string) ([]*types.InboxItem, error) {
+	return nil, nil
+}
+func (m *mockStorage) InboxMarkDelivered(ctx context.Context, ids []string) error {
+	return nil
 }
 
 // mockTransaction is a minimal mock for Transaction interface testing.

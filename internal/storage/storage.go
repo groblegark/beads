@@ -151,6 +151,12 @@ type Storage interface {
 	// within the given time window, optionally filtered by requesting agent.
 	ListRecentlyRespondedDecisions(ctx context.Context, since time.Time, requestedBy string) ([]*types.DecisionPoint, error)
 
+	// Inbox (agent async message delivery - bd-xtahx)
+	InboxPush(ctx context.Context, item *types.InboxItem) error
+	InboxList(ctx context.Context, agentName string, includeDelivered bool) ([]*types.InboxItem, error)
+	InboxDrain(ctx context.Context, agentName string) ([]*types.InboxItem, error)
+	InboxMarkDelivered(ctx context.Context, ids []string) error
+
 	// Statistics
 	GetStatistics(ctx context.Context) (*types.Statistics, error)
 
@@ -161,6 +167,11 @@ type Storage interface {
 	GetDirtyIssues(ctx context.Context) ([]string, error)
 	GetDirtyIssueHash(ctx context.Context, issueID string) (string, error) // For timestamp-only dedup (bd-164)
 	ClearDirtyIssuesByID(ctx context.Context, issueIDs []string) error
+	DirtyCount(ctx context.Context) (int, error)
+	// FlushStaleDirtyIssues removes orphaned entries (issue deleted) and
+	// already-exported entries (content_hash matches export_hashes).
+	// Returns counts of orphaned and exported entries removed.
+	FlushStaleDirtyIssues(ctx context.Context) (orphaned, exported int64, err error)
 
 	// Export hash tracking (for timestamp-only dedup, bd-164)
 	GetExportHash(ctx context.Context, issueID string) (string, error)

@@ -77,6 +77,43 @@ func (s *DoltStore) ClearDirtyIssuesByID(ctx context.Context, issueIDs []string)
 	return nil
 }
 
+// DirtyCount returns the number of dirty issues.
+func (s *DoltStore) DirtyCount(ctx context.Context) (int, error) {
+	var count int
+	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM dirty_issues`).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("failed to count dirty issues: %w", err)
+	}
+	return count, nil
+}
+
+// FlushStaleDirtyIssues removes orphaned entries (issue_id not in issues table)
+// and already-exported entries (content_hash matches export_hashes).
+// Returns the number of orphaned and exported entries removed.
+func (s *DoltStore) FlushStaleDirtyIssues(ctx context.Context) (orphaned, exported int64, err error) {
+	// Step 1: Remove orphaned dirty entries
+	result, execErr := s.db.ExecContext(ctx,
+		`DELETE FROM dirty_issues WHERE issue_id NOT IN (SELECT id FROM issues)`)
+	if execErr != nil {
+		return 0, 0, fmt.Errorf("failed to remove orphaned dirty entries: %w", execErr)
+	}
+	orphaned, _ = result.RowsAffected()
+
+	// Step 2: Remove dirty entries for issues already exported with current content
+	result, execErr = s.db.ExecContext(ctx, `
+		DELETE d FROM dirty_issues d
+		JOIN issues i ON d.issue_id = i.id
+		JOIN export_hashes e ON e.issue_id = i.id
+		WHERE i.content_hash = e.content_hash
+	`)
+	if execErr != nil {
+		return orphaned, 0, fmt.Errorf("failed to remove already-exported dirty entries: %w", execErr)
+	}
+	exported, _ = result.RowsAffected()
+
+	return orphaned, exported, nil
+}
+
 // GetExportHash returns the last export hash for an issue
 func (s *DoltStore) GetExportHash(ctx context.Context, issueID string) (string, error) {
 	var hash string

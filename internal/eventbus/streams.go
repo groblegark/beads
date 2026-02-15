@@ -48,6 +48,12 @@ const (
 
 	// SubjectConfigPrefix is the subject prefix for config/formula events.
 	SubjectConfigPrefix = "config."
+
+	// StreamInboxEvents is the JetStream stream for inbox notification events (bd-xtahx).
+	StreamInboxEvents = "INBOX_EVENTS"
+
+	// SubjectInboxPrefix is the subject prefix for inbox events.
+	SubjectInboxPrefix = "inbox."
 )
 
 // SubjectForEvent returns the NATS subject for a given event type.
@@ -190,6 +196,20 @@ func EnsureStreams(js nats.JetStreamContext) error {
 		})
 		if err != nil {
 			return fmt.Errorf("create %s stream: %w", StreamConfigEvents, err)
+		}
+	}
+
+	// Inbox events stream (bd-xtahx).
+	if _, err := js.StreamInfo(StreamInboxEvents); err != nil {
+		_, err = js.AddStream(&nats.StreamConfig{
+			Name:     StreamInboxEvents,
+			Subjects: []string{SubjectInboxPrefix + ">"},
+			Storage:  nats.FileStorage,
+			MaxMsgs:  10000,
+			MaxBytes: 100 << 20,
+		})
+		if err != nil {
+			return fmt.Errorf("create %s stream: %w", StreamInboxEvents, err)
 		}
 	}
 

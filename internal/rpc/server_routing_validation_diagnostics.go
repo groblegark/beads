@@ -316,6 +316,15 @@ func (s *Server) executeOperation(req *Request) Response {
 		resp = s.handleDecisionRemind(req)
 	case OpDecisionCancel:
 		resp = s.handleDecisionCancel(req)
+	// Inbox operations (bd-xtahx)
+	case OpInboxPush:
+		resp = s.handleInboxPush(req)
+	case OpInboxList:
+		resp = s.handleInboxList(req)
+	case OpInboxDrain:
+		resp = s.handleInboxDrain(req)
+	case OpInboxMarkDelivered:
+		resp = s.handleInboxMarkDelivered(req)
 	// Mol operations (gt-as9kdm)
 	case OpMolBond:
 		resp = s.handleMolBond(req)
@@ -483,6 +492,11 @@ func (s *Server) executeOperation(req *Request) Response {
 		resp = s.handleHistoryResolveConflicts(req)
 	case OpVersionedDiff:
 		resp = s.handleVersionedDiff(req)
+	// Dirty tracking operations (beads-x1lr)
+	case OpDirtyCount:
+		resp = s.handleDirtyCount(req)
+	case OpDirtyFlush:
+		resp = s.handleDirtyFlush(req)
 	default:
 		return Response{
 			Success: false,

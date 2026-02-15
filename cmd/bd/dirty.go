@@ -1,7 +1,6 @@
 package main
 
 import (
-	"database/sql"
 	"fmt"
 	"os"
 
@@ -33,15 +32,11 @@ var dirtyCountCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
+		ctx := getRootContext()
 		s := getStore()
-		db := s.UnderlyingDB()
-		if db == nil {
-			fmt.Fprintf(os.Stderr, "Error: no underlying database available\n")
-			os.Exit(1)
-		}
 
-		var count int
-		if err := db.QueryRow(`SELECT COUNT(*) FROM dirty_issues`).Scan(&count); err != nil {
+		count, err := s.DirtyCount(ctx)
+		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
 		}
@@ -75,72 +70,34 @@ for manual cleanup or when the daemon is not running.`,
 		s := getStore()
 		dryRun, _ := cmd.Flags().GetBool("dry-run")
 
-		db := s.UnderlyingDB()
-		if db == nil {
-			fmt.Fprintf(os.Stderr, "Error: no underlying database available\n")
-			os.Exit(1)
-		}
-
-		// Get count before flush
-		var beforeCount int
-		if err := db.QueryRow(`SELECT COUNT(*) FROM dirty_issues`).Scan(&beforeCount); err != nil {
+		beforeCount, err := s.DirtyCount(ctx)
+		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error getting dirty count: %v\n", err)
 			os.Exit(1)
 		}
 
 		if dryRun {
-			// Preview: count orphans and already-exported
-			orphanCount := countOrphans(db)
-			exportedCount := countAlreadyExported(db)
-
 			if jsonOutput {
 				outputJSON(map[string]interface{}{
-					"dirty_count":    beforeCount,
-					"orphaned":       orphanCount,
-					"already_exported": exportedCount,
-					"would_remove":   orphanCount + exportedCount,
-					"dry_run":        true,
+					"dirty_count": beforeCount,
+					"dry_run":     true,
 				})
 			} else {
 				fmt.Printf("Dirty issues: %d\n", beforeCount)
-				fmt.Printf("  Orphaned (issue deleted):  %d\n", orphanCount)
-				fmt.Printf("  Already exported:          %d\n", exportedCount)
-				fmt.Printf("  Would remove:              %d\n", orphanCount+exportedCount)
 				fmt.Println("  (dry run — no changes made)")
 			}
 			return
 		}
 
-		// Step 1: Remove orphaned dirty entries
-		orphanQuery := `DELETE FROM dirty_issues WHERE issue_id NOT IN (SELECT id FROM issues)`
-		result, err := db.ExecContext(ctx, orphanQuery)
-		var orphanRemoved int64
+		orphanRemoved, exportRemoved, err := s.FlushStaleDirtyIssues(ctx)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to remove orphaned entries: %v\n", err)
-		} else {
-			orphanRemoved, _ = result.RowsAffected()
+			fmt.Fprintf(os.Stderr, "Error flushing dirty issues: %v\n", err)
+			os.Exit(1)
 		}
-
-		// Step 2: Remove dirty entries for issues already exported with current content
-		exportFlushQuery := `
-			DELETE d FROM dirty_issues d
-			JOIN issues i ON d.issue_id = i.id
-			JOIN export_hashes e ON e.issue_id = i.id
-			WHERE i.content_hash = e.content_hash
-		`
-		result, err = db.ExecContext(ctx, exportFlushQuery)
-		var exportRemoved int64
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to remove already-exported entries: %v\n", err)
-		} else {
-			exportRemoved, _ = result.RowsAffected()
-		}
-
 		totalRemoved := orphanRemoved + exportRemoved
 
-		// Get count after flush
-		var afterCount int
-		if err := db.QueryRow(`SELECT COUNT(*) FROM dirty_issues`).Scan(&afterCount); err != nil {
+		afterCount, err := s.DirtyCount(ctx)
+		if err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: failed to get post-flush count: %v\n", err)
 			afterCount = beforeCount - int(totalRemoved)
 		}
@@ -161,25 +118,6 @@ for manual cleanup or when the daemon is not running.`,
 			fmt.Printf("Dirty issues after:  %d\n", afterCount)
 		}
 	},
-}
-
-// countOrphans counts dirty_issues entries where the issue no longer exists.
-func countOrphans(db *sql.DB) int {
-	var count int
-	_ = db.QueryRow(`SELECT COUNT(*) FROM dirty_issues WHERE issue_id NOT IN (SELECT id FROM issues)`).Scan(&count)
-	return count
-}
-
-// countAlreadyExported counts dirty_issues entries where the export hash matches.
-func countAlreadyExported(db *sql.DB) int {
-	var count int
-	_ = db.QueryRow(`
-		SELECT COUNT(*) FROM dirty_issues d
-		JOIN issues i ON d.issue_id = i.id
-		JOIN export_hashes e ON e.issue_id = i.id
-		WHERE i.content_hash = e.content_hash
-	`).Scan(&count)
-	return count
 }
 
 func init() {

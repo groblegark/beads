@@ -1545,6 +1545,34 @@ func (c *Client) AdminGC(args *AdminGCArgs) (*AdminGCResult, error) {
 	return &result, nil
 }
 
+// ===== Dirty Tracking Client Methods (beads-x1lr) =====
+
+// DirtyCount returns the number of dirty issues.
+func (c *Client) DirtyCount() (*DirtyCountResult, error) {
+	resp, err := c.Execute(OpDirtyCount, struct{}{})
+	if err != nil {
+		return nil, err
+	}
+	var result DirtyCountResult
+	if err := json.Unmarshal(resp.Data, &result); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal dirty_count response: %w", err)
+	}
+	return &result, nil
+}
+
+// DirtyFlush removes stale dirty issues and returns removal counts.
+func (c *Client) DirtyFlush() (*DirtyFlushResult, error) {
+	resp, err := c.Execute(OpDirtyFlush, struct{}{})
+	if err != nil {
+		return nil, err
+	}
+	var result DirtyFlushResult
+	if err := json.Unmarshal(resp.Data, &result); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal dirty_flush response: %w", err)
+	}
+	return &result, nil
+}
+
 // ===== Federation Client Methods (bd-ma0s.4) =====
 
 // FedListRemotes lists configured federation remotes.
@@ -1779,6 +1807,48 @@ func (c *Client) VersionedDiff(args *VersionedDiffArgs) (*VersionedDiffResult, e
 	}
 
 	return &result, nil
+}
+
+// Inbox operations (bd-xtahx)
+
+// InboxPush pushes a message to an agent's inbox via the daemon.
+func (c *Client) InboxPush(args *InboxPushArgs) (*Response, error) {
+	return c.Execute(OpInboxPush, args)
+}
+
+// InboxList lists inbox items for an agent via the daemon.
+func (c *Client) InboxList(args *InboxListArgs) (*InboxListResponse, error) {
+	resp, err := c.Execute(OpInboxList, args)
+	if err != nil {
+		return nil, err
+	}
+
+	var result InboxListResponse
+	if err := json.Unmarshal(resp.Data, &result); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal inbox list response: %w", err)
+	}
+
+	return &result, nil
+}
+
+// InboxDrain drains undelivered inbox items for an agent via the daemon.
+func (c *Client) InboxDrain(args *InboxDrainArgs) (*InboxListResponse, error) {
+	resp, err := c.Execute(OpInboxDrain, args)
+	if err != nil {
+		return nil, err
+	}
+
+	var result InboxListResponse
+	if err := json.Unmarshal(resp.Data, &result); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal inbox drain response: %w", err)
+	}
+
+	return &result, nil
+}
+
+// InboxMarkDelivered marks inbox items as delivered via the daemon.
+func (c *Client) InboxMarkDelivered(args *InboxMarkDeliveredArgs) (*Response, error) {
+	return c.Execute(OpInboxMarkDelivered, args)
 }
 
 // cleanupStaleDaemonArtifacts removes stale daemon.pid file when socket is missing and lock is free.

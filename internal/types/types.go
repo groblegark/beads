@@ -1371,6 +1371,23 @@ func (dp *DecisionPoint) GetOptionsWithAccept() ([]DecisionOption, error) {
 	return options, nil
 }
 
+// InboxItem represents a message in the agent inbox (bd-xtahx).
+// Inbox is the universal async delivery primitive for agent notifications.
+type InboxItem struct {
+	ID          string     `json:"id"`
+	AgentName   string     `json:"agent_name"`              // Target agent (e.g., "mayor", "dog")
+	Rig         string     `json:"rig,omitempty"`           // Target rig (empty = current rig)
+	SessionID   string     `json:"session_id,omitempty"`    // Resolved session for JSONL routing
+	Type        string     `json:"type"`                    // "decision", "alert", "event", "agent", "mail", "gate", "system"
+	Source      string     `json:"source"`                  // Producer identity
+	Content     string     `json:"content"`                 // The message (plain text or pre-formatted)
+	Priority    int        `json:"priority"`                // 0=critical, 2=normal, 4=low
+	CreatedAt   time.Time  `json:"created_at"`
+	DeliveredAt *time.Time `json:"delivered_at,omitempty"`  // NULL until drained to agent
+	ExpiresAt   *time.Time `json:"expires_at,omitempty"`    // NULL = never expires
+	DedupKey    string     `json:"dedup_key"`               // Mandatory: prevents duplicate delivery
+}
+
 // IsCompound returns true if this issue is a compound (bonded from multiple sources).
 func (i *Issue) IsCompound() bool {
 	return len(i.BondedFrom) > 0

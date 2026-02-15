@@ -24,6 +24,7 @@ var migrations = []Migration{
 	{"advice_subscription_fields", migrateAdviceSubscriptionFields},
 	{"blocked_issues_cache", migrateBlockedIssuesCache},
 	{"drop_ready_issues_view", migrateDropReadyIssuesView},
+	{"inbox_table", migrateInboxTable},
 }
 
 // RunMigrations executes all registered migrations in order.
@@ -162,6 +163,49 @@ func migrateDropReadyIssuesView(ctx context.Context, db *sql.DB) error {
 	_, err := db.ExecContext(ctx, "DROP VIEW IF EXISTS ready_issues")
 	// DROP VIEW IF EXISTS is idempotent - no error if view doesn't exist
 	return err
+}
+
+// migrateInboxTable creates the inbox table for agent async message delivery (bd-xtahx).
+func migrateInboxTable(ctx context.Context, db *sql.DB) error {
+	var count int
+	err := db.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM information_schema.tables
+		WHERE table_schema = DATABASE()
+		  AND table_name = 'inbox'
+	`).Scan(&count)
+	if err != nil {
+		return fmt.Errorf("failed to check for inbox table: %w", err)
+	}
+	if count > 0 {
+		return nil
+	}
+
+	_, err = db.ExecContext(ctx, `
+		CREATE TABLE inbox (
+			id VARCHAR(255) PRIMARY KEY,
+			agent_name VARCHAR(255) NOT NULL,
+			rig VARCHAR(255) DEFAULT '',
+			session_id VARCHAR(255) DEFAULT '',
+			type VARCHAR(32) NOT NULL,
+			source VARCHAR(255) NOT NULL,
+			content TEXT NOT NULL,
+			priority INT DEFAULT 2,
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			delivered_at DATETIME,
+			expires_at DATETIME,
+			dedup_key VARCHAR(255) NOT NULL,
+			INDEX idx_inbox_pending (agent_name, delivered_at),
+			INDEX idx_inbox_dedup (dedup_key)
+		)
+	`)
+	if err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "already exists") {
+			return nil
+		}
+		return fmt.Errorf("failed to create inbox table: %w", err)
+	}
+
+	return nil
 }
 
 // migrateAdviceSubscriptionFields adds advice subscription columns to the issues table.

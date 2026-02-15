@@ -404,6 +404,10 @@ func operationToHTTPMethod(operation string) string {
 		// Admin operations (bd-ma0s.5)
 		OpAdminGC: "AdminGC",
 
+		// Dirty tracking operations (beads-x1lr)
+		OpDirtyCount: "DirtyCount",
+		OpDirtyFlush: "DirtyFlush",
+
 		// Federation operations (bd-ma0s.4)
 		OpFedListRemotes:  "FedListRemotes",
 		OpFedSync:         "FedSync",

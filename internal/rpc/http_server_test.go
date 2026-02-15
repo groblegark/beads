@@ -403,6 +403,8 @@ func TestHTTPMappingCompleteness(t *testing.T) {
 		OpBusEmit, OpBusStatus, OpBusHandlers,
 		// Runbook CRUD (od-dv0.4.1)
 		OpRunbookList, OpRunbookGet, OpRunbookSave,
+		// Dirty tracking (beads-x1lr)
+		OpDirtyCount, OpDirtyFlush,
 	}
 
 	t.Run("client_operationToHTTPMethod_covers_all_handled_ops", func(t *testing.T) {

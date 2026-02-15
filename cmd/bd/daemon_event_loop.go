@@ -395,33 +395,16 @@ func gcDeadIssues(ctx context.Context, store storage.Storage, log daemonLogger) 
 // This is called once at daemon startup to prevent large dirty_issues tables
 // from inflating query scan times. (bd-13lq)
 func flushStaleDirtyIssues(ctx context.Context, store storage.Storage, log daemonLogger) {
-	db := store.UnderlyingDB()
-	if db == nil {
+	orphaned, exported, err := store.FlushStaleDirtyIssues(ctx)
+	if err != nil {
+		log.log("Dirty flush: %v", err)
 		return
 	}
-
-	// Step 1: Remove orphaned dirty entries (issue no longer exists)
-	orphanQuery := `DELETE FROM dirty_issues WHERE issue_id NOT IN (SELECT id FROM issues)`
-	result, err := db.ExecContext(ctx, orphanQuery)
-	if err != nil {
-		log.log("Dirty flush: failed to remove orphaned entries: %v", err)
-	} else if n, _ := result.RowsAffected(); n > 0 {
-		log.log("Dirty flush: removed %d orphaned dirty_issues entries", n)
+	if orphaned > 0 {
+		log.log("Dirty flush: removed %d orphaned dirty_issues entries", orphaned)
 	}
-
-	// Step 2: Remove dirty entries for issues already exported with current content
-	// Only applies when export_hashes table is populated
-	exportFlushQuery := `
-		DELETE d FROM dirty_issues d
-		JOIN issues i ON d.issue_id = i.id
-		JOIN export_hashes e ON e.issue_id = i.id
-		WHERE i.content_hash = e.content_hash
-	`
-	result, err = db.ExecContext(ctx, exportFlushQuery)
-	if err != nil {
-		log.log("Dirty flush: failed to remove already-exported entries: %v", err)
-	} else if n, _ := result.RowsAffected(); n > 0 {
-		log.log("Dirty flush: removed %d already-exported dirty_issues entries", n)
+	if exported > 0 {
+		log.log("Dirty flush: removed %d already-exported dirty_issues entries", exported)
 	}
 }
 

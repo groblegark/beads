@@ -473,6 +473,10 @@ func httpMethodToOperation(method string) string {
 		// Admin operations (bd-ma0s.5)
 		"AdminGC": OpAdminGC,
 
+		// Dirty tracking operations (beads-x1lr)
+		"DirtyCount": OpDirtyCount,
+		"DirtyFlush": OpDirtyFlush,
+
 		// History query operations (bd-ma0s.3)
 		"HistoryIssue":            OpHistoryIssue,
 		"HistoryDiff":             OpHistoryDiff,

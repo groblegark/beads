@@ -180,6 +180,16 @@ const (
 	OpFedRemoveRemote = "fed_remove_remote"
 	OpFedAddPeer      = "fed_add_peer"
 
+	// Inbox operations (bd-xtahx)
+	OpInboxPush          = "inbox_push"
+	OpInboxList          = "inbox_list"
+	OpInboxDrain         = "inbox_drain"
+	OpInboxMarkDelivered = "inbox_mark_delivered"
+
+	// Dirty tracking operations (beads-x1lr)
+	OpDirtyCount = "dirty_count"
+	OpDirtyFlush = "dirty_flush"
+
 	// History query operations (bd-ma0s.3)
 	OpHistoryIssue            = "history_issue"
 	OpHistoryDiff             = "history_diff"
@@ -977,6 +987,44 @@ type DecisionCancelResult struct {
 	Reason     string `json:"reason,omitempty"`
 	CanceledBy string `json:"canceled_by,omitempty"`
 	Prompt     string `json:"prompt"`
+}
+
+// Inbox operations (bd-xtahx)
+
+// InboxPushArgs represents arguments for pushing a message to the inbox.
+type InboxPushArgs struct {
+	AgentName string `json:"agent_name"`            // Target agent (e.g., "mayor", "dog")
+	Rig       string `json:"rig,omitempty"`         // Target rig (empty = current)
+	Type      string `json:"type"`                  // "decision", "alert", "event", "agent", "mail", "gate", "system"
+	Source    string `json:"source"`                // Producer identity
+	Content   string `json:"content"`               // The message
+	Priority  int    `json:"priority,omitempty"`    // 0=critical, 2=normal(default), 4=low
+	DedupKey  string `json:"dedup_key,omitempty"`   // Dedup key (auto-generated if empty)
+	TTL       string `json:"ttl,omitempty"`         // Time-to-live (e.g., "10m", "1h")
+}
+
+// InboxListArgs represents arguments for listing inbox items.
+type InboxListArgs struct {
+	AgentName        string `json:"agent_name"`                   // Target agent
+	IncludeDelivered bool   `json:"include_delivered,omitempty"`  // Include already-delivered items
+}
+
+// InboxDrainArgs represents arguments for draining inbox items.
+type InboxDrainArgs struct {
+	AgentName string `json:"agent_name"`           // Target agent
+	SessionID string `json:"session_id,omitempty"` // Session for JSONL routing
+	Reconcile bool   `json:"reconcile,omitempty"`  // Also query DB (for SessionStart)
+}
+
+// InboxMarkDeliveredArgs represents arguments for marking items as delivered.
+type InboxMarkDeliveredArgs struct {
+	IDs []string `json:"ids"` // Item IDs to mark delivered
+}
+
+// InboxListResponse represents a list of inbox items.
+type InboxListResponse struct {
+	Items []*types.InboxItem `json:"items"`
+	Count int                `json:"count"`
 }
 
 // Additional write operations (bd-wj80)

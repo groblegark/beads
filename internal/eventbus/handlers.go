@@ -188,6 +188,33 @@ func (h *DecisionHandler) Handle(ctx context.Context, event *Event, result *Resu
 	return nil
 }
 
+// InboxDrainHandler drains inbox items on SessionStart and PreCompact.
+// Priority 31 (runs after DecisionHandler at 30 during Phase 1 migration; will
+// move to 30 once DecisionHandler is removed in Phase 3).
+type InboxDrainHandler struct{}
+
+func (h *InboxDrainHandler) ID() string          { return "inbox-drain" }
+func (h *InboxDrainHandler) Handles() []EventType { return []EventType{EventSessionStart, EventPreCompact} }
+func (h *InboxDrainHandler) Priority() int        { return 31 }
+
+func (h *InboxDrainHandler) Handle(ctx context.Context, event *Event, result *Result) error {
+	args := []string{"inbox", "drain", "--json"}
+	// On SessionStart, add --reconcile to also check the DB for missed items
+	if event.Type == EventSessionStart {
+		args = append(args, "--reconcile")
+	}
+
+	stdout, _, err := runBDCommand(ctx, event.CWD, args...)
+	if err != nil {
+		// Inbox drain is informational — log and continue (fail-open).
+		return fmt.Errorf("inbox-drain: %w", err)
+	}
+	if stdout != "" {
+		result.Inject = append(result.Inject, stdout)
+	}
+	return nil
+}
+
 // runBDCommand executes a bd subcommand and captures stdout/stderr.
 // The CWD parameter sets the working directory for the subprocess.
 // Falls back to os.TempDir() if the CWD doesn't exist (e.g., remote daemon in K8s).
@@ -248,6 +275,7 @@ func DefaultHandlers() []Handler {
 		&StopDecisionHandler{}, // 15
 		&GateHandler{},         // 20
 		&DecisionHandler{},     // 30
+		&InboxDrainHandler{},   // 31 — alongside DecisionHandler during Phase 1; takes over at 30 in Phase 3
 	}
 	handlers = append(handlers, DefaultOjHandlers()...)
 	handlers = append(handlers, DefaultMailHandlers()...)

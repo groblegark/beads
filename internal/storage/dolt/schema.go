@@ -307,6 +307,24 @@ CREATE TABLE IF NOT EXISTS decision_points (
     CONSTRAINT fk_decision_prior FOREIGN KEY (prior_id) REFERENCES issues(id) ON DELETE SET NULL
 );
 
+-- Inbox table (agent async message delivery - bd-xtahx)
+CREATE TABLE IF NOT EXISTS inbox (
+    id VARCHAR(255) PRIMARY KEY,
+    agent_name VARCHAR(255) NOT NULL,
+    rig VARCHAR(255) DEFAULT '',
+    session_id VARCHAR(255) DEFAULT '',
+    type VARCHAR(32) NOT NULL,
+    source VARCHAR(255) NOT NULL,
+    content TEXT NOT NULL,
+    priority INT DEFAULT 2,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    delivered_at DATETIME,
+    expires_at DATETIME,
+    dedup_key VARCHAR(255) NOT NULL,
+    INDEX idx_inbox_pending (agent_name, delivered_at),
+    INDEX idx_inbox_dedup (dedup_key)
+);
+
 -- Blocked issues cache (materialized view for GetReadyWork performance, bd-b2ts)
 -- Stores issue_id values for all issues that are currently blocked.
 -- Rebuilt on dependency/status changes instead of computing recursive CTE on every read.
