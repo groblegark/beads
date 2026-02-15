@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"strconv"
-	"strings"
 	"syscall"
 	"time"
 
@@ -435,14 +434,10 @@ func runDaemonLoop(interval time.Duration, autoCommit, autoPush, autoPull, local
 		log.Warn("could not remove daemon-error file", "error", err)
 	}
 
-	// Start dolt sql-server if federation mode is enabled and backend is dolt
+	// Start dolt sql-server if federation mode is enabled (backend is always dolt)
 	var doltServer *DoltServerHandle
 	factoryOpts := factory.Options{}
-	if federation && backend != configfile.BackendDolt {
-		log.Warn("federation mode requires dolt backend, ignoring --federation flag")
-		federation = false
-	}
-	if federation && backend == configfile.BackendDolt {
+	if federation {
 		if !DoltServerAvailable() {
 			log.Error("federation mode requires CGO; use pre-built binaries from GitHub releases")
 			return
