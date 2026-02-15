@@ -428,6 +428,12 @@ func operationToHTTPMethod(operation string) string {
 		OpBusEmit:     "BusEmit",
 		OpBusStatus:   "BusStatus",
 		OpBusHandlers: "BusHandlers",
+
+		// Inbox operations (bd-xtahx)
+		OpInboxPush:          "InboxPush",
+		OpInboxList:          "InboxList",
+		OpInboxDrain:         "InboxDrain",
+		OpInboxMarkDelivered: "InboxMarkDelivered",
 	}
 
 	return methodMap[operation]
