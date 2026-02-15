@@ -372,11 +372,11 @@ func hookPreCommit() int {
 		return exitCode
 	}
 
-	// SQLite backend: Use existing sync --flush-only
-	cmd := exec.Command("bd", "sync", "--flush-only", "--no-daemon")
+	// SQLite backend: Export to JSONL
+	cmd := exec.Command("bd", "export")
 	if err := cmd.Run(); err != nil {
 		fmt.Fprintln(os.Stderr, "Warning: Failed to flush bd changes to JSONL")
-		fmt.Fprintln(os.Stderr, "Run 'bd sync --flush-only' manually to diagnose")
+		fmt.Fprintln(os.Stderr, "Run 'bd export' manually to diagnose")
 	}
 
 	// Stage JSONL files
@@ -523,9 +523,9 @@ func updateExportStateCommit(beadsDir, worktreeRoot, doltCommit string) {
 	_ = saveExportState(beadsDir, worktreeRoot, prevState)
 }
 
-// runJSONLExport runs the actual JSONL export via bd sync.
+// runJSONLExport runs the actual JSONL export.
 func runJSONLExport() error {
-	cmd := exec.Command("bd", "sync", "--flush-only", "--no-daemon")
+	cmd := exec.Command("bd", "export")
 	return cmd.Run()
 }
 
@@ -592,11 +592,11 @@ func hookPostMerge(args []string) int {
 		return exitCode
 	}
 
-	// SQLite backend: Use existing sync --import-only
-	cmd := exec.Command("bd", "sync", "--import-only", "--no-git-history", "--no-daemon")
+	// SQLite backend: Import from JSONL
+	cmd := exec.Command("bd", "import")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "Warning: Failed to sync bd changes after merge")
+		fmt.Fprintln(os.Stderr, "Warning: Failed to import bd changes after merge")
 		fmt.Fprintln(os.Stderr, string(output))
 		fmt.Fprintln(os.Stderr, "Run 'bd doctor --fix' to diagnose and repair")
 	}
@@ -804,11 +804,11 @@ func hookPostCheckout(args []string) int {
 		return exitCode
 	}
 
-	// SQLite backend: Use existing sync --import-only
-	cmd := exec.Command("bd", "sync", "--import-only", "--no-git-history", "--no-daemon")
+	// SQLite backend: Import from JSONL
+	cmd := exec.Command("bd", "import")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "Warning: Failed to sync bd changes after checkout")
+		fmt.Fprintln(os.Stderr, "Warning: Failed to import bd changes after checkout")
 		fmt.Fprintln(os.Stderr, string(output))
 		fmt.Fprintln(os.Stderr, "Run 'bd doctor --fix' to diagnose and repair")
 	}

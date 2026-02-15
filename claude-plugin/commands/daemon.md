@@ -33,7 +33,7 @@ Each project runs its own daemon at `.beads/bd.sock` for complete database isola
 - Running one-off commands or scripts
 - Debugging database issues (direct mode is simpler)
 
-**Local-only users:** Direct mode (default without daemon) is perfectly fine. The daemon mainly helps with git sync automation. You can still use `bd sync` manually when needed.
+**Local-only users:** Direct mode (default without daemon) is perfectly fine. The daemon mainly helps with git sync automation.
 
 **Performance note:** For most operations, the daemon provides minimal performance benefit. The main value is automatic JSONL export (5s debounce) and optional git sync (--auto-commit, --auto-push).
 

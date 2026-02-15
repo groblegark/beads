@@ -180,7 +180,7 @@ var hooksCmd = &cobra.Command{
 	Use:     "hooks",
 	GroupID: "setup",
 	Short:   "Manage git hooks for bd auto-sync",
-	Long: `Install, uninstall, or list git hooks that provide automatic bd sync.
+	Long: `Install, uninstall, or list git hooks for bd JSONL management.
 
 The hooks ensure that:
 - pre-commit: Flushes pending changes to JSONL before commit
@@ -193,7 +193,7 @@ The hooks ensure that:
 var hooksInstallCmd = &cobra.Command{
 	Use:   "install",
 	Short: "Install bd git hooks",
-	Long: `Install git hooks for automatic bd sync.
+	Long: `Install git hooks for bd JSONL management.
 
 By default, hooks are installed to .git/hooks/ in the current repository.
 Use --beads to install to .beads/hooks/ (recommended for Dolt backend).
@@ -642,12 +642,11 @@ func runPostMergeHook() int {
 		return 0
 	}
 
-	// Run bd sync --import-only --no-git-history
-	// Use --no-daemon to ensure direct mode (inline import requires local store)
-	cmd := exec.Command("bd", "sync", "--import-only", "--no-git-history", "--no-daemon")
+	// Import JSONL after merge
+	cmd := exec.Command("bd", "import")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "Warning: Failed to sync bd changes after merge")
+		fmt.Fprintln(os.Stderr, "Warning: Failed to import bd changes after merge")
 		fmt.Fprintln(os.Stderr, string(output))
 		fmt.Fprintln(os.Stderr, "")
 		fmt.Fprintln(os.Stderr, "Run 'bd doctor --fix' to diagnose and repair")
@@ -679,7 +678,7 @@ func runPrePushHook(args []string) int {
 		return 0
 	}
 
-	// Skip if bd sync is already in progress (prevents circular error)
+	// Skip if bd export/import is already in progress (prevents circular error)
 	if os.Getenv("BD_SYNC_IN_PROGRESS") != "" {
 		return 0
 	}
@@ -752,12 +751,8 @@ func runPrePushHook(args []string) int {
 		fmt.Fprintln(os.Stderr, "❌ Error: Uncommitted changes detected")
 		fmt.Fprintln(os.Stderr, "")
 		fmt.Fprintln(os.Stderr, "Before pushing, ensure all changes are committed. This includes:")
-		fmt.Fprintln(os.Stderr, "  • bd JSONL updates (run 'bd sync')")
+		fmt.Fprintln(os.Stderr, "  • bd JSONL updates (run 'bd export' then 'git add .beads/')")
 		fmt.Fprintln(os.Stderr, "  • any other modified files (run 'git status' to review)")
-		fmt.Fprintln(os.Stderr, "")
-		fmt.Fprintln(os.Stderr, "Run 'bd sync' to commit these changes:")
-		fmt.Fprintln(os.Stderr, "")
-		fmt.Fprintln(os.Stderr, "  bd sync")
 		fmt.Fprintln(os.Stderr, "")
 		return 1
 	}
@@ -816,12 +811,11 @@ func runPostCheckoutHook(args []string) int {
 		return 0
 	}
 
-	// Run bd sync --import-only --no-git-history
-	// Use --no-daemon to ensure direct mode (inline import requires local store)
-	cmd := exec.Command("bd", "sync", "--import-only", "--no-git-history", "--no-daemon")
+	// Import JSONL after checkout
+	cmd := exec.Command("bd", "import")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "Warning: Failed to sync bd changes after checkout")
+		fmt.Fprintln(os.Stderr, "Warning: Failed to import bd changes after checkout")
 		fmt.Fprintln(os.Stderr, string(output))
 		fmt.Fprintln(os.Stderr, "")
 		fmt.Fprintln(os.Stderr, "Run 'bd doctor --fix' to diagnose and repair")
