@@ -168,26 +168,6 @@ type gateCheckResponse struct {
 	Warnings []string `json:"warnings,omitempty"`
 }
 
-// DecisionHandler injects decision responses on SessionStart and PreCompact.
-// Priority 31 (Phase 3: fallback behind InboxDrainHandler at 30; will be
-// removed in Phase 5 when inbox is the sole delivery path).
-type DecisionHandler struct{}
-
-func (h *DecisionHandler) ID() string              { return "decision" }
-func (h *DecisionHandler) Handles() []EventType     { return []EventType{EventSessionStart, EventPreCompact} }
-func (h *DecisionHandler) Priority() int            { return 31 }
-
-func (h *DecisionHandler) Handle(ctx context.Context, event *Event, result *Result) error {
-	stdout, _, err := runBDCommand(ctx, event.CWD, "decision", "check", "--inject")
-	if err != nil {
-		// --inject mode always exits 0. An error here means process failure.
-		return fmt.Errorf("decision: %w", err)
-	}
-	if stdout != "" {
-		result.Inject = append(result.Inject, stdout)
-	}
-	return nil
-}
 
 // InboxDrainHandler drains inbox items on SessionStart, PreCompact, and Stop.
 // Priority 30 (Phase 3: primary delivery path, replaces DecisionHandler).
@@ -279,8 +259,7 @@ func DefaultHandlers() []Handler {
 		&StopLoopDetector{},    // 14 — must run before StopDecisionHandler to break loops
 		&StopDecisionHandler{}, // 15
 		&GateHandler{},         // 20
-		&InboxDrainHandler{},   // 30 — primary delivery (Phase 3)
-		&DecisionHandler{},     // 31 — fallback (Phase 3); remove in Phase 5
+		&InboxDrainHandler{},   // 30 — sole delivery path (Phase 5)
 	}
 	handlers = append(handlers, DefaultOjHandlers()...)
 	handlers = append(handlers, DefaultMailHandlers()...)

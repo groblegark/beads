@@ -76,9 +76,10 @@ type DecisionResponseSum struct {
 }
 
 func runDecisionCheck(cmd *cobra.Command, args []string) {
-	// Phase 3 deprecation: --inject mode is superseded by inbox drain
+	// Phase 5: --inject mode is a no-op. Decision responses are delivered via inbox.
 	if checkInject {
-		fmt.Fprintf(os.Stderr, "Warning: 'bd decision check --inject' is deprecated; use 'bd inbox drain' instead\n")
+		fmt.Fprintf(os.Stderr, "Warning: 'bd decision check --inject' is deprecated and is now a no-op; use 'bd inbox drain' instead\n")
+		os.Exit(0)
 	}
 
 	// Ensure store is initialized

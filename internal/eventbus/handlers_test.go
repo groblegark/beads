@@ -93,25 +93,6 @@ func TestGateHandlerMetadata(t *testing.T) {
 	}
 }
 
-func TestDecisionHandlerMetadata(t *testing.T) {
-	h := &DecisionHandler{}
-	if h.ID() != "decision" {
-		t.Errorf("expected ID 'decision', got %q", h.ID())
-	}
-	if h.Priority() != 31 {
-		t.Errorf("expected priority 31, got %d", h.Priority())
-	}
-	handles := h.Handles()
-	if len(handles) != 2 {
-		t.Fatalf("expected 2 event types, got %d", len(handles))
-	}
-	expected := map[EventType]bool{EventSessionStart: true, EventPreCompact: true}
-	for _, et := range handles {
-		if !expected[et] {
-			t.Errorf("unexpected event type: %s", et)
-		}
-	}
-}
 
 func TestStopDecisionHandlerMetadata(t *testing.T) {
 	h := &StopDecisionHandler{}
@@ -377,63 +358,6 @@ exit 1
 	}
 }
 
-// ---------------------------------------------------------------------------
-// DecisionHandler.Handle integration tests
-// ---------------------------------------------------------------------------
-
-func TestDecisionHandlerHandle(t *testing.T) {
-	cleanup := setupMockBD(t, `
-case "$1" in
-  decision) printf "Decision response injected"; exit 0;;
-esac
-exit 1
-`)
-	defer cleanup()
-
-	h := &DecisionHandler{}
-	event := &Event{
-		Type: EventSessionStart,
-		CWD:  t.TempDir(),
-	}
-	result := &Result{}
-
-	err := h.Handle(context.Background(), event, result)
-	if err != nil {
-		t.Fatalf("expected no error, got: %v", err)
-	}
-	if len(result.Inject) != 1 {
-		t.Fatalf("expected 1 inject entry, got %d", len(result.Inject))
-	}
-	if result.Inject[0] != "Decision response injected" {
-		t.Errorf("expected inject 'Decision response injected', got %q", result.Inject[0])
-	}
-}
-
-func TestDecisionHandlerHandle_Empty(t *testing.T) {
-	// When bd outputs nothing, result.Inject should remain empty.
-	cleanup := setupMockBD(t, `
-case "$1" in
-  decision) exit 0;;
-esac
-exit 1
-`)
-	defer cleanup()
-
-	h := &DecisionHandler{}
-	event := &Event{
-		Type: EventPreCompact,
-		CWD:  t.TempDir(),
-	}
-	result := &Result{}
-
-	err := h.Handle(context.Background(), event, result)
-	if err != nil {
-		t.Fatalf("expected no error, got: %v", err)
-	}
-	if len(result.Inject) != 0 {
-		t.Errorf("expected 0 inject entries for empty output, got %d: %v", len(result.Inject), result.Inject)
-	}
-}
 
 // ---------------------------------------------------------------------------
 // StopDecisionHandler.Handle integration tests

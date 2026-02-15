@@ -107,6 +107,9 @@ func (s *Server) Start(_ context.Context) error {
 	// Start background decision expiration sweeper
 	s.startDecisionSweeper()
 
+	// Start background inbox item cleanup (bd-xtahx.6)
+	s.startInboxReaper()
+
 	// Ensure cleanup is signaled when this function returns
 	defer close(s.doneChan)
 

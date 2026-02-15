@@ -3494,6 +3494,9 @@ func (s *Server) handleGateClose(req *Request) Response {
 	enrichEvent(&evt, gate)
 	s.emitRichMutation(evt)
 
+	// Gate → inbox bridge (bd-xtahx.6): push notification to waiters and assignee.
+	s.pushGateClosedToInbox(ctx, gate, reason)
+
 	closedGate, _ := store.GetIssue(ctx, gateID)
 	data, _ := json.Marshal(closedGate)
 	return Response{
@@ -3966,6 +3969,57 @@ func (s *Server) pushDecisionResponseToInbox(ctx context.Context, dp *types.Deci
 	if s.bus != nil && s.bus.JetStreamEnabled() {
 		subject := "inbox.agent." + dp.RequestedBy
 		s.bus.PublishRaw(subject, data)
+	}
+}
+
+// pushGateClosedToInbox pushes gate-closed notifications to waiters and assignee.
+// Best-effort: errors are logged but don't fail the close operation. (bd-xtahx.6)
+func (s *Server) pushGateClosedToInbox(ctx context.Context, gate *types.Issue, reason string) {
+	store := s.storage
+	if store == nil {
+		return
+	}
+
+	content := fmt.Sprintf("Gate %s closed: %s", gate.ID, reason)
+	if gate.Title != "" {
+		content = fmt.Sprintf("Gate %s (%s) closed: %s", gate.ID, gate.Title, reason)
+	}
+
+	// Collect unique recipients: assignee + waiters
+	recipients := make(map[string]bool)
+	if gate.Assignee != "" {
+		recipients[gate.Assignee] = true
+	}
+	for _, waiter := range gate.Waiters {
+		if waiter != "" {
+			recipients[waiter] = true
+		}
+	}
+
+	now := time.Now().UTC()
+	for recipient := range recipients {
+		item := &types.InboxItem{
+			ID:        fmt.Sprintf("gate-closed-%s-%s-%d", gate.ID, recipient, now.UnixMilli()),
+			AgentName: recipient,
+			Type:      "gate",
+			Source:    fmt.Sprintf("gate:%s", gate.ID),
+			Content:   content,
+			Priority:  2, // normal
+			CreatedAt: now,
+			DedupKey:  fmt.Sprintf("gate:%s:%s", gate.ID, recipient),
+		}
+
+		if err := store.InboxPush(ctx, item); err != nil {
+			fmt.Fprintf(os.Stderr, "handleGateClose: inbox push to %s failed (non-fatal): %v\n", recipient, err)
+			continue
+		}
+
+		// Publish to JetStream for real-time delivery
+		data, _ := json.Marshal(item)
+		if s.bus != nil && s.bus.JetStreamEnabled() {
+			subject := "inbox.agent." + recipient
+			s.bus.PublishRaw(subject, data)
+		}
 	}
 }
 
