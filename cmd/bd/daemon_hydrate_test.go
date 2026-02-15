@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/steveyegge/beads/internal/testutil"
 	"github.com/steveyegge/beads/internal/testutil/teststore"
 
 	"github.com/steveyegge/beads/internal/configfile"
@@ -101,8 +102,7 @@ func TestHydrateDeployConfig(t *testing.T) {
 }
 
 func TestWaitForStore_ImmediateSuccess(t *testing.T) {
-	// Clear BD_DAEMON_HOST so factory doesn't block direct database access
-	t.Setenv("BD_DAEMON_HOST", "")
+	testutil.ForceDirectMode(t)
 
 	// Set up a Dolt embedded store in a temp directory — should connect immediately
 	tmpDir := t.TempDir()
@@ -112,10 +112,9 @@ func TestWaitForStore_ImmediateSuccess(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Write metadata.json for Dolt embedded backend
+	// Write metadata.json for Dolt backend
 	cfg := configfile.DefaultConfig()
 	cfg.Backend = configfile.BackendDolt
-	cfg.DoltMode = configfile.DoltModeEmbedded
 	if err := cfg.Save(beadsDir); err != nil {
 		t.Fatal(err)
 	}
@@ -144,7 +143,6 @@ func TestWaitForStore_ContextCanceled(t *testing.T) {
 	cfg := &configfile.Config{
 		Backend:        configfile.BackendDolt,
 		Database:       "dolt",
-		DoltMode:       configfile.DoltModeServer,
 		DoltServerHost: "unreachable-host",
 		DoltServerPort: 39999,
 	}

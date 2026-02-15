@@ -9,6 +9,7 @@ import (
 
 	"github.com/steveyegge/beads/internal/rpc"
 	"github.com/steveyegge/beads/internal/storage"
+	"github.com/steveyegge/beads/internal/testutil"
 	"github.com/steveyegge/beads/internal/types"
 )
 
@@ -25,8 +26,7 @@ func TestWatchModeWithDaemonDoesNotPanic(t *testing.T) {
 		t.Skip("skipping test in short mode")
 	}
 
-	// Clear BD_DAEMON_HOST to prevent remote daemon from blocking direct access (bd-srr1)
-	t.Setenv("BD_DAEMON_HOST", "")
+	testutil.ForceDirectMode(t)
 
 	// Save original state
 	origDaemonClient := daemonClient

@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/steveyegge/beads/internal/testutil"
 	"github.com/steveyegge/beads/internal/testutil/teststore"
 
 	"github.com/spf13/cobra"
@@ -32,10 +33,9 @@ func TestDaemonAutoSyncFromYAML(t *testing.T) {
 	testStore := teststore.New(t)
 	defer testStore.Close()
 
-	// Set BEADS_DIR so FindBeadsDir() finds the test directory instead of the real worktree,
-	// and clear BD_DAEMON_HOST so the factory guard doesn't block direct DB access.
+	// Set BEADS_DIR so FindBeadsDir() finds the test directory instead of the real worktree.
 	t.Setenv("BEADS_DIR", beadsDir)
-	t.Setenv("BD_DAEMON_HOST", "")
+	testutil.ForceDirectMode(t)
 
 	// Change to temp directory and reinitialize config
 	t.Chdir(tmpDir)
@@ -86,10 +86,9 @@ func TestDaemonAutoCommitOnlyFromYAML(t *testing.T) {
 	testStore := teststore.New(t)
 	defer testStore.Close()
 
-	// Set BEADS_DIR so FindBeadsDir() finds the test directory instead of the real worktree,
-	// and clear BD_DAEMON_HOST so the factory guard doesn't block direct DB access.
+	// Set BEADS_DIR so FindBeadsDir() finds the test directory instead of the real worktree.
 	t.Setenv("BEADS_DIR", beadsDir)
-	t.Setenv("BD_DAEMON_HOST", "")
+	testutil.ForceDirectMode(t)
 
 	// Change to temp directory and reinitialize config
 	t.Chdir(tmpDir)
@@ -142,10 +141,9 @@ func TestDaemonIndividualSettingsFromYAML(t *testing.T) {
 	testStore := teststore.New(t)
 	defer testStore.Close()
 
-	// Set BEADS_DIR so FindBeadsDir() finds the test directory instead of the real worktree,
-	// and clear BD_DAEMON_HOST so the factory guard doesn't block direct DB access.
+	// Set BEADS_DIR so FindBeadsDir() finds the test directory instead of the real worktree.
 	t.Setenv("BEADS_DIR", beadsDir)
-	t.Setenv("BD_DAEMON_HOST", "")
+	testutil.ForceDirectMode(t)
 
 	// Change to temp directory and reinitialize config
 	t.Chdir(tmpDir)
@@ -194,10 +192,9 @@ func TestDaemonEnvVarOverridesYAML(t *testing.T) {
 	testStore := teststore.New(t)
 	defer testStore.Close()
 
-	// Set BEADS_DIR so FindBeadsDir() finds the test directory instead of the real worktree,
-	// and clear BD_DAEMON_HOST so the factory guard doesn't block direct DB access.
+	// Set BEADS_DIR so FindBeadsDir() finds the test directory instead of the real worktree.
 	t.Setenv("BEADS_DIR", beadsDir)
-	t.Setenv("BD_DAEMON_HOST", "")
+	testutil.ForceDirectMode(t)
 
 	// Change to temp directory and reinitialize config
 	t.Chdir(tmpDir)
@@ -249,10 +246,9 @@ func TestDaemonCLIFlagOverridesYAML(t *testing.T) {
 	testStore := teststore.New(t)
 	defer testStore.Close()
 
-	// Set BEADS_DIR so FindBeadsDir() finds the test directory instead of the real worktree,
-	// and clear BD_DAEMON_HOST so the factory guard doesn't block direct DB access.
+	// Set BEADS_DIR so FindBeadsDir() finds the test directory instead of the real worktree.
 	t.Setenv("BEADS_DIR", beadsDir)
-	t.Setenv("BD_DAEMON_HOST", "")
+	testutil.ForceDirectMode(t)
 
 	// Change to temp directory and reinitialize config
 	t.Chdir(tmpDir)
@@ -308,10 +304,9 @@ func TestDaemonIndividualEnvVarOverridesYAML(t *testing.T) {
 	testStore := teststore.New(t)
 	defer testStore.Close()
 
-	// Set BEADS_DIR so FindBeadsDir() finds the test directory instead of the real worktree,
-	// and clear BD_DAEMON_HOST so the factory guard doesn't block direct DB access.
+	// Set BEADS_DIR so FindBeadsDir() finds the test directory instead of the real worktree.
 	t.Setenv("BEADS_DIR", beadsDir)
-	t.Setenv("BD_DAEMON_HOST", "")
+	testutil.ForceDirectMode(t)
 
 	// Change to temp directory and reinitialize config
 	t.Chdir(tmpDir)

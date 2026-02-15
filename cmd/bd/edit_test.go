@@ -5,6 +5,7 @@ import (
 
 	"github.com/steveyegge/beads/internal/config"
 	"github.com/steveyegge/beads/internal/rpc"
+	"github.com/steveyegge/beads/internal/testutil"
 )
 
 // TestEditForceDirectMode_SkippedWithDaemonHost verifies the fix for bd-bdbt:
@@ -27,7 +28,7 @@ func TestEditForceDirectMode_SkippedWithDaemonHost(t *testing.T) {
 	})
 
 	t.Run("BD_DAEMON_HOST not set - should force direct mode", func(t *testing.T) {
-		t.Setenv("BD_DAEMON_HOST", "")
+		testutil.ForceDirectMode(t)
 		// Also clear config-level daemon-host (may be set in config.yaml) (bd-lkks)
 		config.ResetForTesting()
 		_ = config.Initialize()

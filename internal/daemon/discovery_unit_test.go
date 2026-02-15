@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/steveyegge/beads/internal/testutil"
 )
 
 // Unit tests for discovery.go that run without the integration tag
@@ -394,9 +396,7 @@ func TestDiscoverDaemon_SocketMissing(t *testing.T) {
 }
 
 func TestDiscoverDaemon_SocketExistsButNotListening(t *testing.T) {
-	// Clear BD_DAEMON_HOST to prevent TryConnectAutoWithTimeout from connecting
-	// to a remote daemon instead of testing the local socket path (bd-srr1)
-	t.Setenv("BD_DAEMON_HOST", "")
+	testutil.ForceDirectMode(t)
 	t.Setenv("BD_DAEMON_HTTP_URL", "")
 
 	tmpDir := t.TempDir()
@@ -600,9 +600,7 @@ func TestDiscoverDaemonsLegacy_WithSocketFile(t *testing.T) {
 		t.Skip("skipping daemon discovery test in short mode")
 	}
 
-	// Clear BD_DAEMON_HOST to prevent TryConnectAutoWithTimeout from connecting
-	// to a remote daemon instead of testing the local socket path (bd-srr1)
-	t.Setenv("BD_DAEMON_HOST", "")
+	testutil.ForceDirectMode(t)
 	t.Setenv("BD_DAEMON_HTTP_URL", "")
 
 	tmpDir := t.TempDir()
@@ -718,9 +716,7 @@ func TestDiscoverDaemonsLegacy_NonSocketFile(t *testing.T) {
 }
 
 func TestFindDaemonByWorkspace_WithSocketFile(t *testing.T) {
-	// Clear BD_DAEMON_HOST to prevent TryConnectAutoWithTimeout from connecting
-	// to a remote daemon instead of testing the local socket path (bd-srr1)
-	t.Setenv("BD_DAEMON_HOST", "")
+	testutil.ForceDirectMode(t)
 	t.Setenv("BD_DAEMON_HTTP_URL", "")
 
 	tmpDir := t.TempDir()

@@ -15,6 +15,7 @@ import (
 	"github.com/steveyegge/beads/internal/config"
 	"github.com/steveyegge/beads/internal/configfile"
 	"github.com/steveyegge/beads/internal/git"
+	"github.com/steveyegge/beads/internal/testutil"
 )
 
 func TestDoctorNoBeadsDir(t *testing.T) {
@@ -396,7 +397,7 @@ func TestCheckDatabaseVersionJSONLMode(t *testing.T) {
 	config.Set("storage-backend", "dolt")
 	// Clear daemon-host to prevent remote-daemon-mode short circuit
 	config.Set("daemon-host", "")
-	t.Setenv("BD_DAEMON_HOST", "")
+	testutil.ForceDirectMode(t)
 
 	// Create temporary directory with .beads but no database
 	tmpDir := t.TempDir()
@@ -441,7 +442,7 @@ func TestCheckDatabaseVersionFreshClone(t *testing.T) {
 	config.Set("storage-backend", "dolt")
 	// Clear daemon-host to prevent remote-daemon-mode short circuit
 	config.Set("daemon-host", "")
-	t.Setenv("BD_DAEMON_HOST", "")
+	testutil.ForceDirectMode(t)
 
 	// Create temporary directory with .beads and JSONL but no database
 	// This simulates a fresh clone that needs 'bd init'

@@ -10,6 +10,7 @@ import (
 	"github.com/steveyegge/beads/internal/configfile"
 	"github.com/steveyegge/beads/internal/git"
 	"github.com/steveyegge/beads/internal/storage/dolt"
+	"github.com/steveyegge/beads/internal/testutil"
 )
 
 func TestGetVersionsSince(t *testing.T) {
@@ -373,8 +374,7 @@ func TestAutoMigrateOnVersionBump_NoDatabase(t *testing.T) {
 func TestAutoMigrateOnVersionBump_MigratesVersion(t *testing.T) {
 	// NOTE: Cannot use t.Parallel() because we modify global variables
 
-	// Clear BD_DAEMON_HOST - autoMigrateOnVersionBump is for direct mode only
-	t.Setenv("BD_DAEMON_HOST", "")
+	testutil.ForceDirectMode(t)
 	// Also clear config-level daemon-host (may be set in config.yaml) (bd-lkks)
 	config.ResetForTesting()
 	_ = config.Initialize()
@@ -466,8 +466,7 @@ func TestAutoMigrateOnVersionBump_MigratesVersion(t *testing.T) {
 }
 
 func TestAutoMigrateOnVersionBump_AlreadyMigrated(t *testing.T) {
-	// Clear BD_DAEMON_HOST - autoMigrateOnVersionBump is for direct mode only (bd-lkks)
-	t.Setenv("BD_DAEMON_HOST", "")
+	testutil.ForceDirectMode(t)
 	config.ResetForTesting()
 	_ = config.Initialize()
 	config.Set("daemon-host", "")
