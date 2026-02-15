@@ -105,9 +105,8 @@ dolt:
   statefulSet:
     enabled: false
 
-  # OR connect to an external Dolt sql-server (legacy mode)
+  # OR connect to an external Dolt sql-server (used when statefulSet.enabled=false)
   serverMode:
-    enabled: false
     host: "dolt-sql-server"
     port: 3307
     user: "root"

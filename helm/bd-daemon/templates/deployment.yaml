@@ -65,13 +65,12 @@ spec:
               protocol: TCP
             {{- end }}
           env:
-            # Server mode bootstrap — daemon generates metadata.json from these
-            # env vars and uses waitForStore() to retry Dolt connection.
-            {{- if .Values.dolt.statefulSet.enabled }}
+            # Dolt server connection — daemon always runs in server mode.
             - name: BEADS_DOLT_SERVER_MODE
               value: "1"
             - name: BEADS_DIR
               value: "/home/beads/.beads"
+            {{- if .Values.dolt.statefulSet.enabled }}
             - name: BEADS_DOLT_SERVER_HOST
               value: "{{ include "bd-daemon.dolt.serviceName" . }}"
             - name: BEADS_DOLT_SERVER_PORT
@@ -81,19 +80,16 @@ spec:
                 secretKeyRef:
                   name: {{ include "bd-daemon.dolt.fullname" . }}-root-password
                   key: password
-            {{- else if .Values.dolt.serverMode.enabled }}
-            - name: BEADS_DOLT_SERVER_MODE
-              value: "1"
-            - name: BEADS_DIR
-              value: "/home/beads/.beads"
+            {{- else }}
+            # External Dolt server (serverMode)
             - name: BEADS_DOLT_SERVER_HOST
-              value: {{ .Values.dolt.serverMode.host | quote }}
+              value: {{ .Values.dolt.serverMode.host | default "dolt-sql-server" | quote }}
             - name: BEADS_DOLT_SERVER_PORT
-              value: {{ .Values.dolt.serverMode.port | quote }}
+              value: {{ .Values.dolt.serverMode.port | default 3307 | quote }}
             - name: BEADS_DOLT_SERVER_USER
-              value: {{ .Values.dolt.serverMode.user | quote }}
+              value: {{ .Values.dolt.serverMode.user | default "root" | quote }}
             - name: BEADS_DOLT_SERVER_DATABASE
-              value: {{ .Values.dolt.serverMode.database | quote }}
+              value: {{ .Values.dolt.serverMode.database | default "beads" | quote }}
             {{- if .Values.dolt.serverMode.existingSecret }}
             - name: BEADS_DOLT_PASSWORD
               valueFrom:
@@ -101,9 +97,6 @@ spec:
                   name: {{ .Values.dolt.serverMode.existingSecret }}
                   key: {{ .Values.dolt.serverMode.existingSecretKey | default "dolt-password" }}
             {{- end }}
-            {{- else }}
-            - name: BEADS_DIR
-              value: /data/.beads
             {{- end }}
             # Daemon token for authentication
             {{- if and .Values.externalSecrets.enabled .Values.externalSecrets.daemonToken.remoteRef }}
@@ -168,10 +161,6 @@ spec:
           volumeMounts:
             - name: beads-data
               mountPath: /home/beads/.beads
-            {{- if not .Values.dolt.statefulSet.enabled }}
-            - name: beads-data
-              mountPath: /data
-            {{- end }}
             {{- if .Values.daemon.tls.enabled }}
             - name: tls
               mountPath: /etc/bd-daemon/tls
