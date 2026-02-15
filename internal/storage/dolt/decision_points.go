@@ -37,16 +37,22 @@ func (s *DoltStore) CreateDecisionPoint(ctx context.Context, dp *types.DecisionP
 		parentBeadID = dp.ParentBeadID
 	}
 
+	// Use caller-provided CreatedAt if set, otherwise default to now.
+	createdAt := dp.CreatedAt
+	if createdAt.IsZero() {
+		createdAt = time.Now()
+	}
+
 	// Insert decision point
 	_, err = tx.ExecContext(ctx, `
 		INSERT INTO decision_points (
 			issue_id, prompt, context, options, default_option, selected_option,
 			response_text, rationale, responded_at, responded_by, iteration, max_iterations,
 			prior_id, guidance, urgency, requested_by, parent_bead_id, created_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`, dp.IssueID, dp.Prompt, dp.Context, dp.Options, dp.DefaultOption, dp.SelectedOption,
 		dp.ResponseText, dp.Rationale, dp.RespondedAt, dp.RespondedBy, dp.Iteration, dp.MaxIterations,
-		priorID, dp.Guidance, dp.Urgency, dp.RequestedBy, parentBeadID)
+		priorID, dp.Guidance, dp.Urgency, dp.RequestedBy, parentBeadID, createdAt)
 	if err != nil {
 		return fmt.Errorf("failed to insert decision point: %w", err)
 	}
@@ -269,16 +275,22 @@ func (t *doltTransaction) CreateDecisionPoint(ctx context.Context, dp *types.Dec
 		parentBeadID = dp.ParentBeadID
 	}
 
+	// Use caller-provided CreatedAt if set, otherwise default to now.
+	createdAt := dp.CreatedAt
+	if createdAt.IsZero() {
+		createdAt = time.Now()
+	}
+
 	// Insert decision point
 	_, err = t.tx.ExecContext(ctx, `
 		INSERT INTO decision_points (
 			issue_id, prompt, context, options, default_option, selected_option,
 			response_text, rationale, responded_at, responded_by, iteration, max_iterations,
 			prior_id, guidance, urgency, requested_by, parent_bead_id, created_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`, dp.IssueID, dp.Prompt, dp.Context, dp.Options, dp.DefaultOption, dp.SelectedOption,
 		dp.ResponseText, dp.Rationale, dp.RespondedAt, dp.RespondedBy, dp.Iteration, dp.MaxIterations,
-		priorID, dp.Guidance, dp.Urgency, dp.RequestedBy, parentBeadID)
+		priorID, dp.Guidance, dp.Urgency, dp.RequestedBy, parentBeadID, createdAt)
 	if err != nil {
 		return fmt.Errorf("failed to insert decision point: %w", err)
 	}

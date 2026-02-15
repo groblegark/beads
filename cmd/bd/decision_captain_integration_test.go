@@ -160,15 +160,24 @@ func TestCaptainSweep_ResolvesStaleOnly(t *testing.T) {
 		t.Fatalf("Expected 2 decisions, got %d", resp.Count)
 	}
 
-	// Sweep: resolve decisions older than 30m.
+	// Use the newest decision's CreatedAt as reference to avoid timezone skew
+	// between Go's time.Now() and Dolt's returned timestamps.
+	var newestTime time.Time
+	for _, dr := range resp.Decisions {
+		if dr.Decision != nil && dr.Decision.CreatedAt.After(newestTime) {
+			newestTime = dr.Decision.CreatedAt
+		}
+	}
+
+	// Sweep: resolve decisions that are at least 30m older than the newest.
 	sweepAge := 30 * time.Minute
-	now := time.Now()
 	var swept int
 	for _, dr := range resp.Decisions {
 		if dr.Decision == nil {
 			continue
 		}
-		if now.Sub(dr.Decision.CreatedAt) >= sweepAge {
+		relativeAge := newestTime.Sub(dr.Decision.CreatedAt)
+		if relativeAge >= sweepAge {
 			_, err := client.DecisionResolve(&rpc.DecisionResolveArgs{
 				IssueID:        dr.Decision.IssueID,
 				SelectedOption: "stop",
@@ -205,28 +214,34 @@ func TestCaptainWatch_DetectsNewDecision(t *testing.T) {
 	defer cleanup()
 	defer cancel()
 
-	// Snapshot existing.
+	// Snapshot existing decisions by prompt (IssueID format may differ between
+	// direct store access and RPC round-trip).
 	known := make(map[string]bool)
 	resp, _ := client.DecisionList(&rpc.DecisionListArgs{All: false})
 	for _, dr := range resp.Decisions {
 		if dr.Decision != nil {
-			known[dr.Decision.IssueID] = true
+			known[dr.Decision.Prompt] = true
 		}
 	}
 
 	// Create new.
-	newID := createCaptainTestDecision(t, ctx, store, "Watch detect test", "medium", "agent", standardOpts)
+	createCaptainTestDecision(t, ctx, store, "Watch detect test", "medium", "agent", standardOpts)
 
 	// Poll again.
 	resp, _ = client.DecisionList(&rpc.DecisionListArgs{All: false})
 	var found bool
 	for _, dr := range resp.Decisions {
-		if dr.Decision != nil && !known[dr.Decision.IssueID] && dr.Decision.IssueID == newID {
+		if dr.Decision != nil && dr.Decision.Prompt == "Watch detect test" {
 			found = true
 		}
 	}
 	if !found {
-		t.Error("Watch did not detect new decision")
+		t.Errorf("Watch did not detect new decision; known prompts: %v, got %d decisions", known, resp.Count)
+		for _, dr := range resp.Decisions {
+			if dr.Decision != nil {
+				t.Logf("  decision: prompt=%q issueID=%q", dr.Decision.Prompt, dr.Decision.IssueID)
+			}
+		}
 	}
 }
 
@@ -332,16 +347,23 @@ func TestCaptainAuto_SweepsAndActs(t *testing.T) {
 
 	resp, _ := client.DecisionList(&rpc.DecisionListArgs{All: false})
 
-	now := time.Now()
+	// Use the newest decision's CreatedAt as reference to avoid timezone skew.
+	var newestTime time.Time
+	for _, dr := range resp.Decisions {
+		if dr.Decision != nil && dr.Decision.CreatedAt.After(newestTime) {
+			newestTime = dr.Decision.CreatedAt
+		}
+	}
+
 	sweepAge := 30 * time.Minute
 	var swept, acted int
 	for _, dr := range resp.Decisions {
 		if dr.Decision == nil {
 			continue
 		}
-		age := now.Sub(dr.Decision.CreatedAt)
+		relativeAge := newestTime.Sub(dr.Decision.CreatedAt)
 		var selectID string
-		if age >= sweepAge {
+		if relativeAge >= sweepAge {
 			selectID = autoResolveDecision(standardOpts, "stop")
 			swept++
 		} else {

@@ -61,8 +61,50 @@ on:
 
 #### CLI usage:
 ```bash
+# Run a workflow (opens browser)
 rwx run .rwx/ci.yml --init commit-sha=$(git rev-parse HEAD) --open
+
+# Run and wait for result (blocks until done, returns exit status)
+rwx run .rwx/ci.yml --init commit-sha=$(git rev-parse HEAD) --wait
+
+# Run specific task(s) only
+rwx run .rwx/ci.yml --init commit-sha=$(git rev-parse HEAD) --target test
+
+# Get JSON output (includes RunID for chaining with results/logs)
+rwx run .rwx/ci.yml --init commit-sha=$(git rev-parse HEAD) --wait --output json
+# → {"RunID":"<hex>","RunURL":"https://cloud.rwx.com/mint/...","ResultStatus":"succeeded"}
 ```
+
+#### Getting logs and errors from a run:
+```bash
+# Step 1: Get the run ID (from `rwx run --output json` or from the web UI URL)
+RUN_ID="44c4349c741349888a6ab3fc541bd18d"
+
+# Step 2: Get results — shows pass/fail and lists failed task IDs
+rwx results $RUN_ID
+# Output on failure:
+#   Run result status: failed
+#   # Failed task:
+#   You can pull the logs for this task using `rwx logs <task-id>`
+#   - code.git-clone (task-id: fcc468e0b6c26e6c3a22b3d949d78c22)
+
+# Step 3: Download logs for a specific failed task
+rwx logs <task-id>                              # saves to .rwx/downloads/
+rwx logs <task-id> --output-file /tmp/fail.log  # save to specific file
+rwx logs <task-id> --open                       # download and open immediately
+rwx logs <task-id> --auto-extract               # extract zip (for group tasks)
+
+# Full pipeline: run, check, get error logs
+rwx run .rwx/ci.yml --init commit-sha=$(git rev-parse HEAD) --wait --output json \
+  | jq -r .RunID | xargs rwx results
+```
+
+**Where to find task IDs:**
+- From `rwx results <run-id>` output (shown for failed tasks)
+- From the RWX web UI URL: when viewing a task, the ID is in the URL
+- Group/parent task IDs download a .zip with all child logs; leaf task IDs download a single .log
+
+**Web UI:** `https://cloud.rwx.com/mint/alfred-jean-labs/runs/<run-id>`
 
 #### Cross-workflow dispatch:
 ```bash
@@ -111,12 +153,14 @@ curl -X POST https://api.rwx.com/v1/dispatches \
 
 **Should fix:**
 1. Go version inconsistency — `golang/install` gets `1.25` (latest patch) but `image-toolchain` hardcodes `go1.25.7`. These can diverge.
-2. `build` and `lint` tasks in ci.yml have implicit dependency on `code` via transitive chain through `git-config` → `go-deps` → `code`. Making `use: [code, ...]` explicit would be clearer and safer.
-3. `helm.yml` PR status-checks don't explicitly list tasks — should be `tasks: [helm-lint]` to exclude `helm-publish` from PR runs.
-4. `beads-changes-check` runs unconditionally but is only meaningful for PRs.
 
 **Nice-to-have:**
-5. Add `outputs.artifacts` for coverage.out in ci.yml test task (for trend tracking).
-6. Align `image.yml` build-bd filter with ci.yml's more granular build filter (includes `!cmd/bd/version.go` exclusion).
-7. Document in README-LOCKS.md: when updating Go version, must update ci.yml, image.yml, release.yml, AND .go-version together.
-8. Consider webhook triggers for gastown dispatch (instead of curl to RWX API).
+2. Document in README-LOCKS.md: when updating Go version, must update ci.yml, image.yml, release.yml, AND .go-version together.
+3. Consider webhook triggers for gastown dispatch (instead of curl to RWX API).
+
+**Previously fixed (kept for reference):**
+- ~~`build`/`lint` implicit dep on `code`~~ — now explicit in `use` arrays
+- ~~`helm.yml` PR status-checks~~ — now `tasks: [helm-lint]`
+- ~~`beads-changes-check` unconditional~~ — now `if: ${{ init.trigger == 'pr' }}`
+- ~~coverage.out artifact~~ — added to ci.yml test task
+- ~~image.yml build-bd filter mismatch~~ — aligned with ci.yml filter
