@@ -63,6 +63,8 @@ linters:
       locale: US
 
   exclusions:
+    paths:
+      - examples  # Demo code - not production quality
     rules:
       # G304: File inclusion via variable in tests is safe (test data)
       - path: '_test\.go'

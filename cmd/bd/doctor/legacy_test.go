@@ -575,6 +575,11 @@ func TestCheckFreshClone(t *testing.T) {
 
 			// Create database if needed
 			if tt.hasDatabase {
+				// Create metadata.json so doctor detects SQLite backend (not Dolt default)
+				configPath := filepath.Join(beadsDir, "metadata.json")
+				if err := os.WriteFile(configPath, []byte(`{"backend":"sqlite"}`), 0644); err != nil {
+					t.Fatal(err)
+				}
 				dbPath := filepath.Join(beadsDir, "beads.db")
 				if err := os.WriteFile(dbPath, []byte("fake db"), 0644); err != nil {
 					t.Fatal(err)

@@ -21,13 +21,12 @@ func TestExampleCompiles(t *testing.T) {
 	dbPath := filepath.Join(tmpDir, "test.db")
 
 	// Open storage
-	store, err := beads.NewSQLiteStorage(dbPath)
+	ctx := context.Background()
+	store, err := beads.NewSQLiteStorage(ctx, dbPath)
 	if err != nil {
 		t.Fatalf("Failed to open storage: %v", err)
 	}
 	defer store.Close()
-
-	ctx := context.Background()
 
 	// Create an issue (from example code)
 	newIssue := &beads.Issue{

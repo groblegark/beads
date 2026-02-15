@@ -66,6 +66,7 @@ tasks:
     use: git-config
     filter:
       # List specific directories to avoid version.go cache invalidation
+      - "*.go"               # Root package files (beads.go) needed for self-imports
       - "cmd/bd/*.go"
       - "!cmd/bd/version.go"  # Explicitly exclude version file
       - "cmd/**/*.go"
@@ -83,6 +84,9 @@ tasks:
     use: [git-config, golangci-lint, go-deps]
     filter:
       - "**/*.go"
+      - "**/*.sql"                       # Embedded files referenced by //go:embed
+      - "cmd/bd/templates/**"            # go:embed targets for hooks
+      - "examples/monitor-webui/web/**"  # go:embed targets for webui
       - ".golangci.yml"
       - "go.mod"
       - "go.sum"
@@ -96,6 +100,9 @@ tasks:
       - "**/*_test.go"
       - "go.mod"
       - "go.sum"
+      - "cmd/bd/templates/**"     # go:embed targets for hooks
+      - "**/*.sql"                # go:embed targets for examples
+      - "examples/monitor-webui/web/**"  # go:embed targets for webui
     run: |
       echo "Running tests with parallel execution..."
       go test -v -short -parallel 8 -coverprofile=coverage.out ./... 2>&1 | tee test-output.txt
