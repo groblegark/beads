@@ -81,8 +81,6 @@ for manual cleanup or when the daemon is not running.`,
 			os.Exit(1)
 		}
 
-		backend := s.BackendName()
-
 		// Get count before flush
 		var beforeCount int
 		if err := db.QueryRow(`SELECT COUNT(*) FROM dirty_issues`).Scan(&beforeCount); err != nil {
@@ -124,25 +122,12 @@ for manual cleanup or when the daemon is not running.`,
 		}
 
 		// Step 2: Remove dirty entries for issues already exported with current content
-		var exportFlushQuery string
-		if backend == "sqlite" {
-			exportFlushQuery = `
-				DELETE FROM dirty_issues WHERE issue_id IN (
-					SELECT d.issue_id FROM dirty_issues d
-					JOIN issues i ON d.issue_id = i.id
-					JOIN export_hashes e ON e.issue_id = i.id
-					WHERE i.content_hash = e.content_hash
-				)
-			`
-		} else {
-			// MySQL/Dolt
-			exportFlushQuery = `
-				DELETE d FROM dirty_issues d
-				JOIN issues i ON d.issue_id = i.id
-				JOIN export_hashes e ON e.issue_id = i.id
-				WHERE i.content_hash = e.content_hash
-			`
-		}
+		exportFlushQuery := `
+			DELETE d FROM dirty_issues d
+			JOIN issues i ON d.issue_id = i.id
+			JOIN export_hashes e ON e.issue_id = i.id
+			WHERE i.content_hash = e.content_hash
+		`
 		result, err = db.ExecContext(ctx, exportFlushQuery)
 		var exportRemoved int64
 		if err != nil {

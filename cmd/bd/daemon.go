@@ -101,7 +101,7 @@ Run 'bd daemon --help' to see all subcommands.`,
 		}
 
 		// If auto-commit/auto-push flags weren't explicitly provided, read from config
-		// GH#871: Read from config.yaml first (team-shared), then fall back to SQLite (legacy)
+		// GH#871: Read from config.yaml first (team-shared), then fall back to metadata.json
 		// (skip if --stop, --status, --health, --metrics)
 		if start && !stop && !status && !health && !metrics {
 			// Load auto-commit/push/pull defaults from env vars, config, or sync-branch
@@ -403,7 +403,7 @@ func runDaemonLoop(interval time.Duration, autoCommit, autoPush, autoPull, local
 	// ensures we load config from the right place.
 	beadsDir := beads.FindBeadsDir()
 	if beadsDir == "" {
-		// Fallback: derive from database path (works for SQLite in .beads/)
+		// Fallback: derive from database path
 		beadsDir = filepath.Dir(daemonDBPath)
 	}
 
@@ -413,14 +413,12 @@ func runDaemonLoop(interval time.Duration, autoCommit, autoPush, autoPull, local
 
 	// Server mode bootstrap: generate metadata.json from env vars if missing.
 	// In K8s with env-var-only config, no metadata.json exists yet. Generate
-	// one so the config loading chain (IsDoltServerMode, GetCapabilities, etc.)
-	// works correctly.
+	// one so the config loading chain works correctly.
 	if os.Getenv("BEADS_DOLT_SERVER_MODE") == "1" {
 		if existingCfg, _ := configfile.Load(beadsDir); existingCfg == nil {
 			serverCfg := &configfile.Config{
 				Backend:  configfile.BackendDolt,
 				Database: "dolt",
-				DoltMode: configfile.DoltModeServer,
 			}
 			if h := os.Getenv("BEADS_DOLT_SERVER_HOST"); h != "" {
 				serverCfg.DoltServerHost = h
@@ -446,11 +444,10 @@ func runDaemonLoop(interval time.Duration, autoCommit, autoPush, autoPull, local
 
 	backend := factory.GetBackendFromConfig(beadsDir)
 	if backend == "" {
-		backend = configfile.BackendSQLite
+		backend = configfile.BackendDolt
 	}
 
-	// Daemon is not supported with single-process backends (e.g., embedded Dolt)
-	// Note: Dolt server mode supports multi-process, so check capabilities not backend type
+	// Verify daemon can operate (Dolt via server always supports multi-process)
 	cfg, cfgErr := configfile.Load(beadsDir)
 	if cfgErr == nil && cfg != nil && cfg.GetCapabilities().SingleProcessOnly {
 		errMsg := fmt.Sprintf(`DAEMON NOT SUPPORTED WITH %s BACKEND
@@ -473,55 +470,6 @@ The daemon will now exit.`, strings.ToUpper(backend))
 	// Reset backoff on daemon start (fresh start, but preserve NeedsManualSync hint)
 	if !localMode {
 		ResetBackoffOnDaemonStart(beadsDir)
-	}
-
-	// Check for multiple .db files (ambiguity error) - SQLite only.
-	// Dolt is directory-backed so this check is irrelevant and can be misleading.
-	if backend == configfile.BackendSQLite {
-		matches, err := filepath.Glob(filepath.Join(beadsDir, "*.db"))
-		if err == nil && len(matches) > 1 {
-			// Filter out backup files (*.backup-*.db, *.backup.db)
-			var validDBs []string
-			for _, match := range matches {
-				baseName := filepath.Base(match)
-				// Skip if it's a backup file (contains ".backup" in name)
-				if !strings.Contains(baseName, ".backup") && baseName != "vc.db" {
-					validDBs = append(validDBs, match)
-				}
-			}
-			if len(validDBs) > 1 {
-				errMsg := fmt.Sprintf("Error: Multiple database files found in %s:\n", beadsDir)
-				for _, db := range validDBs {
-					errMsg += fmt.Sprintf("  - %s\n", filepath.Base(db))
-				}
-				errMsg += fmt.Sprintf("\nBeads requires a single canonical database: %s\n", beads.CanonicalDatabaseName)
-				errMsg += "Run 'bd init' to migrate legacy databases or manually remove old databases\n"
-				errMsg += "Or run 'bd doctor' for more diagnostics"
-
-				log.log("%s", errMsg)
-
-				// Write error to file so user can see it without checking logs
-				errFile := filepath.Join(beadsDir, "daemon-error")
-				// nolint:gosec // G306: Error file needs to be readable for debugging
-				if err := os.WriteFile(errFile, []byte(errMsg), 0644); err != nil {
-					log.Warn("could not write daemon-error file", "error", err)
-				}
-
-				return // Use return instead of os.Exit to allow defers to run
-			}
-		}
-	}
-
-	// Validate using canonical name (SQLite only).
-	// Dolt uses a directory-backed store (typically .beads/dolt), so the "beads.db"
-	// basename invariant does not apply.
-	if backend == configfile.BackendSQLite {
-		dbBaseName := filepath.Base(daemonDBPath)
-		if dbBaseName != beads.CanonicalDatabaseName {
-			log.Error("non-canonical database name", "name", dbBaseName, "expected", beads.CanonicalDatabaseName)
-			log.Info("run 'bd init' to migrate to canonical name")
-			return // Use return instead of os.Exit to allow defers to run
-		}
 	}
 
 	log.Info("using database", "path", daemonDBPath)
@@ -666,7 +614,7 @@ The daemon will now exit.`, strings.ToUpper(backend))
 		}
 	}
 
-	// Multi-repo hydration was SQLite-only and has been removed.
+	// Multi-repo hydration has been removed.
 
 	// Validate database fingerprint (skip in local mode - no git available)
 	if localMode {

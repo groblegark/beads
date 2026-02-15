@@ -290,22 +290,10 @@ func checkDaemonHealth(ctx context.Context, store storage.Storage, log daemonLog
 	// Health check 2: Database integrity check
 	// Verify the database is accessible and structurally sound
 	if db := store.UnderlyingDB(); db != nil {
-		if store.BackendName() == "sqlite" {
-			// SQLite: use PRAGMA quick_check for integrity validation
-			var result string
-			if err := db.QueryRowContext(ctx, "PRAGMA quick_check(1)").Scan(&result); err != nil {
-				log.log("Health check: database integrity check failed: %v", err)
-				dbOK = false
-			} else if result != "ok" {
-				log.log("Health check: database integrity issue: %s", result)
-			}
-		} else {
-			// Dolt/MySQL: use simple connectivity check (PRAGMA is invalid SQL)
-			var one int
-			if err := db.QueryRowContext(ctx, "SELECT 1").Scan(&one); err != nil {
-				log.log("Health check: database connectivity check failed: %v", err)
-				dbOK = false
-			}
+		var one int
+		if err := db.QueryRowContext(ctx, "SELECT 1").Scan(&one); err != nil {
+			log.log("Health check: database connectivity check failed: %v", err)
+			dbOK = false
 		}
 	}
 
@@ -376,17 +364,9 @@ func gcDeadIssues(ctx context.Context, store storage.Storage, log daemonLogger) 
 		return
 	}
 
-	backend := store.BackendName()
-
 	// Step 1: Hard-delete tombstoned issues older than 7 days
 	// FK CASCADE will clean up dependencies, events, labels, dirty_issues, etc.
-	var purgeQuery string
-	if backend == "sqlite" {
-		purgeQuery = `DELETE FROM issues WHERE status = 'tombstone' AND deleted_at < datetime('now', '-7 days')`
-	} else {
-		// MySQL/Dolt
-		purgeQuery = `DELETE FROM issues WHERE status = 'tombstone' AND deleted_at < DATE_SUB(NOW(), INTERVAL 7 DAY)`
-	}
+	purgeQuery := `DELETE FROM issues WHERE status = 'tombstone' AND deleted_at < DATE_SUB(NOW(), INTERVAL 7 DAY)`
 	result, err := db.ExecContext(ctx, purgeQuery)
 	if err != nil {
 		log.log("GC: failed to purge old tombstones: %v", err)
@@ -420,8 +400,6 @@ func flushStaleDirtyIssues(ctx context.Context, store storage.Storage, log daemo
 		return
 	}
 
-	backend := store.BackendName()
-
 	// Step 1: Remove orphaned dirty entries (issue no longer exists)
 	orphanQuery := `DELETE FROM dirty_issues WHERE issue_id NOT IN (SELECT id FROM issues)`
 	result, err := db.ExecContext(ctx, orphanQuery)
@@ -433,25 +411,12 @@ func flushStaleDirtyIssues(ctx context.Context, store storage.Storage, log daemo
 
 	// Step 2: Remove dirty entries for issues already exported with current content
 	// Only applies when export_hashes table is populated
-	var exportFlushQuery string
-	if backend == "sqlite" {
-		exportFlushQuery = `
-			DELETE FROM dirty_issues WHERE issue_id IN (
-				SELECT d.issue_id FROM dirty_issues d
-				JOIN issues i ON d.issue_id = i.id
-				JOIN export_hashes e ON e.issue_id = i.id
-				WHERE i.content_hash = e.content_hash
-			)
-		`
-	} else {
-		// MySQL/Dolt: can't reference target table in subquery DELETE
-		exportFlushQuery = `
-			DELETE d FROM dirty_issues d
-			JOIN issues i ON d.issue_id = i.id
-			JOIN export_hashes e ON e.issue_id = i.id
-			WHERE i.content_hash = e.content_hash
-		`
-	}
+	exportFlushQuery := `
+		DELETE d FROM dirty_issues d
+		JOIN issues i ON d.issue_id = i.id
+		JOIN export_hashes e ON e.issue_id = i.id
+		WHERE i.content_hash = e.content_hash
+	`
 	result, err = db.ExecContext(ctx, exportFlushQuery)
 	if err != nil {
 		log.log("Dirty flush: failed to remove already-exported entries: %v", err)
