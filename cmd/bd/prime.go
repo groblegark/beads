@@ -249,7 +249,7 @@ func outputMCPContext(w io.Writer, stealthMode bool) error {
 - **Workflow**: Create beads issue BEFORE writing code, mark in_progress when starting
 - Persistence you don't need beats lost context
 
-Start: Check ` + "`ready`" + ` tool for available work.
+Start: Run ` + "`bd news`" + ` to check for conflicts, then ` + "`bd ready`" + ` for available work.
 `
 	_, _ = fmt.Fprint(w, context)
 	return nil
@@ -383,6 +383,7 @@ bd sync                     # Push to remote
 
 ### Finding Work
 - ` + "`bd ready`" + ` - Show issues ready to work (no blockers)
+- ` + "`bd news`" + ` - Show in-progress work by others (check for conflicts before starting)
 - ` + "`bd list --status=open`" + ` - All open issues
 - ` + "`bd list --status=in_progress`" + ` - Your active work
 - ` + "`bd show <id>`" + ` - Detailed issue view with dependencies
@@ -414,6 +415,7 @@ bd sync                     # Push to remote
 
 **Starting work:**
 ` + "```bash" + `
+bd news            # Check what others are working on (avoid conflicts)
 bd ready           # Find available work
 bd show <id>       # Review issue details
 bd update <id> --status=in_progress  # Claim it
