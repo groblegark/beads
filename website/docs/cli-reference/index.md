@@ -40,7 +40,6 @@ Most frequently used:
 | `bd update` | Update issue fields |
 | `bd close` | Close an issue |
 | `bd ready` | Show unblocked work |
-| ~~`bd sync`~~ | ~~Force sync to git~~ (DEPRECATED -- Dolt syncs automatically) |
 
 ### Issue Management
 
@@ -78,7 +77,6 @@ Most frequently used:
 
 | Command | Description |
 |---------|-------------|
-| ~~`bd sync`~~ | ~~Full sync cycle~~ (DEPRECATED -- Dolt syncs automatically) |
 | `bd export` | Export to JSONL |
 | `bd import` | Import from JSONL |
 | `bd migrate` | Migrate database schema |
@@ -166,7 +164,7 @@ bd blocked
 ### Syncing
 
 ```bash
-# bd sync is DEPRECATED - Dolt handles sync automatically
+# Dolt handles sync automatically
 
 # Manual export (if needed)
 bd export

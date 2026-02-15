@@ -158,18 +158,13 @@ bd blocked
 bd blocked --json
 ```
 
-## bd sync
+## bd export / bd import
 
-:::warning DEPRECATED
-`bd sync` is deprecated. Dolt now handles synchronization automatically. Use `bd export` or `bd import` for manual data transfer when needed.
-:::
-
-~~Force immediate sync to git.~~
+Dolt handles synchronization automatically. Use `bd export` or `bd import` for manual data transfer when needed.
 
 ```bash
-# DEPRECATED - use bd export or bd import instead
-bd export
-bd import -i .beads/issues.jsonl
+bd export                          # Export database to JSONL
+bd import -i .beads/issues.jsonl   # Import from JSONL
 ```
 
 ## bd info

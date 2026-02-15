@@ -53,7 +53,7 @@ bd list
 ```bash
 # Debug timestamp protection during sync
 export BD_DEBUG_SYNC=1
-bd sync
+bd import -i .beads/issues.jsonl
 
 # Example output:
 # [debug] Protected bd-123: local=2024-01-20T10:00:00Z >= incoming=2024-01-20T09:55:00Z
@@ -106,7 +106,7 @@ bd daemon start --foreground
 
 - **Capture debug output**: Redirect stderr to a file for analysis:
   ```bash
-  BD_DEBUG=1 bd sync 2> debug.log
+  BD_DEBUG=1 bd list 2> debug.log
   ```
 
 - **Daemon logs**: `BD_DEBUG_FRESHNESS` output goes to daemon logs, not stderr:
@@ -264,7 +264,7 @@ bd import -i issues.jsonl --orphan-handling resurrect
 
 # Or set as default behavior
 bd config set import.orphan_handling "resurrect"
-bd sync  # Now uses resurrect mode
+bd import -i .beads/issues.jsonl  # Now uses resurrect mode
 ```
 
 **What resurrection does:**
@@ -549,7 +549,7 @@ bd import -i .beads/issues.jsonl
 bd hooks install
 ```
 
-If you disabled auto-sync with `--no-auto-flush` or `--no-auto-import`, remove those flags or use `bd sync` manually.
+If you disabled auto-sync with `--no-auto-flush` or `--no-auto-import`, remove those flags. Dolt handles sync automatically.
 
 ## Ready Work and Dependencies
 
@@ -754,11 +754,7 @@ bd --no-daemon --no-auto-flush --no-auto-import <command>
 - Disables auto-import from JSONL
 - Allows bd to work in network-restricted environments
 
-**Note:** You'll need to manually sync when outside the sandbox:
-```bash
-# After leaving sandbox, sync manually
-bd sync
-```
+**Note:** When outside the sandbox, dolt handles sync automatically.
 
 ---
 
@@ -819,8 +815,7 @@ bd import --force -i .beads/issues.jsonl
 # Step 3: If still blocked, use allow-stale (emergency only)
 bd --allow-stale ready
 
-# Step 4: When back outside sandbox, sync normally
-bd sync
+# Step 4: When back outside sandbox, dolt syncs automatically
 ```
 
 ---

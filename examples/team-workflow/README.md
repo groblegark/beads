@@ -67,7 +67,7 @@ If main isn't protected:
 bd create "Implement feature X" -p 1
 
 # Daemon auto-commits to main
-# (or run 'bd sync' manually)
+# (dolt handles sync automatically)
 
 # Pull to see team's issues
 git pull
@@ -83,7 +83,7 @@ If main is protected:
 bd create "Implement feature X" -p 1
 
 # Daemon commits to beads-metadata branch
-# (or run 'bd sync' manually)
+# (dolt handles sync automatically)
 
 # Push beads-metadata
 git push origin beads-metadata
@@ -224,18 +224,19 @@ Benefits:
 - ✅ No manual intervention
 - ✅ Real-time collaboration
 
-### Manual Sync
+### Manual Export/Import
 
-Sync when you want:
+Export or import when you want:
 
 ```bash
-bd sync  # Export, commit, pull, import, push
+bd export  # Export database changes to JSONL
+bd import  # Import JSONL changes into database
 ```
 
 Benefits:
-- ✅ Full control
-- ✅ Batch updates
-- ✅ Review before push
+- Full control over when JSONL is written
+- Batch updates
+- Review before push
 
 ## Conflict Resolution
 
@@ -318,8 +319,9 @@ A: Turn it off:
 bd config set daemon.auto_commit false
 bd config set daemon.auto_push false
 
-# Sync manually
-bd sync
+# Export/import manually
+bd export
+bd import
 ```
 
 ### Q: Can we use different sync branches per person?
@@ -336,9 +338,11 @@ A: Add to your CI pipeline:
 
 ```bash
 # In .github/workflows/main.yml
-- name: Sync beads issues
+- name: Export and push beads issues
   run: |
-    bd sync
+    bd export
+    git add .beads/issues.jsonl
+    git commit -m "Update beads metadata" || true
     git push origin beads-metadata
 ```
 
@@ -380,10 +384,12 @@ git commit
 
 ### Issue: Issues not syncing
 
-Manually sync:
+Manually export and push:
 
 ```bash
-bd sync
+bd export
+git add .beads/issues.jsonl
+git commit -m "Update beads metadata"
 git push
 ```
 

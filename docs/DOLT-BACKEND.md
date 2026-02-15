@@ -145,11 +145,9 @@ dolt remote add origin file:///path/to/remote
 
 ### Push/Pull
 
-```bash
-# Via bd sync
-bd sync
+Dolt handles push/pull automatically. For direct operations if needed:
 
-# Direct dolt commands (if needed)
+```bash
 cd .beads/dolt
 dolt push origin main
 dolt pull origin main

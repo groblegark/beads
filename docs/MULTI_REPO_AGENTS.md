@@ -230,8 +230,7 @@ bd config get repos.additional
 # Add missing repos
 bd config set repos.additional "~/repo1,~/repo2"
 
-# Force sync
-bd sync
+# Check list
 bd list --json
 ```
 
@@ -304,7 +303,7 @@ bd daemons killall        # Restart all daemons
 
 ### Teams
 - ✅ Commit `.beads/issues.jsonl` to shared repo
-- ✅ Use `bd sync` to ensure changes are committed/pushed
+- ✅ Dolt handles sync automatically
 - ✅ Link related issues across repos with dependencies
 - ❌ Don't gitignore `.beads/` - you lose the git ledger
 
@@ -318,7 +317,7 @@ bd daemons killall        # Restart all daemons
 - ✅ Always use single MCP server (per-project daemons)
 - ✅ Check routing config before filing issues
 - ✅ Use `bd info --json` to verify workspace state
-- ✅ Run `bd sync` at end of session
+- ✅ Dolt handles sync at end of session automatically
 - ❌ Don't assume routing behavior - check config
 
 ## Backward Compatibility

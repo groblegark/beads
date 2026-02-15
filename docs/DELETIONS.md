@@ -115,7 +115,7 @@ The migration:
 2. Creates tombstone entries in `issues.jsonl`
 3. Archives the old file as `deletions.jsonl.migrated`
 
-After migration, run `bd sync` to propagate tombstones to other clones.
+After migration, dolt propagates tombstones to other clones automatically.
 
 ## Troubleshooting
 
@@ -138,7 +138,6 @@ If the issue keeps reappearing, the tombstone may have expired. Re-delete it:
 
 ```bash
 bd delete bd-xxx --force
-bd sync
 ```
 
 ### Tombstones Not Syncing
@@ -151,7 +150,6 @@ grep '"id":"bd-xxx"' .beads/issues.jsonl
 
 # Force export
 bd export --force
-bd sync
 ```
 
 ### Too Many Tombstones

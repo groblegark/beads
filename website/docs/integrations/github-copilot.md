@@ -100,7 +100,7 @@ Quick reference:
 - `bd ready` - Find unblocked work
 - `bd create "Title" --type task --priority 2` - Create issue
 - `bd close <id>` - Complete work
-- `bd export` - Export data (bd sync is deprecated; Dolt syncs automatically)
+- `bd export` - Export data (Dolt syncs automatically)
 ```
 
 ## Troubleshooting
@@ -136,7 +136,7 @@ bd init --quiet
 
 ### What about git hooks?
 
-Git hooks are optional. They auto-sync issues but you can skip them during `bd init`. Note that `bd sync` is deprecated; Dolt handles synchronization automatically. Use `bd export` or `bd import` for manual data transfer.
+Git hooks are optional. They auto-sync issues but you can skip them during `bd init`. Dolt handles synchronization automatically. Use `bd export` or `bd import` for manual data transfer.
 
 ## See Also
 

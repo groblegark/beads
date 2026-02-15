@@ -250,15 +250,14 @@ All changes automatically commit to `beads-sync` branch (if daemon is running wi
 ### Merging to Main (Humans)
 
 ```bash
-# Check what's changed
-bd sync --status
-
 # Option 1: Create pull request
 git push origin beads-sync
 # Then create PR on GitHub/GitLab
 
 # Option 2: Direct merge (if allowed)
-bd sync --merge
+git checkout main
+git merge beads-sync --no-ff
+git push origin main
 ```
 
 ### Benefits
@@ -311,7 +310,7 @@ See [PROTECTED_BRANCHES.md](PROTECTED_BRANCHES.md) for complete setup guide, tro
 **With pre-push hook:**
 - JSONL always reflects database state
 - All workspaces stay synchronized
-- No manual `bd sync` needed
+- No manual sync needed
 
 See [examples/git-hooks/README.md](../examples/git-hooks/README.md) for details.
 
@@ -471,19 +470,15 @@ For the Dolt backend, use `dolt.auto-commit` / `--dolt-auto-commit` to control *
 
 ### Manual Sync
 
+Dolt handles sync automatically. For manual control:
+
 ```bash
-# Force immediate sync (bypass debounce)
-bd sync
+# Force immediate export (bypass debounce)
+bd export -o .beads/issues.jsonl
 
-# What it does:
-# 1. Export pending changes to JSONL
-# 2. Commit to git
-# 3. Pull from remote
-# 4. Import any updates
-# 5. Push to remote
+# Force immediate import
+bd import -i .beads/issues.jsonl
 ```
-
-**ALWAYS run `bd sync` at end of agent sessions** to ensure changes are committed/pushed.
 
 ### Disable Automatic Sync
 
@@ -566,7 +561,7 @@ WARN JSONL timestamp older than database, exporting...
 ```bash
 # Normal after local changes - auto-export handles it
 # If stuck, force export:
-bd sync
+bd export -o .beads/issues.jsonl
 ```
 
 ### Issue: Merge conflicts every time
@@ -596,9 +591,9 @@ grep "issues.jsonl" .gitattributes
 
 **Solutions:**
 ```bash
-# Agent A: Ensure changes were pushed
-bd sync
-git push
+# Agent A: Ensure changes were exported and pushed
+bd export -o .beads/issues.jsonl
+git add .beads/issues.jsonl && git commit -m "Export issues" && git push
 
 # Agent B: Force import
 git pull

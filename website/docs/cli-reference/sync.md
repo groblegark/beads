@@ -8,42 +8,9 @@ sidebar_position: 6
 
 Commands for synchronizing with git.
 
-## bd sync
+## Automatic Sync
 
-:::warning DEPRECATED
-`bd sync` is deprecated. Dolt now handles synchronization automatically. Use `bd export` or `bd import` for manual data transfer when needed. The `bd sync` command will be removed in a future release.
-:::
-
-Full sync cycle: export, commit, push.
-
-```bash
-bd sync [flags]
-```
-
-**What it does:**
-1. Exports database to `.beads/issues.jsonl`
-2. Stages the JSONL file
-3. Commits with auto-generated message
-4. Pushes to remote
-
-**Flags:**
-```bash
---json     JSON output
---dry-run  Preview without changes
-```
-
-**Examples:**
-```bash
-# DEPRECATED - Dolt handles sync automatically
-# Use bd export or bd import instead
-bd export
-bd import -i .beads/issues.jsonl
-```
-
-**When to use:**
-- ~~End of work session~~ No longer needed -- Dolt syncs automatically
-- ~~Before switching branches~~ No longer needed -- Dolt syncs automatically
-- ~~After significant changes~~ No longer needed -- Dolt syncs automatically
+Dolt handles synchronization automatically. No manual sync command is needed. Use `bd export` or `bd import` for manual data transfer when needed.
 
 ## bd export
 
@@ -151,7 +118,7 @@ bd hooks uninstall
 
 ### Dolt-Native Sync (Current)
 
-Dolt now handles synchronization automatically. There is no need to run `bd sync` manually. Data is synchronized natively through Dolt's built-in replication and merge capabilities.
+Dolt handles synchronization automatically. Data is synchronized natively through Dolt's built-in replication and merge capabilities.
 
 ### Legacy Daemon Mode
 
@@ -214,7 +181,7 @@ git pull  # Imports deletions from remote
 
 ## Best Practices
 
-1. **Dolt handles sync automatically** -- manual `bd sync` is no longer needed
+1. **Dolt handles sync automatically** -- no manual sync needed
 2. **Install git hooks** - `bd hooks install`
 3. **Use merge driver** - Avoids manual conflict resolution
 4. **Check sync status** - `bd info` shows daemon/sync state

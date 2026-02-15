@@ -97,7 +97,7 @@ chmod +x .git/hooks/pre-commit .git/hooks/pre-push .git/hooks/post-merge
 Before each commit, the hook runs:
 
 ```bash
-bd sync --flush-only
+bd export
 ```
 
 This:
@@ -112,7 +112,7 @@ The hook is silent on success, fast (no git operations), and safe (fails commit 
 Before each push, the hook:
 
 ```bash
-bd sync --flush-only  # Flush pending changes (if bd available)
+bd export  # Flush pending changes (if bd available)
 git status --porcelain .beads/*.jsonl  # Check for uncommitted changes
 ```
 
@@ -151,7 +151,7 @@ This ensures your local database reflects the merged state. The hook:
 ✅ Database always in sync with git  
 ✅ Automatic collision resolution on merge  
 ✅ Fast and silent operation  
-✅ Optional - manual `bd sync` still works  
+✅ Optional - manual `bd export` / `bd import` still work
 
 ## Uninstall
 

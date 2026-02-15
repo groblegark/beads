@@ -86,7 +86,7 @@ Run `bd prime` for workflow context.
 - `bd ready` - Find unblocked work
 - `bd create "Title" --type task --priority 2` - Create issue
 - `bd close <id>` - Complete work
-- `bd sync` - Sync with git (run at session end)
+- Dolt handles sync with git automatically
 ```
 
 ### Step 5: Restart VS Code
@@ -206,13 +206,13 @@ bd init --quiet
 
 ### Changes not persisting
 
-Run sync at end of session:
+Dolt handles sync automatically. If changes aren't appearing, try a manual export:
 
 ```bash
-bd sync
+bd export -o .beads/issues.jsonl
 ```
 
-Or ask Copilot: "Sync my beads changes to git"
+Or ask Copilot: "Export my beads changes"
 
 ### Organization policies blocking MCP
 

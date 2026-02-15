@@ -60,6 +60,6 @@ git commit -m "Resolved beads merge conflicts"
 
 ## Prevention
 
-- Dolt handles sync automatically (`bd sync` is deprecated)
+- Dolt handles sync automatically
 - Use `bd export` / `bd import` for manual data transfer if needed
 - Avoid concurrent modifications from multiple clones

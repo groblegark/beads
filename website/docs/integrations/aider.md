@@ -63,7 +63,7 @@ bd ready
 ### End Session
 
 ```bash
-# Dolt handles sync automatically - bd sync is deprecated
+# Dolt handles sync automatically
 # Manual export if needed:
 bd export
 ```
@@ -71,7 +71,7 @@ bd export
 ## Best Practices
 
 1. **Keep issues visible** - Aider reads `.beads/issues.jsonl`
-2. **Dolt syncs automatically** -- manual `bd sync` is deprecated; use `bd export` if you need a manual export
+2. **Dolt syncs automatically** -- use `bd export` if you need a manual export
 3. **Use discovered-from** - Track issues found during work
 4. **Document context** - Include descriptions in issues
 

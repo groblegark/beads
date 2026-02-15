@@ -43,7 +43,7 @@ flowchart TD
 
 **JSONL** is the *operational* source of truth—when recovering from database corruption, Beads rebuilds the Dolt database from JSONL files, not directly from Git commits.
 
-This layered model enables recovery: if the database is corrupted but JSONL is intact, run `bd import -i .beads/issues.jsonl` to rebuild. If JSONL is corrupted, recover it from Git history first. Note: `bd sync` is deprecated; Dolt handles synchronization automatically.
+This layered model enables recovery: if the database is corrupted but JSONL is intact, run `bd import -i .beads/issues.jsonl` to rebuild. If JSONL is corrupted, recover it from Git history first. Dolt handles synchronization automatically.
 :::
 
 ### Layer 1: Git Repository
@@ -68,7 +68,7 @@ JSONL (JSON Lines) files store issue data in an append-only format. This is the 
 - Git-mergeable (append-only reduces conflicts)
 - Portable across systems
 - Can be recovered from Git history
-- **Recovery source**: `bd import -i .beads/issues.jsonl` rebuilds Dolt from JSONL (previously `bd sync --import-only`, now deprecated)
+- **Recovery source**: `bd import -i .beads/issues.jsonl` rebuilds Dolt from JSONL
 
 ### Layer 3: Dolt Database
 
@@ -102,7 +102,7 @@ User runs bd list
 
 ### Sync Path
 ```text
-Dolt handles sync automatically (bd sync is deprecated)
+Dolt handles sync automatically
     → JSONL merged
     → Dolt rebuilt if needed
 ```
@@ -110,7 +110,7 @@ Dolt handles sync automatically (bd sync is deprecated)
 ### Sync Modes
 
 :::info
-`bd sync` is deprecated. Dolt now handles synchronization automatically. The import/export commands remain available for manual data transfer and recovery.
+Dolt handles synchronization automatically. The import/export commands remain available for manual data transfer and recovery.
 :::
 
 #### Dolt-Native Sync (Current)
@@ -137,7 +137,7 @@ Exports the Dolt database to JSONL. Use this for manual data transfer or backups
 
 When working across multiple machines or clones, Dolt handles synchronization automatically. However:
 
-1. **Dolt syncs automatically** -- no manual `bd sync` needed when switching machines
+1. **Dolt syncs automatically** -- no manual sync needed when switching machines
 
 2. **Pull before creating new issues**
    ```bash
@@ -168,7 +168,7 @@ For CI/CD pipelines, containers, and single-use scenarios, run commands without 
 
 ```bash
 bd --no-daemon create "CI-generated issue"
-bd --no-daemon export  # Manual export if needed (bd sync is deprecated)
+bd --no-daemon export  # Manual export if needed
 ```
 
 **When to use `--no-daemon`:**

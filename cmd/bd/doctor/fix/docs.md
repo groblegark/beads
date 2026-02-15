@@ -12,7 +12,7 @@ The `cmd/bd/doctor/fix` directory contains automated remediation functions for i
 
 - **Dependency on Core Libraries**: The fix functions use core libraries like `@/internal/deletions` (for reading/writing deletion manifests), `@/internal/types` (for issue data structures), `@/internal/configfile` (for database path resolution), and git operations via `exec.Command`.
 
-- **Data Persistence Points**: Each fix module directly modifies persistent workspace state: deletions manifest, database files, JSONL files, and git branch configuration. Changes are written to disk and persisted in the git repository. The sync fix is unique in that it delegates persistence to `bd export` or `bd sync --import-only` commands.
+- **Data Persistence Points**: Each fix module directly modifies persistent workspace state: deletions manifest, database files, JSONL files, and git branch configuration. Changes are written to disk and persisted in the git repository. The sync fix is unique in that it delegates persistence to `bd export` or `bd import` commands.
 
 - **Deletion Tracking Architecture**: The deletions manifest (`@/internal/deletions/deletions.go`) is an append-only log tracking issue deletions. The fix in `deletions.go` is critical to maintaining the integrity of this log by preventing tombstones from being incorrectly re-added to it after `bd migrate-tombstones` runs.
 
@@ -28,7 +28,7 @@ The `DBJSONLSync()` function fixes synchronization issues between the Dolt datab
    - Counts issues in both database (via SQL query) and JSONL file (via line-by-line JSON parsing)
    - Determines sync direction based on issue counts:
      - If `dbCount > jsonlCount`: DB has newer data → runs `bd export` to sync JSONL
-     - If `jsonlCount > dbCount`: JSONL has newer data → runs `bd sync --import-only` to import
+     - If `jsonlCount > dbCount`: JSONL has newer data → runs `bd import` to import
      - If counts equal but timestamps differ: Uses file modification times to decide direction
    - This replaces the previous unidirectional approach that could leave users stuck when DB was the source of truth
 
@@ -48,12 +48,12 @@ The `DBJSONLSync()` function fixes synchronization issues between the Dolt datab
 
 5. **Command Execution** (lines 106-120):
    - Gets bd binary path safely via `getBdBinary()` to prevent fork bombs in tests
-   - Executes `bd export` or `bd sync --import-only` with workspace directory as working directory
+   - Executes `bd export` or `bd import` with workspace directory as working directory
    - Streams stdout/stderr to user for visibility
 
 **Problem Solved (bd-68e4)**:
 
-Previously, when the database contained more issues than the JSONL export, the doctor would recommend `bd sync --import-only`, which imports JSONL into DB. Since JSONL hadn't changed and the database had newer data, this command was a no-op (0 created, 0 updated), leaving users unable to sync their JSONL file with the database. The bidirectional detection now recognizes this case and runs `bd export` instead.
+Previously, when the database contained more issues than the JSONL export, the doctor would recommend importing JSONL into the DB. Since JSONL hadn't changed and the database had newer data, this command was a no-op (0 created, 0 updated), leaving users unable to sync their JSONL file with the database. The bidirectional detection now recognizes this case and runs `bd export` instead.
 
 ### Core Implementation
 
@@ -121,7 +121,7 @@ The test file covers edge cases and validates the bd-in7q fix:
 The bug occurred because `bd migrate-tombstones` converts deletion records from the legacy `deletions.jsonl` file into inline tombstone entries in `issues.jsonl`. Without the fix, the sequence would be:
 
 1. User runs `bd migrate-tombstones` → creates tombstones in JSONL with `status: "tombstone"`
-2. User runs `bd sync` → triggers `bd doctor hydrate`
+2. Dolt auto-sync triggers `bd doctor hydrate`
 3. `getCurrentJSONLIDs()` was reading ALL issues including tombstones
 4. Comparison logic sees tombstones are no longer in git history commit 0 (before migration)
 5. They're flagged as "deleted" and re-added to deletions manifest with author "bd-doctor-hydrate"

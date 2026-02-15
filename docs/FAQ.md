@@ -216,7 +216,6 @@ Just run any bd command - it will auto-import:
 git pull
 bd ready     # Automatically imports fresh data from git
 bd list      # Also triggers auto-import if needed
-bd sync      # Explicit sync command for manual control
 ```
 
 The auto-import check is fast (<5ms) and only imports when the JSONL file is newer than the database. If you want guaranteed immediate sync without waiting for the next command, use the git hooks (see `examples/git-hooks/`).

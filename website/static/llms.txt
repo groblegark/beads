@@ -24,7 +24,7 @@ bd show bd-42 --json                      # Show details
 bd update bd-42 --status in_progress      # Update status
 bd close bd-42 --reason "Done"            # Close issue
 bd ready --json                           # Show unblocked work
-bd sync                                   # Sync to git
+bd export                                 # Export to JSONL
 ```
 
 ## For AI Agents
@@ -32,7 +32,7 @@ bd sync                                   # Sync to git
 - Always use `--json` for programmatic access
 - Always include `--description` when creating issues
 - Use `--deps discovered-from:<id>` to link found issues
-- Run `bd sync` at end of every session
+- Dolt handles sync automatically; use `bd export` for manual export if needed
 
 ## Key Concepts
 
@@ -48,20 +48,18 @@ bd sync                                   # Sync to git
 Quick fixes for common issues:
 
 - Database Corruption: `git checkout HEAD~1 -- .beads/`
-- Merge Conflicts: Resolve JSONL conflicts, then `bd sync`
+- Merge Conflicts: Resolve JSONL conflicts, then `bd import -i .beads/issues.jsonl`
 - Circular Dependencies: `bd doctor` (diagnose only, NEVER --fix)
-- Sync Failures: `bd sync --import-only`
+- Sync Failures: `bd import -i .beads/issues.jsonl`
 
 Full runbooks: https://steveyegge.github.io/beads/recovery/
 
 ## Session Close Protocol
 
 Before ending any AI session:
-1. `bd sync` - push changes to git
+1. Dolt handles sync automatically
 2. `bd status` - verify clean state
 3. Resolve conflicts before closing
-
-WARNING: Skipping sync causes data loss in multi-agent workflows.
 
 ## Documentation
 

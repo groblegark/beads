@@ -63,7 +63,7 @@ bd show bd-42 --json
 bd create "Found bug in auth" --description="Details..." \
   --deps discovered-from:bd-100 --json
 
-# Dolt handles sync automatically - bd sync is deprecated
+# Dolt handles sync automatically
 # Manual export if needed:
 bd export
 ```

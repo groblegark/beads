@@ -18,7 +18,7 @@ bd setup claude
 
 This installs:
 - **SessionStart hook** - Runs `bd prime` on session start
-- **PreCompact hook** - Runs `bd export` before context compaction (previously `bd sync`, which is now deprecated)
+- **PreCompact hook** - Runs `bd export` before context compaction
 
 ### Manual Setup
 
@@ -91,7 +91,7 @@ bd blocked --json
 ### Syncing
 
 ```bash
-# Dolt handles sync automatically - bd sync is deprecated
+# Dolt handles sync automatically
 # Manual export if needed:
 bd export
 ```
@@ -129,7 +129,7 @@ bd create "Found related bug" \
 ### Sync Before Session End
 
 ```bash
-# Dolt handles sync automatically - bd sync is deprecated
+# Dolt handles sync automatically
 # Manual export if needed:
 bd export
 ```
@@ -167,7 +167,7 @@ bd prime
 ### Changes not syncing
 
 ```bash
-# bd sync is deprecated - Dolt handles sync automatically
+# Dolt handles sync automatically
 # For manual data transfer:
 bd export
 bd import -i .beads/issues.jsonl

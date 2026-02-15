@@ -1,20 +1,20 @@
 ---
 sidebar_position: 5
 title: Sync Failures
-description: Recover from bd sync failures
+description: Recover from sync failures
 ---
 
 # Sync Failures Recovery
 
-:::warning DEPRECATED
-`bd sync` is deprecated. Dolt now handles synchronization automatically. Most sync failures described on this page should no longer occur. If you experience data transfer issues, use `bd export` and `bd import` instead. This page is retained for reference for users still on older versions.
+:::info
+Dolt handles synchronization automatically. Most sync failures described on this page should be rare. If you experience data transfer issues, use `bd export` and `bd import`.
 :::
 
-This runbook helps you recover from `bd sync` failures.
+This runbook helps you recover from sync failures.
 
 ## Symptoms
 
-- `bd sync` hangs or times out
+- Sync hangs or times out
 - Network-related error messages
 - "failed to push" or "failed to pull" errors
 - Daemon not responding
@@ -58,7 +58,7 @@ bd daemon start
 
 **Step 5:** Verify data transfer works
 ```bash
-# bd sync is deprecated - use export/import instead
+# Use export/import for manual data transfer
 bd export
 bd info
 ```

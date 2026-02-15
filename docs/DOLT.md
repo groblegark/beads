@@ -265,7 +265,7 @@ bd doctor --server         # Server mode checks (if applicable)
 2. **Nuclear option (rebuild from JSONL):**
    ```bash
    rm -rf .beads/dolt
-   bd sync                  # Rebuilds from JSONL
+   bd import -i .beads/issues.jsonl  # Rebuilds from JSONL
    ```
 
 3. **Restore from backup:**

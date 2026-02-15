@@ -92,7 +92,7 @@ The `[git]` sync settings below are largely obsolete now that Dolt handles synch
 [git]
 auto_commit = true            # DEPRECATED: Auto-commit on sync (Dolt handles this)
 auto_push = true              # DEPRECATED: Auto-push on sync (Dolt handles this)
-commit_message = "bd sync"    # DEPRECATED: Default commit message
+commit_message = "beads auto"  # Default commit message for Dolt sync
 ```
 
 ### Hooks

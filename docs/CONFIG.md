@@ -34,7 +34,7 @@ Tool-level settings you can configure:
 | `sandbox` | `--sandbox` | `BD_SANDBOX` | `false` | Sandbox mode for CI/test isolation |
 | `no-auto-flush` | `--no-auto-flush` | `BD_NO_AUTO_FLUSH` | `false` | Disable auto JSONL export |
 | `no-auto-import` | `--no-auto-import` | `BD_NO_AUTO_IMPORT` | `false` | Disable auto JSONL import |
-| `no-push` | `--no-push` | `BD_NO_PUSH` | `false` | Skip pushing to remote in bd sync |
+| `no-push` | `--no-push` | `BD_NO_PUSH` | `false` | Skip pushing to remote during sync |
 | `sync.mode` | - | `BD_SYNC_MODE` | `git-portable` | Sync mode (see below) |
 | `sync.export_on` | - | `BD_SYNC_EXPORT_ON` | `push` | When to export: `push`, `change` |
 | `sync.import_on` | - | `BD_SYNC_IMPORT_ON` | `pull` | When to import: `pull`, `change` |
@@ -421,7 +421,7 @@ bd config set auto_export.error_policy "best-effort"
 
 **Context-specific behavior:**
 
-User-initiated exports (`bd sync`, manual export commands) use `export.error_policy` (default: `strict`).
+User-initiated exports (`bd export` and other manual export commands) use `export.error_policy` (default: `strict`).
 
 Auto-exports (daemon background sync) use `auto_export.error_policy` (default: `best-effort`), falling back to `export.error_policy` if not set.
 
@@ -471,8 +471,8 @@ bd config set import.orphan_handling "allow"
 # Override config for a single import
 bd import -i issues.jsonl --orphan-handling strict
 
-# Auto-import (sync) uses config value
-bd sync  # Respects import.orphan_handling setting
+# Auto-import uses config value automatically
+bd import -i .beads/issues.jsonl  # Respects import.orphan_handling setting
 ```
 
 **When to use each mode:**
@@ -492,7 +492,7 @@ bd config set sync.branch beads-sync
 
 # Enable mass deletion protection (optional, default: false)
 # When enabled, if >50% of issues vanish during a merge AND more than 5
-# issues existed before the merge, bd sync will:
+# issues existed before the merge, dolt will:
 # 1. Show forensic info about vanished issues
 # 2. Prompt for confirmation before pushing
 bd config set sync.require_confirmation_on_mass_delete "true"

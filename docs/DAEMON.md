@@ -57,7 +57,7 @@ bd info --json | grep daemon
 |----------|---------|
 | **Multi-agent workflows** | Prevents database locking conflicts |
 | **Team collaboration** | Auto-syncs JSONL to git in background |
-| **Long coding sessions** | Changes saved even if you forget `bd sync` |
+| **Long coding sessions** | Changes saved automatically |
 | **Real-time monitoring** | Enables `bd watch` and status updates |
 
 ### When to Use Sandbox/Isolation Mode

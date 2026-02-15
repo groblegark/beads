@@ -36,7 +36,7 @@ The `bd daemon` is a background process that provides automatic synchronization 
 
 | Goal | How Daemon Achieves It | Value |
 |------|------------------------|-------|
-| **Data safety** | Auto-exports changes to JSONL (500ms debounce) | Users don't lose work if they forget `bd sync` |
+| **Data safety** | Auto-exports changes to JSONL (500ms debounce) | Users don't lose work (changes saved automatically) |
 | **Multi-agent coordination** | Single point of database access via RPC | Prevents database locking conflicts |
 | **Team collaboration** | Auto-commit/push in background | Changes reach remote without manual intervention |
 

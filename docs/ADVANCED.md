@@ -168,7 +168,7 @@ When agents discover duplicate issues, they should:
 Git worktrees share the same `.git` directory and thus share the same `.beads` database. The daemon doesn't know which branch each worktree has checked out, which can cause it to commit/push to the wrong branch.
 
 **What you lose without daemon mode:**
-- **Auto-sync** - No automatic commit/push of changes (use `bd sync` manually)
+- **Auto-sync** - No automatic commit/push of changes (use `bd export` manually)
 - **MCP server** - The beads-mcp server requires daemon mode for multi-repo support
 - **Background watching** - No automatic detection of remote changes
 

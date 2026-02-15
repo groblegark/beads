@@ -163,7 +163,7 @@ bd ready  # Daemon auto-syncs to beads-sync branch
 cd feature-worktree
 bd create "Implement feature X" -t feature -p 1
 bd ready  # Uses direct mode automatically
-bd sync   # Manual sync when needed
+# Dolt handles sync automatically
 ```
 
 ### Legacy: Explicit Daemon Disable
@@ -485,7 +485,7 @@ export BEADS_DIR=~/my-project-beads/.beads
 # All bd commands now use the separate repo
 bd create "My task" -t task
 bd list
-bd sync  # commits to ~/my-project-beads, pushes there
+# Dolt handles sync automatically, commits to ~/my-project-beads
 ```
 
 ### Making It Permanent
@@ -513,7 +513,7 @@ BEADS_DIR=~/my-project-beads/.beads exec bd "$@"
 
 When `BEADS_DIR` points to a different git repository than your current directory:
 
-1. `bd sync` detects "External BEADS_DIR"
+1. Dolt detects "External BEADS_DIR"
 2. Git operations (add, commit, push, pull) target the beads repo
 3. Your code repository is never touched
 

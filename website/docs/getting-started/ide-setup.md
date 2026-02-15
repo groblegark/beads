@@ -19,7 +19,7 @@ bd setup claude
 
 This installs:
 - **SessionStart hook** - Runs `bd prime` when Claude Code starts
-- **PreCompact hook** - Ensures `bd export` before context compaction (`bd sync` is deprecated)
+- **PreCompact hook** - Ensures `bd export` before context compaction
 
 **How it works:**
 1. SessionStart hook runs `bd prime` automatically

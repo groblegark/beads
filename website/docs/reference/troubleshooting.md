@@ -96,13 +96,13 @@ bd daemons killall
 ## Sync Issues
 
 :::info
-`bd sync` is deprecated. Dolt now handles synchronization automatically. Use `bd export` or `bd import` for manual data transfer.
+Dolt handles synchronization automatically. Use `bd export` or `bd import` for manual data transfer.
 :::
 
 ### Changes not syncing
 
 ```bash
-# bd sync is deprecated - Dolt handles sync automatically
+# Dolt handles sync automatically
 # For manual data transfer, use:
 bd export
 bd import -i .beads/issues.jsonl

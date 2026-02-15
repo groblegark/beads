@@ -124,7 +124,7 @@ bd info  # Should show matching versions
 ### Sync not happening
 
 ```bash
-# bd sync is DEPRECATED - Dolt handles sync automatically
+# Dolt handles sync automatically
 # Use export/import for manual data transfer:
 bd export
 bd import -i .beads/issues.jsonl

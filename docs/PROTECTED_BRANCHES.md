@@ -77,11 +77,14 @@ The daemon will automatically commit issue changes to the `beads-sync` branch.
 **3. When ready, merge to main:**
 
 ```bash
-# Check what's changed
-bd sync --status
+# Push the sync branch
+git push origin beads-sync
 
-# Merge to main (creates a pull request or direct merge)
-bd sync --merge
+# Create a pull request on GitHub/GitLab/etc.
+# Or merge directly if you have push access:
+git checkout main
+git merge beads-sync --no-ff
+git push origin main
 ```
 
 That's it! The complete workflow is described below.
@@ -223,22 +226,24 @@ All changes are automatically committed to the `beads-sync` branch by the daemon
 
 ```bash
 # See what's changed on the sync branch
-bd sync --status
+git log main..beads-sync --oneline
 ```
 
-This shows the diff between `beads-sync` and `main` (or your current branch).
+This shows the commits on `beads-sync` that haven't been merged to `main` yet.
 
-**Manual commit (if not using daemon):**
+**Manual export (if not using daemon):**
 
 ```bash
-bd sync --flush-only  # Export to JSONL and commit to sync branch
+bd export -o .beads/issues.jsonl  # Export database to JSONL
 ```
 
 **Pull changes from remote:**
 
 ```bash
 # Pull updates from other collaborators
-bd sync --no-push
+git fetch origin beads-sync
+git checkout beads-sync && git pull && git checkout -
+bd import -i .beads/issues.jsonl
 ```
 
 This pulls changes from the remote sync branch and imports them to your local database.
@@ -269,16 +274,13 @@ If you have push access to `main`:
 
 ```bash
 # Check what will be merged
-bd sync --merge --dry-run
+git log main..beads-sync --oneline
 
 # Merge sync branch to main
-bd sync --merge
-
-# This will:
-# - Switch to main branch
-# - Merge beads-sync with --no-ff (creates merge commit)
-# - Push to remote
-# - Import merged changes to database
+git checkout main
+git merge beads-sync --no-ff
+git push origin main
+bd import -i .beads/issues.jsonl
 ```
 
 **Safety checks:**
@@ -292,7 +294,7 @@ bd sync --merge
 If you encounter conflicts during merge:
 
 ```bash
-# bd sync --merge will detect conflicts and show:
+# git merge will detect conflicts and show:
 Error: Merge conflicts detected
 Conflicting files:
   .beads/issues.jsonl
@@ -347,7 +349,7 @@ This happens if you created the sync branch independently. Merge with `--allow-u
 git merge beads-sync --allow-unrelated-histories --no-ff
 ```
 
-Or use `bd sync --merge` which handles this automatically.
+Or use `git merge beads-sync --allow-unrelated-histories --no-ff`.
 
 ### "worktree already exists"
 
@@ -412,7 +414,8 @@ Ensure all clones are configured the same way:
 bd config get sync.branch  # Should be the same (e.g., beads-sync)
 
 # Pull latest changes
-bd sync --no-push
+git fetch origin beads-sync
+bd import -i .beads/issues.jsonl
 
 # Check daemon is running
 bd daemon status
@@ -479,11 +482,11 @@ There's no "right" answer - choose what fits your team.
 
 ### Can I review changes before merging?
 
-Yes! Use `bd sync --status` to see what's changed:
+Yes! Use git to see what's changed:
 
 ```bash
-bd sync --status
-# Shows diff between beads-sync and main
+git log main..beads-sync --oneline
+# Shows commits on beads-sync not yet merged to main
 ```
 
 Or create a pull request and review on GitHub/GitLab.
@@ -510,13 +513,13 @@ git worktree remove .git/beads-worktrees/beads-sync
 bd config set sync.branch ""
 ```
 
-### Does this work with `bd sync`?
+### How do I check status and merge?
 
-Yes! `bd sync` works normally and includes special commands for the merge workflow:
+Dolt handles sync automatically. For the merge workflow, use standard git commands:
 
-- `bd sync --status` - Show diff between branches
-- `bd sync --merge` - Merge sync branch to main
-- `bd sync --merge --dry-run` - Preview merge
+- `git log main..beads-sync --oneline` - Show commits not yet merged
+- `git checkout main && git merge beads-sync --no-ff` - Merge sync branch to main
+- `git diff main..beads-sync` - Preview what will be merged
 
 ### Can AI agents merge automatically?
 
@@ -527,7 +530,8 @@ However, if you want fully automated sync:
 ```bash
 # WARNING: This bypasses branch protection!
 bd daemon start --auto-commit --auto-push
-bd sync --merge  # Run periodically (e.g., via cron)
+# Periodically merge (e.g., via cron):
+git checkout main && git merge beads-sync --no-ff && git push origin main
 ```
 
 ### What if I forget to merge for a long time?
@@ -535,7 +539,9 @@ bd sync --merge  # Run periodically (e.g., via cron)
 No problem! The sync branch accumulates all changes. When you eventually merge:
 
 ```bash
-bd sync --merge
+git checkout main
+git merge beads-sync --no-ff
+git push origin main
 ```
 
 All accumulated changes will be merged at once. Git history will show the full timeline.
@@ -564,15 +570,16 @@ jobs:
         run: |
           curl -fsSL https://raw.githubusercontent.com/steveyegge/beads/main/scripts/install.sh | bash
 
-      - name: Pull changes
+      - name: Pull and import changes
         run: |
           git fetch origin beads-sync
-          bd sync --no-push
+          git checkout beads-sync && git pull && git checkout main
+          bd import -i .beads/issues.jsonl
 
       - name: Merge to main (if changes)
         run: |
-          if bd sync --status | grep -q 'ahead'; then
-            bd sync --merge
+          if git log main..beads-sync --oneline | grep -q '.'; then
+            git merge beads-sync --no-ff
             git push origin main
           fi
 ```

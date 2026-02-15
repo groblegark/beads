@@ -82,7 +82,7 @@ bd setup junie --remove
 
 - `bd prime` - Get full workflow context
 - `bd ready` - Find unblocked work
-- `bd sync` - Sync changes to git (run at session end)
+- `bd export` - Export database changes to JSONL (dolt handles sync automatically)
 
 ## License
 

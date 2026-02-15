@@ -64,10 +64,10 @@ Check what's been committed:
 git log beads-metadata --oneline | head -5
 
 # View diff between main and sync branch
-bd sync --status
+git diff main..beads-metadata -- .beads/
 ```
 
-### 4. Manual Sync (Without Daemon)
+### 4. Manual Export (Without Daemon)
 
 If you're not using the daemon:
 
@@ -76,8 +76,8 @@ If you're not using the daemon:
 bd create "Fix bug in login" -t bug -p 0
 bd update bd-XXXXX --status closed
 
-# Manually flush to sync branch
-bd sync --flush-only
+# Manually export to JSONL (dolt handles sync automatically)
+bd export
 
 # Verify commit
 git log beads-metadata -1
@@ -105,17 +105,14 @@ bd import  # Import merged changes to database
 Option 2: Direct merge (if you have push access):
 
 ```bash
-# Preview merge
-bd sync --merge --dry-run
+# Merge beads-metadata into main
+git checkout main
+git pull origin main
+git merge beads-metadata
+git push origin main
 
-# Perform merge
-bd sync --merge
-
-# This will:
-# - Merge beads-metadata into main
-# - Create merge commit
-# - Push to origin
-# - Import merged changes
+# Import merged changes into database
+bd import
 ```
 
 ### 6. Multi-Clone Sync
@@ -125,12 +122,13 @@ If you have multiple clones or agents:
 ```bash
 # Clone 1: Create issue
 bd create "New feature" -t feature -p 1
-bd sync --flush-only  # Commit to beads-metadata
+bd export  # Export to JSONL on beads-metadata
 git push origin beads-metadata
 
 # Clone 2: Pull changes
 git fetch origin beads-metadata
-bd sync --no-push  # Pull from sync branch and import
+git merge origin/beads-metadata
+bd import  # Import JSONL into database
 bd list  # See the new feature issue
 ```
 
@@ -197,7 +195,7 @@ my-project/
 
 ### For Humans
 
-- **Review before merging:** Use `bd sync --status` to see what changed
+- **Review before merging:** Use `git diff main..beads-metadata -- .beads/` to see what changed
 - **Batch merges:** Don't need to merge after every issue - merge when convenient
 - **PR descriptions:** Link to specific issues in PR body for context
 
@@ -205,7 +203,7 @@ my-project/
 
 - **No workflow changes:** Agents use `bd create`, `bd update`, etc. as normal
 - **Let daemon handle it:** With `--auto-commit`, agents don't think about sync
-- **Session end:** Run `bd sync` at end of session to ensure everything is committed
+- **Session end:** Run `bd export` at end of session to ensure everything is flushed to JSONL
 
 ### Troubleshooting
 
@@ -278,4 +276,4 @@ jobs:
 
 - [docs/PROTECTED_BRANCHES.md](../../docs/PROTECTED_BRANCHES.md) - Complete guide
 - [AGENTS.md](../../AGENTS.md) - Agent integration instructions
-- [commands/sync.md](../../claude-plugin/commands/sync.md) - `bd sync` command reference
+- [commands/export.md](../../claude-plugin/commands/export.md) - `bd export` command reference
