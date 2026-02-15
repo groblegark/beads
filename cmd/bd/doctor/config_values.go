@@ -261,16 +261,6 @@ func checkYAMLConfigValues(repoPath string) []string {
 		}
 	}
 
-	// Validate sync-branch (should be a valid git branch name if set)
-	if v.IsSet("sync-branch") {
-		branch := v.GetString("sync-branch")
-		if branch != "" {
-			if !isValidBranchName(branch) {
-				issues = append(issues, fmt.Sprintf("sync-branch: %q is not a valid git branch name", branch))
-			}
-		}
-	}
-
 	// Validate routing paths exist if set
 	issues = append(issues, validateRoutingPaths(v)...)
 
@@ -415,15 +405,6 @@ func checkDatabaseConfigValues(repoPath string) []string {
 			case "open", "in_progress", "blocked", "closed":
 				issues = append(issues, fmt.Sprintf("status.custom: %q conflicts with built-in status", status))
 			}
-		}
-	}
-
-	// Check sync.branch if stored in database (legacy location)
-	var syncBranch string
-	err = db.QueryRow("SELECT value FROM config WHERE key = 'sync.branch'").Scan(&syncBranch)
-	if err == nil && syncBranch != "" {
-		if !isValidBranchName(syncBranch) {
-			issues = append(issues, fmt.Sprintf("sync.branch (database): %q is not a valid git branch name", syncBranch))
 		}
 	}
 

@@ -231,89 +231,11 @@ func CheckGitSyncSetup(path string) DoctorCheck {
 // sync-branch is configured. Missing auto-sync slows down agent workflows.
 // Skipped in remote daemon mode since auto-sync is configured on the remote.
 func CheckDaemonAutoSync(path string) DoctorCheck {
-	if rpc.GetDaemonHost() != "" {
-		return DoctorCheck{
-			Name:   "Daemon Auto-Sync",
-			Status: StatusOK,
-			Message: "N/A (remote daemon mode)",
-		}
-	}
-
-	_, beadsDir := getBackendAndBeadsDir(path)
-	socketPath := filepath.Join(beadsDir, "bd.sock")
-
-	// Check if daemon is running
-	if _, err := os.Stat(socketPath); os.IsNotExist(err) {
-		return DoctorCheck{
-			Name:    "Daemon Auto-Sync",
-			Status:  StatusOK,
-			Message: "Daemon not running (will use defaults on next start)",
-		}
-	}
-
-	// Check if sync-branch is configured
-	ctx := context.Background()
-	store, err := factory.NewFromConfigWithOptions(ctx, beadsDir, factory.Options{ReadOnly: true, AllowWithRemoteDaemon: true})
-	if err != nil {
-		return DoctorCheck{
-			Name:    "Daemon Auto-Sync",
-			Status:  StatusOK,
-			Message: "Could not check config (database unavailable)",
-		}
-	}
-	defer func() { _ = store.Close() }()
-
-	syncBranch, _ := store.GetConfig(ctx, "sync.branch")
-	if syncBranch == "" {
-		return DoctorCheck{
-			Name:    "Daemon Auto-Sync",
-			Status:  StatusOK,
-			Message: "No sync-branch configured (auto-sync not applicable)",
-		}
-	}
-
-	// Sync-branch is configured - check daemon's auto-commit/auto-push status
-	client, err := rpc.TryConnectAuto(socketPath)
-	if err != nil || client == nil {
-		return DoctorCheck{
-			Name:    "Daemon Auto-Sync",
-			Status:  StatusWarning,
-			Message: "Could not connect to daemon to check auto-sync status",
-		}
-	}
-	defer func() { _ = client.Close() }()
-
-	status, err := client.Status()
-	if err != nil {
-		return DoctorCheck{
-			Name:    "Daemon Auto-Sync",
-			Status:  StatusWarning,
-			Message: "Could not get daemon status",
-			Detail:  err.Error(),
-		}
-	}
-
-	if !status.AutoCommit || !status.AutoPush {
-		var missing []string
-		if !status.AutoCommit {
-			missing = append(missing, "auto-commit")
-		}
-		if !status.AutoPush {
-			missing = append(missing, "auto-push")
-		}
-		return DoctorCheck{
-			Name:    "Daemon Auto-Sync",
-			Status:  StatusWarning,
-			Message: fmt.Sprintf("Daemon running without %v (slows agent workflows)", missing),
-			Detail:  "With sync-branch configured, auto-commit and auto-push should be enabled",
-			Fix:     "Restart daemon: bd daemon stop && bd daemon start",
-		}
-	}
-
+	// sync-branch config key removed; auto-sync check is no longer applicable
 	return DoctorCheck{
 		Name:    "Daemon Auto-Sync",
 		Status:  StatusOK,
-		Message: "Auto-commit and auto-push enabled",
+		Message: "No sync-branch configured (auto-sync not applicable)",
 	}
 }
 

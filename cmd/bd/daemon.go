@@ -1028,10 +1028,6 @@ func loadDaemonAutoSettings(cmd *cobra.Command, autoCommit, autoPush, autoPull b
 	}
 	defer func() { _ = store.Close() }()
 
-	// Check if sync-branch is configured (used for defaults)
-	syncBranch, _ := store.GetConfig(ctx, "sync.branch")
-	hasSyncBranch := syncBranch != ""
-
 	// Check unified auto-sync setting first (controls auto-commit + auto-push)
 	// Priority: env var > YAML config > database config
 	unifiedAutoSync := ""
@@ -1070,9 +1066,6 @@ func loadDaemonAutoSettings(cmd *cobra.Command, autoCommit, autoPush, autoPull b
 			autoPull = configVal == "true"
 		} else if configVal, _ := store.GetConfig(ctx, "daemon.auto_pull"); configVal != "" {
 			autoPull = configVal == "true"
-		} else if hasSyncBranch {
-			// Default auto-pull to true when sync-branch configured
-			autoPull = true
 		} else {
 			autoPull = false
 		}
@@ -1158,17 +1151,7 @@ func loadDaemonAutoSettings(cmd *cobra.Command, autoCommit, autoPush, autoPull b
 			autoPull = configVal == "true"
 		} else if configVal, _ := store.GetConfig(ctx, "daemon.auto_pull"); configVal != "" {
 			autoPull = configVal == "true"
-		} else if hasSyncBranch {
-			// Default auto-pull to true when sync-branch configured
-			autoPull = true
 		}
-	}
-
-	// Fallback: if sync-branch configured and no explicit settings, default to full sync
-	if hasSyncBranch && !cmd.Flags().Changed("auto-commit") && !cmd.Flags().Changed("auto-push") {
-		autoCommit = true
-		autoPush = true
-		autoPull = true
 	}
 
 	return autoCommit, autoPush, autoPull

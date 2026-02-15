@@ -86,7 +86,7 @@ func checkAndAutoImport(ctx context.Context, store storage.Storage) bool {
 }
 
 // checkGitForIssues checks if git has issues in .beads/beads.jsonl or issues.jsonl
-// When sync-branch is configured, reads from that branch; otherwise reads from HEAD.
+// Reads from HEAD.
 // Returns (issue_count, relative_jsonl_path, git_ref)
 func checkGitForIssues() (int, string, string) {
 	// Try to find .beads directory
@@ -131,30 +131,7 @@ func checkGitForIssues() (int, string, string) {
 		return 0, "", ""
 	}
 
-	// Determine which branch to read from (bd-0is fix)
-	// If sync-branch is configured in local config.yaml, use it; otherwise fall back to HEAD
-	// We read sync-branch directly from local config file rather than using cached global config
-	// to handle cases where CWD has changed since config initialization (e.g., in tests)
 	gitRef := "HEAD"
-	syncBranch := getLocalSyncBranch(beadsDir)
-	if syncBranch != "" {
-		// Check if the sync branch exists (locally or on remote)
-		// Try origin/<branch> first (more likely to exist in fresh clones),
-		// then local <branch>
-		// GH#1110: Use RepoContext to ensure we check the beads repo
-		for _, ref := range []string{"origin/" + syncBranch, syncBranch} {
-			var cmd *exec.Cmd
-			if rc, err := beads.GetRepoContext(); err == nil {
-				cmd = rc.GitCmd(context.Background(), "rev-parse", "--verify", "--quiet", ref)
-			} else {
-				cmd = exec.Command("git", "rev-parse", "--verify", "--quiet", ref) // #nosec G204
-			}
-			if err := cmd.Run(); err == nil {
-				gitRef = ref
-				break
-			}
-		}
-	}
 
 	// Try canonical JSONL filenames in precedence order (issues.jsonl is canonical)
 	candidates := []string{
@@ -178,8 +155,7 @@ func checkGitForIssues() (int, string, string) {
 // localConfig represents the subset of config.yaml we need for auto-import and no-db detection.
 // Using proper YAML parsing handles edge cases like comments, indentation, and special characters.
 type localConfig struct {
-	SyncBranch string `yaml:"sync-branch"`
-	NoDb       bool   `yaml:"no-db"`
+	NoDb bool `yaml:"no-db"`
 }
 
 // isNoDbModeConfigured checks if no-db: true is set in config.yaml.
@@ -200,31 +176,10 @@ func isNoDbModeConfigured(beadsDir string) bool {
 	return cfg.NoDb
 }
 
-// getLocalSyncBranch reads sync-branch from the local config.yaml file.
-// This reads directly from the file rather than using cached config to handle
-// cases where CWD has changed since config initialization.
-func getLocalSyncBranch(beadsDir string) string {
-	// sync-branch support removed (syncbranch package deleted)
-	// Check environment variable for backward compatibility
-	if envBranch := os.Getenv("BEADS_SYNC_BRANCH"); envBranch != "" {
-		return envBranch
-	}
-
-	// Read config.yaml directly from the .beads directory
-	configPath := filepath.Join(beadsDir, "config.yaml")
-	data, err := os.ReadFile(configPath) // #nosec G304 - config file path from findBeadsDir
-	if err != nil {
-		return ""
-	}
-
-	// Parse YAML properly to handle edge cases (comments, indentation, special chars)
-	var cfg localConfig
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		debug.Logf("Warning: failed to parse config.yaml for sync-branch: %v", err)
-		return ""
-	}
-
-	return cfg.SyncBranch
+// getLocalSyncBranch is a no-op stub retained for compatibility.
+// sync-branch config support has been removed; always returns "".
+func getLocalSyncBranch(_ string) string {
+	return ""
 }
 
 

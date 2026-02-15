@@ -92,7 +92,6 @@ func TestSetReposInYAML_PreservesOtherConfig(t *testing.T) {
 
 	// Write initial config with other settings
 	initial := `issue-prefix: "test"
-sync-branch: "beads-sync"
 json: false
 `
 	if err := os.WriteFile(configPath, []byte(initial), 0600); err != nil {
@@ -118,9 +117,6 @@ json: false
 	// Check that original settings are preserved
 	if !contains(content, "issue-prefix") {
 		t.Error("issue-prefix setting was lost")
-	}
-	if !contains(content, "sync-branch") {
-		t.Error("sync-branch setting was lost")
 	}
 	if !contains(content, "json") {
 		t.Error("json setting was lost")

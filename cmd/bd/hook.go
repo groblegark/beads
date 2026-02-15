@@ -347,14 +347,6 @@ func hookPreCommit() int {
 		}
 	}
 
-	// Check if sync-branch is configured (changes go to separate branch)
-	if hookGetSyncBranch() != "" {
-		if cfg.ChainStrategy == ChainAfter {
-			return runChainedHookWithConfig("pre-commit", nil, cfg)
-		}
-		return 0
-	}
-
 	// Get worktree root for per-worktree state tracking
 	worktreeRoot, err := getWorktreeRoot()
 	if err != nil {

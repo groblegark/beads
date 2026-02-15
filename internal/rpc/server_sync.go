@@ -175,12 +175,6 @@ func (s *Server) handleSyncStatus(req *Request) Response {
 		pendingChanges = len(dirtyIDs)
 	}
 
-	// Get sync branch (sync-branch support removed, check database directly)
-	syncBranch := ""
-	if sb, err := store.GetConfig(ctx, "sync.branch"); err == nil {
-		syncBranch = sb
-	}
-
 	// Check for conflicts
 	conflictCount := 0
 	if beadsDir != "" {
@@ -198,7 +192,6 @@ func (s *Server) handleSyncStatus(req *Request) Response {
 		LastExport:       lastExport,
 		LastExportCommit: lastExportCommit,
 		PendingChanges:   pendingChanges,
-		SyncBranch:       syncBranch,
 		ConflictCount:    conflictCount,
 		FederationRemote: fedCfg.Remote,
 	}

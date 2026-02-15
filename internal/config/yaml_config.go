@@ -44,8 +44,6 @@ var YamlOnlyKeys = map[string]bool{
 	"no-git-ops":      true, // Disable git ops in bd prime session close protocol (GH#593)
 
 	// Sync settings
-	"sync-branch": true,
-	"sync.branch": true,
 	"sync.require_confirmation_on_mass_delete": true,
 
 	// Daemon settings (GH#871: team-wide auto-sync config)
@@ -92,13 +90,10 @@ func IsYamlOnlyKey(key string) bool {
 
 // keyAliases maps alternative key names to their canonical yaml form.
 // This ensures consistency when users use different formats (dot vs hyphen).
-var keyAliases = map[string]string{
-	"sync.branch": "sync-branch",
-}
+var keyAliases = map[string]string{}
 
 // normalizeYamlKey converts a key to its canonical yaml format.
-// Some keys have aliases (e.g., sync.branch -> sync-branch) to handle
-// different input formats consistently.
+// Keys listed in keyAliases are mapped to their canonical form.
 func normalizeYamlKey(key string) string {
 	if canonical, ok := keyAliases[key]; ok {
 		return canonical
@@ -108,7 +103,7 @@ func normalizeYamlKey(key string) string {
 
 // SetYamlConfig sets a configuration value in the project's config.yaml file.
 // It handles both adding new keys and updating existing (possibly commented) keys.
-// Keys are normalized to their canonical yaml format (e.g., sync.branch -> sync-branch).
+// Keys are normalized to their canonical yaml format via keyAliases.
 func SetYamlConfig(key, value string) error {
 	// Validate specific keys (GH#995)
 	if err := validateYamlConfigValue(key, value); err != nil {
@@ -145,7 +140,7 @@ func SetYamlConfig(key, value string) error {
 
 // GetYamlConfig gets a configuration value from config.yaml.
 // Returns empty string if key is not found or is commented out.
-// Keys are normalized to their canonical yaml format (e.g., sync.branch -> sync-branch).
+// Keys are normalized to their canonical yaml format via keyAliases.
 func GetYamlConfig(key string) string {
 	if v == nil {
 		return ""

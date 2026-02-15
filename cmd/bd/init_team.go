@@ -71,22 +71,6 @@ func runTeamWizard(ctx context.Context, store storage.Storage) error {
 
 		fmt.Printf("\n%s Sync branch set to: %s\n", ui.RenderPass("✓"), syncBranch)
 
-		// sync.branch support removed (syncbranch package deleted)
-		// Store in database config for backward compatibility
-		if err := store.SetConfig(ctx, "sync.branch", syncBranch); err != nil {
-			return fmt.Errorf("failed to set sync branch: %w", err)
-		}
-
-		// Create the sync branch if it doesn't exist
-		fmt.Printf("\n%s Creating sync branch...\n", ui.RenderAccent("▶"))
-
-		if err := createSyncBranch(syncBranch); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to create sync branch: %v\n", err)
-			fmt.Println("  You can create it manually: git checkout -b", syncBranch)
-		} else {
-			fmt.Printf("%s Sync branch created\n", ui.RenderPass("✓"))
-		}
-
 	} else {
 		fmt.Printf("%s Direct commits to %s\n", ui.RenderPass("✓"), currentBranch)
 		syncBranch = currentBranch
@@ -203,35 +187,3 @@ func getGitBranch() (string, error) {
 	return strings.TrimSpace(string(output)), nil
 }
 
-// createSyncBranch creates a new branch for beads sync
-// Uses CWD repo context since this is for user's project configuration
-func createSyncBranch(branchName string) error {
-	rc, err := beads.GetRepoContext()
-	if err != nil {
-		return err
-	}
-
-	ctx := context.Background()
-
-	// Check if branch already exists
-	cmd := rc.GitCmdCWD(ctx, "rev-parse", "--verify", branchName)
-	if err := cmd.Run(); err == nil {
-		// Branch exists, nothing to do
-		return nil
-	}
-
-	// Create new branch from current HEAD
-	cmd = rc.GitCmdCWD(ctx, "checkout", "-b", branchName)
-	if err := cmd.Run(); err != nil {
-		return err
-	}
-
-	// Switch back to original branch
-	currentBranch, err := getGitBranch()
-	if err == nil && currentBranch != branchName {
-		cmd = rc.GitCmdCWD(ctx, "checkout", "-")
-		_ = cmd.Run() // Ignore error, branch creation succeeded
-	}
-
-	return nil
-}

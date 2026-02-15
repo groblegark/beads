@@ -22,8 +22,7 @@ import (
 
 // localConfig represents the config.yaml structure for no-db mode detection
 type localConfig struct {
-	SyncBranch string `yaml:"sync-branch"`
-	NoDb       bool   `yaml:"no-db"`
+	NoDb bool `yaml:"no-db"`
 }
 
 // CheckDatabaseVersion checks the database version and migration status.
