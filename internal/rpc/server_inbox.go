@@ -97,7 +97,17 @@ func (s *Server) handleInboxPush(req *Request) Response {
 		}
 	}
 
+	// Publish to JetStream INBOX_EVENTS stream for real-time delivery (bd-xtahx.3).
+	// Coop's durable consumer subscribes to these subjects.
 	data, _ := json.Marshal(item)
+	if s.bus != nil && s.bus.JetStreamEnabled() {
+		subject := "inbox.agent." + args.AgentName
+		if args.AgentName == "all" {
+			subject = "inbox.all"
+		}
+		s.bus.PublishRaw(subject, data)
+	}
+
 	return Response{
 		Success: true,
 		Data:    data,
