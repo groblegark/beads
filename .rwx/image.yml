@@ -141,22 +141,23 @@ tasks:
         ca-certificates tzdata libicu74 netcat-openbsd
       sudo rm -rf /var/lib/apt/lists/*
 
-      # Repurpose the default ubuntu:1000 user as beads:1000 (matches Helm
-      # securityContext runAsUser/fsGroup 1000). RWX also runs as UID 1000,
-      # so we can't delete+recreate — just rename in place.
-      sudo usermod -l beads -d /home/beads -m -s /bin/sh ubuntu 2>/dev/null || true
-      sudo groupmod -n beads ubuntu 2>/dev/null || true
+      # Create /home/beads for UID 1000. The Helm chart's securityContext
+      # forces runAsUser:1000/fsGroup:1000 regardless of username. RWX runs
+      # as the ubuntu:1000 user so we can't rename it — just create the
+      # directory and ensure ownership.
+      sudo mkdir -p /home/beads
+      sudo chown 1000:1000 /home/beads
 
       # Install binaries
       sudo cp ${{ tasks.build-bd.artifacts.bd-binary }} /usr/local/bin/bd
       sudo cp ${{ tasks.build-oj.artifacts.oj-binary }} /usr/local/bin/oj
       sudo chmod 755 /usr/local/bin/bd /usr/local/bin/oj
-      sudo chown beads:beads /usr/local/bin/bd /usr/local/bin/oj
+      sudo chown 1000:1000 /usr/local/bin/bd /usr/local/bin/oj
 
-      # Configure image metadata
+      # Configure image metadata (user by UID since we can't rename ubuntu→beads)
       jq -n '["bd"]' > $RWX_IMAGE/entrypoint.json
       jq -n '["daemon", "start", "--foreground", "--tcp-addr=:9876", "--http-addr=:9877", "--log-json"]' > $RWX_IMAGE/command.json
-      echo "beads" > $RWX_IMAGE/user
+      echo "1000" > $RWX_IMAGE/user
       echo "/home/beads" > $RWX_IMAGE/workspace
 
   # ── Toolchain image (agent runtime with full dev tools) ─────────────
