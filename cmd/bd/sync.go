@@ -130,27 +130,23 @@ func commitAndPushBeads(ctx context.Context, sbc *SyncBranchContext, jsonlPath s
 }
 
 var syncCmd = &cobra.Command{
-	Use:        "sync",
-	GroupID:    "sync",
-	Short:      "[DEPRECATED] Dolt handles sync automatically",
-	Deprecated: "Dolt backend handles synchronization automatically. Use 'bd export' or 'bd import' for manual JSONL operations.",
-	Long: `DEPRECATED: bd sync is no longer needed.
-
-Dolt backend now handles synchronization automatically. The bd sync command
-is a no-op and will be removed in a future release.
+	Use:     "sync",
+	GroupID: "sync",
+	Short:   "[REMOVED] Dolt handles sync automatically",
+	Long: `bd sync has been removed. Dolt handles synchronization automatically.
 
 For manual JSONL operations, use:
   bd export    Export database to JSONL
-  bd import    Import from JSONL file
-
-For git operations, use git directly:
-  git pull --rebase
-  git push`,
-	Run: func(cmd *cobra.Command, _ []string) {
-		// bd sync is deprecated - Dolt handles sync automatically.
-		// Print deprecation notice and exit as no-op.
-		fmt.Println("⚠️  bd sync is deprecated. Dolt handles synchronization automatically.")
-		fmt.Println("   Use 'bd export' or 'bd import' for manual JSONL operations.")
+  bd import    Import from JSONL file`,
+	RunE: func(cmd *cobra.Command, _ []string) error {
+		// beads-79f8: Hard error. Dolt backend handles sync natively.
+		fmt.Fprintf(os.Stderr, "Error: bd sync has been removed\n\n")
+		fmt.Fprintf(os.Stderr, "Dolt handles synchronization automatically. No manual sync needed.\n\n")
+		fmt.Fprintf(os.Stderr, "For manual operations:\n")
+		fmt.Fprintf(os.Stderr, "  bd export    Export database to JSONL\n")
+		fmt.Fprintf(os.Stderr, "  bd import    Import from JSONL file\n")
+		os.Exit(1)
+		return nil
 	},
 }
 
@@ -1105,29 +1101,8 @@ func doSyncStatusViaDaemon() error {
 }
 
 func init() {
-	syncCmd.Flags().StringP("message", "m", "", "Commit message (default: auto-generated)")
-	syncCmd.Flags().Bool("dry-run", false, "Preview sync without making changes")
-	syncCmd.Flags().Bool("no-push", false, "Skip pushing to remote")
-	syncCmd.Flags().Bool("no-pull", false, "Skip pulling from remote")
-	syncCmd.Flags().Bool("rename-on-import", false, "Rename imported issues to match database prefix (updates all references)")
-	syncCmd.Flags().Bool("flush-only", false, "Only export pending changes to JSONL (skip git operations)")
-	syncCmd.Flags().Bool("squash", false, "Accumulate changes in JSONL without committing (run 'bd sync' later to commit all)")
-	syncCmd.Flags().Bool("import-only", false, "Only import from JSONL (skip git operations, useful after git pull)")
-	syncCmd.Flags().Bool("import", false, "Import from JSONL (shorthand for --import-only)")
-	syncCmd.Flags().Bool("status", false, "Show sync state (pending changes, last export, conflicts)")
-	syncCmd.Flags().Bool("merge", false, "Merge sync branch back to main branch")
-	syncCmd.Flags().Bool("from-main", false, "One-way sync from main branch (for ephemeral branches without upstream)")
-	syncCmd.Flags().Bool("no-git-history", false, "Skip git history backfill for deletions (use during JSONL filename migrations)")
-	syncCmd.Flags().BoolVar(&jsonOutput, "json", false, "Output sync statistics in JSON format")
-	syncCmd.Flags().Bool("check", false, "Pre-sync integrity check: detect forced pushes, prefix mismatches, and orphaned issues")
-	syncCmd.Flags().Bool("accept-rebase", false, "Accept remote sync branch history (use when force-push detected)")
-	syncCmd.Flags().Bool("full", false, "Full sync: pull → merge → export → commit → push (legacy behavior)")
-	syncCmd.Flags().Bool("resolve", false, "Resolve pending sync conflicts")
-	syncCmd.Flags().Bool("ours", false, "Use 'ours' strategy for conflict resolution (with --resolve)")
-	syncCmd.Flags().Bool("theirs", false, "Use 'theirs' strategy for conflict resolution (with --resolve)")
-	syncCmd.Flags().Bool("manual", false, "Use interactive manual resolution for conflicts (with --resolve)")
-	syncCmd.Flags().Bool("force", false, "Force full export/import (skip incremental optimization)")
-	syncCmd.Flags().String("set-mode", "", "Set sync mode (git-portable, realtime, dolt-native, belt-and-suspenders)")
+	// beads-79f8: All flags removed. Command always errors.
+	// Command stays registered so users get a clear error instead of "unknown command".
 	rootCmd.AddCommand(syncCmd)
 }
 
