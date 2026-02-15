@@ -42,16 +42,13 @@ tasks:
   - key: helm-lint
     use: [code, helm-setup]
     filter:
-      - "helm/**/*.yaml"
-      - "helm/**/*.yml"
-      - "helm/**/values.yaml"
-      - "helm/**/Chart.yaml"
+      - "helm/**"
     run: |
       for chart in helm/*/; do
         if [ -f "$chart/Chart.yaml" ]; then
           echo "=== Linting $chart ==="
-          helm lint "$chart"
           helm dependency build "$chart" 2>/dev/null || true
+          helm lint "$chart"
           helm template "$(basename $chart)" "$chart" > /dev/null
         fi
       done
@@ -61,8 +58,7 @@ tasks:
     use: helm-lint
     if: ${{ init.ref-name != 'pr' }}
     filter:
-      - "helm/**/*.yaml"
-      - "helm/**/*.yml"
+      - "helm/**"
     run: |
       echo "$GHCR_TOKEN" | helm registry login ghcr.io -u "$GITHUB_USER" --password-stdin
 
