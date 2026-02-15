@@ -9,7 +9,6 @@ import (
 
 	"github.com/steveyegge/beads/cmd/bd/doctor"
 	"github.com/steveyegge/beads/cmd/bd/doctor/fix"
-	"github.com/steveyegge/beads/internal/syncbranch"
 	"github.com/steveyegge/beads/internal/ui"
 )
 
@@ -269,13 +268,9 @@ func applyFixList(path string, fixes []doctorCheck) {
 		case "Untracked Files":
 			err = fix.UntrackedJSONL(path)
 		case "Sync Branch Health":
-			// Get sync branch from config
-			syncBranch := syncbranch.GetFromYAML()
-			if syncBranch == "" {
-				fmt.Printf("  ⚠ No sync branch configured in config.yaml\n")
-				continue
-			}
-			err = fix.SyncBranchHealth(path, syncBranch)
+			// Sync branch support removed
+			fmt.Printf("  ⚠ Sync branch support has been removed\n")
+			continue
 		case "Merge Artifacts":
 			err = fix.MergeArtifacts(path)
 		case "Orphaned Dependencies":

@@ -23,7 +23,6 @@ import (
 	"github.com/steveyegge/beads/internal/rpc"
 	"github.com/steveyegge/beads/internal/storage"
 	"github.com/steveyegge/beads/internal/storage/factory"
-	"github.com/steveyegge/beads/internal/syncbranch"
 )
 
 var daemonCmd = &cobra.Command{
@@ -221,25 +220,6 @@ Run 'bd daemon --help' to see all subcommands.`,
 			fmt.Fprintf(os.Stderr, "Error: not in a git repository\n")
 			fmt.Fprintf(os.Stderr, "Hint: run 'git init' to initialize a repository, or use --local for local-only mode\n")
 			os.Exit(1)
-		}
-
-		// Check for upstream if auto-push enabled
-		// When sync-branch is configured, check that branch's upstream instead of current HEAD.
-		// This fixes compatibility with jj/jujutsu which always operates in detached HEAD mode.
-		if autoPush {
-			hasUpstream := false
-			if syncBranch := syncbranch.GetFromYAML(); syncBranch != "" {
-				// sync-branch configured: check that branch's upstream
-				hasUpstream = gitBranchHasUpstream(syncBranch)
-			} else {
-				// No sync-branch: check current HEAD's upstream (original behavior)
-				hasUpstream = gitHasUpstream()
-			}
-			if !hasUpstream {
-				fmt.Fprintf(os.Stderr, "Error: no upstream configured (required for --auto-push)\n")
-				fmt.Fprintf(os.Stderr, "Hint: git push -u origin <branch-name>\n")
-				os.Exit(1)
-			}
 		}
 
 		// Warn if starting daemon in a git worktree
@@ -631,13 +611,6 @@ The daemon will now exit.`, strings.ToUpper(backend))
 			return // Use return instead of os.Exit to allow defers to run
 		}
 		log.Warn("repository mismatch ignored (BEADS_IGNORE_REPO_MISMATCH=1)")
-	}
-
-	// GH#1258: Warn at startup if sync-branch == current-branch (misconfiguration)
-	// This is a one-time warning - per-operation skipping is handled by shouldSkipDueToSameBranch()
-	// Skip check in local mode (no sync-branch is used)
-	if !localMode {
-		warnIfSyncBranchMisconfigured(ctx, store, log)
 	}
 
 	// Validate schema version matches daemon version

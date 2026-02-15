@@ -1851,6 +1851,23 @@ func (c *Client) InboxMarkDelivered(args *InboxMarkDeliveredArgs) (*Response, er
 	return c.Execute(OpInboxMarkDelivered, args)
 }
 
+// Session identity operations (bd-zp6v9)
+
+// SessionRegister registers a session and gets a unique assigned name.
+func (c *Client) SessionRegister(args *SessionRegisterArgs) (*SessionRegisterResponse, error) {
+	resp, err := c.Execute(OpSessionRegister, args)
+	if err != nil {
+		return nil, err
+	}
+
+	var result SessionRegisterResponse
+	if err := json.Unmarshal(resp.Data, &result); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal session register response: %w", err)
+	}
+
+	return &result, nil
+}
+
 // cleanupStaleDaemonArtifacts removes stale daemon.pid file when socket is missing and lock is free.
 // This prevents stale artifacts from accumulating after daemon crashes.
 // Only removes pid file - lock file is managed by OS (released on process exit).

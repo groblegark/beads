@@ -11,7 +11,6 @@ import (
 	"github.com/steveyegge/beads/internal/beads"
 	"github.com/steveyegge/beads/internal/configfile"
 	"github.com/steveyegge/beads/internal/storage/factory"
-	"github.com/steveyegge/beads/internal/syncbranch"
 	"github.com/steveyegge/beads/internal/types"
 	"github.com/steveyegge/beads/internal/ui"
 	"github.com/steveyegge/beads/internal/utils"
@@ -930,8 +929,9 @@ func handleToSeparateBranch(branch string, dryRun bool) {
 		return
 	}
 
-	// Update sync.branch config (GH#923: use syncbranch.Set for validation)
-	if err := syncbranch.Set(ctx, store, b); err != nil {
+	// sync.branch support removed (syncbranch package deleted)
+	// Store directly in database config for backward compatibility
+	if err := store.SetConfig(ctx, "sync.branch", b); err != nil {
 		if jsonOutput {
 			outputJSON(map[string]interface{}{
 				"error":   "config_update_failed",

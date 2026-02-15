@@ -16,47 +16,8 @@ import (
 	"github.com/steveyegge/beads/internal/config"
 	"github.com/steveyegge/beads/internal/debug"
 	"github.com/steveyegge/beads/internal/storage"
-	"github.com/steveyegge/beads/internal/syncbranch"
 	"github.com/steveyegge/beads/internal/types"
 )
-
-// warnIfSyncBranchMisconfigured logs a warning at daemon startup if sync-branch
-// equals the current branch. This is a one-time warning to alert users about
-// the misconfiguration. The daemon continues to start (warn only, don't block).
-// Returns true if misconfigured (warning was logged), false otherwise.
-// GH#1258: Prevents silent failure when sync-branch == current-branch.
-func warnIfSyncBranchMisconfigured(ctx context.Context, store storage.Storage, log daemonLogger) bool {
-	syncBranch, err := syncbranch.Get(ctx, store)
-	if err != nil || syncBranch == "" {
-		return false // No sync branch configured, not misconfigured
-	}
-
-	if syncbranch.IsSyncBranchSameAsCurrent(ctx, syncBranch) {
-		log.Warn("sync-branch misconfiguration detected",
-			"sync_branch", syncBranch,
-			"message", "sync-branch is your current branch; daemon sync operations will be skipped; configure a dedicated sync branch (e.g., 'beads-sync') to enable sync")
-		return true
-	}
-
-	return false
-}
-
-// shouldSkipDueToSameBranch checks if operation should be skipped because
-// sync-branch == current-branch. Returns true if should skip, logs reason.
-// Uses fail-open pattern: if branch detection fails, allows operation to proceed.
-func shouldSkipDueToSameBranch(ctx context.Context, store storage.Storage, operation string, log daemonLogger) bool {
-	syncBranch, err := syncbranch.Get(ctx, store)
-	if err != nil || syncBranch == "" {
-		return false // No sync branch configured, allow
-	}
-
-	if syncbranch.IsSyncBranchSameAsCurrent(ctx, syncBranch) {
-		log.log("Skipping %s: sync-branch '%s' is your current branch. Use a dedicated sync branch.", operation, syncBranch)
-		return true
-	}
-
-	return false
-}
 
 // exportToJSONLWithStore exports issues to JSONL using the provided store.
 // If multi-repo mode is configured, routes issues to their respective JSONL files.
@@ -473,12 +434,6 @@ func performExport(ctx context.Context, store storage.Storage, autoCommit, autoP
 			mode = "local export"
 		}
 
-		// Guard: Skip if sync-branch == current-branch (GH#1258)
-		// Local-only mode (skipGit) doesn't use sync-branch, so skip the guard
-		if !skipGit && shouldSkipDueToSameBranch(exportCtx, store, mode, log) {
-			return
-		}
-
 		log.log("Starting %s...", mode)
 
 		jsonlPath := findJSONLPath()
@@ -553,59 +508,10 @@ func performExport(ctx context.Context, store storage.Storage, autoCommit, autoP
 			}
 		}
 
-		// Auto-commit if enabled (skip in git-free mode)
-		if autoCommit && !skipGit {
-			// Try sync branch commit first
-			// Use forceOverwrite=true because mutation-triggered exports (create, update, delete)
-			// mean the local state is authoritative and should not be merged with worktree.
-			// This is critical for delete mutations to be properly reflected in the sync branch.
-			committed, err := syncBranchCommitAndPushWithOptions(exportCtx, store, autoPush, true, log)
-			if err != nil {
-				log.log("Sync branch commit failed: %v", err)
-				return
-			}
-
-			if committed {
-				// GH#885: Finalize after sync branch commit succeeded
-				finalizeExportMetadata()
-			} else {
-				// If sync branch not configured, use regular commit
-				hasChanges, err := gitHasChanges(exportCtx, jsonlPath)
-				if err != nil {
-					log.log("Error checking git status: %v", err)
-					return
-				}
-
-				if hasChanges {
-					message := fmt.Sprintf("bd daemon export: %s", time.Now().Format("2006-01-02 15:04:05"))
-					if err := gitCommit(exportCtx, jsonlPath, message); err != nil {
-						log.log("Commit failed: %v", err)
-						return
-					}
-					log.log("Committed changes")
-
-					// GH#885: Finalize after git commit succeeded, before push
-					// Push failure shouldn't prevent metadata update since commit succeeded
-					finalizeExportMetadata()
-
-					// Auto-push if enabled (GH#872: use sync.remote config)
-					if autoPush {
-						configuredRemote, _ := store.GetConfig(exportCtx, "sync.remote")
-						if err := gitPush(exportCtx, configuredRemote); err != nil {
-							log.log("Push failed: %v", err)
-							return
-						}
-						log.log("Pushed to remote")
-					}
-				} else {
-					// No git changes but export happened - finalize metadata
-					finalizeExportMetadata()
-				}
-			}
-		} else if skipGit {
-			// Git-free mode: finalize immediately since there's no git to wait for
-			finalizeExportMetadata()
-		}
+		// Finalize metadata after export.
+		// Note: sync-branch git operations removed (beads-g53i). Dolt-native sync
+		// is the primary mechanism; JSONL export is for portability only.
+		finalizeExportMetadata()
 
 		if skipGit {
 			log.log("Local export complete")
@@ -637,12 +543,6 @@ func performAutoImport(ctx context.Context, store storage.Storage, skipGit bool,
 		mode := "auto-import"
 		if skipGit {
 			mode = "local auto-import"
-		}
-
-		// Guard: Skip if sync-branch == current-branch (GH#1258)
-		// Local-only mode (skipGit) doesn't use sync-branch, so skip the guard
-		if !skipGit && shouldSkipDueToSameBranch(importCtx, store, mode, log) {
-			return
 		}
 
 		// Check backoff before attempting sync (skip for local mode)
@@ -690,39 +590,8 @@ func performAutoImport(ctx context.Context, store storage.Storage, skipGit bool,
 		}
 		log.log("JSONL content changed, proceeding with %s...", mode)
 
-		// Pull from git if not in git-free mode
-		if !skipGit {
-			// SAFETY CHECK: Warn if there are uncommitted local changes
-			// This helps detect race conditions where local work hasn't been pushed yet
-			jsonlPath := findJSONLPath()
-			if jsonlPath != "" {
-				if hasLocalChanges, err := gitHasChanges(importCtx, jsonlPath); err == nil && hasLocalChanges {
-					log.log("⚠️  WARNING: Uncommitted local changes detected in %s", jsonlPath)
-					log.log("   Pulling from remote may overwrite local unpushed changes.")
-					log.log("   Consider running 'bd sync' to commit and push your changes first.")
-					// Continue anyway, but user has been warned
-				}
-			}
-
-			// Try sync branch first
-			pulled, err := syncBranchPull(importCtx, store, log)
-			if err != nil {
-				backoff := RecordSyncFailure(beadsDir, err.Error())
-				log.log("Sync branch pull failed: %v (backoff: %v)", err, backoff)
-				return
-			}
-
-			// If sync branch not configured, use regular pull (GH#872: use sync.remote config)
-			if !pulled {
-				configuredRemote, _ := store.GetConfig(importCtx, "sync.remote")
-				if err := gitPull(importCtx, configuredRemote); err != nil {
-					backoff := RecordSyncFailure(beadsDir, err.Error())
-					log.log("Pull failed: %v (backoff: %v)", err, backoff)
-					return
-				}
-				log.log("Pulled from remote")
-			}
-		}
+		// Note: git pull operations removed (beads-g53i). Dolt-native sync
+		// handles remote synchronization; JSONL auto-import reads from local FS.
 
 		// Count issues before import
 		beforeCount, err := countDBIssues(importCtx, store)
@@ -782,12 +651,6 @@ func performSync(ctx context.Context, store storage.Storage, autoCommit, autoPus
 		mode := "sync cycle"
 		if skipGit {
 			mode = "local sync cycle"
-		}
-
-		// Guard: Skip if sync-branch == current-branch (GH#1258)
-		// Local-only mode (skipGit) doesn't use sync-branch, so skip the guard
-		if !skipGit && shouldSkipDueToSameBranch(syncCtx, store, mode, log) {
-			return
 		}
 
 		log.log("Starting %s...", mode)
@@ -877,166 +740,37 @@ func performSync(ctx context.Context, store storage.Storage, autoCommit, autoPus
 			}
 		}
 
-		// Skip git operations, snapshot capture, deletion tracking, and import in local-only mode
-		// Local-only sync is export-only since there's no remote to sync with
-		if skipGit {
-			// Git-free mode: finalize immediately since there's no git to wait for
-			finalizeExportMetadata()
-			log.log("Local %s complete", mode)
-			return
-		}
+		// Finalize metadata after export.
+		// Note: sync-branch git operations removed (beads-g53i). Dolt-native sync
+		// is the primary mechanism; JSONL export is for portability only.
+		finalizeExportMetadata()
 
-		// ---- Git operations start here ----
-
-		// Capture left snapshot (pre-pull state) for 3-way merge
-		// This is mandatory for deletion tracking integrity
-		// In multi-repo mode, capture snapshots for all JSONL files
-		if multiRepoPaths != nil {
-			// Multi-repo mode: snapshot each JSONL file
-			for _, path := range multiRepoPaths {
-				if err := captureLeftSnapshot(path); err != nil {
-					log.log("Error: failed to capture snapshot for %s: %v", path, err)
-					return
-				}
-			}
-			log.log("Captured %d snapshots (multi-repo mode)", len(multiRepoPaths))
-		} else {
-			// Single-repo mode: snapshot the main JSONL
-			if err := captureLeftSnapshot(jsonlPath); err != nil {
-				log.log("Error: failed to capture snapshot (required for deletion tracking): %v", err)
-				return
-			}
-		}
-
-		if autoCommit {
-			// Try sync branch commit first
-			committed, err := syncBranchCommitAndPush(syncCtx, store, autoPush, log)
+		// Import from JSONL (local file system only — no git pull)
+		if !skipGit {
+			// Count issues before import for validation
+			beforeCount, err := countDBIssues(syncCtx, store)
 			if err != nil {
-				log.log("Sync branch commit failed: %v", err)
+				log.log("Failed to count issues before import: %v", err)
 				return
 			}
 
-			// If sync branch not configured, use regular commit
-			if !committed {
-				hasChanges, err := gitHasChanges(syncCtx, jsonlPath)
-				if err != nil {
-					log.log("Error checking git status: %v", err)
-					return
-				}
-
-				if hasChanges {
-					message := fmt.Sprintf("bd daemon sync: %s", time.Now().Format("2006-01-02 15:04:05"))
-					if err := gitCommit(syncCtx, jsonlPath, message); err != nil {
-						log.log("Commit failed: %v", err)
-						return
-					}
-					log.log("Committed changes")
-				}
-			}
-
-			// GH#885: NOW finalize metadata after git commit succeeded
-			finalizeExportMetadata()
-		}
-
-		// Pull (try sync branch first)
-		pulled, err := syncBranchPull(syncCtx, store, log)
-		if err != nil {
-			log.log("Sync branch pull failed: %v", err)
-			return
-		}
-
-		// If sync branch not configured, use regular pull (GH#872: use sync.remote config)
-		if !pulled {
-			configuredRemote, _ := store.GetConfig(syncCtx, "sync.remote")
-			if err := gitPull(syncCtx, configuredRemote); err != nil {
-				log.log("Pull failed: %v", err)
+			if err := importToJSONLWithStore(syncCtx, store, jsonlPath); err != nil {
+				log.log("Import failed: %v", err)
 				return
 			}
-			log.log("Pulled from remote")
-		}
+			log.log("Imported from JSONL")
 
-		// Count issues before import for validation
-		beforeCount, err := countDBIssues(syncCtx, store)
-		if err != nil {
-			log.log("Failed to count issues before import: %v", err)
-			return
-		}
-
-		// Perform 3-way merge and prune deletions
-		// In multi-repo mode, apply deletions for each JSONL file
-		if multiRepoPaths != nil {
-			// Multi-repo mode: merge/prune for each JSONL
-			for _, path := range multiRepoPaths {
-				if err := applyDeletionsFromMerge(syncCtx, store, path); err != nil {
-					log.log("Error during 3-way merge for %s: %v", path, err)
-					return
-				}
-			}
-			log.log("Applied deletions from %d repos", len(multiRepoPaths))
-		} else {
-			// Single-repo mode
-			if err := applyDeletionsFromMerge(syncCtx, store, jsonlPath); err != nil {
-				log.log("Error during 3-way merge: %v", err)
+			// Validate import didn't cause data loss
+			afterCount, err := countDBIssues(syncCtx, store)
+			if err != nil {
+				log.log("Failed to count issues after import: %v", err)
 				return
 			}
-		}
 
-		if err := importToJSONLWithStore(syncCtx, store, jsonlPath); err != nil {
-			log.log("Import failed: %v", err)
-			return
-		}
-		log.log("Imported from JSONL")
-
-		// Validate import didn't cause data loss
-		afterCount, err := countDBIssues(syncCtx, store)
-		if err != nil {
-			log.log("Failed to count issues after import: %v", err)
-			return
-		}
-
-		if err := validatePostImport(beforeCount, afterCount, jsonlPath); err != nil {
-			log.log("Post-import validation failed: %v", err)
-			return
-		}
-
-		// Update base snapshot after successful import
-		// In multi-repo mode, update snapshots for all JSONL files
-		if multiRepoPaths != nil {
-			for _, path := range multiRepoPaths {
-				if err := updateBaseSnapshot(path); err != nil {
-					log.log("Warning: failed to update base snapshot for %s: %v", path, err)
-				}
-			}
-		} else {
-			if err := updateBaseSnapshot(jsonlPath); err != nil {
-				log.log("Warning: failed to update base snapshot: %v", err)
-			}
-		}
-
-		// Clean up temporary snapshot files after successful merge
-		// In multi-repo mode, clean up snapshots for all JSONL files
-		if multiRepoPaths != nil {
-			for _, path := range multiRepoPaths {
-				sm := NewSnapshotManager(path)
-				if err := sm.Cleanup(); err != nil {
-					log.log("Warning: failed to clean up snapshots for %s: %v", path, err)
-				}
-			}
-		} else {
-			sm := NewSnapshotManager(jsonlPath)
-			if err := sm.Cleanup(); err != nil {
-				log.log("Warning: failed to clean up snapshots: %v", err)
-			}
-		}
-
-		// GH#872: use sync.remote config
-		if autoPush && autoCommit {
-			configuredRemote, _ := store.GetConfig(syncCtx, "sync.remote")
-			if err := gitPush(syncCtx, configuredRemote); err != nil {
-				log.log("Push failed: %v", err)
+			if err := validatePostImport(beforeCount, afterCount, jsonlPath); err != nil {
+				log.log("Post-import validation failed: %v", err)
 				return
 			}
-			log.log("Pushed to remote")
 		}
 
 		log.log("Sync cycle complete")

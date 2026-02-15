@@ -15,7 +15,6 @@ import (
 	"github.com/steveyegge/beads/internal/debug"
 	"github.com/steveyegge/beads/internal/export"
 	"github.com/steveyegge/beads/internal/storage"
-	"github.com/steveyegge/beads/internal/syncbranch"
 	"github.com/steveyegge/beads/internal/types"
 	"github.com/steveyegge/beads/internal/utils"
 )
@@ -176,9 +175,9 @@ func (s *Server) handleSyncStatus(req *Request) Response {
 		pendingChanges = len(dirtyIDs)
 	}
 
-	// Get sync branch
+	// Get sync branch (sync-branch support removed, check database directly)
 	syncBranch := ""
-	if sb, err := syncbranch.Get(ctx, store); err == nil {
+	if sb, err := store.GetConfig(ctx, "sync.branch"); err == nil {
 		syncBranch = sb
 	}
 

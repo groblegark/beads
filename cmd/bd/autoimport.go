@@ -15,7 +15,6 @@ import (
 	"github.com/steveyegge/beads/internal/debug"
 	"github.com/steveyegge/beads/internal/git"
 	"github.com/steveyegge/beads/internal/storage"
-	"github.com/steveyegge/beads/internal/syncbranch"
 	"github.com/steveyegge/beads/internal/types"
 	"github.com/steveyegge/beads/internal/utils"
 	"gopkg.in/yaml.v3"
@@ -205,8 +204,9 @@ func isNoDbModeConfigured(beadsDir string) bool {
 // This reads directly from the file rather than using cached config to handle
 // cases where CWD has changed since config initialization.
 func getLocalSyncBranch(beadsDir string) string {
-	// First check environment variable (highest priority)
-	if envBranch := os.Getenv(syncbranch.EnvVar); envBranch != "" {
+	// sync-branch support removed (syncbranch package deleted)
+	// Check environment variable for backward compatibility
+	if envBranch := os.Getenv("BEADS_SYNC_BRANCH"); envBranch != "" {
 		return envBranch
 	}
 

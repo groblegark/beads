@@ -96,48 +96,28 @@ func NewFromConfigWithOptions(ctx context.Context, beadsDir string, opts Options
 		cfg = configfile.DefaultConfig()
 	}
 
-	// Use GetBackendFromConfig for robust backend detection.
-	// This handles cases where metadata.json has an incorrect backend value
-	// by falling back to filesystem detection (gt-q5jzx5, dolt_doctor fix).
-	backend := GetBackendFromConfig(beadsDir)
-	// Sync cfg.Backend with detected backend so cfg.DatabasePath() computes the
-	// correct path. Without this, DefaultConfig() leaves Backend="" which causes
-	// GetBackend() to default to "dolt", producing wrong paths for SQLite (gt-seal2b).
-	cfg.Backend = backend
-	switch backend {
-	case configfile.BackendDolt:
-		// Merge Dolt server mode config into options (config provides defaults, opts can override)
-		// Check server mode: IsDoltServerMode() uses cfg.GetBackend(), but we may have detected
-		// Dolt via filesystem when cfg.Backend is wrong. Check server settings directly too.
-		isServerMode := cfg.IsDoltServerMode()
-		if !isServerMode && (cfg.DoltServerEnabled || cfg.DoltMode == "server" || os.Getenv("BEADS_DOLT_SERVER_MODE") == "1") {
-			// Config has server settings but IsDoltServerMode() returned false due to
-			// backend mismatch - trust the server settings (dolt_doctor fix)
-			isServerMode = true
-		}
-		if isServerMode {
-			opts.ServerMode = true
-			if opts.ServerHost == "" {
-				opts.ServerHost = cfg.GetDoltServerHost()
-			}
-			if opts.ServerPort == 0 {
-				opts.ServerPort = cfg.GetDoltServerPort()
-			}
-			if opts.ServerUser == "" {
-				opts.ServerUser = cfg.GetDoltServerUser()
-			}
-			if opts.Database == "" {
-				opts.Database = cfg.GetDoltDatabase()
-			}
-			// Password from config (env var is usually preferred)
-			if opts.ServerPassword == "" && cfg.DoltServerPassword != "" {
-				opts.ServerPassword = cfg.DoltServerPassword
-			}
-		}
-		return NewWithOptions(ctx, backend, cfg.DatabasePath(beadsDir), opts)
-	default:
-		return nil, fmt.Errorf("unknown storage backend in config: %s", backend)
+	// Backend is always Dolt — sync config for DatabasePath
+	cfg.Backend = configfile.BackendDolt
+
+	// Merge Dolt server config into options (config provides defaults, opts can override)
+	opts.ServerMode = true
+	if opts.ServerHost == "" {
+		opts.ServerHost = cfg.GetDoltServerHost()
 	}
+	if opts.ServerPort == 0 {
+		opts.ServerPort = cfg.GetDoltServerPort()
+	}
+	if opts.ServerUser == "" {
+		opts.ServerUser = cfg.GetDoltServerUser()
+	}
+	if opts.Database == "" {
+		opts.Database = cfg.GetDoltDatabase()
+	}
+	// Password from config (env var is usually preferred)
+	if opts.ServerPassword == "" && cfg.DoltServerPassword != "" {
+		opts.ServerPassword = cfg.DoltServerPassword
+	}
+	return NewWithOptions(ctx, configfile.BackendDolt, cfg.DatabasePath(beadsDir), opts)
 }
 
 // GetBackendFromConfig returns the backend type from metadata.json, falling back

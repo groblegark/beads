@@ -55,35 +55,7 @@ func RunServerHealthChecks(path string) ServerHealthResult {
 		return result
 	}
 
-	// Check if Dolt backend is configured
-	if cfg.GetBackend() != configfile.BackendDolt {
-		result.Checks = append(result.Checks, DoctorCheck{
-			Name:     "Server Config",
-			Status:   StatusWarning,
-			Message:  fmt.Sprintf("Backend is '%s', not Dolt", cfg.GetBackend()),
-			Detail:   "Server mode health checks are only relevant for Dolt backend",
-			Fix:      "Set backend: dolt in metadata.json to use Dolt server mode",
-			Category: CategoryFederation,
-		})
-		result.OverallOK = false
-		return result
-	}
-
-	// Check if server mode is configured
-	if !cfg.IsDoltServerMode() {
-		result.Checks = append(result.Checks, DoctorCheck{
-			Name:     "Server Config",
-			Status:   StatusWarning,
-			Message:  fmt.Sprintf("Dolt mode is '%s' (not server)", cfg.GetDoltMode()),
-			Detail:   "Server health checks require dolt_mode: server in metadata.json",
-			Fix:      "Set dolt_mode: server in metadata.json and start dolt sql-server",
-			Category: CategoryFederation,
-		})
-		result.OverallOK = false
-		return result
-	}
-
-	// Server mode is configured - run health checks
+	// Run server health checks (Dolt is the only backend)
 	host := cfg.GetDoltServerHost()
 	port := cfg.GetDoltServerPort()
 

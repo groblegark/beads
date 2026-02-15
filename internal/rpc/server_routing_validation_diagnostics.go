@@ -325,6 +325,9 @@ func (s *Server) executeOperation(req *Request) Response {
 		resp = s.handleInboxDrain(req)
 	case OpInboxMarkDelivered:
 		resp = s.handleInboxMarkDelivered(req)
+	// Session identity operations (bd-zp6v9)
+	case OpSessionRegister:
+		resp = s.handleSessionRegister(req)
 	// Mol operations (gt-as9kdm)
 	case OpMolBond:
 		resp = s.handleMolBond(req)

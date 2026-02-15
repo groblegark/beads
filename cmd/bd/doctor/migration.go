@@ -8,8 +8,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/steveyegge/beads/internal/git"
-	"github.com/steveyegge/beads/internal/syncbranch"
 )
 
 // PendingMigration represents a single pending migration
@@ -190,21 +188,11 @@ func needsTombstonesMigration(beadsDir string) bool {
 	return false
 }
 
-// needsSyncMigration checks if sync-branch should be configured
-func needsSyncMigration(repoPath string) bool {
-	// Check if already configured
-	if syncbranch.GetFromYAML() != "" {
-		return false
-	}
-
-	// Check if we're in a git repository
-	_, err := git.GetGitDir()
-	if err != nil {
-		return false
-	}
-
-	// Check if has remote (multi-clone indicator)
-	return hasGitRemote(repoPath)
+// needsSyncMigration checks if sync-branch should be configured.
+// sync-branch support has been removed (syncbranch package deleted).
+// Always returns false.
+func needsSyncMigration(_ string) bool {
+	return false
 }
 
 // hasGitRemote checks if the repository has a git remote

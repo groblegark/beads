@@ -645,6 +645,16 @@ var rootCmd = &cobra.Command{
 									daemonStatus.Health = health.Status
 									debug.Logf("connected to restarted daemon (version: %s)", health.Version)
 									warnWorktreeDaemon(dbPath)
+									// Register session identity (bd-zp6v9)
+									projectRoot := ""
+									if dbPath != "" {
+										projectRoot = filepath.Dir(filepath.Dir(dbPath))
+									}
+									if name := registerSession(daemonClient, projectRoot); name != "" {
+										sessionAssignedName = name
+										actor = name
+										daemonClient.SetActor(name)
+									}
 									return
 								}
 							}
@@ -671,6 +681,17 @@ var rootCmd = &cobra.Command{
 							hookRunner = hooks.NewRunner(hooksDir)
 						} else {
 							debug.Logf("hook runner not initialized: dbPath is empty")
+						}
+						// Register session identity with daemon (bd-zp6v9)
+						projectRoot := ""
+						if dbPath != "" {
+							projectRoot = filepath.Dir(filepath.Dir(dbPath)) // .beads/ parent
+						}
+						if name := registerSession(daemonClient, projectRoot); name != "" {
+							sessionAssignedName = name
+							actor = name
+							daemonClient.SetActor(name)
+							debug.Logf("session registered as %q", name)
 						}
 						return // Skip direct storage initialization
 					}

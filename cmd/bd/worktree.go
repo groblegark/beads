@@ -9,7 +9,6 @@ import (
 
 	"github.com/steveyegge/beads/internal/beads"
 	"github.com/steveyegge/beads/internal/git"
-	"github.com/steveyegge/beads/internal/syncbranch"
 )
 
 // isGitWorktree detects if the current directory is in a git worktree.
@@ -38,14 +37,8 @@ func shouldDisableDaemonForWorktree() bool {
 		return false
 	}
 
-	// In a worktree - check if sync-branch is configured
-	// IsConfiguredWithDB checks env var, config.yaml, AND database config
-	if syncbranch.IsConfiguredWithDB("") {
-		// Sync-branch is configured, daemon is safe (commits go to dedicated branch)
-		return false
-	}
-
 	// In worktree without sync-branch - daemon is unsafe, disable it
+	// sync-branch support removed (syncbranch package deleted)
 	return true
 }
 
@@ -83,11 +76,8 @@ func warnWorktreeDaemon(dbPathForWarning string) {
 		return
 	}
 
-	// If sync-branch is configured, daemon is safe in worktrees - no warning needed
-	if syncbranch.IsConfiguredWithDB("") {
-		return
-	}
-	
+	// sync-branch support removed (syncbranch package deleted)
+	// Always show warning for worktree daemon usage
 	gitDir := getWorktreeGitDir()
 	beadsDir := filepath.Dir(dbPathForWarning)
 	if beadsDir == "." || beadsDir == "" {

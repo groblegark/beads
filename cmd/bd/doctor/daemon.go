@@ -12,7 +12,6 @@ import (
 	"github.com/steveyegge/beads/internal/git"
 	"github.com/steveyegge/beads/internal/rpc"
 	"github.com/steveyegge/beads/internal/storage/factory"
-	"github.com/steveyegge/beads/internal/syncbranch"
 )
 
 // CheckDaemonStatus checks the health of the daemon for a workspace.
@@ -219,22 +218,11 @@ func CheckGitSyncSetup(path string) DoctorCheck {
 		}
 	}
 
-	// Git repo exists - check if sync-branch is configured
-	if !syncbranch.IsConfigured() {
-		return DoctorCheck{
-			Name:     "Git Sync Setup",
-			Status:   StatusOK,
-			Message:  "Git repository detected (sync-branch not configured)",
-			Detail:   "Beads commits directly to current branch. For team collaboration or to keep beads changes isolated, consider using a sync-branch.",
-			Fix:      "Run 'bd config set sync.branch beads-sync' to use a dedicated branch for beads metadata",
-			Category: CategoryRuntime,
-		}
-	}
-
+	// sync-branch support removed (syncbranch package deleted)
 	return DoctorCheck{
 		Name:     "Git Sync Setup",
 		Status:   StatusOK,
-		Message:  "Git repository and sync-branch configured",
+		Message:  "Git repository detected (Dolt handles sync)",
 		Category: CategoryRuntime,
 	}
 }

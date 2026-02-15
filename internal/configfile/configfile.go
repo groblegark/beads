@@ -14,7 +14,7 @@ const ConfigFileName = "metadata.json"
 type Config struct {
 	Database    string `json:"database"`
 	JSONLExport string `json:"jsonl_export,omitempty"`
-	Backend     string `json:"backend,omitempty"` // "sqlite" (default) or "dolt"
+	Backend     string `json:"backend,omitempty"` // Always "dolt" (sqlite removed)
 
 	// Dolt remote URL for bootstrap from remote (enables JSONL-free fresh clones)
 	// When set and Dolt backend is configured, fresh clones will bootstrap by
@@ -22,12 +22,8 @@ type Config struct {
 	// Example: "aws://[bucket:table]/database"
 	DoltRemoteURL string `json:"dolt_remote_url,omitempty"`
 
-	// Dolt SQL server mode configuration
-	// When enabled (DoltServerEnabled=true or DoltMode="server"), connects to
-	// a dolt sql-server via TCP instead of embedded driver.
-	// This enables multi-writer support and eliminates lock contention.
-	DoltServerEnabled  bool   `json:"dolt_server_enabled,omitempty"` // Legacy: prefer DoltMode
-	DoltMode           string `json:"dolt_mode,omitempty"`           // "embedded" (default) or "server"
+	// Dolt SQL server connection configuration.
+	// bd-daemon connects to a dolt sql-server via TCP.
 	DoltServerHost     string `json:"dolt_server_host,omitempty"`    // Default: 127.0.0.1
 	DoltServerPort     int    `json:"dolt_server_port,omitempty"`    // Default: 3307
 	DoltServerUser     string `json:"dolt_server_user,omitempty"`    // Default: root
@@ -124,29 +120,11 @@ func (c *Config) Save(beadsDir string) error {
 }
 
 func (c *Config) DatabasePath(beadsDir string) string {
-	backend := c.GetBackend()
-
-	// Treat Database as the on-disk storage location:
-	// - SQLite: filename (default: beads.db)
-	// - Dolt: directory name (default: dolt)
-	//
-	// Backward-compat: early dolt configs wrote "beads.db" even when Backend=dolt.
-	// In that case, treat it as "dolt".
-	if backend == BackendDolt {
-		db := strings.TrimSpace(c.Database)
-		if db == "" || db == "beads.db" {
-			db = "dolt"
-		}
-		if filepath.IsAbs(db) {
-			return db
-		}
-		return filepath.Join(beadsDir, db)
-	}
-
-	// SQLite (default)
+	// Dolt directory name (default: dolt)
+	// Backward-compat: early configs wrote "beads.db" even when Backend=dolt.
 	db := strings.TrimSpace(c.Database)
-	if db == "" {
-		db = "beads.db"
+	if db == "" || db == "beads.db" {
+		db = "dolt"
 	}
 	if filepath.IsAbs(db) {
 		return db
@@ -192,19 +170,11 @@ func (c *Config) IsRoutingEnabled() bool {
 
 // Backend constants
 const (
-	BackendSQLite = "sqlite"
+	BackendSQLite = "sqlite" // Deprecated: kept for config migration only
 	BackendDolt   = "dolt"
 )
 
 // BackendCapabilities describes behavioral constraints for a storage backend.
-//
-// This is intentionally small and stable: callers should use these flags to decide
-// whether to enable features like daemon/RPC/autostart and process spawning.
-//
-// NOTE: The embedded Dolt driver is effectively single-writer at the OS-process level.
-// Even if multiple goroutines are safe within one process, multiple processes opening
-// the same Dolt directory concurrently can cause lock contention and transient
-// "read-only" failures. Therefore, Dolt is treated as single-process-only.
 type BackendCapabilities struct {
 	// SingleProcessOnly indicates the backend must not be accessed from multiple
 	// Beads OS processes concurrently (no daemon mode, no RPC client/server split,
@@ -213,34 +183,15 @@ type BackendCapabilities struct {
 }
 
 // CapabilitiesForBackend returns capabilities for a backend string.
-// Unknown backends are treated conservatively as single-process-only.
-//
-// Note: For Dolt, this returns SingleProcessOnly=true for embedded mode.
-// Use Config.GetCapabilities() when you have the full config to properly
-// handle server mode (which supports multi-process access).
+// Dolt always uses server mode via daemon, so it supports multi-process access.
 func CapabilitiesForBackend(backend string) BackendCapabilities {
-	switch strings.TrimSpace(strings.ToLower(backend)) {
-	case BackendSQLite:
-		return BackendCapabilities{SingleProcessOnly: false}
-	case "", BackendDolt:
-		// Embedded Dolt is single-process-only.
-		// Server mode is handled by Config.GetCapabilities().
-		return BackendCapabilities{SingleProcessOnly: true}
-	default:
-		return BackendCapabilities{SingleProcessOnly: true}
-	}
+	return BackendCapabilities{SingleProcessOnly: false}
 }
 
 // GetCapabilities returns the backend capabilities for this config.
-// Unlike CapabilitiesForBackend(string), this considers Dolt server mode
-// which supports multi-process access.
+// Dolt via daemon supports multi-process access.
 func (c *Config) GetCapabilities() BackendCapabilities {
-	backend := c.GetBackend()
-	if backend == BackendDolt && c.IsDoltServerMode() {
-		// Server mode supports multi-writer, so NOT single-process-only
-		return BackendCapabilities{SingleProcessOnly: false}
-	}
-	return CapabilitiesForBackend(backend)
+	return BackendCapabilities{SingleProcessOnly: false}
 }
 
 // GetBackend returns the configured backend type, defaulting to Dolt.
@@ -251,12 +202,6 @@ func (c *Config) GetBackend() string {
 	return c.Backend
 }
 
-// Dolt mode constants
-const (
-	DoltModeEmbedded = "embedded"
-	DoltModeServer   = "server"
-)
-
 // Default Dolt server settings
 const (
 	DefaultDoltServerHost = "127.0.0.1"
@@ -264,31 +209,6 @@ const (
 	DefaultDoltServerUser = "root"
 	DefaultDoltDatabase   = "beads"
 )
-
-// IsDoltServerMode returns true if Dolt SQL server mode is enabled.
-// Server mode connects via TCP instead of embedded driver, enabling multi-writer support.
-// Checks BEADS_DOLT_SERVER_MODE env var first (set by Gas Town K8s pods),
-// then DoltServerEnabled (legacy) and DoltMode (preferred).
-// Only applies when backend is "dolt" — ignored for sqlite.
-func (c *Config) IsDoltServerMode() bool {
-	if c.GetBackend() != BackendDolt {
-		return false
-	}
-	// Check env var first (set by Gas Town K8s pods)
-	if os.Getenv("BEADS_DOLT_SERVER_MODE") == "1" {
-		return true
-	}
-	// Check both config mechanisms for backwards compatibility
-	return c.DoltServerEnabled || strings.ToLower(c.DoltMode) == DoltModeServer
-}
-
-// GetDoltMode returns the Dolt connection mode, defaulting to embedded.
-func (c *Config) GetDoltMode() string {
-	if c.DoltMode == "" {
-		return DoltModeEmbedded
-	}
-	return c.DoltMode
-}
 
 // GetDoltServerHost returns the Dolt server host.
 // Checks BEADS_DOLT_SERVER_HOST env var first, then config, then default.
@@ -341,17 +261,9 @@ func (c *Config) GetDoltDatabase() string {
 }
 
 // CapabilitiesForConfig returns capabilities based on full configuration.
-// This is preferred over CapabilitiesForBackend when you have the full config,
-// as it can account for server mode (which enables multi-process for Dolt).
+// Dolt via daemon always supports multi-process access.
 func CapabilitiesForConfig(cfg *Config) BackendCapabilities {
-	if cfg == nil {
-		return BackendCapabilities{SingleProcessOnly: false}
-	}
-	// Dolt in server mode is NOT single-process-only (server handles concurrency)
-	if cfg.IsDoltServerMode() {
-		return BackendCapabilities{SingleProcessOnly: false}
-	}
-	return CapabilitiesForBackend(cfg.GetBackend())
+	return BackendCapabilities{SingleProcessOnly: false}
 }
 
 // ConfigMismatch represents a discrepancy between metadata.json and config.yaml

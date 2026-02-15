@@ -186,6 +186,9 @@ const (
 	OpInboxDrain         = "inbox_drain"
 	OpInboxMarkDelivered = "inbox_mark_delivered"
 
+	// Session identity operations (bd-zp6v9)
+	OpSessionRegister = "session_register"
+
 	// Dirty tracking operations (beads-x1lr)
 	OpDirtyCount = "dirty_count"
 	OpDirtyFlush = "dirty_flush"
@@ -1025,6 +1028,19 @@ type InboxMarkDeliveredArgs struct {
 type InboxListResponse struct {
 	Items []*types.InboxItem `json:"items"`
 	Count int                `json:"count"`
+}
+
+// SessionRegisterArgs represents arguments for registering a session identity (bd-zp6v9).
+type SessionRegisterArgs struct {
+	SessionKey string `json:"session_key"`          // Hash identifying this session
+	BaseName   string `json:"base_name"`            // Base name (e.g., "matthewbaker")
+}
+
+// SessionRegisterResponse represents the result of session registration.
+type SessionRegisterResponse struct {
+	AssignedName string `json:"assigned_name"` // The unique name assigned to this session
+	IsNew        bool   `json:"is_new"`        // True if this is a newly registered session
+	SessionKey   string `json:"session_key"`   // Echo back the session key
 }
 
 // Additional write operations (bd-wj80)

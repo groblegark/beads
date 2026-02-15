@@ -14,7 +14,6 @@ import (
 	"github.com/steveyegge/beads/internal/git"
 	"github.com/steveyegge/beads/internal/storage"
 	storagefactory "github.com/steveyegge/beads/internal/storage/factory"
-	"github.com/steveyegge/beads/internal/syncbranch"
 	"github.com/steveyegge/beads/internal/types"
 )
 
@@ -351,164 +350,12 @@ func gitRevListCount(path string, rangeExpr string) (int, error) {
 }
 
 // CheckSyncBranchHookCompatibility checks if pre-push hook is compatible with sync-branch mode.
-// When sync-branch is configured, the pre-push hook must have the sync-branch bypass logic
-// (added in version 0.29.0). Without it, users experience circular "bd sync" failures (issue #532).
-func CheckSyncBranchHookCompatibility(path string) DoctorCheck {
-	// Check if sync-branch is configured
-	syncBranch := syncbranch.GetFromYAML()
-	if syncBranch == "" {
-		return DoctorCheck{
-			Name:    "Sync Branch Hook Compatibility",
-			Status:  StatusOK,
-			Message: "N/A (sync-branch not configured)",
-		}
-	}
-
-	// sync-branch is configured - check pre-push hook version
-	// Get common git directory for hooks (shared across worktrees)
-	cmd := exec.Command("git", "rev-parse", "--git-common-dir")
-	cmd.Dir = path
-	output, err := cmd.Output()
-	if err != nil {
-		return DoctorCheck{
-			Name:    "Sync Branch Hook Compatibility",
-			Status:  StatusOK,
-			Message: "N/A (not a git repository)",
-		}
-	}
-	gitCommonDir := strings.TrimSpace(string(output))
-	if !filepath.IsAbs(gitCommonDir) {
-		gitCommonDir = filepath.Join(path, gitCommonDir)
-	}
-
-	// Hooks are shared across worktrees and live in the common git directory
-	hookPath := filepath.Join(gitCommonDir, "hooks", "pre-push")
-
-	hookContent, err := os.ReadFile(hookPath) // #nosec G304 - path is controlled
-	if err != nil {
-		// No pre-push hook installed - different issue, covered by checkGitHooks
-		return DoctorCheck{
-			Name:    "Sync Branch Hook Compatibility",
-			Status:  StatusOK,
-			Message: "N/A (no pre-push hook installed)",
-		}
-	}
-
-	// Check if this is a bd hook and extract version
-	hookStr := string(hookContent)
-	if !strings.Contains(hookStr, "bd-hooks-version:") {
-		// Not a bd hook - check if it's an external hook manager
-		externalManagers := fix.DetectExternalHookManagers(path)
-		if len(externalManagers) > 0 {
-			names := fix.ManagerNames(externalManagers)
-
-			// Check if external manager has bd integration
-			integration := fix.CheckExternalHookManagerIntegration(path)
-			if integration != nil {
-				// Detection-only managers - we can't verify their config
-				if integration.DetectionOnly {
-					return DoctorCheck{
-						Name:    "Sync Branch Hook Compatibility",
-						Status:  StatusOK,
-						Message: fmt.Sprintf("Managed by %s (cannot verify bd integration)", names),
-						Detail:  "Ensure pre-push hook calls 'bd hooks run pre-push' for sync-branch",
-					}
-				}
-
-				if integration.Configured {
-					// Has bd integration - check if pre-push is covered
-					hasPrepush := false
-					for _, h := range integration.HooksWithBd {
-						if h == "pre-push" {
-							hasPrepush = true
-							break
-						}
-					}
-
-					if hasPrepush {
-						var detail string
-						// Only report hooks that ARE in config but lack bd integration
-						if len(integration.HooksWithoutBd) > 0 {
-							detail = fmt.Sprintf("Hooks without bd: %s", strings.Join(integration.HooksWithoutBd, ", "))
-						}
-						return DoctorCheck{
-							Name:    "Sync Branch Hook Compatibility",
-							Status:  StatusOK,
-							Message: fmt.Sprintf("Managed by %s with bd integration", integration.Manager),
-							Detail:  detail,
-						}
-					}
-
-					// Has bd integration but missing pre-push
-					return DoctorCheck{
-						Name:    "Sync Branch Hook Compatibility",
-						Status:  StatusWarning,
-						Message: fmt.Sprintf("Managed by %s (missing pre-push bd integration)", integration.Manager),
-						Detail:  "pre-push hook needs 'bd hooks run pre-push' for sync-branch",
-						Fix:     fmt.Sprintf("Add or upgrade to 'bd hooks run pre-push' in %s. See %s", integration.Manager, hooksExamplesURL),
-					}
-				}
-			}
-
-			// External manager detected but no bd integration found
-			return DoctorCheck{
-				Name:    "Sync Branch Hook Compatibility",
-				Status:  StatusWarning,
-				Message: fmt.Sprintf("Managed by %s (no bd integration detected)", names),
-				Detail:  fmt.Sprintf("Pre-push hook managed by %s but no 'bd hooks run' found", names),
-				Fix:     fmt.Sprintf("Add or upgrade to 'bd hooks run <hook>' in %s. See %s", names, hooksExamplesURL),
-			}
-		}
-
-		// No external manager - truly custom hook
-		return DoctorCheck{
-			Name:    "Sync Branch Hook Compatibility",
-			Status:  StatusWarning,
-			Message: "Pre-push hook is not a bd hook",
-			Detail:  "Cannot verify sync-branch compatibility with custom hooks",
-			Fix: "Either run 'bd hooks install --force' to use bd hooks,\n" +
-				"  or ensure your custom hook skips validation when pushing to sync-branch",
-		}
-	}
-
-	// Extract version from hook
-	var hookVersion string
-	for _, line := range strings.Split(hookStr, "\n") {
-		if strings.Contains(line, "bd-hooks-version:") {
-			parts := strings.SplitN(line, ":", 2)
-			if len(parts) == 2 {
-				hookVersion = strings.TrimSpace(parts[1])
-			}
-			break
-		}
-	}
-
-	if hookVersion == "" {
-		return DoctorCheck{
-			Name:    "Sync Branch Hook Compatibility",
-			Status:  StatusWarning,
-			Message: "Could not determine pre-push hook version",
-			Detail:  "Cannot verify sync-branch compatibility",
-			Fix:     "Run 'bd hooks install --force' to update hooks",
-		}
-	}
-
-	// MinSyncBranchHookVersion added sync-branch bypass logic
-	// If hook version < MinSyncBranchHookVersion, it will cause circular "bd sync" failures
-	if CompareVersions(hookVersion, MinSyncBranchHookVersion) < 0 {
-		return DoctorCheck{
-			Name:    "Sync Branch Hook Compatibility",
-			Status:  StatusError,
-			Message: fmt.Sprintf("Pre-push hook incompatible with sync-branch mode (version %s)", hookVersion),
-			Detail:  fmt.Sprintf("Hook version %s lacks sync-branch bypass (requires %s+). This causes circular 'bd sync' failures during push.", hookVersion, MinSyncBranchHookVersion),
-			Fix:     "Run 'bd hooks install --force' to update hooks",
-		}
-	}
-
+// sync-branch support has been removed (syncbranch package deleted).
+func CheckSyncBranchHookCompatibility(_ string) DoctorCheck {
 	return DoctorCheck{
 		Name:    "Sync Branch Hook Compatibility",
 		Status:  StatusOK,
-		Message: fmt.Sprintf("Pre-push hook compatible with sync-branch (version %s)", hookVersion),
+		Message: "N/A (sync-branch support removed)",
 	}
 }
 
@@ -597,9 +444,8 @@ func CheckSyncBranchConfig(path string) DoctorCheck {
 		}
 	}
 
-	// Check sync-branch from config.yaml or environment variable
-	// This is the source of truth for multi-clone setups
-	syncBranch := syncbranch.GetFromYAML()
+	// sync-branch support removed (syncbranch package deleted)
+	syncBranch := ""
 
 	// Get current branch
 	currentBranch := ""
@@ -672,8 +518,8 @@ func CheckSyncBranchHealth(path string) DoctorCheck {
 		}
 	}
 
-	// Get configured sync branch
-	syncBranch := syncbranch.GetFromYAML()
+	// sync-branch support removed (syncbranch package deleted)
+	syncBranch := ""
 	if syncBranch == "" {
 		return DoctorCheck{
 			Name:    "Sync Branch Health",

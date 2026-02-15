@@ -113,6 +113,9 @@ type Server struct {
 	bus *eventbus.Bus
 	// NATS health provider (returns status for bus_status RPC)
 	natsHealthFn func() NATSHealthInfo
+	// Session identity registry (bd-zp6v9)
+	sessionReg     *sessionRegistry
+	sessionRegOnce sync.Once
 }
 
 // Mutation event types
