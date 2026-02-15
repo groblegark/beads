@@ -207,13 +207,19 @@ func postNudge(ctx context.Context, client *http.Client, coopURL, message string
 	return nudgeResp.Delivered, nudgeResp.Reason, nil
 }
 
+// CoopURLResolver looks up the Coop sidecar URL for a given agent ID.
+// The default implementation shells out to `bd show --json` and extracts
+// coop_url from the agent bead's notes field.
+type CoopURLResolver func(ctx context.Context, cwd, agentID string) (string, error)
+
 // DecisionNudgeHandler nudges the requesting agent via their Coop HTTP API when
 // a decision is resolved. This wakes idle agents so their PostToolUse hook can
 // run `bd decision check --inject` and deliver the response. (bd-5mkhu)
 //
 // Priority 50 (runs after standard handlers; nudging is supplementary).
 type DecisionNudgeHandler struct {
-	httpClient *http.Client
+	HTTPClient      *http.Client    // If nil, a default client with 5s timeout is used.
+	CoopURLResolver CoopURLResolver // If nil, uses resolveCoopURLFromBead.
 }
 
 func (h *DecisionNudgeHandler) ID() string          { return "decision-nudge" }
@@ -232,7 +238,11 @@ func (h *DecisionNudgeHandler) Handle(ctx context.Context, event *Event, result 
 	}
 
 	// Look up agent bead notes for coop_url.
-	coopURL, err := resolveCoopURLFromBead(ctx, event.CWD, agentID)
+	resolver := h.CoopURLResolver
+	if resolver == nil {
+		resolver = resolveCoopURLFromBead
+	}
+	coopURL, err := resolver(ctx, event.CWD, agentID)
 	if err != nil {
 		log.Printf("decision-nudge: no coop_url for agent %q: %v", agentID, err)
 		return nil // Not a coop agent or not reachable; skip silently.
@@ -240,7 +250,7 @@ func (h *DecisionNudgeHandler) Handle(ctx context.Context, event *Event, result 
 
 	// POST nudge to coop sidecar.
 	message := fmt.Sprintf("Decision %s resolved by %s (chose: %s)", payload.DecisionID, payload.ResolvedBy, payload.ChosenLabel)
-	delivered, reason, err := postNudge(ctx, h.httpClient, coopURL, message)
+	delivered, reason, err := postNudge(ctx, h.HTTPClient, coopURL, message)
 	if err != nil {
 		log.Printf("decision-nudge: nudge to %s (%s) failed: %v", agentID, coopURL, err)
 		return nil // Best-effort; don't fail the event chain.

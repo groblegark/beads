@@ -32,6 +32,9 @@ type Daemon struct {
 	// URL is the HTTP base URL for the daemon (e.g., "http://127.0.0.1:54321").
 	URL string
 
+	// SocketPath is the Unix domain socket path for the RPC server.
+	SocketPath string
+
 	// Store is the underlying Dolt storage instance.
 	Store storage.Storage
 
@@ -101,8 +104,9 @@ func StartWithStore(t testing.TB, store storage.Storage) *Daemon {
 	})
 
 	return &Daemon{
-		URL:    url,
-		Store:  store,
-		Server: server,
+		URL:        url,
+		SocketPath: socketPath,
+		Store:      store,
+		Server:     server,
 	}
 }
