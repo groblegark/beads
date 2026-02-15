@@ -77,7 +77,7 @@ linters:
           - gosec
         text: "G306"
       # G304: Safe file reads from known JSONL and error paths
-      - path: 'cmd/bd/autoflush\.go|cmd/bd/daemon_autostart\.go|cmd/bd/doctor/fix/sync_branch\.go|cmd/bd/doctor/git\.go|cmd/bd/rename_prefix\.go|cmd/bd/sync_merge\.go|internal/beads/beads\.go|internal/daemon/discovery\.go|internal/daemonrunner/sync\.go|internal/syncbranch/worktree\.go'
+      - path: 'cmd/bd/autoflush\.go|cmd/bd/daemon_autostart\.go|cmd/bd/doctor/git\.go|cmd/bd/rename_prefix\.go|internal/beads/beads\.go|internal/daemon/discovery\.go'
         linters:
           - gosec
         text: "G304"
@@ -86,7 +86,7 @@ linters:
           - gosec
         text: "G302.*0700|G301.*0750"
       # G302/G306: JSONL files and error logs need 0644 for debugging/sharing
-      - path: 'cmd/bd/autoflush\.go|cmd/bd/daemon\.go|cmd/bd/daemon_sync_branch\.go|cmd/bd/resolve_conflicts\.go|cmd/bd/setup\.go|cmd/bd/systemd\.go|internal/daemon/registry\.go|internal/daemonrunner/daemon\.go|internal/git/worktree\.go'
+      - path: 'cmd/bd/autoflush\.go|cmd/bd/daemon\.go|cmd/bd/resolve_conflicts\.go|cmd/bd/setup\.go|cmd/bd/systemd\.go|internal/daemon/registry\.go|internal/git/worktree\.go'
         linters:
           - gosec
         text: "G306"
@@ -96,7 +96,7 @@ linters:
           - gosec
         text: "G306.*0700"
       # G204: Safe subprocess launches with validated arguments
-      - path: 'cmd/bd/agent_attach\.go|cmd/bd/daemon_autostart\.go|cmd/bd/daemon_guard\.go|cmd/bd/daemon_sync_branch\.go|cmd/bd/doctor\.go|cmd/bd/doctor/fix/sync_branch\.go|cmd/bd/gate\.go|cmd/bd/gate_discover\.go|cmd/bd/jira\.go|cmd/bd/migrate_sync\.go|cmd/bd/show\.go|cmd/bd/sync\.go|internal/git/worktree\.go|internal/syncbranch/worktree\.go|internal/tui/decision/model\.go'
+      - path: 'cmd/bd/agent_attach\.go|cmd/bd/daemon_autostart\.go|cmd/bd/daemon_guard\.go|cmd/bd/doctor\.go|cmd/bd/gate\.go|cmd/bd/gate_discover\.go|cmd/bd/jira\.go|cmd/bd/show\.go|internal/git/worktree\.go|internal/tui/decision/model\.go'
         linters:
           - gosec
         text: 'G204'

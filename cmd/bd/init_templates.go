@@ -71,13 +71,6 @@ func createConfigYaml(beadsDir string, noDbMode bool, prefix string) error {
 # Use 'bd export --events' to trigger manually regardless of this setting.
 # events-export: false
 
-# Git branch for beads commits (bd sync will commit to this branch)
-# IMPORTANT: Set this for team projects so all clones use the same sync branch.
-# This setting persists across clones (unlike database config which is gitignored).
-# Can also use BEADS_SYNC_BRANCH env var for local override.
-# If not set, bd sync will require you to run 'bd config set sync.branch <branch>'.
-# sync-branch: "beads-sync"
-
 # Multi-repo configuration (experimental - bd-307)
 # Allows hydrating from multiple repositories and routing writes to the correct JSONL
 # repos:
@@ -140,17 +133,17 @@ bd show <issue-id>
 bd update <issue-id> --status in_progress
 bd update <issue-id> --status done
 
-# Sync with git remote
-bd sync
+# Export to JSONL (Dolt syncs automatically)
+bd export
 ` + "```" + `
 
 ### Working with Issues
 
 Issues in Beads are:
-- **Git-native**: Stored in ` + "`.beads/issues.jsonl`" + ` and synced like code
+- **Git-native**: Stored in ` + "`.beads/issues.jsonl`" + ` and version-controlled with Dolt
 - **AI-friendly**: CLI-first design works perfectly with AI coding agents
 - **Branch-aware**: Issues can follow your branch workflow
-- **Always in sync**: Auto-syncs with your commits
+- **Auto-synced**: Dolt handles synchronization automatically
 
 ## Why Beads?
 
