@@ -136,11 +136,16 @@ tasks:
         ca-certificates tzdata libicu74 netcat-openbsd
       sudo rm -rf /var/lib/apt/lists/*
 
-      # Create beads user
-      sudo userdel -r ubuntu 2>/dev/null || true
-      sudo groupdel ubuntu 2>/dev/null || true
-      sudo groupadd -g 1000 beads 2>/dev/null || true
-      sudo useradd -u 1000 -g beads -s /bin/sh -m beads 2>/dev/null || true
+      # Create beads user (UID/GID 1000 may already exist as 'ubuntu')
+      if id -u beads &>/dev/null; then
+        echo "beads user already exists"
+      elif id -u ubuntu &>/dev/null; then
+        sudo usermod -l beads -d /home/beads -m ubuntu
+        sudo groupmod -n beads ubuntu
+      else
+        sudo groupadd -g 1000 beads
+        sudo useradd -u 1000 -g beads -s /bin/sh -m beads
+      fi
 
       # Install binaries
       sudo cp ${{ tasks.build-bd.artifacts.bd-binary }} /usr/local/bin/bd
@@ -171,9 +176,16 @@ tasks:
         build-essential pkg-config libssl-dev
       sudo rm -rf /var/lib/apt/lists/*
 
-      # Create agent user
-      sudo groupadd -g 1000 agent 2>/dev/null || true
-      sudo useradd -u 1000 -g agent -s /bin/bash -m agent 2>/dev/null || true
+      # Create agent user (UID/GID 1000 may already exist as 'ubuntu')
+      if id -u agent &>/dev/null; then
+        echo "agent user already exists"
+      elif id -u ubuntu &>/dev/null; then
+        sudo usermod -l agent -d /home/agent -m -s /bin/bash ubuntu
+        sudo groupmod -n agent ubuntu
+      else
+        sudo groupadd -g 1000 agent
+        sudo useradd -u 1000 -g agent -s /bin/bash -m agent
+      fi
 
       # Go
       curl -fsSL "https://go.dev/dl/go1.25.linux-amd64.tar.gz" | sudo tar -C /usr/local -xzf -
