@@ -31,7 +31,7 @@ on:
 
 base:
   image: ubuntu:24.04
-  config: none
+  config: rwx/base 1.0.0
 
 tasks:
   # ── System deps (cached until lock changes) ────────────────────────
