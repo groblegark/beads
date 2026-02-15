@@ -74,7 +74,7 @@ else
     sed -i '' "s/^version = \".*\"/version = \"${COOP_VERSION}\"/" Cargo.toml
 
     # Update Cargo.lock
-    cargo update -p coop-mux
+    cargo update -p coopmux
 
     # Commit and tag
     git add -A
