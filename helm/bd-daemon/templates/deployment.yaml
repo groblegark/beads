@@ -246,6 +246,14 @@ spec:
             {{- end }}
             - name: HOME
               value: "/home/beads"
+            - name: BEADS_DIR
+              value: "/home/beads/.beads"
+            - name: BEADS_DOLT_SERVER_MODE
+              value: "1"
+            {{- if .Values.slackBot.channelID }}
+            - name: SLACK_CHANNEL
+              value: {{ .Values.slackBot.channelID | quote }}
+            {{- end }}
             {{- if .Values.nats.enabled }}
             - name: BD_NATS_URL
               value: {{ include "bd-daemon.natsURL" . | quote }}
