@@ -73,6 +73,7 @@ tasks:
       - "**/*.go"
       - "go.mod"
       - "go.sum"
+      - "cmd/bd/templates/**"
     run: |
       echo "Building bd binary..."
       REF_NAME="${REF_NAME#refs/tags/}"
