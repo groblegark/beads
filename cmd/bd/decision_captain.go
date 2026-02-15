@@ -4,9 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/signal"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -23,7 +21,6 @@ import (
 //	bd decision captain poll     — one-shot poll that exits after listing
 //	bd decision captain watch    — block until a new decision arrives
 //	bd decision captain sweep   — auto-resolve stale decisions
-//	bd decision captain auto    — long-running captain loop
 //	bd decision captain send    — send message to agent inbox
 var decisionCaptainCmd = &cobra.Command{
 	Use:   "captain",
@@ -37,7 +34,6 @@ Subcommands:
   poll      Poll once for new decisions, output as JSON, exit
   watch     Block until a new decision arrives, print it as JSON, exit
   sweep     Auto-resolve stale decisions from dead sessions
-  auto      Long-running captain loop with configurable rules
   send      Send a message to an agent's inbox
 
 Manual workflow:
@@ -45,11 +41,9 @@ Manual workflow:
   2. Review, then: bd decision captain respond <id> --select=...
   3. Loop
 
-Autonomous workflow:
-  bd decision captain auto --sweep-age 30m --default-action continue
-
-This is the recommended mode for AI agents acting as captains.
-Use 'bd decision watch --headless' for a persistent stdin/stdout pipe instead.`,
+This is the recommended interface for AI agents acting as captains.
+The captain is an intelligent agent that reasons about each decision,
+not a rules engine. Use watch + respond in a loop.`,
 }
 
 // captainListCmd lists pending decisions as JSON for the captain.
@@ -175,46 +169,6 @@ Examples:
 	RunE: runCaptainSend,
 }
 
-// captainAutoCmd runs a long-running captain loop that watches for decisions,
-// auto-sweeps stale ones, and applies configurable default actions.
-var captainAutoCmd = &cobra.Command{
-	Use:   "auto",
-	Short: "Long-running captain loop with configurable rules",
-	Long: `Run a persistent captain loop that combines watch + sweep + respond.
-
-The auto captain continuously:
-  1. Sweeps stale decisions older than --sweep-age (selecting "stop")
-  2. Watches for new decisions
-  3. Applies --default-action to decisions matching rules
-  4. Logs all actions to stderr for observability
-
-Default actions:
-  continue    Select the first non-stop option (keep agents working)
-  stop        Select the "stop" option (shut agents down)
-  ask         Print to stdout and wait (manual intervention required)
-  <option-id> Select a specific option ID if present
-
-Rules are applied in order:
-  1. If decision is older than --sweep-age → sweep with "stop"
-  2. If --urgent-action is set and urgency=high → apply urgent action
-  3. Otherwise → apply --default-action
-
-The loop runs until interrupted (Ctrl+C / SIGTERM).
-
-Examples:
-  # Keep agents running, sweep stale decisions every 30m
-  bd decision captain auto
-
-  # Stop agents by default, but escalate urgent ones
-  bd decision captain auto --default-action stop --urgent-action ask
-
-  # Fast polling for responsive captain
-  bd decision captain auto --poll-interval 2s
-
-  # Dry run — show what would happen without acting
-  bd decision captain auto --dry-run`,
-	RunE: runCaptainAuto,
-}
 
 func init() {
 	captainRespondCmd.Flags().StringP("select", "s", "", "Option ID to select (required)")
@@ -233,21 +187,12 @@ func init() {
 	captainSendCmd.Flags().String("type", "agent", "Message type (agent, alert, system, event)")
 	captainSendCmd.Flags().String("from", "captain", "Sender identity")
 
-	captainAutoCmd.Flags().Duration("poll-interval", 5*time.Second, "How often to poll for new decisions")
-	captainAutoCmd.Flags().Duration("sweep-age", 30*time.Minute, "Auto-sweep decisions older than this")
-	captainAutoCmd.Flags().String("default-action", "continue", "Default action: continue, stop, ask, or an option ID")
-	captainAutoCmd.Flags().String("urgent-action", "", "Override action for high-urgency decisions (empty = use default)")
-	captainAutoCmd.Flags().Bool("dry-run", false, "Show what would happen without acting")
-	captainAutoCmd.Flags().String("by", "captain-auto", "Captain identity for audit trail")
-	captainAutoCmd.Flags().Bool("notify", true, "Send inbox notification to requesting agent after resolving")
-
 	decisionCaptainCmd.AddCommand(captainListCmd)
 	decisionCaptainCmd.AddCommand(captainRespondCmd)
 	decisionCaptainCmd.AddCommand(captainPollCmd)
 	decisionCaptainCmd.AddCommand(captainWatchCmd)
 	decisionCaptainCmd.AddCommand(captainSweepCmd)
 	decisionCaptainCmd.AddCommand(captainSendCmd)
-	decisionCaptainCmd.AddCommand(captainAutoCmd)
 
 	decisionCmd.AddCommand(decisionCaptainCmd)
 }
@@ -494,213 +439,6 @@ func runCaptainWatch(cmd *cobra.Command, args []string) error {
 	}
 }
 
-// autoResolveDecision picks an option based on the action string.
-// Returns the option ID to select, or "" if the action is "ask".
-func autoResolveDecision(options []types.DecisionOption, action string) string {
-	switch action {
-	case "ask":
-		return ""
-	case "stop":
-		for _, opt := range options {
-			if opt.ID == "stop" {
-				return "stop"
-			}
-		}
-		// Fallback: last option is conventionally stop-like
-		if len(options) > 0 {
-			return options[len(options)-1].ID
-		}
-		return ""
-	case "continue":
-		// First non-stop option
-		for _, opt := range options {
-			if opt.ID != "stop" {
-				return opt.ID
-			}
-		}
-		// All options are stop-like, pick first
-		if len(options) > 0 {
-			return options[0].ID
-		}
-		return ""
-	default:
-		// Treat as a specific option ID
-		for _, opt := range options {
-			if opt.ID == action {
-				return action
-			}
-		}
-		// Option not found, fall back to continue behavior
-		return autoResolveDecision(options, "continue")
-	}
-}
-
-func runCaptainAuto(cmd *cobra.Command, args []string) error {
-	requireDaemon("decision captain auto")
-
-	pollInterval, _ := cmd.Flags().GetDuration("poll-interval")
-	sweepAge, _ := cmd.Flags().GetDuration("sweep-age")
-	defaultAction, _ := cmd.Flags().GetString("default-action")
-	urgentAction, _ := cmd.Flags().GetString("urgent-action")
-	dryRun, _ := cmd.Flags().GetBool("dry-run")
-	by, _ := cmd.Flags().GetString("by")
-	notify, _ := cmd.Flags().GetBool("notify")
-
-	// Graceful shutdown on SIGINT/SIGTERM.
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-
-	// Track seen decisions to detect new ones.
-	seen := make(map[string]bool)
-
-	// Seed with existing decisions.
-	if result, err := daemonClient.DecisionList(&rpc.DecisionListArgs{All: false}); err == nil {
-		for _, dr := range result.Decisions {
-			if dr.Decision != nil {
-				seen[dr.Decision.IssueID] = true
-			}
-		}
-	}
-
-	fmt.Fprintf(os.Stderr, "captain auto: started (poll=%s, sweep-age=%s, default=%s)\n",
-		pollInterval, sweepAge, defaultAction)
-	if dryRun {
-		fmt.Fprintln(os.Stderr, "captain auto: DRY RUN — no actions will be taken")
-	}
-
-	ticker := time.NewTicker(pollInterval)
-	defer ticker.Stop()
-
-	var acted, swept int
-
-	for {
-		select {
-		case <-sigCh:
-			fmt.Fprintf(os.Stderr, "\ncaptain auto: shutting down (acted=%d, swept=%d)\n", acted, swept)
-			return nil
-
-		case <-ticker.C:
-			result, err := daemonClient.DecisionList(&rpc.DecisionListArgs{All: false})
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "captain auto: poll error: %v\n", err)
-				continue
-			}
-
-			now := time.Now()
-
-			// Clean up seen map for resolved decisions.
-			pendingIDs := make(map[string]bool)
-			for _, dr := range result.Decisions {
-				if dr.Decision != nil {
-					pendingIDs[dr.Decision.IssueID] = true
-				}
-			}
-			for id := range seen {
-				if !pendingIDs[id] {
-					delete(seen, id)
-				}
-			}
-
-			for _, dr := range result.Decisions {
-				if dr.Decision == nil {
-					continue
-				}
-				id := dr.Decision.IssueID
-				age := now.Sub(dr.Decision.CreatedAt)
-
-				var options []types.DecisionOption
-				if dr.Decision.Options != "" {
-					_ = json.Unmarshal([]byte(dr.Decision.Options), &options)
-				}
-
-				// Determine which action to apply.
-				var action string
-				var reason string
-				if age >= sweepAge {
-					action = "stop"
-					reason = fmt.Sprintf("stale (%s old, sweep-age=%s)", age.Truncate(time.Second), sweepAge)
-				} else if urgentAction != "" && dr.Decision.Urgency == "high" {
-					action = urgentAction
-					reason = "high urgency"
-				} else if !seen[id] {
-					action = defaultAction
-					reason = "new decision"
-				} else {
-					continue // Already seen, not stale, skip
-				}
-
-				seen[id] = true
-
-				selectID := autoResolveDecision(options, action)
-				if selectID == "" {
-					// "ask" mode — emit to stdout for manual handling
-					d := captainDecision{
-						DecisionID:  id,
-						Prompt:      dr.Decision.Prompt,
-						Context:     dr.Decision.Context,
-						Options:     options,
-						CreatedAt:   dr.Decision.CreatedAt.Format(time.RFC3339),
-						RequestedBy: dr.Decision.RequestedBy,
-						Urgency:     dr.Decision.Urgency,
-						Age:         age.Truncate(time.Second).String(),
-					}
-					data, _ := json.Marshal(d)
-					fmt.Println(string(data))
-					fmt.Fprintf(os.Stderr, "captain auto: ASK %s — %s (%s)\n", id, dr.Decision.Prompt, reason)
-					continue
-				}
-
-				if dryRun {
-					fmt.Fprintf(os.Stderr, "captain auto: [dry-run] would select [%s] on %s — %s (%s)\n",
-						selectID, id, dr.Decision.Prompt, reason)
-					continue
-				}
-
-				resolveArgs := &rpc.DecisionResolveArgs{
-					IssueID:        id,
-					SelectedOption: selectID,
-					ResponseText:   fmt.Sprintf("Auto-captain: %s", reason),
-					RespondedBy:    by,
-				}
-				if _, err := daemonClient.DecisionResolve(resolveArgs); err != nil {
-					fmt.Fprintf(os.Stderr, "captain auto: error resolving %s: %v\n", id, err)
-					continue
-				}
-
-				// Notify requesting agent via inbox.
-				if notify && dr.Decision.RequestedBy != "" {
-					optLabel := selectID
-					for _, opt := range options {
-						if opt.ID == selectID {
-							optLabel = opt.Label
-							break
-						}
-					}
-					msg := fmt.Sprintf("Captain resolved your decision %q: [%s] %s (%s)",
-						dr.Decision.Prompt, selectID, optLabel, reason)
-					pushArgs := &rpc.InboxPushArgs{
-						AgentName: dr.Decision.RequestedBy,
-						Type:      "decision",
-						Source:    by,
-						Content:   msg,
-						Priority:  2,
-					}
-					if _, err := daemonClient.InboxPush(pushArgs); err != nil {
-						fmt.Fprintf(os.Stderr, "captain auto: inbox notify error for %s: %v\n",
-							dr.Decision.RequestedBy, err)
-					}
-				}
-
-				if age >= sweepAge {
-					swept++
-				} else {
-					acted++
-				}
-				fmt.Fprintf(os.Stderr, "captain auto: %s [%s] → %s (%s)\n", id, selectID, dr.Decision.Prompt, reason)
-			}
-		}
-	}
-}
 
 func runCaptainRespond(cmd *cobra.Command, args []string) error {
 	requireDaemon("decision captain respond")
