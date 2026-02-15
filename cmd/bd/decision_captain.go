@@ -27,6 +27,7 @@ Subcommands:
   list      List all pending decisions as JSON (one per line)
   respond   Respond to a decision (select option + optional rationale)
   poll      Poll once for new decisions, output as JSON, exit
+  sweep     Auto-resolve stale decisions from dead sessions
 
 Typical agent workflow:
   1. Poll for pending decisions:
@@ -91,15 +92,36 @@ Exit codes:
 	RunE: runCaptainList,
 }
 
+// captainSweepCmd auto-resolves stale decisions from dead sessions.
+var captainSweepCmd = &cobra.Command{
+	Use:   "sweep",
+	Short: "Auto-resolve stale decisions from dead sessions",
+	Long: `Sweep finds pending decisions older than a threshold and resolves them
+with "stop" (or the first available stop-like option). This prevents stale
+decisions from dead sessions from bypassing the stop-check guard for other sessions.
+
+The captain should run sweep periodically to keep the decision queue clean.
+
+Examples:
+  bd decision captain sweep                    # sweep decisions older than 30m
+  bd decision captain sweep --age 1h           # sweep decisions older than 1 hour
+  bd decision captain sweep --dry-run          # show what would be swept`,
+	RunE: runCaptainSweep,
+}
+
 func init() {
 	captainRespondCmd.Flags().StringP("select", "s", "", "Option ID to select (required)")
 	captainRespondCmd.Flags().StringP("text", "t", "", "Rationale or additional guidance")
 	captainRespondCmd.Flags().String("by", "captain", "Captain identity for audit trail")
 	_ = captainRespondCmd.MarkFlagRequired("select")
 
+	captainSweepCmd.Flags().Duration("age", 30*time.Minute, "Sweep decisions older than this")
+	captainSweepCmd.Flags().Bool("dry-run", false, "Show what would be swept without resolving")
+
 	decisionCaptainCmd.AddCommand(captainListCmd)
 	decisionCaptainCmd.AddCommand(captainRespondCmd)
 	decisionCaptainCmd.AddCommand(captainPollCmd)
+	decisionCaptainCmd.AddCommand(captainSweepCmd)
 
 	decisionCmd.AddCommand(decisionCaptainCmd)
 }
@@ -176,6 +198,80 @@ func runCaptainList(cmd *cobra.Command, args []string) error {
 			fmt.Println()
 			fmt.Println()
 		}
+	}
+
+	return nil
+}
+
+func runCaptainSweep(cmd *cobra.Command, args []string) error {
+	requireDaemon("decision captain sweep")
+
+	maxAge, _ := cmd.Flags().GetDuration("age")
+	dryRun, _ := cmd.Flags().GetBool("dry-run")
+
+	listArgs := &rpc.DecisionListArgs{All: false}
+	result, err := daemonClient.DecisionList(listArgs)
+	if err != nil {
+		return fmt.Errorf("listing decisions: %w", err)
+	}
+
+	now := time.Now()
+	var swept int
+	for _, dr := range result.Decisions {
+		if dr.Decision == nil {
+			continue
+		}
+		age := now.Sub(dr.Decision.CreatedAt)
+		if age < maxAge {
+			continue
+		}
+
+		// Find a "stop" option, or fall back to the last option
+		var options []types.DecisionOption
+		if dr.Decision.Options != "" {
+			_ = json.Unmarshal([]byte(dr.Decision.Options), &options)
+		}
+		selectID := "stop"
+		found := false
+		for _, opt := range options {
+			if opt.ID == "stop" {
+				found = true
+				break
+			}
+		}
+		if !found && len(options) > 0 {
+			// Use last option as fallback (conventionally the "stop" equivalent)
+			selectID = options[len(options)-1].ID
+		}
+
+		if dryRun {
+			fmt.Printf("  [dry-run] Would sweep %s (age: %s, select: %s)\n",
+				dr.Decision.IssueID, age.Truncate(time.Second), selectID)
+			swept++
+			continue
+		}
+
+		resolveArgs := &rpc.DecisionResolveArgs{
+			IssueID:        dr.Decision.IssueID,
+			SelectedOption: selectID,
+			ResponseText:   fmt.Sprintf("Auto-swept by captain (stale: %s old)", age.Truncate(time.Second)),
+			RespondedBy:    "captain-sweep",
+		}
+		if _, err := daemonClient.DecisionResolve(resolveArgs); err != nil {
+			fmt.Fprintf(cmd.ErrOrStderr(), "  Error sweeping %s: %v\n", dr.Decision.IssueID, err)
+			continue
+		}
+		fmt.Printf("  Swept %s (age: %s, selected: %s)\n",
+			dr.Decision.IssueID, age.Truncate(time.Second), selectID)
+		swept++
+	}
+
+	if swept == 0 {
+		fmt.Println("No stale decisions to sweep.")
+	} else if dryRun {
+		fmt.Printf("\n%d decision(s) would be swept. Run without --dry-run to execute.\n", swept)
+	} else {
+		fmt.Printf("\nSwept %d stale decision(s).\n", swept)
 	}
 
 	return nil

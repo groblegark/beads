@@ -500,6 +500,10 @@ func pollForAgentDecision(ctx context.Context, actorTag string, timeout, pollInt
 // before stop hook fires) is not an actual problem — the agent's
 // `bd decision create --wait` call blocks until response, so by the time the
 // agent tries to stop, the decision flow is complete.
+//
+// Staleness guard: decisions older than staleDecisionAge are skipped. This
+// prevents a dead session's leftover decision from giving all future sessions
+// by the same actor a free pass to stop without creating their own decision.
 func findPendingAgentDecision(ctx context.Context, actorTag string) (*types.DecisionPoint, error) {
 	var decisions []*types.DecisionPoint
 
@@ -525,8 +529,10 @@ func findPendingAgentDecision(ctx context.Context, actorTag string) (*types.Deci
 	}
 
 	// Filter: not created by stop-hook, has a RequestedBy value,
-	// and matches the current actor (if available).
-	// This prevents one user's agents from picking up another's decisions.
+	// matches the current actor (if available), and is not stale.
+	// This prevents one user's agents from picking up another's decisions,
+	// and prevents dead sessions' leftover decisions from bypassing the guard.
+	now := time.Now()
 	var best *types.DecisionPoint
 	for _, dp := range decisions {
 		if dp.RequestedBy == "stop-hook" || dp.RequestedBy == "" {
@@ -536,6 +542,15 @@ func findPendingAgentDecision(ctx context.Context, actorTag string) (*types.Deci
 		if actorTag != "" && dp.RequestedBy != actorTag {
 			continue
 		}
+		// Staleness guard: skip decisions older than the threshold.
+		// A live session's `bd decision create --wait` blocks until response,
+		// so a properly functioning session will always have a recent decision.
+		// Old pending decisions are leftovers from dead sessions.
+		if now.Sub(dp.CreatedAt) > staleDecisionAge {
+			fmt.Fprintf(os.Stderr, "stop-check: skipping stale decision %s (age: %s)\n",
+				dp.IssueID, now.Sub(dp.CreatedAt).Truncate(time.Second))
+			continue
+		}
 		if best == nil || dp.CreatedAt.After(best.CreatedAt) {
 			best = dp
 		}
@@ -543,6 +558,14 @@ func findPendingAgentDecision(ctx context.Context, actorTag string) (*types.Deci
 
 	return best, nil
 }
+
+// staleDecisionAge is the maximum age for a pending decision to be considered
+// "owned" by a live session. Decisions older than this are skipped by the
+// stop-check guard, forcing the current session to create its own.
+//
+// Set generously (2 hours) because a human might take a while to respond.
+// The captain can sweep truly stale decisions independently.
+const staleDecisionAge = 2 * time.Hour
 
 // getStopSessionTag returns a session identifier for scoping stop decisions.
 // Priority: CLAUDE_SESSION_ID > TERM_SESSION_ID.
