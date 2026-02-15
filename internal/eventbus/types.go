@@ -236,18 +236,19 @@ type MailEventPayload struct {
 // MutationEventPayload carries data for bead mutation events (bd-laz4).
 // Mirrors the rpc.MutationEvent struct for JetStream publishing.
 type MutationEventPayload struct {
-	Type      string   `json:"type"`                 // create, update, delete, comment, status, etc.
-	IssueID   string   `json:"issue_id"`
-	Title     string   `json:"title,omitempty"`
-	Assignee  string   `json:"assignee,omitempty"`
-	Actor     string   `json:"actor,omitempty"`
-	Timestamp string   `json:"timestamp"`
-	OldStatus string   `json:"old_status,omitempty"`
-	NewStatus string   `json:"new_status,omitempty"`
-	ParentID  string   `json:"parent_id,omitempty"`
-	IssueType string   `json:"issue_type,omitempty"`
-	Labels    []string `json:"labels,omitempty"`
-	AwaitType string   `json:"await_type,omitempty"`
+	Type       string   `json:"type"`                  // create, update, delete, comment, status, etc.
+	IssueID    string   `json:"issue_id"`
+	Title      string   `json:"title,omitempty"`
+	Assignee   string   `json:"assignee,omitempty"`
+	Actor      string   `json:"actor,omitempty"`
+	Timestamp  string   `json:"timestamp"`
+	OldStatus  string   `json:"old_status,omitempty"`
+	NewStatus  string   `json:"new_status,omitempty"`
+	ParentID   string   `json:"parent_id,omitempty"`
+	IssueType  string   `json:"issue_type,omitempty"`
+	Labels     []string `json:"labels,omitempty"`
+	AwaitType  string   `json:"await_type,omitempty"`
+	AgentState string   `json:"agent_state,omitempty"` // Agent state at time of mutation (for controller)
 }
 
 // ConfigEventPayload carries data for config/formula change events (bd-hkgu).

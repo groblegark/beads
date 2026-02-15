@@ -207,18 +207,19 @@ func (h *HTTPServer) streamFromMemory(w http.ResponseWriter, r *http.Request, fl
 func payloadToMutationEventSSE(p eventbus.MutationEventPayload) MutationEvent {
 	ts, _ := time.Parse(time.RFC3339Nano, p.Timestamp)
 	return MutationEvent{
-		Type:      p.Type,
-		IssueID:   p.IssueID,
-		Title:     p.Title,
-		Assignee:  p.Assignee,
-		Actor:     p.Actor,
-		Timestamp: ts,
-		OldStatus: p.OldStatus,
-		NewStatus: p.NewStatus,
-		ParentID:  p.ParentID,
-		IssueType: p.IssueType,
-		Labels:    p.Labels,
-		AwaitType: p.AwaitType,
+		Type:       p.Type,
+		IssueID:    p.IssueID,
+		Title:      p.Title,
+		Assignee:   p.Assignee,
+		Actor:      p.Actor,
+		Timestamp:  ts,
+		OldStatus:  p.OldStatus,
+		NewStatus:  p.NewStatus,
+		ParentID:   p.ParentID,
+		IssueType:  p.IssueType,
+		Labels:     p.Labels,
+		AwaitType:  p.AwaitType,
+		AgentState: p.AgentState,
 	}
 }
 

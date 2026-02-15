@@ -60,9 +60,9 @@ type Server struct {
 	storage       storage.Storage // Default storage (for backward compat)
 	wispStore     WispStore       // In-memory store for ephemeral wisps
 	listener      net.Listener
-	authToken     string           // Token for HTTP authentication (empty = no auth required)
-	httpAddr      string           // HTTP address to listen on (e.g., ":9080")
-	httpServer    *HTTPServer      // HTTP server (wraps RPC in HTTP POST endpoints)
+	authToken     string      // Token for HTTP authentication (empty = no auth required)
+	httpAddr      string      // HTTP address to listen on (e.g., ":9080")
+	httpServer    *HTTPServer // HTTP server (wraps RPC in HTTP POST endpoints)
 	mu            sync.RWMutex
 	shutdown      bool
 	shutdownChan  chan struct{}
@@ -86,8 +86,8 @@ type Server struct {
 	// Auto-export single-flight guard (prevents concurrent exports piling up stuck queries)
 	exportInProgress atomic.Bool
 	// Mutation events for event-driven daemon
-	mutationChan    chan MutationEvent
-	droppedEvents   atomic.Int64 // Counter for dropped mutation events
+	mutationChan  chan MutationEvent
+	droppedEvents atomic.Int64 // Counter for dropped mutation events
 	// Recent mutations buffer for polling (circular buffer, configurable size)
 	recentMutations   []MutationEvent
 	recentMutationsMu sync.RWMutex
@@ -130,11 +130,11 @@ const (
 
 // MutationEvent represents a database mutation for event-driven sync
 type MutationEvent struct {
-	Type      string    // One of the Mutation* constants
-	IssueID   string    // e.g., "bd-42"
-	Title     string    // Issue title for display context (may be empty for some operations)
-	Assignee  string    // Issue assignee for display context (may be empty)
-	Actor     string    // Who performed the action (may differ from assignee)
+	Type      string // One of the Mutation* constants
+	IssueID   string // e.g., "bd-42"
+	Title     string // Issue title for display context (may be empty for some operations)
+	Assignee  string // Issue assignee for display context (may be empty)
+	Actor     string // Who performed the action (may differ from assignee)
 	Timestamp time.Time
 	// Optional metadata for richer events (used by status, bonded, etc.)
 	OldStatus string `json:"old_status,omitempty"` // Previous status (for status events)
@@ -142,9 +142,10 @@ type MutationEvent struct {
 	ParentID  string `json:"parent_id,omitempty"`  // Parent molecule (for bonded events)
 	StepCount int    `json:"step_count,omitempty"` // Number of steps (for bonded events)
 	// Enrichment fields for event matching (bd-pg90)
-	IssueType string   `json:"issue_type,omitempty"` // task, bug, feature, gate, etc.
-	Labels    []string `json:"labels,omitempty"`      // Issue labels at time of mutation
-	AwaitType string   `json:"await_type,omitempty"`  // decision, timer, human, etc. (gates only)
+	IssueType  string   `json:"issue_type,omitempty"`  // task, bug, feature, gate, etc.
+	Labels     []string `json:"labels,omitempty"`      // Issue labels at time of mutation
+	AwaitType  string   `json:"await_type,omitempty"`  // decision, timer, human, etc. (gates only)
+	AgentState string   `json:"agent_state,omitempty"` // Agent state at time of mutation (for controller)
 }
 
 // isWisp checks if an issue should be stored in the in-memory WispStore.
@@ -281,6 +282,7 @@ func enrichEvent(evt *MutationEvent, issue *types.Issue) {
 	evt.IssueType = string(issue.IssueType)
 	evt.Labels = issue.Labels
 	evt.AwaitType = issue.AwaitType
+	evt.AgentState = string(issue.AgentState)
 }
 
 // emitMutationFor is like emitMutation but enriches the event with issue metadata.
@@ -352,18 +354,19 @@ func (s *Server) emitRichMutation(event MutationEvent) {
 		evtType := mutationTypeToEventType(event.Type)
 		subject := eventbus.SubjectForEvent(evtType)
 		payload := eventbus.MutationEventPayload{
-			Type:      event.Type,
-			IssueID:   event.IssueID,
-			Title:     event.Title,
-			Assignee:  event.Assignee,
-			Actor:     event.Actor,
-			Timestamp: event.Timestamp.UTC().Format(time.RFC3339Nano),
-			OldStatus: event.OldStatus,
-			NewStatus: event.NewStatus,
-			ParentID:  event.ParentID,
-			IssueType: event.IssueType,
-			Labels:    event.Labels,
-			AwaitType: event.AwaitType,
+			Type:       event.Type,
+			IssueID:    event.IssueID,
+			Title:      event.Title,
+			Assignee:   event.Assignee,
+			Actor:      event.Actor,
+			Timestamp:  event.Timestamp.UTC().Format(time.RFC3339Nano),
+			OldStatus:  event.OldStatus,
+			NewStatus:  event.NewStatus,
+			ParentID:   event.ParentID,
+			IssueType:  event.IssueType,
+			Labels:     event.Labels,
+			AwaitType:  event.AwaitType,
+			AgentState: event.AgentState,
 		}
 		if data, err := json.Marshal(payload); err == nil {
 			s.bus.PublishRaw(subject, data)

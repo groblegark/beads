@@ -802,6 +802,7 @@ const (
 	StateWorking  AgentState = "working"  // Agent is actively working on a task
 	StateStuck    AgentState = "stuck"    // Agent is blocked and needs help
 	StateDone     AgentState = "done"     // Agent completed its current work
+	StateStopping AgentState = "stopping" // Agent is being asked to shut down
 	StateStopped  AgentState = "stopped"  // Agent has cleanly shut down
 	StateDead     AgentState = "dead"     // Agent died without clean shutdown (timeout detection)
 )
@@ -809,7 +810,7 @@ const (
 // IsValid checks if the agent state value is valid
 func (s AgentState) IsValid() bool {
 	switch s {
-	case StateIdle, StateSpawning, StateRunning, StateWorking, StateStuck, StateDone, StateStopped, StateDead, "":
+	case StateIdle, StateSpawning, StateRunning, StateWorking, StateStuck, StateDone, StateStopping, StateStopped, StateDead, "":
 		return true // empty is valid (non-agent beads)
 	}
 	return false

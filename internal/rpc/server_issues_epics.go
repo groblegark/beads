@@ -86,6 +86,10 @@ func applyUpdatesToIssue(issue *types.Issue, updates map[string]interface{}) {
 			if v, ok := value.(bool); ok {
 				issue.Pinned = v
 			}
+		case "agent_state":
+			if v, ok := value.(string); ok {
+				issue.AgentState = types.AgentState(v)
+			}
 		}
 	}
 	issue.UpdatedAt = time.Now()
@@ -1077,19 +1081,24 @@ func (s *Server) handleUpdate(req *Request) Response {
 
 	// Emit mutation event for event-driven daemon (after transaction commits)
 	if len(updates) > 0 || len(updateArgs.SetLabels) > 0 || len(updateArgs.AddLabels) > 0 || len(updateArgs.RemoveLabels) > 0 || updateArgs.Parent != nil {
+		// Capture old status before applying in-memory updates.
+		oldStatus := string(issue.Status)
+		// Apply in-memory updates so enrichEvent reflects the new state (e.g., agent_state).
+		applyUpdatesToIssue(issue, updates)
+
 		effectiveAssignee := issue.Assignee
 		if updateArgs.Assignee != nil && *updateArgs.Assignee != "" {
 			effectiveAssignee = *updateArgs.Assignee
 		}
 
-		if updateArgs.Status != nil && *updateArgs.Status != string(issue.Status) {
+		if updateArgs.Status != nil && *updateArgs.Status != oldStatus {
 			evt := MutationEvent{
 				Type:      MutationStatus,
 				IssueID:   updateArgs.ID,
 				Title:     issue.Title,
 				Assignee:  effectiveAssignee,
 				Actor:     actor,
-				OldStatus: string(issue.Status),
+				OldStatus: oldStatus,
 				NewStatus: *updateArgs.Status,
 			}
 			enrichEvent(&evt, issue)
@@ -1263,19 +1272,24 @@ func (s *Server) handleUpdateWithComment(req *Request) Response {
 
 	// Emit mutation events (outside transaction)
 	if len(updates) > 0 || len(args.SetLabels) > 0 || len(args.AddLabels) > 0 || len(args.RemoveLabels) > 0 {
+		// Capture old status before applying in-memory updates.
+		oldStatus := string(issue.Status)
+		// Apply in-memory updates so enrichEvent reflects the new state (e.g., agent_state).
+		applyUpdatesToIssue(issue, updates)
+
 		effectiveAssignee := issue.Assignee
 		if args.Assignee != nil && *args.Assignee != "" {
 			effectiveAssignee = *args.Assignee
 		}
 
-		if args.Status != nil && *args.Status != string(issue.Status) {
+		if args.Status != nil && *args.Status != oldStatus {
 			evt := MutationEvent{
 				Type:      MutationStatus,
 				IssueID:   args.ID,
 				Title:     issue.Title,
 				Assignee:  effectiveAssignee,
 				Actor:     actor,
-				OldStatus: string(issue.Status),
+				OldStatus: oldStatus,
 				NewStatus: *args.Status,
 			}
 			enrichEvent(&evt, issue)
