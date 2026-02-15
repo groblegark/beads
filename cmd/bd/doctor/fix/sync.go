@@ -10,7 +10,6 @@ import (
 	"path/filepath"
 
 	"github.com/steveyegge/beads/internal/beads"
-	"github.com/steveyegge/beads/internal/config"
 	"github.com/steveyegge/beads/internal/configfile"
 	"github.com/steveyegge/beads/internal/storage/factory"
 	"github.com/steveyegge/beads/internal/types"
@@ -215,12 +214,7 @@ func SyncDivergence(path string) error {
 	beadsDir := filepath.Join(path, ".beads")
 	beadsDir = resolveBeadsDir(beadsDir)
 
-	// In dolt-native mode, restore JSONL from git HEAD since Dolt is source of truth
-	if config.GetSyncMode() == config.SyncModeDoltNative {
-		return restoreJSONLFromGitHead(path, beadsDir)
-	}
-
-	// For other modes, use the existing DB-JSONL sync logic
+	// Sync mode removed — always use DB-JSONL sync logic
 	return DBJSONLSync(path)
 }
 
