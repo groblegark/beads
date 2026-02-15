@@ -65,7 +65,12 @@ tasks:
   - key: build
     use: git-config
     filter:
-      - "**/*.go"
+      # List specific directories to avoid version.go cache invalidation
+      - "cmd/bd/*.go"
+      - "!cmd/bd/version.go"  # Explicitly exclude version file
+      - "cmd/**/*.go"
+      - "pkg/**/*.go"
+      - "internal/**/*.go"
       - "go.mod"
       - "go.sum"
       - "cmd/bd/templates/**"
