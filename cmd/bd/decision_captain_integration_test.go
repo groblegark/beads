@@ -210,12 +210,11 @@ func TestCaptainWatch_DetectsNewDecision(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test")
 	}
-	ctx, cancel, client, store, cleanup := setupDaemonTestEnvForDecision(t)
+	_, cancel, client, _, cleanup := setupDaemonTestEnvForDecision(t)
 	defer cleanup()
 	defer cancel()
 
-	// Snapshot existing decisions by prompt (IssueID format may differ between
-	// direct store access and RPC round-trip).
+	// Snapshot existing decisions by prompt.
 	known := make(map[string]bool)
 	resp, _ := client.DecisionList(&rpc.DecisionListArgs{All: false})
 	for _, dr := range resp.Decisions {
@@ -224,8 +223,19 @@ func TestCaptainWatch_DetectsNewDecision(t *testing.T) {
 		}
 	}
 
-	// Create new.
-	createCaptainTestDecision(t, ctx, store, "Watch detect test", "medium", "agent", standardOpts)
+	// Create new decision via RPC (ensures Dolt session visibility).
+	createResp, err := client.DecisionCreate(&rpc.DecisionCreateArgs{
+		Prompt:      "Watch detect test",
+		Options:     standardOpts,
+		RequestedBy: "agent",
+		Urgency:     "medium",
+	})
+	if err != nil {
+		t.Fatalf("DecisionCreate failed: %v", err)
+	}
+	if createResp == nil || createResp.Decision == nil {
+		t.Fatal("DecisionCreate returned nil response")
+	}
 
 	// Poll again.
 	resp, _ = client.DecisionList(&rpc.DecisionListArgs{All: false})
@@ -236,7 +246,7 @@ func TestCaptainWatch_DetectsNewDecision(t *testing.T) {
 		}
 	}
 	if !found {
-		t.Errorf("Watch did not detect new decision; known prompts: %v, got %d decisions", known, resp.Count)
+		t.Errorf("Watch did not detect new decision; got %d decisions", resp.Count)
 		for _, dr := range resp.Decisions {
 			if dr.Decision != nil {
 				t.Logf("  decision: prompt=%q issueID=%q", dr.Decision.Prompt, dr.Decision.IssueID)
