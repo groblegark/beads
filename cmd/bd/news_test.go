@@ -557,6 +557,85 @@ func TestPrepareNewsLines_Empty(t *testing.T) {
 	}
 }
 
+func TestNormalizeAgentName(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"alice", "alice"},
+		{"gastown/polecats/furiosa", "furiosa"},
+		{"team/lead", "lead"},
+		{"", ""},
+		{"simple", "simple"},
+		{"a/b/c/d", "d"},
+	}
+	for _, tt := range tests {
+		got := normalizeAgentName(tt.input)
+		if got != tt.want {
+			t.Errorf("normalizeAgentName(%q) = %q, want %q", tt.input, got, tt.want)
+		}
+	}
+}
+
+func TestInferAgentStatus(t *testing.T) {
+	shortAge := 2 * time.Minute
+	mediumAge := 15 * time.Minute
+	longAge := 45 * time.Minute
+
+	tests := []struct {
+		name string
+		in   *agentSummary
+		want agentStatus
+	}{
+		{
+			name: "pending decision < 5m → active",
+			in:   &agentSummary{InProgressCount: 1, PendingDecision: true, LastDecisionAge: &shortAge},
+			want: agentStatusActive,
+		},
+		{
+			name: "pending decision < 30m → working",
+			in:   &agentSummary{InProgressCount: 1, PendingDecision: true, LastDecisionAge: &mediumAge},
+			want: agentStatusWorking,
+		},
+		{
+			name: "pending decision >= 30m → stuck",
+			in:   &agentSummary{InProgressCount: 1, PendingDecision: true, LastDecisionAge: &longAge},
+			want: agentStatusStuck,
+		},
+		{
+			name: "in-progress work, no decision → working",
+			in:   &agentSummary{InProgressCount: 3, PendingDecision: false},
+			want: agentStatusWorking,
+		},
+		{
+			name: "no work, no decision → idle",
+			in:   &agentSummary{InProgressCount: 0, PendingDecision: false},
+			want: agentStatusIdle,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := inferAgentStatus(tt.in)
+			if got != tt.want {
+				t.Errorf("inferAgentStatus() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestStatusPriority(t *testing.T) {
+	// Active should sort before working, working before stuck, stuck before idle
+	if statusPriority(agentStatusActive) >= statusPriority(agentStatusWorking) {
+		t.Error("active should sort before working")
+	}
+	if statusPriority(agentStatusWorking) >= statusPriority(agentStatusStuck) {
+		t.Error("working should sort before stuck")
+	}
+	if statusPriority(agentStatusStuck) >= statusPriority(agentStatusIdle) {
+		t.Error("stuck should sort before idle")
+	}
+}
+
 func TestPrepareNewsLines_PreservesOrder(t *testing.T) {
 	t1 := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
 	t2 := time.Date(2026, 1, 1, 11, 0, 0, 0, time.UTC)

@@ -57,12 +57,14 @@ Examples:
   bd news --expand           # Show all individual issues (no collapsing)
   bd news --all              # Include your own activity
   bd news --window 4h        # Look back 4 hours instead of default 2h
-  bd news --limit 20         # Show more results per section`,
+  bd news --limit 20         # Show more results per section
+  bd news --agents           # Show agent activity summary for captain mode`,
 	Run: func(cmd *cobra.Command, args []string) {
 		limit, _ := cmd.Flags().GetInt("limit")
 		showAll, _ := cmd.Flags().GetBool("all")
 		expand, _ := cmd.Flags().GetBool("expand")
 		windowStr, _ := cmd.Flags().GetString("window")
+		showAgents, _ := cmd.Flags().GetBool("agents")
 
 		// Parse custom window duration
 		window := newsWindow
@@ -76,6 +78,11 @@ Examples:
 		}
 
 		requireDaemon("news")
+
+		if showAgents {
+			runNewsAgents(window)
+			return
+		}
 
 		cutoff := time.Now().UTC().Add(-window).Format(time.RFC3339)
 		currentActor := getActor()
@@ -443,6 +450,226 @@ func printNewsIssue(issue *types.Issue) {
 		issue.Title)
 }
 
+// agentStatus represents the inferred activity status of an agent.
+type agentStatus string
+
+const (
+	agentStatusActive  agentStatus = "active"
+	agentStatusWorking agentStatus = "working"
+	agentStatusStuck   agentStatus = "possibly stuck"
+	agentStatusIdle    agentStatus = "idle"
+)
+
+// agentSummary holds the computed activity data for a single agent.
+type agentSummary struct {
+	Name            string         `json:"name"`
+	InProgressCount int            `json:"in_progress_count"`
+	PendingDecision bool           `json:"pending_decision"`
+	LastDecisionAge *time.Duration `json:"last_decision_age,omitempty"`
+	Status          agentStatus    `json:"status"`
+}
+
+// AgentsOutput is the JSON output structure for bd news --agents.
+type AgentsOutput struct {
+	Agents []agentSummary `json:"agents"`
+	Window string         `json:"window"`
+}
+
+// runNewsAgents displays an agent activity summary for captain observability.
+func runNewsAgents(window time.Duration) {
+	// Fetch in-progress issues to find active agents
+	inProgress := fetchNewsList(daemonClient, &rpc.ListArgs{
+		Status: "in_progress",
+		Limit:  200,
+	})
+
+	// Fetch pending decisions to find agents waiting for responses
+	decisionResp, err := daemonClient.DecisionList(&rpc.DecisionListArgs{All: false})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error fetching decisions: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Build agent map: name → summary
+	agents := make(map[string]*agentSummary)
+
+	// Count in-progress work per agent (use assignee if set, else created_by)
+	for _, issue := range inProgress {
+		agentName := issue.Assignee
+		if agentName == "" {
+			agentName = issue.CreatedBy
+		}
+		if agentName == "" {
+			continue
+		}
+		name := normalizeAgentName(agentName)
+		if agents[name] == nil {
+			agents[name] = &agentSummary{Name: name}
+		}
+		agents[name].InProgressCount++
+	}
+
+	// Track pending decisions and latest decision age per agent
+	now := time.Now()
+	for _, dr := range decisionResp.Decisions {
+		if dr.Decision == nil || dr.Decision.RequestedBy == "" {
+			continue
+		}
+		name := normalizeAgentName(dr.Decision.RequestedBy)
+		if agents[name] == nil {
+			agents[name] = &agentSummary{Name: name}
+		}
+		agents[name].PendingDecision = true
+		age := now.Sub(dr.Decision.CreatedAt)
+		if agents[name].LastDecisionAge == nil || age < *agents[name].LastDecisionAge {
+			agents[name].LastDecisionAge = &age
+		}
+	}
+
+	// Infer status for each agent
+	for _, a := range agents {
+		a.Status = inferAgentStatus(a)
+	}
+
+	// Sort agents: active first, then by name
+	sorted := make([]agentSummary, 0, len(agents))
+	for _, a := range agents {
+		sorted = append(sorted, *a)
+	}
+	slices.SortFunc(sorted, func(a, b agentSummary) int {
+		// Sort by status priority (active < working < stuck < idle)
+		ap, bp := statusPriority(a.Status), statusPriority(b.Status)
+		if ap != bp {
+			return ap - bp
+		}
+		return strings.Compare(a.Name, b.Name)
+	})
+
+	if jsonOutput {
+		outputJSON(AgentsOutput{
+			Agents: sorted,
+			Window: formatDurationShort(window),
+		})
+		return
+	}
+
+	if len(sorted) == 0 {
+		fmt.Printf("\n%s No agent activity detected\n\n", ui.RenderPass("✨"))
+		return
+	}
+
+	fmt.Printf("\n%s Active agents (%d):\n\n", ui.RenderAccent("👤"), len(sorted))
+
+	// Calculate column widths for alignment
+	maxNameLen := 0
+	for _, a := range sorted {
+		if len(a.Name) > maxNameLen {
+			maxNameLen = len(a.Name)
+		}
+	}
+	if maxNameLen < 8 {
+		maxNameLen = 8
+	}
+
+	for _, a := range sorted {
+		printAgentLine(a, maxNameLen)
+	}
+
+	fmt.Println()
+}
+
+// printAgentLine prints a single agent summary line.
+func printAgentLine(a agentSummary, nameWidth int) {
+	// Status icon
+	var icon string
+	switch a.Status {
+	case agentStatusActive:
+		icon = ui.RenderPass("●")
+	case agentStatusWorking:
+		icon = ui.RenderAccent("◐")
+	case agentStatusStuck:
+		icon = ui.RenderWarn("◌")
+	default:
+		icon = ui.RenderMuted("○")
+	}
+
+	// In-progress count
+	workStr := fmt.Sprintf("%d in-progress", a.InProgressCount)
+
+	// Decision info
+	var decisionStr string
+	if a.PendingDecision && a.LastDecisionAge != nil {
+		decisionStr = fmt.Sprintf("awaiting decision %s", formatDurationShort(*a.LastDecisionAge))
+	} else if a.LastDecisionAge != nil {
+		decisionStr = fmt.Sprintf("last decision %s ago", formatDurationShort(*a.LastDecisionAge))
+	}
+
+	// Status label
+	statusStr := ""
+	if a.Status == agentStatusStuck {
+		statusStr = ui.RenderWarn("(possibly stuck)")
+	} else if a.Status == agentStatusIdle {
+		statusStr = ui.RenderMuted("(idle)")
+	}
+
+	// Build the line
+	parts := []string{workStr}
+	if decisionStr != "" {
+		parts = append(parts, decisionStr)
+	}
+	if statusStr != "" {
+		parts = append(parts, statusStr)
+	}
+
+	fmt.Printf("  %s %-*s  %s\n", icon, nameWidth, a.Name, strings.Join(parts, ", "))
+}
+
+// inferAgentStatus infers an agent's status from their activity signals.
+func inferAgentStatus(a *agentSummary) agentStatus {
+	if a.PendingDecision && a.LastDecisionAge != nil {
+		// Has a pending decision — how long has it been waiting?
+		if *a.LastDecisionAge < 5*time.Minute {
+			return agentStatusActive
+		}
+		if *a.LastDecisionAge < 30*time.Minute {
+			return agentStatusWorking
+		}
+		return agentStatusStuck
+	}
+
+	if a.InProgressCount > 0 {
+		// Has in-progress work but no pending decision — working autonomously
+		return agentStatusWorking
+	}
+
+	return agentStatusIdle
+}
+
+// statusPriority returns a sort priority for agent status (lower = first).
+func statusPriority(s agentStatus) int {
+	switch s {
+	case agentStatusActive:
+		return 0
+	case agentStatusWorking:
+		return 1
+	case agentStatusStuck:
+		return 2
+	case agentStatusIdle:
+		return 3
+	default:
+		return 4
+	}
+}
+
+// normalizeAgentName extracts the short agent name from a potentially
+// path-qualified name (e.g., "gastown/polecats/furiosa" → "furiosa").
+func normalizeAgentName(name string) string {
+	if idx := strings.LastIndex(name, "/"); idx >= 0 {
+		return name[idx+1:]
+	}
+	return name
+}
+
 // coalesce returns an empty slice instead of nil (for clean JSON output).
 func coalesce(issues []*types.Issue) []*types.Issue {
 	if issues == nil {
@@ -473,5 +700,6 @@ func init() {
 	newsCmd.Flags().Bool("all", false, "Include your own activity")
 	newsCmd.Flags().Bool("expand", false, "Show all individual issues (disable epic collapsing)")
 	newsCmd.Flags().String("window", "", "Lookback window for recent activity (default 2h, e.g. 4h, 30m)")
+	newsCmd.Flags().Bool("agents", false, "Show agent activity summary (for captain observability)")
 	rootCmd.AddCommand(newsCmd)
 }
