@@ -399,13 +399,13 @@ nats:
 podAnnotations: {}
 
 podSecurityContext:
-  runAsUser: 1000
-  runAsGroup: 1000
-  fsGroup: 1000
+  runAsUser: 1001
+  runAsGroup: 1001
+  fsGroup: 1001
   runAsNonRoot: true
 
 securityContext:
-  readOnlyRootFilesystem: true
+  readOnlyRootFilesystem: false  # daemon writes logs, metadata.json, pid file to .beads/
   allowPrivilegeEscalation: false
   capabilities:
     drop:
