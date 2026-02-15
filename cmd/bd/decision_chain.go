@@ -6,8 +6,8 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/steveyegge/beads/internal/rpc"
 	"github.com/steveyegge/beads/internal/ui"
-	"github.com/steveyegge/beads/internal/utils"
 )
 
 // decisionChainCmd shows the chain of decisions leading to this point
@@ -35,34 +35,22 @@ func init() {
 
 // chainNode represents a decision in the chain
 type chainNode struct {
-	ID         string `json:"id"`
-	Prompt     string `json:"prompt"`
-	Selected   string `json:"selected_option,omitempty"`
-	Response   string `json:"response_text,omitempty"`
+	ID          string `json:"id"`
+	Prompt      string `json:"prompt"`
+	Selected    string `json:"selected_option,omitempty"`
+	Response    string `json:"response_text,omitempty"`
 	RespondedBy string `json:"responded_by,omitempty"`
-	Depth      int    `json:"depth"`
+	Depth       int    `json:"depth"`
 }
 
 func runDecisionChain(cmd *cobra.Command, args []string) {
-	// Ensure store is initialized
-	if err := ensureStoreActive(); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
-	}
+	requireDaemon("decision chain")
 
 	decisionID := args[0]
-	ctx := rootCtx
 
-	// Resolve partial ID
-	resolvedID, err := utils.ResolvePartialID(ctx, store, decisionID)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
-	}
-
-	// Build chain by walking predecessor links
+	// Build chain by walking predecessor links via daemon RPC
 	var chain []chainNode
-	currentID := resolvedID
+	currentID := decisionID
 	depth := 0
 	visited := make(map[string]bool)
 
@@ -74,21 +62,22 @@ func runDecisionChain(cmd *cobra.Command, args []string) {
 		}
 		visited[currentID] = true
 
-		// Get the decision point
-		dp, err := store.GetDecisionPoint(ctx, currentID)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error getting decision point %s: %v\n", currentID, err)
-			os.Exit(1)
-		}
-		if dp == nil {
-			// Not a decision point - might be referenced but not exist
+		// Get the decision point via daemon RPC
+		getArgs := &rpc.DecisionGetArgs{IssueID: currentID}
+		result, err := daemonClient.DecisionGet(getArgs)
+		if err != nil || result == nil || result.Decision == nil {
 			if depth == 0 {
-				fmt.Fprintf(os.Stderr, "Error: %s is not a decision point\n", currentID)
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "Error getting decision point %s: %v\n", currentID, err)
+				} else {
+					fmt.Fprintf(os.Stderr, "Error: %s is not a decision point\n", currentID)
+				}
 				os.Exit(1)
 			}
 			break
 		}
 
+		dp := result.Decision
 		node := chainNode{
 			ID:          currentID,
 			Prompt:      dp.Prompt,
@@ -130,7 +119,7 @@ func runDecisionChain(cmd *cobra.Command, args []string) {
 	}
 
 	if len(chain) == 1 {
-		fmt.Printf("Decision %s has no predecessors (root decision)\n", ui.RenderID(resolvedID))
+		fmt.Printf("Decision %s has no predecessors (root decision)\n", ui.RenderID(decisionID))
 		return
 	}
 

@@ -312,6 +312,8 @@ func (s *Server) executeOperation(req *Request) Response {
 		resp = s.handleDecisionResolve(req)
 	case OpDecisionList:
 		resp = s.handleDecisionList(req)
+	case OpDecisionListRecent:
+		resp = s.handleDecisionListRecent(req)
 	case OpDecisionRemind:
 		resp = s.handleDecisionRemind(req)
 	case OpDecisionCancel:

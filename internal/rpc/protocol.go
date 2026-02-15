@@ -60,12 +60,13 @@ const (
 	OpGateWait   = "gate_wait"
 
 	// Decision point operations
-	OpDecisionCreate  = "decision_create"
-	OpDecisionGet     = "decision_get"
-	OpDecisionResolve = "decision_resolve"
-	OpDecisionList    = "decision_list"
-	OpDecisionRemind  = "decision_remind"
-	OpDecisionCancel  = "decision_cancel"
+	OpDecisionCreate     = "decision_create"
+	OpDecisionGet        = "decision_get"
+	OpDecisionResolve    = "decision_resolve"
+	OpDecisionList       = "decision_list"
+	OpDecisionListRecent = "decision_list_recent"
+	OpDecisionRemind     = "decision_remind"
+	OpDecisionCancel     = "decision_cancel"
 
 	// Mol operations (gt-as9kdm)
 	OpMolBond          = "mol_bond"
@@ -955,10 +956,24 @@ type DecisionListArgs struct {
 	All bool `json:"all,omitempty"` // Include resolved decisions
 }
 
-// DecisionResponse represents a single decision with its associated issue
+// DecisionListRecentArgs represents arguments for listing recently responded decisions
+type DecisionListRecentArgs struct {
+	Since       string `json:"since"`                  // RFC3339 timestamp
+	RequestedBy string `json:"requested_by,omitempty"` // Filter by requesting agent
+}
+
+// DecisionResponse represents a single decision with its associated issue.
+// When returned from DecisionResolve with text-only guidance (iteration),
+// the Iteration* fields describe the newly created iteration.
 type DecisionResponse struct {
 	Decision *types.DecisionPoint `json:"decision"`
 	Issue    *types.Issue         `json:"issue,omitempty"`
+
+	// Iteration fields (populated by DecisionResolve when guidance triggers iteration)
+	IterationCreated bool                 `json:"iteration_created,omitempty"` // True if a new iteration was created
+	IterationMaxHit  bool                 `json:"iteration_max_hit,omitempty"` // True if max iterations reached
+	NewDecision      *types.DecisionPoint `json:"new_decision,omitempty"`      // The new iteration's decision point
+	NewIssue         *types.Issue         `json:"new_issue,omitempty"`         // The new iteration's gate issue
 }
 
 // DecisionListResponse represents a list of decisions

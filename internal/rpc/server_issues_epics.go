@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/steveyegge/beads/internal/config"
+	"github.com/steveyegge/beads/internal/decision"
 	"github.com/steveyegge/beads/internal/eventbus"
 	"github.com/steveyegge/beads/internal/idgen"
 	"github.com/steveyegge/beads/internal/routing"
@@ -3918,6 +3919,26 @@ func (s *Server) handleDecisionResolve(req *Request) Response {
 		Issue:    issue,
 	}
 
+	// Iterative refinement (bd-u4r9a): when guidance is provided without a
+	// selected option, create a new decision point iteration server-side.
+	shouldIterate := args.Guidance != "" && args.SelectedOption == ""
+	if shouldIterate && issue != nil {
+		iterResult, err := decision.CreateNextIteration(
+			ctx, store, dp, issue, args.Guidance, args.RespondedBy, req.Actor,
+		)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "handleDecisionResolve: iteration error: %v\n", err)
+			// Non-fatal: the resolve itself succeeded, iteration is best-effort
+		} else if iterResult != nil {
+			resp.IterationMaxHit = iterResult.MaxReached
+			if !iterResult.MaxReached && iterResult.DecisionPoint != nil {
+				resp.IterationCreated = true
+				resp.NewDecision = iterResult.DecisionPoint
+				resp.NewIssue = iterResult.Issue
+			}
+		}
+	}
+
 	data, _ := json.Marshal(resp)
 	return Response{
 		Success: true,
@@ -4053,6 +4074,63 @@ func (s *Server) handleDecisionList(req *Request) Response {
 	}
 
 	// Build response with associated issues
+	var respDecisions []*DecisionResponse
+	for _, dp := range decisions {
+		issue, _ := store.GetIssue(ctx, dp.IssueID)
+		respDecisions = append(respDecisions, &DecisionResponse{
+			Decision: dp,
+			Issue:    issue,
+		})
+	}
+
+	resp := DecisionListResponse{
+		Decisions: respDecisions,
+		Count:     len(respDecisions),
+	}
+
+	data, _ := json.Marshal(resp)
+	return Response{
+		Success: true,
+		Data:    data,
+	}
+}
+
+func (s *Server) handleDecisionListRecent(req *Request) Response {
+	var args DecisionListRecentArgs
+	if err := json.Unmarshal(req.Args, &args); err != nil {
+		return Response{
+			Success: false,
+			Error:   fmt.Sprintf("invalid decision list recent args: %v", err),
+		}
+	}
+
+	store := s.storage
+	if store == nil {
+		return Response{
+			Success: false,
+			Error:   "storage not available",
+		}
+	}
+
+	ctx, cancel := s.reqCtx(req)
+	defer cancel()
+
+	since, err := time.Parse(time.RFC3339, args.Since)
+	if err != nil {
+		return Response{
+			Success: false,
+			Error:   fmt.Sprintf("invalid since timestamp: %v", err),
+		}
+	}
+
+	decisions, err := store.ListRecentlyRespondedDecisions(ctx, since, args.RequestedBy)
+	if err != nil {
+		return Response{
+			Success: false,
+			Error:   fmt.Sprintf("failed to list recent decisions: %v", err),
+		}
+	}
+
 	var respDecisions []*DecisionResponse
 	for _, dp := range decisions {
 		issue, _ := store.GetIssue(ctx, dp.IssueID)

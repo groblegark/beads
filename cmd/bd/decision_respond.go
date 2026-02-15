@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
-	"github.com/steveyegge/beads/internal/decision"
 	"github.com/steveyegge/beads/internal/eventbus"
 	"github.com/steveyegge/beads/internal/hooks"
 	"github.com/steveyegge/beads/internal/rpc"
@@ -89,10 +88,6 @@ func runDecisionRespond(cmd *cobra.Command, args []string) {
 	shouldCloseGate := selectOpt != "" || acceptGuidance
 	shouldIterate := textResponse != "" && selectOpt == "" && !acceptGuidance
 
-	// Track iteration result for output
-	var iterationResult *decision.IterationResult
-	var iterationErr error
-
 	requireDaemon("decision respond")
 
 	// Build guidance field for iteration if needed
@@ -162,7 +157,7 @@ func runDecisionRespond(cmd *cobra.Command, args []string) {
 
 	// Output
 	if jsonOutput {
-		result := map[string]interface{}{
+		jsonResult := map[string]interface{}{
 			"id":              resolvedID,
 			"selected_option": selectOpt,
 			"response_text":   textResponse,
@@ -171,17 +166,15 @@ func runDecisionRespond(cmd *cobra.Command, args []string) {
 			"gate_closed":     shouldCloseGate,
 			"iteration":       shouldIterate,
 		}
-		// Include iteration details if applicable
-		if iterationErr != nil {
-			result["iteration_error"] = iterationErr.Error()
-		} else if iterationResult != nil {
-			result["max_reached"] = iterationResult.MaxReached
-			if !iterationResult.MaxReached && iterationResult.NewDecisionID != "" {
-				result["new_decision_id"] = iterationResult.NewDecisionID
-				result["new_iteration"] = iterationResult.DecisionPoint.Iteration
-			}
+		// Include iteration details from server response
+		if result.IterationMaxHit {
+			jsonResult["max_reached"] = true
 		}
-		outputJSON(result)
+		if result.IterationCreated && result.NewDecision != nil {
+			jsonResult["new_decision_id"] = result.NewDecision.IssueID
+			jsonResult["new_iteration"] = result.NewDecision.Iteration
+		}
+		outputJSON(jsonResult)
 		return
 	}
 
@@ -211,19 +204,19 @@ func runDecisionRespond(cmd *cobra.Command, args []string) {
 	if shouldCloseGate {
 		fmt.Printf("  %s Gate closed - blocked issues now unblocked\n", ui.RenderPass("✓"))
 	} else if shouldIterate {
-		// Show iteration result (hq-946577.23)
-		if iterationErr != nil {
-			fmt.Fprintf(os.Stderr, "  %s Error creating iteration: %v\n", ui.RenderFail("✗"), iterationErr)
-			fmt.Printf("  Use --accept-guidance to proceed with this guidance directly\n")
-		} else if iterationResult.MaxReached {
+		// Show iteration result from server response (bd-u4r9a)
+		if result.IterationMaxHit {
 			fmt.Printf("  %s Max iterations (%d) reached\n", ui.RenderWarn("⚠"), dp.MaxIterations)
 			fmt.Printf("  Use --accept-guidance to proceed with this guidance directly,\n")
 			fmt.Printf("  or --select to choose an existing option.\n")
-		} else {
+		} else if result.IterationCreated && result.NewDecision != nil {
 			fmt.Printf("  %s Created iteration %d: %s\n", ui.RenderPass("✓"),
-				iterationResult.DecisionPoint.Iteration, ui.RenderID(iterationResult.NewDecisionID))
+				result.NewDecision.Iteration, ui.RenderID(result.NewDecision.IssueID))
 			fmt.Printf("  The agent will refine options based on your guidance.\n")
 			fmt.Printf("  Original decision: %s (closed)\n", ui.RenderID(resolvedID))
+		} else {
+			// Server didn't create iteration (unexpected) — inform user
+			fmt.Printf("  Guidance recorded. The agent will refine options.\n")
 		}
 	}
 }

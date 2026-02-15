@@ -373,7 +373,7 @@ func TestHTTPMappingCompleteness(t *testing.T) {
 		OpGateCreate, OpGateList, OpGateShow, OpGateClose, OpGateWait,
 		// Decisions
 		OpDecisionCreate, OpDecisionGet, OpDecisionResolve,
-		OpDecisionList, OpDecisionRemind, OpDecisionCancel,
+		OpDecisionList, OpDecisionListRecent, OpDecisionRemind, OpDecisionCancel,
 		// Mol operations
 		OpMolBond, OpMolSquash, OpMolBurn,
 		OpMolCurrent, OpMolProgressStats, OpMolReadyGated,

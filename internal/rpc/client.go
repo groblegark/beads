@@ -782,6 +782,21 @@ func (c *Client) DecisionList(args *DecisionListArgs) (*DecisionListResponse, er
 	return &result, nil
 }
 
+// DecisionListRecent lists recently responded decisions via the daemon
+func (c *Client) DecisionListRecent(args *DecisionListRecentArgs) (*DecisionListResponse, error) {
+	resp, err := c.Execute(OpDecisionListRecent, args)
+	if err != nil {
+		return nil, err
+	}
+
+	var result DecisionListResponse
+	if err := json.Unmarshal(resp.Data, &result); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal decision list recent response: %w", err)
+	}
+
+	return &result, nil
+}
+
 // DecisionRemind sends a reminder for a pending decision via the daemon
 func (c *Client) DecisionRemind(args *DecisionRemindArgs) (*DecisionRemindResult, error) {
 	resp, err := c.Execute(OpDecisionRemind, args)

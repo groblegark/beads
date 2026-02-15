@@ -10,6 +10,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/steveyegge/beads/internal/inject"
+	"github.com/steveyegge/beads/internal/rpc"
 	"github.com/steveyegge/beads/internal/types"
 )
 
@@ -82,30 +83,19 @@ func runDecisionCheck(cmd *cobra.Command, args []string) {
 		os.Exit(0)
 	}
 
-	// Ensure store is initialized
-	if err := ensureStoreActive(); err != nil {
-		if checkInject {
-			// Silent failure for hooks
-			os.Exit(0)
-		}
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
-	}
-
-	ctx := rootCtx
+	requireDaemon("decision check")
 
 	var responses []DecisionResponseSum
 
 	if checkID != "" {
-		// Check specific decision
-		dp, err := store.GetDecisionPoint(ctx, checkID)
-		if err != nil || dp == nil {
-			if checkInject {
-				os.Exit(0)
-			}
+		// Check specific decision via daemon RPC
+		getArgs := &rpc.DecisionGetArgs{IssueID: checkID}
+		result, err := daemonClient.DecisionGet(getArgs)
+		if err != nil || result == nil || result.Decision == nil {
 			os.Exit(1)
 		}
 
+		dp := result.Decision
 		if dp.RespondedAt != nil {
 			// Parse options to get label
 			var options []types.DecisionOption
@@ -134,25 +124,24 @@ func runDecisionCheck(cmd *cobra.Command, args []string) {
 		// Parse the --since duration
 		sinceDuration, err := time.ParseDuration(checkSince)
 		if err != nil {
-			if checkInject {
-				os.Exit(0)
-			}
 			fmt.Fprintf(os.Stderr, "Error parsing --since duration: %v\n", err)
 			os.Exit(1)
 		}
 		sinceTime := time.Now().Add(-sinceDuration)
 
-		// Get recently responded decisions using the efficient query
-		respondedDecisions, err := store.ListRecentlyRespondedDecisions(ctx, sinceTime, checkRequestedBy)
+		// Get recently responded decisions via daemon RPC
+		listArgs := &rpc.DecisionListRecentArgs{
+			Since:       sinceTime.Format(time.RFC3339),
+			RequestedBy: checkRequestedBy,
+		}
+		listResp, err := daemonClient.DecisionListRecent(listArgs)
 		if err != nil {
-			if checkInject {
-				os.Exit(0)
-			}
 			fmt.Fprintf(os.Stderr, "Error listing decisions: %v\n", err)
 			os.Exit(1)
 		}
 
-		for _, dp := range respondedDecisions {
+		for _, dr := range listResp.Decisions {
+			dp := dr.Decision
 			// Parse options for label
 			var options []types.DecisionOption
 			if dp.Options != "" {

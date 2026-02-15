@@ -11,8 +11,8 @@ import (
 
 func TestDefaultHandlers(t *testing.T) {
 	handlers := DefaultHandlers()
-	if len(handlers) != 11 {
-		t.Fatalf("expected 11 default handlers, got %d", len(handlers))
+	if len(handlers) != 10 {
+		t.Fatalf("expected 10 default handlers, got %d", len(handlers))
 	}
 
 	// Verify IDs
@@ -33,8 +33,8 @@ func TestDefaultHandlers(t *testing.T) {
 	if !ids["gate"] {
 		t.Error("missing gate handler")
 	}
-	if !ids["decision"] {
-		t.Error("missing decision handler")
+	if !ids["inbox-drain"] {
+		t.Error("missing inbox-drain handler")
 	}
 	if !ids["oj-job-complete"] {
 		t.Error("missing oj-job-complete handler")
@@ -149,8 +149,8 @@ func TestBusWithDefaultHandlers(t *testing.T) {
 		bus.Register(h)
 	}
 
-	if len(bus.Handlers()) != 11 {
-		t.Errorf("expected 11 handlers, got %d", len(bus.Handlers()))
+	if len(bus.Handlers()) != 10 {
+		t.Errorf("expected 10 handlers, got %d", len(bus.Handlers()))
 	}
 }
 
