@@ -566,8 +566,7 @@ func writeJSONLAtomic(jsonlPath string, issues []*types.Issue) ([]string, error)
 
 // flushState captures the state needed for a flush operation
 type flushState struct {
-	forceDirty      bool // Force flush even if isDirty is false
-	forceFullExport bool // Force full export even if needsFullExport is false
+	forceDirty bool // Force flush even if isDirty is false
 }
 
 // flushToJSONLWithState is a no-op in dolt-native mode.
