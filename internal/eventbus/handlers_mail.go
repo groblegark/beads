@@ -12,13 +12,9 @@ import (
 	"time"
 )
 
-// MailNudgeHandler nudges the recipient agent via their Coop HTTP API when
-// a MailSent event is dispatched. This provides instant mail delivery instead
-// of waiting for the agent's next polling cycle. (bd-cdp8)
-//
-// Resolution: parses the "to" field from MailEventPayload, converts the
-// address to an agent bead ID, looks up the bead's notes for coop_url,
-// and POSTs to <coop_url>/api/v1/agent/nudge.
+// MailNudgeHandler pushes mail notifications to the recipient's inbox and
+// nudges them via Coop HTTP API. Inbox is the reliable delivery path (Phase 4);
+// the HTTP nudge ensures idle agents wake up to drain it. (bd-cdp8, bd-xtahx.5)
 //
 // Priority 50 (runs after standard handlers; nudging is supplementary).
 type MailNudgeHandler struct {
@@ -47,15 +43,29 @@ func (h *MailNudgeHandler) Handle(ctx context.Context, event *Event, result *Res
 		return nil
 	}
 
-	// Look up agent bead notes for coop_url.
+	// Phase 4: push to inbox for reliable delivery.
+	// Idempotent via dedup_key; complements InboxDrainHandler at priority 30.
+	message := fmt.Sprintf("You have new mail from %s: %s", payload.From, payload.Subject)
+	dedupKey := fmt.Sprintf("mail:%s", payload.MessageID)
+	_, _, pushErr := runBDCommand(ctx, event.CWD,
+		"inbox", "push",
+		"--to", agentID,
+		"--type", "mail",
+		"--source", "mail-nudge",
+		"--dedup-key", dedupKey,
+		message,
+	)
+	if pushErr != nil {
+		log.Printf("mail-nudge: inbox push for %s failed (non-fatal): %v", agentID, pushErr)
+	}
+
+	// Still nudge via Coop HTTP to wake idle agents immediately.
 	coopURL, err := resolveCoopURLFromBead(ctx, event.CWD, agentID)
 	if err != nil {
 		log.Printf("mail-nudge: no coop_url for agent %q: %v", agentID, err)
 		return nil // Not a coop agent or not reachable; skip silently.
 	}
 
-	// POST nudge to coop sidecar.
-	message := fmt.Sprintf("You have new mail from %s: %s", payload.From, payload.Subject)
 	delivered, reason, err := postNudge(ctx, h.httpClient, coopURL, message)
 	if err != nil {
 		log.Printf("mail-nudge: nudge to %s (%s) failed: %v", agentID, coopURL, err)
