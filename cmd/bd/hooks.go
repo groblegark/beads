@@ -2,7 +2,6 @@ package main
 
 import (
 	"bufio"
-	"context"
 	"embed"
 	"encoding/json"
 	"fmt"
@@ -13,7 +12,6 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/steveyegge/beads/internal/beads"
-	"github.com/steveyegge/beads/internal/config"
 	"github.com/steveyegge/beads/internal/git"
 )
 
@@ -597,90 +595,7 @@ func runPrePushHook(args []string) int {
 		return exitCode
 	}
 
-	// Skip JSONL checks for dolt-native mode (no JSONL files to check)
-	if config.GetSyncMode() == config.SyncModeDoltNative {
-		return 0
-	}
-
-	// Check if we're in a bd workspace
-	if _, err := os.Stat(".beads"); os.IsNotExist(err) {
-		return 0
-	}
-
-	// Skip if bd export/import is already in progress (prevents circular error)
-	if os.Getenv("BD_SYNC_IN_PROGRESS") != "" {
-		return 0
-	}
-
-	// Get RepoContext for git operations (needed for flush and staging)
-	rc, rcErr := beads.GetRepoContext()
-	ctx := context.Background()
-
-	// Flush pending bd changes
-	flushCmd := exec.Command("bd", "export")
-	_ = flushCmd.Run() // Ignore errors
-
-	// Auto-stage JSONL files after flush to prevent race condition.
-	// Without this, flush creates uncommitted changes that the check below
-	// would detect, causing an infinite loop. See: GH#1208
-	for _, f := range jsonlFilePaths {
-		if _, err := os.Stat(f); err == nil {
-			var gitAdd *exec.Cmd
-			if rcErr == nil {
-				gitAdd = rc.GitCmdCWD(ctx, "add", f)
-			} else {
-				// #nosec G204 -- f comes from jsonlFilePaths (controlled, hardcoded paths)
-				gitAdd = exec.Command("git", "add", f)
-			}
-			_ = gitAdd.Run() // Ignore errors - file may not exist
-		}
-	}
-
-	// Check for uncommitted JSONL changes
-	files := []string{}
-	for _, f := range jsonlFilePaths {
-		// Check if file exists or is tracked
-		if _, err := os.Stat(f); err == nil {
-			files = append(files, f)
-		} else {
-			// Check if tracked by git
-			var checkCmd *exec.Cmd
-			if rcErr == nil {
-				checkCmd = rc.GitCmdCWD(ctx, "ls-files", "--error-unmatch", f)
-			} else {
-				// #nosec G204 - f is from jsonlFilePaths (controlled, hardcoded paths)
-				checkCmd = exec.Command("git", "ls-files", "--error-unmatch", f)
-			}
-			if checkCmd.Run() == nil {
-				files = append(files, f)
-			}
-		}
-	}
-
-	if len(files) == 0 {
-		return 0
-	}
-
-	// Check for uncommitted changes using git status
-	statusArgs := append([]string{"status", "--porcelain", "--"}, files...)
-	var statusCmd *exec.Cmd
-	if rcErr == nil {
-		statusCmd = rc.GitCmdCWD(ctx, statusArgs...)
-	} else {
-		// #nosec G204 - statusArgs built from hardcoded list and git subcommands
-		statusCmd = exec.Command("git", statusArgs...)
-	}
-	output, _ := statusCmd.Output()
-	if len(output) > 0 {
-		fmt.Fprintln(os.Stderr, "❌ Error: Uncommitted changes detected")
-		fmt.Fprintln(os.Stderr, "")
-		fmt.Fprintln(os.Stderr, "Before pushing, ensure all changes are committed. This includes:")
-		fmt.Fprintln(os.Stderr, "  • bd JSONL updates (run 'bd export' then 'git add .beads/')")
-		fmt.Fprintln(os.Stderr, "  • any other modified files (run 'git status' to review)")
-		fmt.Fprintln(os.Stderr, "")
-		return 1
-	}
-
+	// Dolt-native mode: no JSONL files to check, nothing to validate
 	return 0
 }
 

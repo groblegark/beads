@@ -25,8 +25,6 @@ func TestFixFunctions_RequireBeadsDir(t *testing.T) {
 		{"DBJSONLSync", DBJSONLSync},
 		{"DatabaseVersion", DatabaseVersion},
 		{"SchemaCompatibility", SchemaCompatibility},
-		{"SyncBranchConfig", SyncBranchConfig},
-		{"SyncBranchHealth", func(dir string) error { return SyncBranchHealth(dir, "beads-sync") }},
 		{"UntrackedJSONL", UntrackedJSONL},
 		{"MigrateTombstones", MigrateTombstones},
 		{"ChildParentDependencies", func(dir string) error { return ChildParentDependencies(dir, false) }},
