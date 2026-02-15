@@ -332,6 +332,16 @@ CREATE TABLE IF NOT EXISTS blocked_issues_cache (
     issue_id VARCHAR(255) PRIMARY KEY,
     CONSTRAINT fk_blocked_cache FOREIGN KEY (issue_id) REFERENCES issues(id) ON DELETE CASCADE
 );
+
+-- Session registry (daemon session identity persistence, bd-2rvp1)
+-- Persists daemon-assigned session names across restarts so agent identities are stable.
+CREATE TABLE IF NOT EXISTS session_registry (
+    session_key VARCHAR(255) PRIMARY KEY,
+    assigned_name VARCHAR(255) NOT NULL,
+    base_name VARCHAR(255) NOT NULL,
+    last_seen DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_session_registry_name (assigned_name)
+);
 `
 
 // defaultConfig contains the default configuration values

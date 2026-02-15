@@ -1,10 +1,14 @@
 package rpc
 
 import (
+	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"sync"
 	"time"
+
+	"github.com/steveyegge/beads/internal/debug"
 )
 
 // sessionEntry tracks a registered session in the daemon's in-memory registry.
@@ -15,11 +19,13 @@ type sessionEntry struct {
 	LastSeen     time.Time // Last activity timestamp (for stale cleanup)
 }
 
-// sessionRegistry is the daemon's in-memory session→name mapping.
-// It assigns unique, human-meaningful names to concurrent sessions.
+// sessionRegistry is the daemon's session→name mapping.
+// Names are kept in memory for fast lookups and persisted to the session_registry
+// table so they survive daemon restarts (bd-2rvp1).
 type sessionRegistry struct {
 	mu       sync.RWMutex
 	sessions map[string]*sessionEntry // session_key → entry
+	db       *sql.DB                  // database for persistence (nil = in-memory only)
 }
 
 func newSessionRegistry() *sessionRegistry {
@@ -28,9 +34,78 @@ func newSessionRegistry() *sessionRegistry {
 	}
 }
 
+// loadFromDB populates the in-memory registry from the session_registry table.
+// Called once on daemon startup to restore names from a previous run.
+// Entries older than maxAge are pruned during load.
+func (r *sessionRegistry) loadFromDB(ctx context.Context, db *sql.DB, maxAge time.Duration) error {
+	if db == nil {
+		return nil
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.db = db
+
+	// Prune stale entries from the database first
+	cutoff := time.Now().Add(-maxAge)
+	_, _ = db.ExecContext(ctx, `DELETE FROM session_registry WHERE last_seen < ?`, cutoff)
+
+	rows, err := db.QueryContext(ctx, `
+		SELECT session_key, assigned_name, base_name, last_seen
+		FROM session_registry
+	`)
+	if err != nil {
+		// Table might not exist yet (pre-migration). Not fatal.
+		debug.Logf("session registry: load from DB failed (table may not exist): %v", err)
+		return nil
+	}
+	defer rows.Close()
+
+	loaded := 0
+	for rows.Next() {
+		var entry sessionEntry
+		if err := rows.Scan(&entry.SessionKey, &entry.AssignedName, &entry.BaseName, &entry.LastSeen); err != nil {
+			debug.Logf("session registry: scan error: %v", err)
+			continue
+		}
+		r.sessions[entry.SessionKey] = &entry
+		loaded++
+	}
+	if err := rows.Err(); err != nil {
+		debug.Logf("session registry: rows error: %v", err)
+	}
+
+	if loaded > 0 {
+		debug.Logf("session registry: restored %d sessions from database", loaded)
+	}
+	return nil
+}
+
+// persistEntry writes a single session entry to the database.
+// Uses INSERT ... ON DUPLICATE KEY UPDATE for upsert semantics.
+func (r *sessionRegistry) persistEntry(entry *sessionEntry) {
+	if r.db == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	_, err := r.db.ExecContext(ctx, `
+		INSERT INTO session_registry (session_key, assigned_name, base_name, last_seen)
+		VALUES (?, ?, ?, ?)
+		ON DUPLICATE KEY UPDATE assigned_name = VALUES(assigned_name),
+		                        base_name = VALUES(base_name),
+		                        last_seen = VALUES(last_seen)
+	`, entry.SessionKey, entry.AssignedName, entry.BaseName, entry.LastSeen)
+	if err != nil {
+		debug.Logf("session registry: persist failed for %s: %v", entry.SessionKey, err)
+	}
+}
+
 // register assigns a unique name for a session key, or returns the existing one.
 // Name generation: if baseName is the only session, it keeps baseName as-is.
 // If multiple sessions share the same baseName, they get baseName-1, baseName-2, etc.
+// New and updated entries are persisted to the database.
 func (r *sessionRegistry) register(sessionKey, baseName string) (assignedName string, isNew bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -38,18 +113,24 @@ func (r *sessionRegistry) register(sessionKey, baseName string) (assignedName st
 	// Check if already registered
 	if entry, ok := r.sessions[sessionKey]; ok {
 		entry.LastSeen = time.Now()
+		// Persist updated last_seen (fire-and-forget in background)
+		go r.persistEntry(entry)
 		return entry.AssignedName, false
 	}
 
 	// Find the lowest unused suffix for this baseName
 	assignedName = r.findUnusedName(baseName)
 
-	r.sessions[sessionKey] = &sessionEntry{
+	entry := &sessionEntry{
 		SessionKey:   sessionKey,
 		AssignedName: assignedName,
 		BaseName:     baseName,
 		LastSeen:     time.Now(),
 	}
+	r.sessions[sessionKey] = entry
+
+	// Persist new entry (fire-and-forget in background)
+	go r.persistEntry(entry)
 
 	return assignedName, true
 }
@@ -82,6 +163,7 @@ func (r *sessionRegistry) findUnusedName(baseName string) string {
 }
 
 // pruneStale removes sessions not seen within the given duration.
+// Also deletes stale entries from the database.
 func (r *sessionRegistry) pruneStale(maxAge time.Duration) int {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -94,6 +176,14 @@ func (r *sessionRegistry) pruneStale(maxAge time.Duration) int {
 			pruned++
 		}
 	}
+
+	// Also prune from database
+	if r.db != nil && pruned > 0 {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_, _ = r.db.ExecContext(ctx, `DELETE FROM session_registry WHERE last_seen < ?`, cutoff)
+	}
+
 	return pruned
 }
 
@@ -136,6 +226,12 @@ func (s *Server) handleSessionRegister(req *Request) Response {
 	if s.sessionReg == nil {
 		s.sessionRegOnce.Do(func() {
 			s.sessionReg = newSessionRegistry()
+			// Load persisted sessions from database
+			if db := s.storage.UnderlyingDB(); db != nil {
+				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				defer cancel()
+				_ = s.sessionReg.loadFromDB(ctx, db, 24*time.Hour)
+			}
 		})
 	}
 

@@ -25,6 +25,7 @@ var migrations = []Migration{
 	{"blocked_issues_cache", migrateBlockedIssuesCache},
 	{"drop_ready_issues_view", migrateDropReadyIssuesView},
 	{"inbox_table", migrateInboxTable},
+	{"session_registry_table", migrateSessionRegistryTable},
 }
 
 // RunMigrations executes all registered migrations in order.
@@ -227,6 +228,41 @@ func migrateAdviceSubscriptionFields(ctx context.Context, db *sql.DB) error {
 		if err := addColumnIfNotExists(ctx, db, "issues", col.name, col.sqlType); err != nil {
 			return err
 		}
+	}
+
+	return nil
+}
+
+// migrateSessionRegistryTable creates the session_registry table for daemon session
+// identity persistence across restarts (bd-2rvp1).
+func migrateSessionRegistryTable(ctx context.Context, db *sql.DB) error {
+	var count int
+	err := db.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM information_schema.tables
+		WHERE table_schema = DATABASE()
+		  AND table_name = 'session_registry'
+	`).Scan(&count)
+	if err != nil {
+		return fmt.Errorf("failed to check for session_registry table: %w", err)
+	}
+	if count > 0 {
+		return nil
+	}
+
+	_, err = db.ExecContext(ctx, `
+		CREATE TABLE session_registry (
+			session_key VARCHAR(255) PRIMARY KEY,
+			assigned_name VARCHAR(255) NOT NULL,
+			base_name VARCHAR(255) NOT NULL,
+			last_seen DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			INDEX idx_session_registry_name (assigned_name)
+		)
+	`)
+	if err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "already exists") {
+			return nil
+		}
+		return fmt.Errorf("failed to create session_registry table: %w", err)
 	}
 
 	return nil
