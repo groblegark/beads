@@ -239,6 +239,7 @@ func init() {
 	captainAutoCmd.Flags().String("urgent-action", "", "Override action for high-urgency decisions (empty = use default)")
 	captainAutoCmd.Flags().Bool("dry-run", false, "Show what would happen without acting")
 	captainAutoCmd.Flags().String("by", "captain-auto", "Captain identity for audit trail")
+	captainAutoCmd.Flags().Bool("notify", true, "Send inbox notification to requesting agent after resolving")
 
 	decisionCaptainCmd.AddCommand(captainListCmd)
 	decisionCaptainCmd.AddCommand(captainRespondCmd)
@@ -543,6 +544,7 @@ func runCaptainAuto(cmd *cobra.Command, args []string) error {
 	urgentAction, _ := cmd.Flags().GetString("urgent-action")
 	dryRun, _ := cmd.Flags().GetBool("dry-run")
 	by, _ := cmd.Flags().GetString("by")
+	notify, _ := cmd.Flags().GetBool("notify")
 
 	// Graceful shutdown on SIGINT/SIGTERM.
 	sigCh := make(chan os.Signal, 1)
@@ -663,6 +665,30 @@ func runCaptainAuto(cmd *cobra.Command, args []string) error {
 				if _, err := daemonClient.DecisionResolve(resolveArgs); err != nil {
 					fmt.Fprintf(os.Stderr, "captain auto: error resolving %s: %v\n", id, err)
 					continue
+				}
+
+				// Notify requesting agent via inbox.
+				if notify && dr.Decision.RequestedBy != "" {
+					optLabel := selectID
+					for _, opt := range options {
+						if opt.ID == selectID {
+							optLabel = opt.Label
+							break
+						}
+					}
+					msg := fmt.Sprintf("Captain resolved your decision %q: [%s] %s (%s)",
+						dr.Decision.Prompt, selectID, optLabel, reason)
+					pushArgs := &rpc.InboxPushArgs{
+						AgentName: dr.Decision.RequestedBy,
+						Type:      "decision",
+						Source:    by,
+						Content:   msg,
+						Priority:  2,
+					}
+					if _, err := daemonClient.InboxPush(pushArgs); err != nil {
+						fmt.Fprintf(os.Stderr, "captain auto: inbox notify error for %s: %v\n",
+							dr.Decision.RequestedBy, err)
+					}
 				}
 
 				if age >= sweepAge {
