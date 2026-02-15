@@ -6,7 +6,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/steveyegge/beads/internal/config"
 	"github.com/steveyegge/beads/internal/storage"
 	"github.com/steveyegge/beads/internal/testutil/teststore"
 	"github.com/steveyegge/beads/internal/types"
@@ -170,77 +169,6 @@ func TestDoltNativeFunctions_NoPull(t *testing.T) {
 	// With autoPull=false, should not attempt to pull
 	fn := createDoltNativeSyncFunc(ctx, store, true, true, false, log)
 	fn() // Should skip pull step
-}
-
-// TestGetSyncModeDoltNative verifies sync mode detection
-func TestGetSyncModeDoltNative(t *testing.T) {
-	// Reset config to avoid dolt-native mode from repo config
-	config.ResetForTesting()
-
-	ctx := context.Background()
-	store := teststore.New(t)
-
-	// Default should be git-portable when neither database nor config.yaml has a value
-	mode := GetSyncMode(ctx, store)
-	if mode != SyncModeGitPortable {
-		t.Errorf("expected default mode %s, got %s", SyncModeGitPortable, mode)
-	}
-
-	// Set dolt-native mode
-	if err := SetSyncMode(ctx, store, SyncModeDoltNative); err != nil {
-		t.Fatalf("failed to set sync mode: %v", err)
-	}
-
-	// Should now return dolt-native
-	mode = GetSyncMode(ctx, store)
-	if mode != SyncModeDoltNative {
-		t.Errorf("expected mode %s, got %s", SyncModeDoltNative, mode)
-	}
-}
-
-// TestShouldExportJSONL_DoltNative verifies JSONL is skipped for dolt-native
-func TestShouldExportJSONL_DoltNative(t *testing.T) {
-	// Reset config to ensure default sync mode (not dolt-native from repo config)
-	config.ResetForTesting()
-
-	ctx := context.Background()
-	store := teststore.New(t)
-
-	// Default should export JSONL
-	if !ShouldExportJSONL(ctx, store) {
-		t.Error("expected ShouldExportJSONL=true for default mode")
-	}
-
-	// Set dolt-native mode
-	if err := SetSyncMode(ctx, store, SyncModeDoltNative); err != nil {
-		t.Fatalf("failed to set sync mode: %v", err)
-	}
-
-	// Should NOT export JSONL in dolt-native
-	if ShouldExportJSONL(ctx, store) {
-		t.Error("expected ShouldExportJSONL=false for dolt-native mode")
-	}
-}
-
-// TestShouldUseDoltRemote_DoltNative verifies Dolt remote is used for dolt-native
-func TestShouldUseDoltRemote_DoltNative(t *testing.T) {
-	ctx := context.Background()
-	store := teststore.New(t)
-
-	// Default should NOT use Dolt remote
-	if ShouldUseDoltRemote(ctx, store) {
-		t.Error("expected ShouldUseDoltRemote=false for default mode")
-	}
-
-	// Set dolt-native mode
-	if err := SetSyncMode(ctx, store, SyncModeDoltNative); err != nil {
-		t.Fatalf("failed to set sync mode: %v", err)
-	}
-
-	// Should use Dolt remote in dolt-native
-	if !ShouldUseDoltRemote(ctx, store) {
-		t.Error("expected ShouldUseDoltRemote=true for dolt-native mode")
-	}
 }
 
 // =============================================================================

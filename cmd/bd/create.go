@@ -498,77 +498,9 @@ func generateSemanticID(ctx context.Context, store storage.Storage, prefix, issu
 }
 
 // flushRoutedRepo ensures the target repo's JSONL is updated after routing an issue.
-// This is critical for multi-repo hydration to work correctly (bd-fix-routing).
-// Respects sync mode: skips JSONL export in dolt-native mode (bd-a9ka).
-func flushRoutedRepo(targetStore storage.Storage, repoPath string) {
-	ctx := context.Background()
-
-	// Check sync mode before JSONL export (bd-a9ka: dolt-native mode should skip JSONL)
-	if !ShouldExportJSONL(ctx, targetStore) {
-		debug.Logf("skipping JSONL flush for routed repo (dolt-native mode)")
-		return
-	}
-
-	// Expand the repo path and construct the .beads directory path
-	targetBeadsDir := routing.ExpandPath(repoPath)
-	if !filepath.IsAbs(targetBeadsDir) {
-		// If relative path, make it absolute
-		absPath, err := filepath.Abs(targetBeadsDir)
-		if err != nil {
-			debug.Logf("warning: failed to get absolute path for %s: %v", targetBeadsDir, err)
-			return
-		}
-		targetBeadsDir = absPath
-	}
-
-	// Construct paths for daemon socket and JSONL
-	beadsDir := filepath.Join(targetBeadsDir, ".beads")
-	socketPath := filepath.Join(beadsDir, "bd.sock")
-	jsonlPath := filepath.Join(beadsDir, "issues.jsonl")
-
-	debug.Logf("attempting to flush routed repo at %s", targetBeadsDir)
-
-	// Try to connect to target repo's daemon (if running)
-	flushed := false
-	if client, err := rpc.TryConnectAuto(socketPath); err == nil && client != nil {
-		defer func() { _ = client.Close() }()
-
-		// Daemon is running - ask it to export
-		debug.Logf("found running daemon in target repo, requesting export")
-		exportArgs := &rpc.ExportArgs{
-			JSONLPath: jsonlPath,
-		}
-		if resp, err := client.Export(exportArgs); err == nil && resp.Success {
-			debug.Logf("successfully flushed via target repo daemon")
-			flushed = true
-		} else {
-			if err != nil {
-				debug.Logf("daemon export failed: %v", err)
-			} else {
-				debug.Logf("daemon export error: %s", resp.Error)
-			}
-		}
-	}
-
-	// Fallback: No daemon or daemon flush failed - export directly
-	if !flushed {
-		debug.Logf("no daemon in target repo, exporting directly to JSONL")
-
-		// Get all issues including tombstones (mirrors exportToJSONLDeferred logic)
-		issues, err := targetStore.SearchIssues(ctx, "", types.IssueFilter{IncludeTombstones: true})
-		if err != nil {
-			WarnError("failed to query issues for export: %v", err)
-			return
-		}
-
-		// Perform atomic export (temporary file + rename)
-		if err := performAtomicExport(ctx, jsonlPath, issues, targetStore); err != nil {
-			WarnError("failed to export target repo JSONL: %v", err)
-			return
-		}
-
-		debug.Logf("successfully exported to %s", jsonlPath)
-	}
+// In dolt-native mode (the only mode), JSONL export is skipped since Dolt handles sync.
+func flushRoutedRepo(_ storage.Storage, _ string) {
+	debug.Logf("skipping JSONL flush (dolt-native mode)")
 }
 
 // performAtomicExport writes issues to JSONL using atomic temp file + rename
