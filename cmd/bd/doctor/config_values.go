@@ -288,7 +288,7 @@ func checkYAMLConfigValues(repoPath string) []string {
 	}
 
 	// Validate boolean config values
-	boolKeys := []string{"json", "no-daemon", "no-auto-flush", "no-auto-import", "no-db", "auto-start-daemon", "sync.require_confirmation_on_mass_delete"}
+	boolKeys := []string{"json", "no-daemon", "no-auto-flush", "no-auto-import", "no-db", "auto-start-daemon"}
 	issues = append(issues, validateBooleanConfigs(v, boolKeys)...)
 
 	// Validate repos paths

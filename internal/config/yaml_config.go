@@ -17,55 +17,59 @@ import (
 // This fixes GH#536: users were confused when `bd config set no-db true`
 // appeared to succeed but had no effect (because no-db is read from yaml
 // at startup, not from SQLite).
+//
+// Legend:
+//   [local]  — only meaningful for local CLI (no effect in remote/K8s mode)
+//   [remote] — relevant when BD_DAEMON_HOST is set (daemon-side config)
+//   [both]   — meaningful in both local and remote modes
+//
+// All keys have env var equivalents via BD_ prefix auto-binding
+// (e.g., no-daemon → BD_NO_DAEMON, storage-backend → BD_STORAGE_BACKEND).
 var YamlOnlyKeys = map[string]bool{
-	// Bootstrap flags (affect how bd starts)
+	// Bootstrap flags — affect how bd starts [local]
 	"no-db":             true,
 	"no-daemon":         true,
 	"no-auto-flush":     true,
 	"no-auto-import":    true,
-	"json":              true,
+	"json":              true, // [both] output format flag
 	"auto-start-daemon": true,
 
 	// Database and identity
-	"db":              true,
-	"actor":           true,
-	"identity":        true,
-	"storage-backend": true, // Always "dolt" (sqlite removed)
+	"db":              true, // [local] custom database path
+	"actor":           true, // [both] default actor for issues
+	"identity":        true, // [both] BEADS_IDENTITY env var
+	"storage-backend": true, // [remote] always "dolt" (sqlite removed)
 
 	// Timing settings
-	"flush-debounce":       true,
-	"lock-timeout":         true,
-	"remote-sync-interval": true,
+	"flush-debounce":       true, // [local] daemon flush debounce
+	"lock-timeout":         true, // [local] database lock timeout
+	"remote-sync-interval": true, // [remote] BEADS_REMOTE_SYNC_INTERVAL
 
-	// Git settings
+	// Git settings [local] — no git in remote/K8s mode
 	"git.author":      true,
 	"git.no-gpg-sign": true,
 	"no-push":         true,
-	"no-git-ops":      true, // Disable git ops in bd prime session close protocol (GH#593)
+	"no-git-ops":      true, // Disable git ops in bd prime session close (GH#593)
 
-	// Sync settings
-	"sync.require_confirmation_on_mass_delete": true,
-
-	// Daemon settings (GH#871: team-wide auto-sync config)
+	// Daemon settings [remote] — control daemon sync behavior (GH#871)
 	"daemon.auto_commit": true,
 	"daemon.auto_push":   true,
 	"daemon.auto_pull":   true,
 
-	// Routing settings
+	// Routing settings [local] — daemon handles routing in remote mode
 	"routing.mode":        true,
 	"routing.default":     true,
 	"routing.maintainer":  true,
 	"routing.contributor": true,
 
-	// Create command settings
+	// Create command settings [both]
 	"create.require-description": true,
 
-	// Validation settings (bd-t7jq)
+	// Validation settings [both] (bd-t7jq)
 	// Values: "warn" | "error" | "none"
 	"validation.on-create": true,
-	"validation.on-sync":   true,
 
-	// Hierarchy settings (GH#995)
+	// Hierarchy settings [both] (GH#995)
 	"hierarchy.max-depth": true,
 }
 

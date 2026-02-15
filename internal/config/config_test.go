@@ -1027,11 +1027,6 @@ func TestValidationConfigDefaults(t *testing.T) {
 	if got := GetString("validation.on-create"); got != "none" {
 		t.Errorf("GetString(validation.on-create) = %q, want \"none\"", got)
 	}
-
-	// Test validation.on-sync default is "none"
-	if got := GetString("validation.on-sync"); got != "none" {
-		t.Errorf("GetString(validation.on-sync) = %q, want \"none\"", got)
-	}
 }
 
 func TestValidationConfigFromFile(t *testing.T) {
@@ -1042,7 +1037,6 @@ func TestValidationConfigFromFile(t *testing.T) {
 	configContent := `
 validation:
   on-create: error
-  on-sync: warn
 `
 	beadsDir := filepath.Join(tmpDir, ".beads")
 	if err := os.MkdirAll(beadsDir, 0750); err != nil {
@@ -1065,9 +1059,6 @@ validation:
 	// Test that validation settings are loaded correctly
 	if got := GetString("validation.on-create"); got != "error" {
 		t.Errorf("GetString(validation.on-create) = %q, want \"error\"", got)
-	}
-	if got := GetString("validation.on-sync"); got != "warn" {
-		t.Errorf("GetString(validation.on-sync) = %q, want \"warn\"", got)
 	}
 }
 

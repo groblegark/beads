@@ -150,9 +150,6 @@ func Initialize() error {
 	v.SetDefault("routing.maintainer", ".")
 	v.SetDefault("routing.contributor", "~/.beads-planning")
 
-	// Sync configuration defaults (bd-4u8)
-	v.SetDefault("sync.require_confirmation_on_mass_delete", false)
-
 	// Sync mode configuration (hq-ew1mbr.3)
 	// See docs/CONFIG.md for detailed documentation
 	v.SetDefault("sync.mode", SyncModeGitPortable)  // git-portable | realtime | dolt-native | belt-and-suspenders
@@ -178,7 +175,6 @@ func Initialize() error {
 	// - "warn": validate and print warnings but proceed
 	// - "error": validate and fail on missing sections
 	v.SetDefault("validation.on-create", "none")
-	v.SetDefault("validation.on-sync", "none")
 
 	// Hierarchy configuration defaults (GH#995)
 	// Maximum nesting depth for hierarchical IDs (e.g., bd-abc.1.2.3)
