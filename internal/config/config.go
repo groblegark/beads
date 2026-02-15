@@ -700,27 +700,6 @@ func IsSovereigntyValid(sovereignty string) bool {
 	return validSovereigntyTiers[Sovereignty(sovereignty)]
 }
 
-// ShouldExportOnChange returns true if sync.export_on is set to "change".
-func ShouldExportOnChange() bool {
-	return GetString("sync.export_on") == SyncTriggerChange
-}
-
-// ShouldImportOnChange returns true if sync.import_on is set to "change".
-func ShouldImportOnChange() bool {
-	return GetString("sync.import_on") == SyncTriggerChange
-}
-
-// NeedsDoltRemote returns true if the sync mode requires a Dolt remote.
-func NeedsDoltRemote() bool {
-	mode := GetSyncMode()
-	return mode == SyncModeDoltNative || mode == SyncModeBeltAndSuspenders
-}
-
-// NeedsJSONL returns true if the sync mode requires JSONL export.
-func NeedsJSONL() bool {
-	mode := GetSyncMode()
-	return mode == SyncModeGitPortable || mode == SyncModeRealtime || mode == SyncModeBeltAndSuspenders
-}
 
 // GetCustomTypesFromYAML retrieves custom issue types from config.yaml.
 // This is used as a fallback when the database doesn't have types.custom set yet

@@ -278,7 +278,7 @@ func (fm *FlushManager) run() {
 
 // performFlush executes the actual flush operation.
 // Called only from the run() goroutine, so no concurrency issues.
-func (fm *FlushManager) performFlush(fullExport bool) {
+func (fm *FlushManager) performFlush(_ bool) {
 	// Check if store is still active
 	storeMutex.Lock()
 	if !storeActive {
@@ -298,7 +298,6 @@ func (fm *FlushManager) performFlush(fullExport bool) {
 	// Call the actual flush implementation with explicit state
 	// This avoids race conditions with global isDirty/needsFullExport flags
 	flushToJSONLWithState(flushState{
-		forceDirty:      true, // We know we're dirty (we wouldn't be here otherwise)
-		forceFullExport: fullExport,
+		forceDirty: true, // We know we're dirty (we wouldn't be here otherwise)
 	})
 }
