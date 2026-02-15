@@ -126,24 +126,6 @@ func GetBackendFromConfig(_ string) string {
 	return configfile.BackendDolt
 }
 
-// detectBackendFromPath examines the filesystem to detect if a database path
-// is a Dolt directory. Returns empty string if undetermined.
-// This provides a safety net when config is ambiguous (gt-q5jzx5).
-func detectBackendFromPath(dbPath string) string {
-	info, err := os.Stat(dbPath)
-	if err != nil {
-		return "" // Path doesn't exist yet or error - can't determine
-	}
-
-	if info.IsDir() {
-		// Directories are Dolt databases
-		return configfile.BackendDolt
-	}
-
-	return ""
-}
-
-
 // LoadConfig loads and returns the config from the specified beads directory.
 // Returns nil if config doesn't exist or can't be loaded.
 func LoadConfig(beadsDir string) *configfile.Config {
