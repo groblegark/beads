@@ -110,7 +110,7 @@ func (h *HTTPServer) streamFromJetStream(w http.ResponseWriter, r *http.Request,
 		opts = append(opts, nats.DeliverNew())
 	}
 
-	sub, err := js.Subscribe(subject, func(_ *nats.Msg) {}, opts...)
+	sub, err := js.SubscribeSync(subject, opts...)
 	if err != nil {
 		// JetStream subscribe failed, fall back to in-memory
 		h.streamFromMemory(w, r, flusher, sinceMs, filter)
