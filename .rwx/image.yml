@@ -174,7 +174,7 @@ tasks:
       sudo useradd -u 1001 -g agent -s /bin/bash -m agent
 
       # Go
-      curl -fsSL "https://go.dev/dl/go1.25.linux-amd64.tar.gz" | sudo tar -C /usr/local -xzf -
+      curl -fsSL "https://go.dev/dl/go1.25.7.linux-amd64.tar.gz" | sudo tar -C /usr/local -xzf -
 
       # Rust (install as agent user)
       sudo -u agent bash -c 'curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.93.0'
