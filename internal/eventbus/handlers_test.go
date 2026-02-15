@@ -97,8 +97,8 @@ func TestDecisionHandlerMetadata(t *testing.T) {
 	if h.ID() != "decision" {
 		t.Errorf("expected ID 'decision', got %q", h.ID())
 	}
-	if h.Priority() != 30 {
-		t.Errorf("expected priority 30, got %d", h.Priority())
+	if h.Priority() != 31 {
+		t.Errorf("expected priority 31, got %d", h.Priority())
 	}
 	handles := h.Handles()
 	if len(handles) != 2 {

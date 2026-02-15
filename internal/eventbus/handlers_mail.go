@@ -213,8 +213,8 @@ func postNudge(ctx context.Context, client *http.Client, coopURL, message string
 type CoopURLResolver func(ctx context.Context, cwd, agentID string) (string, error)
 
 // DecisionNudgeHandler nudges the requesting agent via their Coop HTTP API when
-// a decision is resolved. This wakes idle agents so their PostToolUse hook can
-// run `bd decision check --inject` and deliver the response. (bd-5mkhu)
+// a decision is resolved. Also pushes to inbox for reliable delivery (Phase 3:
+// inbox is primary, nudge ensures agent wakes up to drain it). (bd-5mkhu)
 //
 // Priority 50 (runs after standard handlers; nudging is supplementary).
 type DecisionNudgeHandler struct {
@@ -237,7 +237,23 @@ func (h *DecisionNudgeHandler) Handle(ctx context.Context, event *Event, result 
 		return nil // No agent to nudge
 	}
 
-	// Look up agent bead notes for coop_url.
+	// Phase 3: push to inbox via CLI for reliable delivery.
+	// The inbox push is idempotent (dedup_key prevents duplicates) and
+	// complements the server-side push in handleDecisionResolve (bd-eo9xt).
+	message := fmt.Sprintf("Decision %s resolved by %s (chose: %s)", payload.DecisionID, payload.ResolvedBy, payload.ChosenLabel)
+	_, _, pushErr := runBDCommand(ctx, event.CWD,
+		"inbox", "push",
+		"--to", agentID,
+		"--type", "decision",
+		"--source", "decision-nudge",
+		"--dedup-key", fmt.Sprintf("decision:%s", payload.DecisionID),
+		message,
+	)
+	if pushErr != nil {
+		log.Printf("decision-nudge: inbox push for %s failed (non-fatal): %v", agentID, pushErr)
+	}
+
+	// Still nudge via Coop HTTP to wake idle agents immediately.
 	resolver := h.CoopURLResolver
 	if resolver == nil {
 		resolver = resolveCoopURLFromBead
@@ -248,8 +264,6 @@ func (h *DecisionNudgeHandler) Handle(ctx context.Context, event *Event, result 
 		return nil // Not a coop agent or not reachable; skip silently.
 	}
 
-	// POST nudge to coop sidecar.
-	message := fmt.Sprintf("Decision %s resolved by %s (chose: %s)", payload.DecisionID, payload.ResolvedBy, payload.ChosenLabel)
 	delivered, reason, err := postNudge(ctx, h.HTTPClient, coopURL, message)
 	if err != nil {
 		log.Printf("decision-nudge: nudge to %s (%s) failed: %v", agentID, coopURL, err)
