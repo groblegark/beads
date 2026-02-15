@@ -725,6 +725,22 @@ var rootCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
+		// Guard: storage-backend=dolt requires daemon-host (beads-lkvs)
+		// Without daemon-host, direct dolt access tries to connect to a
+		// ClusterIP (unreachable from dev machines) or a local dolt server
+		// that doesn't exist. Fail early with actionable guidance.
+		if daemonClient == nil && config.GetString("storage-backend") == "dolt" && rpc.GetDaemonHost() == "" {
+			fmt.Fprintf(os.Stderr, "Error: storage-backend is 'dolt' but no daemon-host configured\n")
+			fmt.Fprintf(os.Stderr, "Dolt backend requires a daemon connection. Direct dolt access is not supported.\n\n")
+			fmt.Fprintf(os.Stderr, "To fix, add to .beads/config.yaml:\n")
+			fmt.Fprintf(os.Stderr, "  daemon-host: \"https://your-daemon-url\"\n")
+			fmt.Fprintf(os.Stderr, "  daemon-token: \"your-token\"\n\n")
+			fmt.Fprintf(os.Stderr, "Or set environment variables:\n")
+			fmt.Fprintf(os.Stderr, "  export BD_DAEMON_HOST=https://your-daemon-url\n")
+			fmt.Fprintf(os.Stderr, "  export BD_DAEMON_TOKEN=your-token\n")
+			os.Exit(1)
+		}
+
 		// Check if this is a read-only command (GH#804)
 		// Read-only commands open SQLite in read-only mode to avoid modifying
 		// the database file (which breaks file watchers).
