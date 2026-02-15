@@ -2,11 +2,11 @@ package main
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/steveyegge/beads/internal/beads"
-	"github.com/steveyegge/beads/internal/configfile"
 )
 
 var upgradeCmd = &cobra.Command{
@@ -161,22 +161,12 @@ Examples:
 			return
 		}
 
-		cfg, err := configfile.Load(beadsDir)
-		if err != nil {
-			fmt.Printf("Error loading metadata.json: %v\n", err)
-			return
-		}
-		if cfg == nil {
-			cfg = configfile.DefaultConfig()
-		}
+		// Read previous version from .local_version (gitignored)
+		localVersionPath := filepath.Join(beadsDir, localVersionFile)
+		lastSeenVersion := readLocalVersion(localVersionPath)
 
-		lastSeenVersion := cfg.LastBdVersion
-		cfg.LastBdVersion = Version
-
-		if err := cfg.Save(beadsDir); err != nil {
-			fmt.Printf("Error saving metadata.json: %v\n", err)
-			return
-		}
+		// Update .local_version to current
+		_ = writeLocalVersion(localVersionPath, Version)
 
 		// Mark as acknowledged in current session
 		upgradeAcknowledged = true

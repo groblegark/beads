@@ -4,22 +4,10 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
-	"github.com/steveyegge/beads/internal/beads"
-	"github.com/steveyegge/beads/internal/configfile"
 )
-
-func singleProcessBackendHelp(backend string) string {
-	b := strings.TrimSpace(backend)
-	if b == "" {
-		b = "unknown"
-	}
-	// Keep this short; Cobra will prefix with "Error:".
-	return fmt.Sprintf("daemon mode is not supported with the %q backend (single-process only). Check daemon-host configuration.", b)
-}
 
 // guardDaemonStartForDolt blocks daemon start/restart commands when:
 // 1. The workspace backend is embedded Dolt (unless --federation is specified)
@@ -52,30 +40,6 @@ func guardDaemonStartForDolt(cmd *cobra.Command, _ []string) error {
 	if fedFlag := cmd.Flags().Lookup("federation"); fedFlag != nil {
 		if federation, _ := cmd.Flags().GetBool("federation"); federation {
 			return nil
-		}
-	}
-
-	// Check Dolt backend FIRST - this blocks unconditionally (even from systemd).
-	// If the backend is single-process only, daemon mode is fundamentally unsupported.
-	// Best-effort determine the active workspace backend. If we can't determine it,
-	// don't block (the command will likely fail later anyway).
-	beadsDir := beads.FindBeadsDir()
-	if beadsDir == "" {
-		// Fall back to configured dbPath if set; daemon commands often run from workspace root,
-		// but tests may set BEADS_DB explicitly.
-		if dbPath != "" {
-			beadsDir = filepath.Dir(dbPath)
-		} else if found := beads.FindDatabasePath(); found != "" {
-			beadsDir = filepath.Dir(found)
-		}
-	}
-	if beadsDir != "" {
-		cfg, err := configfile.Load(beadsDir)
-		if err == nil && cfg != nil {
-			// Use GetCapabilities() to properly handle Dolt server mode
-			if cfg.GetCapabilities().SingleProcessOnly {
-				return fmt.Errorf("%s", singleProcessBackendHelp(cfg.GetBackend()))
-			}
 		}
 	}
 
@@ -159,4 +123,3 @@ func isSystemdServiceActiveForScope(scope string) bool {
 
 	return false
 }
-

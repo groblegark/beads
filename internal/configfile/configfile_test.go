@@ -257,15 +257,6 @@ func TestDoltServerConfig(t *testing.T) {
 	})
 }
 
-// TestGetCapabilities tests that GetCapabilities returns multi-process support
-func TestGetCapabilities(t *testing.T) {
-	cfg := &Config{Backend: BackendDolt}
-	got := cfg.GetCapabilities().SingleProcessOnly
-	if got {
-		t.Error("GetCapabilities().SingleProcessOnly = true, want false (Dolt via daemon is multi-process)")
-	}
-}
-
 // TestDoltServerConfigRoundtrip tests that server config survives save/load
 func TestDoltServerConfigRoundtrip(t *testing.T) {
 	t.Setenv("BD_DAEMON_HOST", "") // Ensure local mode for filesystem roundtrip

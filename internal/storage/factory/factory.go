@@ -135,10 +135,3 @@ func LoadConfig(beadsDir string) *configfile.Config {
 	}
 	return cfg
 }
-
-// GetCapabilitiesFromConfig returns backend capabilities based on full config.
-// This accounts for server mode (Dolt with server is NOT single-process-only).
-func GetCapabilitiesFromConfig(beadsDir string) configfile.BackendCapabilities {
-	cfg := LoadConfig(beadsDir)
-	return configfile.CapabilitiesForConfig(cfg)
-}

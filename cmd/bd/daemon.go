@@ -422,52 +422,12 @@ func runDaemonLoop(interval time.Duration, autoCommit, autoPush, autoPull, local
 		}
 	}
 
-	backend := factory.GetBackendFromConfig(beadsDir)
-	if backend == "" {
-		backend = configfile.BackendDolt
-	}
-
-	// Verify daemon can operate (Dolt via server always supports multi-process)
-	cfg, cfgErr := configfile.Load(beadsDir)
-	if cfgErr == nil && cfg != nil && cfg.GetCapabilities().SingleProcessOnly {
-		errMsg := fmt.Sprintf(`DAEMON NOT SUPPORTED WITH %s BACKEND
-
-The bd daemon is designed for multi-process backends only.
-With single-process backends, run commands in direct mode.
-
-The daemon will now exit.`, strings.ToUpper(backend))
-		log.Error(errMsg)
-
-		// Write error to file so user can see it without checking logs
-		errFile := filepath.Join(beadsDir, "daemon-error")
-		// nolint:gosec // G306: Error file needs to be readable for debugging
-		if err := os.WriteFile(errFile, []byte(errMsg), 0644); err != nil {
-			log.Warn("could not write daemon-error file", "error", err)
-		}
-		return
-	}
-
 	// Reset backoff on daemon start (fresh start, but preserve NeedsManualSync hint)
 	if !localMode {
 		ResetBackoffOnDaemonStart(beadsDir)
 	}
 
 	log.Info("using database", "path", daemonDBPath)
-
-	// Check for config mismatch between metadata.json and config.yaml
-	// This helps catch cases where these two config sources have diverged,
-	// which can cause confusing behavior (e.g., daemon opening wrong database).
-	if yamlDBPath := config.GetString("db"); yamlDBPath != "" {
-		if mismatches := configfile.CheckConfigMismatch(beadsDir, yamlDBPath); len(mismatches) > 0 {
-			for _, m := range mismatches {
-				log.Warn("config mismatch detected",
-					"field", m.Field,
-					"metadata.json", m.MetadataValue,
-					"config.yaml", m.YAMLValue)
-			}
-			log.Warn("metadata.json takes precedence; update it to match config.yaml if needed")
-		}
-	}
 
 	// Clear any previous daemon-error file on successful startup
 	errFile := filepath.Join(beadsDir, "daemon-error")

@@ -18,9 +18,9 @@ type Config struct {
 
 	// Dolt SQL server connection configuration.
 	// bd-daemon connects to a dolt sql-server via TCP.
-	DoltServerHost     string `json:"dolt_server_host,omitempty"`    // Default: 127.0.0.1
-	DoltServerPort     int    `json:"dolt_server_port,omitempty"`    // Default: 3307
-	DoltServerUser     string `json:"dolt_server_user,omitempty"`    // Default: root
+	DoltServerHost     string `json:"dolt_server_host,omitempty"`     // Default: 127.0.0.1
+	DoltServerPort     int    `json:"dolt_server_port,omitempty"`     // Default: 3307
+	DoltServerUser     string `json:"dolt_server_user,omitempty"`     // Default: root
 	DoltServerPassword string `json:"dolt_server_password,omitempty"` // Or use BEADS_DOLT_PASSWORD env
 	DoltDatabase       string `json:"dolt_database,omitempty"`        // SQL database name (default: beads)
 
@@ -192,26 +192,6 @@ const (
 	BackendDolt   = "dolt"
 )
 
-// BackendCapabilities describes behavioral constraints for a storage backend.
-type BackendCapabilities struct {
-	// SingleProcessOnly indicates the backend must not be accessed from multiple
-	// Beads OS processes concurrently (no daemon mode, no RPC client/server split,
-	// no helper-process spawning).
-	SingleProcessOnly bool
-}
-
-// CapabilitiesForBackend returns capabilities for a backend string.
-// Dolt always uses server mode via daemon, so it supports multi-process access.
-func CapabilitiesForBackend(backend string) BackendCapabilities {
-	return BackendCapabilities{SingleProcessOnly: false}
-}
-
-// GetCapabilities returns the backend capabilities for this config.
-// Dolt via daemon supports multi-process access.
-func (c *Config) GetCapabilities() BackendCapabilities {
-	return BackendCapabilities{SingleProcessOnly: false}
-}
-
 // GetBackend returns the configured backend type, defaulting to Dolt.
 func (c *Config) GetBackend() string {
 	if c.Backend == "" {
@@ -276,68 +256,4 @@ func (c *Config) GetDoltDatabase() string {
 		return c.DoltDatabase
 	}
 	return DefaultDoltDatabase
-}
-
-// CapabilitiesForConfig returns capabilities based on full configuration.
-// Dolt via daemon always supports multi-process access.
-func CapabilitiesForConfig(cfg *Config) BackendCapabilities {
-	return BackendCapabilities{SingleProcessOnly: false}
-}
-
-// ConfigMismatch represents a discrepancy between metadata.json and config.yaml
-type ConfigMismatch struct {
-	Field         string // The field name (e.g., "database")
-	MetadataValue string // Value from metadata.json
-	YAMLValue     string // Value from config.yaml
-}
-
-// CheckConfigMismatch compares metadata.json with config.yaml and returns any mismatches.
-// This helps detect when these two config sources have diverged, which can cause
-// confusing behavior (e.g., daemon opening wrong database).
-//
-// beadsDir is the path to the .beads directory.
-// yamlDBPath is the "db" value from config.yaml (obtained via config.GetString("db")).
-//
-// Returns nil if configs are consistent or if metadata.json doesn't exist.
-func CheckConfigMismatch(beadsDir string, yamlDBPath string) []ConfigMismatch {
-	var mismatches []ConfigMismatch
-
-	// Load metadata.json
-	cfg, err := Load(beadsDir)
-	if err != nil || cfg == nil {
-		return nil // No metadata.json, nothing to compare
-	}
-
-	// Get database path from metadata.json
-	metadataDBPath := cfg.DatabasePath(beadsDir)
-
-	// Compare with config.yaml's db setting
-	if yamlDBPath != "" && metadataDBPath != yamlDBPath {
-		// Normalize paths for comparison (resolve symlinks, clean)
-		normalizedMetadata := normalizePath(metadataDBPath)
-		normalizedYAML := normalizePath(yamlDBPath)
-
-		if normalizedMetadata != normalizedYAML {
-			mismatches = append(mismatches, ConfigMismatch{
-				Field:         "database",
-				MetadataValue: metadataDBPath,
-				YAMLValue:     yamlDBPath,
-			})
-		}
-	}
-
-	return mismatches
-}
-
-// normalizePath normalizes a path for comparison by cleaning and resolving symlinks.
-func normalizePath(p string) string {
-	// Clean the path first
-	p = filepath.Clean(p)
-
-	// Try to resolve symlinks (ignore errors, use original if can't resolve)
-	if resolved, err := filepath.EvalSymlinks(p); err == nil {
-		p = resolved
-	}
-
-	return p
 }
