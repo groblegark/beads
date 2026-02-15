@@ -418,8 +418,9 @@ func importIssuesBootstrap(ctx context.Context, store *DoltStore, issues []*type
 		// Insert issue
 		if err := insertIssue(ctx, tx, issue); err != nil {
 			// Check for duplicate key (issue already exists)
-			if strings.Contains(err.Error(), "Duplicate entry") ||
-				strings.Contains(err.Error(), "UNIQUE constraint") {
+			errLower := strings.ToLower(err.Error())
+			if strings.Contains(errLower, "duplicate") ||
+				strings.Contains(errLower, "unique constraint") {
 				skipped++
 				continue
 			}

@@ -154,7 +154,7 @@ func (s *DoltStore) AddFederationPeer(ctx context.Context, peer *storage.Federat
 	// Also add the Dolt remote
 	if err := s.AddRemote(ctx, peer.Name, peer.RemoteURL); err != nil {
 		// Ignore "remote already exists" errors
-		if !strings.Contains(err.Error(), "already exists") {
+		if !strings.Contains(strings.ToLower(err.Error()), "already exists") {
 			return fmt.Errorf("failed to add dolt remote: %w", err)
 		}
 	}

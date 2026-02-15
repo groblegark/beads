@@ -66,8 +66,9 @@ func addColumnIfNotExists(ctx context.Context, db *sql.DB, table, column, colTyp
 	_, err = db.ExecContext(ctx, fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", table, column, colType))
 	if err != nil {
 		// Ignore "duplicate column" errors (race condition with another process)
-		if strings.Contains(err.Error(), "Duplicate column") ||
-			strings.Contains(err.Error(), "already exists") {
+		errLower := strings.ToLower(err.Error())
+		if strings.Contains(errLower, "duplicate column") ||
+			strings.Contains(errLower, "already exists") {
 			return nil
 		}
 		return fmt.Errorf("failed to add column %s.%s: %w", table, column, err)
@@ -110,8 +111,9 @@ func migrateAdviceHookFields(ctx context.Context, db *sql.DB) error {
 	`)
 	if err != nil {
 		// Ignore "index already exists" errors
-		if !strings.Contains(err.Error(), "Duplicate key") &&
-			!strings.Contains(err.Error(), "already exists") {
+		errLower := strings.ToLower(err.Error())
+		if !strings.Contains(errLower, "duplicate key") &&
+			!strings.Contains(errLower, "already exists") {
 			return fmt.Errorf("failed to create advice hooks index: %w", err)
 		}
 	}
@@ -144,7 +146,7 @@ func migrateBlockedIssuesCache(ctx context.Context, db *sql.DB) error {
 		)
 	`)
 	if err != nil {
-		if strings.Contains(err.Error(), "already exists") {
+		if strings.Contains(strings.ToLower(err.Error()), "already exists") {
 			return nil
 		}
 		return fmt.Errorf("failed to create blocked_issues_cache: %w", err)
