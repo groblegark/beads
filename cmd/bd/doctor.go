@@ -10,6 +10,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/steveyegge/beads/cmd/bd/doctor"
+	"github.com/steveyegge/beads/internal/rpc"
 	"github.com/steveyegge/beads/internal/ui"
 )
 
@@ -320,9 +321,14 @@ func runDiagnostics(path string) doctorResult {
 		result.OverallOK = false
 	}
 
-	// If no .beads/, skip remaining checks
-	if installCheck.Status != statusOK {
+	// If no .beads/, skip remaining checks (unless remote mode)
+	if installCheck.Status != statusOK && rpc.GetDaemonHost() == "" {
 		return result
+	}
+
+	// Remote mode: skip all filesystem/database checks, run remote-specific checks. (bd-ehxmg)
+	if remoteHost := rpc.GetDaemonHost(); remoteHost != "" {
+		return runRemoteDiagnostics(path, result)
 	}
 
 	// Check 1a: Fresh clone detection
@@ -731,6 +737,46 @@ func runDiagnostics(path string) doctorResult {
 	kvSyncCheck := convertDoctorCheck(doctor.CheckKVSyncStatus(path))
 	result.Checks = append(result.Checks, kvSyncCheck)
 	// Don't fail overall check for KV sync warning, just inform
+
+	return result
+}
+
+// runRemoteDiagnostics runs health checks appropriate for remote daemon mode.
+// Filesystem and database checks are skipped — the daemon owns the data.
+// Instead, checks daemon connectivity, auth, and version compatibility. (bd-ehxmg)
+func runRemoteDiagnostics(path string, result doctorResult) doctorResult {
+	remoteHost := rpc.GetDaemonHost()
+
+	// Remote mode banner
+	result.Checks = append(result.Checks, doctorCheck{
+		Name:    "Remote Mode",
+		Status:  statusOK,
+		Message: fmt.Sprintf("Remote daemon mode — connected to %s", remoteHost),
+		Detail:  "Local filesystem checks skipped (daemon owns the database)",
+	})
+
+	// Daemon health (connectivity, auth, version)
+	daemonCheck := convertDoctorCheck(doctor.CheckDaemonStatus(path, Version))
+	result.Checks = append(result.Checks, daemonCheck)
+	if daemonCheck.Status == statusError {
+		result.OverallOK = false
+	}
+
+	// CLI version (no filesystem needed)
+	versionCheck := convertWithCategory(doctor.CheckCLIVersion(Version), doctor.CategoryCore)
+	result.Checks = append(result.Checks, versionCheck)
+
+	// Claude plugin version (no filesystem needed)
+	pluginCheck := convertWithCategory(doctor.CheckClaudePlugin(), doctor.CategoryIntegration)
+	result.Checks = append(result.Checks, pluginCheck)
+
+	// Config source summary
+	result.Checks = append(result.Checks, doctorCheck{
+		Name:    "Config Source",
+		Status:  statusOK,
+		Message: "All configuration via environment variables (BD_DAEMON_HOST, BD_DAEMON_TOKEN)",
+		Detail:  "No .beads/config.yaml or metadata.json required in remote mode",
+	})
 
 	return result
 }

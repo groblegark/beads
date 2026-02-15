@@ -18,6 +18,11 @@ import (
 // Silent on success, prints a hint if issues detected.
 // Respects hints.doctor config setting.
 func runCheckHealth(path string) {
+	// Remote mode: no local filesystem to check. (bd-ehxmg)
+	if os.Getenv("BD_DAEMON_HOST") != "" {
+		return
+	}
+
 	beadsDir := filepath.Join(path, ".beads")
 
 	// Check if .beads/ exists
