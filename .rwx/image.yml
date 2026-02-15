@@ -142,10 +142,14 @@ tasks:
       sudo rm -rf /var/lib/apt/lists/*
 
       # Create beads user with UID/GID 1000 (matches Helm securityContext).
-      # Ubuntu 24.04 base has ubuntu:1000 — remove it first.
+      # Ubuntu 24.04 base has ubuntu:1000/1000 — remove it first, then
+      # rename/repurpose the GID 1000 group.
       sudo userdel -r ubuntu 2>/dev/null || true
-      sudo groupdel ubuntu 2>/dev/null || true
-      sudo groupadd -g 1000 beads
+      if getent group ubuntu >/dev/null 2>&1; then
+        sudo groupmod -n beads ubuntu
+      elif ! getent group beads >/dev/null 2>&1; then
+        sudo groupadd -g 1000 beads
+      fi
       sudo useradd -u 1000 -g beads -s /bin/sh -m beads
 
       # Install binaries
