@@ -6,70 +6,24 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"io"
-	"log/slog"
-	"os"
-	"path/filepath"
 	"testing"
-	"time"
 
 	"github.com/steveyegge/beads/internal/rpc"
 	"github.com/steveyegge/beads/internal/storage"
+	"github.com/steveyegge/beads/internal/testutil/testdaemon"
 	"github.com/steveyegge/beads/internal/types"
 )
 
-// setupDaemonRPCEnv creates a daemon test environment for RPC round-trip tests.
-// Returns a connected RPC client, the underlying store (for data setup), and a cleanup func.
+// setupDaemonRPCEnv creates an isolated per-test daemon with its own Dolt
+// store, RPC server on an ephemeral port, and connected client.
+// Cleanup (server stop, client close, temp dir removal) is automatic.
 func setupDaemonRPCEnv(t *testing.T) (context.Context, *rpc.Client, storage.Storage, func()) {
 	t.Helper()
 
-	tmpDir := makeSocketTempDir(t)
-	initTestGitRepo(t, tmpDir)
+	d := testdaemon.Start(t)
+	client := d.Client(t)
 
-	beadsDir := filepath.Join(tmpDir, ".beads")
-	if err := os.MkdirAll(beadsDir, 0755); err != nil {
-		t.Fatalf("Failed to create beads dir: %v", err)
-	}
-
-	socketPath := filepath.Join(beadsDir, "bd.sock")
-	testDBPath := filepath.Join(beadsDir, "beads.db")
-
-	testStore := newTestStore(t, testDBPath)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-
-	log := daemonLogger{logger: slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelInfo}))}
-
-	server, _, err := startRPCServer(ctx, socketPath, testStore, tmpDir, testDBPath, "", "", log)
-	if err != nil {
-		cancel()
-		t.Fatalf("Failed to start RPC server: %v", err)
-	}
-
-	select {
-	case <-server.WaitReady():
-	case <-time.After(5 * time.Second):
-		cancel()
-		t.Fatal("Server did not become ready")
-	}
-
-	client, err := rpc.TryConnect(socketPath)
-	if err != nil || client == nil {
-		cancel()
-		t.Fatalf("Failed to connect RPC client: %v", err)
-	}
-
-	cleanup := func() {
-		cancel()
-		if client != nil {
-			_ = client.Close()
-		}
-		if server != nil {
-			_ = server.Stop()
-		}
-	}
-
-	return ctx, client, testStore, cleanup
+	return context.Background(), client, d.Store, func() { /* cleanup handled by t.Cleanup */ }
 }
 
 // unmarshalIssue is a test helper to unmarshal a single issue from an RPC response.

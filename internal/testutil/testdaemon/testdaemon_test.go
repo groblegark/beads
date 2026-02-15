@@ -59,3 +59,17 @@ func TestStartRPCEndpoint(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", resp.StatusCode, string(bodyBytes))
 	}
 }
+
+func TestClient(t *testing.T) {
+	d := Start(t)
+	client := d.Client(t)
+
+	// Verify the client can reach the daemon.
+	health, err := client.Health()
+	if err != nil {
+		t.Fatalf("Health RPC failed: %v", err)
+	}
+	if health.Status != "healthy" {
+		t.Errorf("expected status 'healthy', got %q", health.Status)
+	}
+}

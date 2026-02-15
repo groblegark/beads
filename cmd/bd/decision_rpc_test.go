@@ -6,73 +6,27 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"io"
-	"log/slog"
-	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
-	"github.com/steveyegge/beads/internal/storage"
-
 	"github.com/steveyegge/beads/internal/rpc"
+	"github.com/steveyegge/beads/internal/storage"
+	"github.com/steveyegge/beads/internal/testutil/testdaemon"
 	"github.com/steveyegge/beads/internal/types"
 )
 
-// setupDaemonTestEnvForDecision sets up a complete daemon test environment for decision tests
+// setupDaemonTestEnvForDecision creates an isolated per-test daemon with its
+// own Dolt store, RPC server on an ephemeral port, and connected client.
+// Cleanup is automatic via t.Cleanup.
 func setupDaemonTestEnvForDecision(t *testing.T) (context.Context, context.CancelFunc, *rpc.Client, storage.Storage, func()) {
 	t.Helper()
 
-	tmpDir := makeSocketTempDir(t)
-	initTestGitRepo(t, tmpDir)
+	d := testdaemon.Start(t)
+	client := d.Client(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
 
-	beadsDir := filepath.Join(tmpDir, ".beads")
-	if err := os.MkdirAll(beadsDir, 0755); err != nil {
-		t.Fatalf("Failed to create beads dir: %v", err)
-	}
-
-	socketPath := filepath.Join(beadsDir, "bd.sock")
-	testDBPath := filepath.Join(beadsDir, "beads.db")
-
-	testStore := newTestStore(t, testDBPath)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-
-	log := daemonLogger{logger: slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelInfo}))}
-
-	server, _, err := startRPCServer(ctx, socketPath, testStore, tmpDir, testDBPath, "", "", log)
-	if err != nil {
-		cancel()
-		t.Fatalf("Failed to start RPC server: %v", err)
-	}
-
-	// Wait for server to be ready
-	select {
-	case <-server.WaitReady():
-		// Server is ready
-	case <-time.After(5 * time.Second):
-		cancel()
-		t.Fatal("Server did not become ready")
-	}
-
-	// Connect RPC client
-	client, err := rpc.TryConnect(socketPath)
-	if err != nil || client == nil {
-		cancel()
-		t.Fatalf("Failed to connect RPC client: %v", err)
-	}
-
-	cleanup := func() {
-		if client != nil {
-			client.Close()
-		}
-		if server != nil {
-			server.Stop()
-		}
-		testStore.Close()
-	}
-
-	return ctx, cancel, client, testStore, cleanup
+	return ctx, cancel, client, d.Store, func() { /* cleanup handled by t.Cleanup */ }
 }
 
 // TestDecisionListViaDaemon tests decision_list uses daemonClient.DecisionList when available

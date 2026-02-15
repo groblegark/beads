@@ -4,15 +4,12 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/steveyegge/beads/internal/rpc"
+	"github.com/steveyegge/beads/internal/testutil/testdaemon"
 	"github.com/steveyegge/beads/internal/types"
 )
 
@@ -28,58 +25,16 @@ import (
 // Run with: go test -tags=integration -run TestAdviceIntegration ./cmd/bd/
 // ============================================================================
 
-// setupAdviceTestServer creates a test RPC server with store, returns the
-// client and a cleanup function. This mimics having BD_DAEMON_HOST set.
+// setupAdviceTestServer creates an isolated per-test daemon with its own Dolt
+// store, RPC server on an ephemeral port, and connected client.
+// Cleanup is automatic via t.Cleanup.
 func setupAdviceTestServer(t *testing.T) (*rpc.Client, func()) {
 	t.Helper()
 
-	tmpDir := makeSocketTempDir(t)
-	socketPath := filepath.Join(tmpDir, "bd.sock")
-	beadsDir := filepath.Join(tmpDir, ".beads")
-	if err := os.MkdirAll(beadsDir, 0755); err != nil {
-		t.Fatalf("Failed to create beads dir: %v", err)
-	}
+	d := testdaemon.Start(t)
+	client := d.Client(t)
 
-	testDBPath := filepath.Join(beadsDir, "test.db")
-	testStore := newTestStore(t, testDBPath)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-
-	log := createTestLogger(t)
-
-	server, _, err := startRPCServer(ctx, socketPath, testStore, tmpDir, testDBPath, "", "", log)
-	if err != nil {
-		testStore.Close()
-		cancel()
-		t.Fatalf("Failed to start RPC server: %v", err)
-	}
-
-	select {
-	case <-server.WaitReady():
-	case <-time.After(5 * time.Second):
-		_ = server.Stop()
-		testStore.Close()
-		cancel()
-		t.Fatal("Server did not become ready within 5 seconds")
-	}
-
-	client, err := rpc.TryConnect(socketPath)
-	if err != nil {
-		_ = server.Stop()
-		testStore.Close()
-		cancel()
-		t.Fatalf("Failed to connect to RPC server: %v", err)
-	}
-
-	cleanup := func() {
-		client.Close()
-		_ = server.Stop()
-		testStore.Close()
-		cancel()
-		os.RemoveAll(tmpDir)
-	}
-
-	return client, cleanup
+	return client, func() { /* cleanup handled by t.Cleanup */ }
 }
 
 // createTestAdvice is a helper that creates an advice bead via RPC and returns its ID.

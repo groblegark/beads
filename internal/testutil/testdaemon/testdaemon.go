@@ -42,6 +42,18 @@ type Daemon struct {
 	Server *rpc.Server
 }
 
+// Client returns a connected RPC client for the test daemon. The client is
+// automatically closed via t.Cleanup. Fatal on connection failure.
+func (d *Daemon) Client(t testing.TB) *rpc.Client {
+	t.Helper()
+	client, err := rpc.TryConnect(d.SocketPath)
+	if err != nil {
+		t.Fatalf("testdaemon: failed to connect RPC client: %v", err)
+	}
+	t.Cleanup(func() { _ = client.Close() })
+	return client
+}
+
 // Start creates an isolated Dolt store, starts an in-process RPC server with
 // HTTP enabled on an ephemeral port, waits for it to be ready, and registers
 // cleanup via t.Cleanup. Returns a Daemon with the live URL.
