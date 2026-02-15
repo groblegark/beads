@@ -20,6 +20,7 @@ func TestDefaultConfig(t *testing.T) {
 }
 
 func TestLoadSaveRoundtrip(t *testing.T) {
+	t.Setenv("BD_DAEMON_HOST", "") // Ensure local mode for filesystem roundtrip
 	tmpDir := t.TempDir()
 	beadsDir := filepath.Join(tmpDir, ".beads")
 	if err := os.MkdirAll(beadsDir, 0750); err != nil {
@@ -51,6 +52,7 @@ func TestLoadSaveRoundtrip(t *testing.T) {
 }
 
 func TestLoadNonexistent(t *testing.T) {
+	t.Setenv("BD_DAEMON_HOST", "") // Ensure local mode for filesystem test
 	tmpDir := t.TempDir()
 
 	cfg, err := Load(tmpDir)
@@ -266,6 +268,7 @@ func TestGetCapabilities(t *testing.T) {
 
 // TestDoltServerConfigRoundtrip tests that server config survives save/load
 func TestDoltServerConfigRoundtrip(t *testing.T) {
+	t.Setenv("BD_DAEMON_HOST", "") // Ensure local mode for filesystem roundtrip
 	tmpDir := t.TempDir()
 	beadsDir := filepath.Join(tmpDir, ".beads")
 	if err := os.MkdirAll(beadsDir, 0750); err != nil {
@@ -355,4 +358,37 @@ func TestEnvVarOverrides(t *testing.T) {
 			t.Errorf("GetDoltDatabase() = %q, want mydb", got)
 		}
 	})
+}
+
+// TestLoadRemoteMode verifies that Load() returns defaults in remote mode
+// (BD_DAEMON_HOST set) without touching the filesystem. (bd-baoqj)
+func TestLoadRemoteMode(t *testing.T) {
+	t.Setenv("BD_DAEMON_HOST", "https://daemon.example.com")
+
+	// Load with a non-existent directory — should NOT fail because
+	// remote mode skips filesystem entirely.
+	cfg, err := Load("/nonexistent/path/.beads")
+	if err != nil {
+		t.Fatalf("Load() in remote mode returned error: %v", err)
+	}
+	if cfg == nil {
+		t.Fatal("Load() in remote mode returned nil config")
+	}
+	if cfg.Backend != BackendDolt {
+		t.Errorf("Backend = %q, want %q", cfg.Backend, BackendDolt)
+	}
+	if cfg.Database != "dolt" {
+		t.Errorf("Database = %q, want \"dolt\"", cfg.Database)
+	}
+}
+
+// TestSaveRemoteModeNoop verifies that Save() is a no-op in remote mode. (bd-baoqj)
+func TestSaveRemoteModeNoop(t *testing.T) {
+	t.Setenv("BD_DAEMON_HOST", "https://daemon.example.com")
+
+	cfg := DefaultConfig()
+	// Should succeed without error even though directory doesn't exist.
+	if err := cfg.Save("/nonexistent/path/.beads"); err != nil {
+		t.Fatalf("Save() in remote mode returned error: %v", err)
+	}
 }

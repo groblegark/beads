@@ -16,12 +16,6 @@ type Config struct {
 	JSONLExport string `json:"jsonl_export,omitempty"`
 	Backend     string `json:"backend,omitempty"` // Always "dolt" (sqlite removed)
 
-	// Dolt remote URL for bootstrap from remote (enables JSONL-free fresh clones)
-	// When set and Dolt backend is configured, fresh clones will bootstrap by
-	// cloning from this remote instead of requiring JSONL in git.
-	// Example: "aws://[bucket:table]/database"
-	DoltRemoteURL string `json:"dolt_remote_url,omitempty"`
-
 	// Dolt SQL server connection configuration.
 	// bd-daemon connects to a dolt sql-server via TCP.
 	DoltServerHost     string `json:"dolt_server_host,omitempty"`    // Default: 127.0.0.1
@@ -43,11 +37,9 @@ type Config struct {
 	// nil/missing = enabled (for backwards compatibility), explicit false = disabled
 	RoutingEnabled *bool `json:"routing_enabled,omitempty"`
 
-	// Deprecated: LastBdVersion is no longer used for version tracking.
-	// Version is now stored in .local_version (gitignored) to prevent
-	// upgrade notifications firing after git operations reset metadata.json.
-	// bd-tok: This field is kept for backwards compatibility when reading old configs.
-	LastBdVersion string `json:"last_bd_version,omitempty"`
+	// Deprecated fields kept for JSON backwards compatibility when reading old configs.
+	DoltRemoteURL string `json:"dolt_remote_url,omitempty"` // Never referenced in code
+	LastBdVersion string `json:"last_bd_version,omitempty"` // Superseded by .local_version
 }
 
 func DefaultConfig() *Config {
@@ -57,11 +49,32 @@ func DefaultConfig() *Config {
 	}
 }
 
+// RemoteDefaultConfig returns defaults for remote mode (BD_DAEMON_HOST set).
+// The daemon owns the database, so the CLI only needs backend type and
+// sensible defaults for any code that inspects config. (bd-baoqj)
+func RemoteDefaultConfig() *Config {
+	return &Config{
+		Backend:     BackendDolt,
+		Database:    "dolt",
+		JSONLExport: "issues.jsonl",
+	}
+}
+
 func ConfigPath(beadsDir string) string {
 	return filepath.Join(beadsDir, ConfigFileName)
 }
 
+// Load reads metadata.json from beadsDir.
+//
+// In remote mode (BD_DAEMON_HOST set), returns a default Dolt config without
+// touching the filesystem. Remote CLI clients are thin RPC wrappers — the
+// daemon owns the database, so metadata.json is irrelevant. (bd-baoqj)
 func Load(beadsDir string) (*Config, error) {
+	// Remote mode: return defaults — no filesystem needed.
+	if os.Getenv("BD_DAEMON_HOST") != "" {
+		return RemoteDefaultConfig(), nil
+	}
+
 	configPath := ConfigPath(beadsDir)
 
 	data, err := os.ReadFile(configPath) // #nosec G304 - controlled path from config
@@ -105,6 +118,11 @@ func Load(beadsDir string) (*Config, error) {
 }
 
 func (c *Config) Save(beadsDir string) error {
+	// Remote mode: no local filesystem to write to. (bd-baoqj)
+	if os.Getenv("BD_DAEMON_HOST") != "" {
+		return nil
+	}
+
 	configPath := ConfigPath(beadsDir)
 
 	data, err := json.MarshalIndent(c, "", "  ")
