@@ -7,7 +7,6 @@ import (
 	"os"
 	"time"
 
-	"github.com/steveyegge/beads/internal/config"
 	"github.com/steveyegge/beads/internal/configfile"
 	"github.com/steveyegge/beads/internal/storage"
 )
@@ -120,37 +119,11 @@ func NewFromConfigWithOptions(ctx context.Context, beadsDir string, opts Options
 	return NewWithOptions(ctx, configfile.BackendDolt, cfg.DatabasePath(beadsDir), opts)
 }
 
-// GetBackendFromConfig returns the backend type from metadata.json, falling back
-// to config.yaml's storage-backend setting if metadata.json doesn't specify one.
-// This enables town-level config inheritance: when town's config.yaml has
-// storage-backend: dolt, rig-level workspaces will inherit it even if their
-// local metadata.json doesn't have Backend set. (hq-5813b7)
-//
-// Safety net (gt-q5jzx5): If neither config specifies a backend, detect from
-// filesystem - a directory indicates Dolt, a file indicates SQLite.
-func GetBackendFromConfig(beadsDir string) string {
-	// Server mode env var takes priority: BEADS_DOLT_SERVER_MODE=1 implies Dolt
-	// backend. This enables K8s deployments configured entirely via env vars,
-	// where no metadata.json or config.yaml may exist.
-	if os.Getenv("BEADS_DOLT_SERVER_MODE") == "1" {
-		return configfile.BackendDolt
-	}
-
-	cfg, err := configfile.Load(beadsDir)
-	if err != nil || cfg == nil {
-		// No metadata.json - fall back to config.yaml
-		return getBackendFromYamlConfig()
-	}
-
-	// Determine backend: use explicit config if set, else fall back to config.yaml
-	backend := cfg.Backend
-	if backend == "" {
-		// metadata.json exists but Backend is empty - check config.yaml
-		// This enables town-level inheritance via viper's directory walking
-		backend = getBackendFromYamlConfig()
-	}
-
-	return backend
+// GetBackendFromConfig returns the backend type. Dolt is the only supported
+// backend (SQLite was removed). This function exists for callers that need
+// a backend string for factory dispatch. (bd-x8h44)
+func GetBackendFromConfig(_ string) string {
+	return configfile.BackendDolt
 }
 
 // detectBackendFromPath examines the filesystem to detect if a database path
@@ -170,16 +143,6 @@ func detectBackendFromPath(dbPath string) string {
 	return ""
 }
 
-// getBackendFromYamlConfig returns the storage-backend from config.yaml.
-// The config package uses viper which walks up parent directories to find
-// .beads/config.yaml, enabling town-level config inheritance.
-func getBackendFromYamlConfig() string {
-	backend := config.GetString("storage-backend")
-	if backend == "" {
-		return configfile.BackendDolt
-	}
-	return backend
-}
 
 // LoadConfig loads and returns the config from the specified beads directory.
 // Returns nil if config doesn't exist or can't be loaded.

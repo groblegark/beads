@@ -87,23 +87,12 @@ variable.`,
 			os.Exit(1)
 		}
 
-		// Validate backend flag (only dolt is supported)
+		// Dolt is the only supported backend (bd-x8h44)
 		if backend != "" && backend != configfile.BackendDolt {
 			fmt.Fprintf(os.Stderr, "Error: invalid backend '%s' (supported: dolt)\n", backend)
 			os.Exit(1)
 		}
-		if backend == "" {
-			// Inherit storage-backend from parent config.yaml if available (hq-be3912)
-			// This enables new rigs to automatically use dolt when town uses dolt
-			if inherited := config.GetString("storage-backend"); inherited != "" {
-				backend = inherited
-				if !quiet {
-					fmt.Printf("Inheriting storage backend '%s' from parent config\n", backend)
-				}
-			} else {
-				backend = configfile.BackendDolt // Dolt is the sole backend
-			}
-		}
+		backend = configfile.BackendDolt
 
 		// Validate server mode requires dolt backend
 		if serverMode && backend != configfile.BackendDolt {

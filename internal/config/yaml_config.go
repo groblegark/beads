@@ -24,7 +24,7 @@ import (
 //   [both]   — meaningful in both local and remote modes
 //
 // All keys have env var equivalents via BD_ prefix auto-binding
-// (e.g., no-daemon → BD_NO_DAEMON, storage-backend → BD_STORAGE_BACKEND).
+// (e.g., no-daemon → BD_NO_DAEMON).
 var YamlOnlyKeys = map[string]bool{
 	// Bootstrap flags — affect how bd starts [local]
 	"no-db":             true,
@@ -35,10 +35,9 @@ var YamlOnlyKeys = map[string]bool{
 	"auto-start-daemon": true,
 
 	// Database and identity
-	"db":              true, // [local] custom database path
-	"actor":           true, // [both] default actor for issues
-	"identity":        true, // [both] BEADS_IDENTITY env var
-	"storage-backend": true, // [remote] always "dolt" (sqlite removed)
+	"db":       true, // [local] custom database path
+	"actor":    true, // [both] default actor for issues
+	"identity": true, // [both] BEADS_IDENTITY env var
 
 	// Timing settings
 	"flush-debounce":       true, // [local] daemon flush debounce
@@ -108,7 +107,17 @@ func normalizeYamlKey(key string) string {
 // SetYamlConfig sets a configuration value in the project's config.yaml file.
 // It handles both adding new keys and updating existing (possibly commented) keys.
 // Keys are normalized to their canonical yaml format via keyAliases.
+//
+// In remote mode (BD_DAEMON_HOST set), this is a no-op with a warning because
+// there is no local .beads/config.yaml to write to. Yaml-only keys are local
+// concerns that don't apply when connected to a remote daemon. (bd-fuf23)
 func SetYamlConfig(key, value string) error {
+	// In remote mode, there's no local config.yaml — skip gracefully. (bd-fuf23)
+	if os.Getenv("BD_DAEMON_HOST") != "" {
+		fmt.Fprintf(os.Stderr, "Warning: skipping config.yaml write for %q (remote mode — BD_DAEMON_HOST is set)\n", key)
+		return nil
+	}
+
 	// Validate specific keys (GH#995)
 	if err := validateYamlConfigValue(key, value); err != nil {
 		return err

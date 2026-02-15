@@ -350,10 +350,8 @@ func CheckStaleness(ctx context.Context, store storage.Storage, dbPath string) (
 	return stat.ModTime().After(lastImportTime), nil
 }
 
-// getBackendType returns the backend type from configuration.
-// It checks config.yaml first (storage-backend key), then falls back to metadata.json.
-// Returns "sqlite" (default), "dolt", or other registered backend types.
-// hq-3446fc.17: Use factory.GetBackendFromConfig for consistent backend detection.
+// getBackendType returns the backend type. Always returns "dolt" (the only
+// supported backend). Delegates to factory.GetBackendFromConfig.
 func getBackendType(beadsDir string) string {
 	return factory.GetBackendFromConfig(beadsDir)
 }

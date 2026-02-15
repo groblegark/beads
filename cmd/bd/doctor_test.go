@@ -389,12 +389,10 @@ func TestCheckInstallation(t *testing.T) {
 
 func TestCheckDatabaseVersionJSONLMode(t *testing.T) {
 	// Reset global config to prevent pollution from other tests (hq--5vj3)
-	// Without this, storage-backend may be set to "dolt" from earlier tests
 	config.ResetForTesting()
 	if err := config.Initialize(); err != nil {
 		t.Fatalf("Failed to initialize config: %v", err)
 	}
-	config.Set("storage-backend", "dolt")
 	// Clear daemon-host to prevent remote-daemon-mode short circuit
 	config.Set("daemon-host", "")
 	testutil.ForceDirectMode(t)
@@ -434,12 +432,10 @@ func TestCheckDatabaseVersionJSONLMode(t *testing.T) {
 
 func TestCheckDatabaseVersionFreshClone(t *testing.T) {
 	// Reset global config to prevent pollution from other tests (hq--5vj3)
-	// Without this, storage-backend may be set to "dolt" from earlier tests
 	config.ResetForTesting()
 	if err := config.Initialize(); err != nil {
 		t.Fatalf("Failed to initialize config: %v", err)
 	}
-	config.Set("storage-backend", "dolt")
 	// Clear daemon-host to prevent remote-daemon-mode short circuit
 	config.Set("daemon-host", "")
 	testutil.ForceDirectMode(t)

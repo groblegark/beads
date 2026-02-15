@@ -21,8 +21,6 @@ func TestIsYamlOnlyKey(t *testing.T) {
 		{"flush-debounce", true},
 		{"git.author", true},
 		{"git.no-gpg-sign", true},
-		{"storage-backend", true}, // Storage backend: sqlite or dolt
-
 		// Prefix matches
 		{"routing.mode", true},
 		{"routing.custom-key", true},
@@ -268,6 +266,18 @@ func TestValidateYamlConfigValue_HierarchyMaxDepth(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestSetYamlConfig_RemoteModeNoop verifies SetYamlConfig is a no-op when
+// BD_DAEMON_HOST is set (remote mode). (bd-fuf23)
+func TestSetYamlConfig_RemoteModeNoop(t *testing.T) {
+	t.Setenv("BD_DAEMON_HOST", "https://daemon.example.com")
+
+	// Should succeed without error (no-op) even though no .beads/config.yaml exists
+	err := SetYamlConfig("no-db", "true")
+	if err != nil {
+		t.Errorf("SetYamlConfig() in remote mode should be no-op, got error: %v", err)
 	}
 }
 

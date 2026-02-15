@@ -566,8 +566,7 @@ func TestReadPrefixFromBeadsDir(t *testing.T) {
 			t.Fatal(err)
 		}
 		configContent := `# Beads config
-issue-prefix: "gt"
-storage-backend: sqlite`
+issue-prefix: "gt"`
 		if err := os.WriteFile(filepath.Join(beadsDir, "config.yaml"), []byte(configContent), 0600); err != nil {
 			t.Fatal(err)
 		}
