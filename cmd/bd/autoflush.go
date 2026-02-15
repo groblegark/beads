@@ -16,12 +16,9 @@ import (
 	"time"
 
 	"github.com/steveyegge/beads/internal/beads"
-	"github.com/steveyegge/beads/internal/config"
 	"github.com/steveyegge/beads/internal/configfile"
 	"github.com/steveyegge/beads/internal/debug"
-	"github.com/steveyegge/beads/internal/storage"
 	"github.com/steveyegge/beads/internal/types"
-	"github.com/steveyegge/beads/internal/ui"
 	"github.com/steveyegge/beads/internal/utils"
 )
 
@@ -87,14 +84,6 @@ func findJSONLPath() string {
 		jsonlPath = utils.FindJSONLInDir(beadsDir)
 	}
 
-	// GH#1103: If sync-branch is configured, redirect to worktree JSONL path.
-	// This ensures writes go ONLY to the worktree, not the main repo.
-	// getWorktreeJSONLPath returns "" if sync-branch isn't configured or worktree doesn't exist.
-	worktreePath := getWorktreeJSONLPath(jsonlPath)
-	if worktreePath != "" {
-		jsonlPath = worktreePath
-	}
-
 	// Ensure the directory exists (important for new databases)
 	// This is the only difference from the public API - we create the directory
 	dbDir := filepath.Dir(jsonlPath)
@@ -105,12 +94,6 @@ func findJSONLPath() string {
 	}
 
 	return utils.CanonicalizeIfRelative(jsonlPath)
-}
-
-// getWorktreeJSONLPath converts a main repo JSONL path to its worktree equivalent.
-// Returns empty string since sync-branch support has been removed (syncbranch package deleted).
-func getWorktreeJSONLPath(_ string) string {
-	return ""
 }
 
 // detectPrefixFromJSONL extracts the issue prefix from JSONL data.
@@ -580,200 +563,6 @@ func writeJSONLAtomic(jsonlPath string, issues []*types.Issue) ([]string, error)
 	return exportedIDs, nil
 }
 
-// recordFlushFailure records a flush failure, incrementing the failure counter
-// and displaying warnings after consecutive failures.
-func recordFlushFailure(err error) {
-	flushMutex.Lock()
-	flushFailureCount++
-	lastFlushError = err
-	failCount := flushFailureCount
-	flushMutex.Unlock()
-
-	// Always show the immediate warning
-	fmt.Fprintf(os.Stderr, "Warning: auto-flush failed: %v\n", err)
-
-	// Show prominent warning after 3+ consecutive failures
-	if failCount >= 3 {
-		fmt.Fprintf(os.Stderr, "\n%s\n", ui.RenderFail("⚠️  CRITICAL: Auto-flush has failed "+fmt.Sprint(failCount)+" times consecutively!"))
-		fmt.Fprintf(os.Stderr, "%s\n", ui.RenderFail("⚠️  Your JSONL file may be out of sync with the database."))
-		fmt.Fprintf(os.Stderr, "%s\n\n", ui.RenderFail("⚠️  Run 'bd export -o .beads/issues.jsonl' manually to fix."))
-	}
-}
-
-// recordFlushSuccess records a successful flush, resetting the failure counter.
-func recordFlushSuccess() {
-	flushMutex.Lock()
-	flushFailureCount = 0
-	lastFlushError = nil
-	flushMutex.Unlock()
-}
-
-// readExistingJSONL reads an existing JSONL file into a map for incremental merging.
-// Returns empty map if file doesn't exist or can't be read.
-func readExistingJSONL(jsonlPath string) (map[string]*types.Issue, error) {
-	issueMap := make(map[string]*types.Issue)
-
-	existingFile, err := os.Open(jsonlPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return issueMap, nil // File doesn't exist, return empty map
-		}
-		return nil, fmt.Errorf("failed to open existing JSONL: %w", err)
-	}
-	defer existingFile.Close()
-
-	scanner := bufio.NewScanner(existingFile)
-	// Increase buffer to handle large JSON lines
-	// Default scanner limit is 64KB which can cause silent truncation
-	scanner.Buffer(make([]byte, 0, 1024), 2*1024*1024) // 2MB max line size
-
-	lineNum := 0
-	for scanner.Scan() {
-		lineNum++
-		line := scanner.Text()
-		if line == "" {
-			continue
-		}
-		var issue types.Issue
-		if err := json.Unmarshal([]byte(line), &issue); err == nil {
-			issue.SetDefaults() // Apply defaults for omitted fields (beads-399)
-			issueMap[issue.ID] = &issue
-		} else {
-			// Warn about malformed JSONL lines
-			fmt.Fprintf(os.Stderr, "Warning: skipping malformed JSONL line %d: %v\n", lineNum, err)
-		}
-	}
-
-	if err := scanner.Err(); err != nil {
-		return nil, fmt.Errorf("failed to read existing JSONL: %w", err)
-	}
-
-	return issueMap, nil
-}
-
-// fetchAndMergeIssues fetches dirty issues from the database and merges them into issueMap.
-// Issues that no longer exist are removed from the map.
-func fetchAndMergeIssues(ctx context.Context, s storage.Storage, dirtyIDs []string, issueMap map[string]*types.Issue) error {
-	for _, issueID := range dirtyIDs {
-		issue, err := s.GetIssue(ctx, issueID)
-		if err != nil {
-			return fmt.Errorf("failed to get issue %s: %w", issueID, err)
-		}
-		if issue == nil {
-			// Issue was deleted, remove from map
-			delete(issueMap, issueID)
-			continue
-		}
-
-		// Get dependencies for this issue
-		deps, err := s.GetDependencyRecords(ctx, issueID)
-		if err != nil {
-			return fmt.Errorf("failed to get dependencies for %s: %w", issueID, err)
-		}
-		issue.Dependencies = deps
-
-		// Get comments for this issue
-		comments, err := s.GetIssueComments(ctx, issueID)
-		if err != nil {
-			return fmt.Errorf("failed to get comments for %s: %w", issueID, err)
-		}
-		issue.Comments = comments
-
-		// Update map
-		issueMap[issueID] = issue
-	}
-	return nil
-}
-
-// filterWisps removes ephemeral (wisp) issues from the map and returns a slice.
-// Wisps should never be exported to JSONL.
-func filterWisps(issueMap map[string]*types.Issue) []*types.Issue {
-	issues := make([]*types.Issue, 0, len(issueMap))
-	wispsSkipped := 0
-	for _, issue := range issueMap {
-		if issue.Ephemeral {
-			wispsSkipped++
-			continue
-		}
-		issues = append(issues, issue)
-	}
-	if wispsSkipped > 0 {
-		debug.Logf("auto-flush: filtered %d wisps from export", wispsSkipped)
-	}
-	return issues
-}
-
-// filterByMultiRepoPrefix filters issues by prefix in multi-repo mode.
-// Non-primary repos should only export issues matching their own prefix.
-func filterByMultiRepoPrefix(ctx context.Context, s storage.Storage, issues []*types.Issue) []*types.Issue {
-	multiRepo := config.GetMultiRepoConfig()
-	if multiRepo == nil {
-		return issues
-	}
-
-	// Get our configured prefix
-	prefix, prefixErr := s.GetConfig(ctx, "issue_prefix")
-	if prefixErr != nil || prefix == "" {
-		return issues
-	}
-
-	// Determine if we're the primary repo
-	cwd, _ := os.Getwd()
-	primaryPath := multiRepo.Primary
-	if primaryPath == "" || primaryPath == "." {
-		primaryPath = cwd
-	}
-
-	// Normalize paths for comparison
-	absCwd, _ := filepath.Abs(cwd)
-	absPrimary, _ := filepath.Abs(primaryPath)
-
-	if absCwd == absPrimary {
-		return issues // Primary repo exports all issues
-	}
-
-	// Filter to only issues matching our prefix
-	filtered := make([]*types.Issue, 0, len(issues))
-	prefixWithDash := prefix
-	if !strings.HasSuffix(prefixWithDash, "-") {
-		prefixWithDash = prefix + "-"
-	}
-	for _, issue := range issues {
-		if strings.HasPrefix(issue.ID, prefixWithDash) {
-			filtered = append(filtered, issue)
-		}
-	}
-	debug.Logf("multi-repo filter: %d issues -> %d (prefix %s)", len(issues), len(filtered), prefix)
-	return filtered
-}
-
-// updateFlushExportMetadata stores hashes and timestamps after a successful flush export.
-func updateFlushExportMetadata(ctx context.Context, s storage.Storage, jsonlPath string) {
-	jsonlData, err := os.ReadFile(jsonlPath)
-	if err != nil {
-		return // Non-fatal, just skip metadata update
-	}
-
-	hasher := sha256.New()
-	hasher.Write(jsonlData)
-	exportedHash := hex.EncodeToString(hasher.Sum(nil))
-
-	if err := s.SetMetadata(ctx, "jsonl_content_hash", exportedHash); err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: failed to update jsonl_content_hash after export: %v\n", err)
-	}
-
-	// Store JSONL file hash for integrity validation
-	if err := s.SetJSONLFileHash(ctx, exportedHash); err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: failed to update jsonl_file_hash after export: %v\n", err)
-	}
-
-	// Update last_import_time so staleness check doesn't see JSONL as "newer" (fixes #399)
-	// Use RFC3339Nano to preserve nanosecond precision.
-	exportTime := time.Now().Format(time.RFC3339Nano)
-	if err := s.SetMetadata(ctx, "last_import_time", exportTime); err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: failed to update last_import_time after export: %v\n", err)
-	}
-}
 
 // flushState captures the state needed for a flush operation
 type flushState struct {
@@ -781,26 +570,8 @@ type flushState struct {
 	forceFullExport bool // Force full export even if needsFullExport is false
 }
 
-// flushToJSONLWithState performs the actual flush with explicit state parameters.
-// This is the core implementation that doesn't touch global state.
-//
-// Export modes:
-//   - Incremental (default): Exports only GetDirtyIssues(), merges with existing JSONL
-//   - Full (forceFullExport=true): Exports all issues, rebuilds JSONL from scratch
-//
-// Error handling: Tracks consecutive failures. After 3+ failures, displays prominent
-// warning suggesting manual "bd export" to recover. Failure counter resets on success.
-//
-// Thread-safety:
-//   - Checks storeActive flag (via storeMutex) to prevent use-after-close
-//   - Does NOT modify global isDirty/needsFullExport flags
-//   - Safe to call from multiple goroutines
-//
-// No-op conditions:
-//   - Store already closed (storeActive=false)
-//   - Database not dirty (isDirty=false) AND forceDirty=false
-//   - No dirty issues found (incremental mode only)
-//   - Sync mode is dolt-native (JSONL export disabled)
+// flushToJSONLWithState is a no-op in dolt-native mode.
+// Retained because callers (flush_manager, import, tests) still invoke it.
 func flushToJSONLWithState(state flushState) {
 	// Check if store is still active (not closed) and not nil
 	storeMutex.Lock()
@@ -819,24 +590,3 @@ func flushToJSONLWithState(state flushState) {
 	debug.Logf("skipping autoflush (dolt-native mode)")
 }
 
-// getIssuesToExport determines which issue IDs need to be exported.
-// For full export, returns all issue IDs. For incremental, returns only dirty IDs.
-func getIssuesToExport(ctx context.Context, fullExport bool) ([]string, error) {
-	if fullExport {
-		allIssues, err := store.SearchIssues(ctx, "", types.IssueFilter{})
-		if err != nil {
-			return nil, fmt.Errorf("failed to get all issues: %w", err)
-		}
-		ids := make([]string, len(allIssues))
-		for i, issue := range allIssues {
-			ids[i] = issue.ID
-		}
-		return ids, nil
-	}
-
-	dirtyIDs, err := store.GetDirtyIssues(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get dirty issues: %w", err)
-	}
-	return dirtyIDs, nil
-}
