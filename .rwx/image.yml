@@ -137,9 +137,10 @@ tasks:
       sudo rm -rf /var/lib/apt/lists/*
 
       # Create beads user
-      sudo userdel -r ubuntu 2>/dev/null; sudo groupdel ubuntu 2>/dev/null; true
-      sudo groupadd -g 1000 beads
-      sudo useradd -u 1000 -g beads -s /bin/sh -m beads
+      sudo userdel -r ubuntu 2>/dev/null || true
+      sudo groupdel ubuntu 2>/dev/null || true
+      sudo groupadd -g 1000 beads 2>/dev/null || true
+      sudo useradd -u 1000 -g beads -s /bin/sh -m beads 2>/dev/null || true
 
       # Install binaries
       sudo cp ${{ tasks.build-bd.artifacts.bd-binary }} /usr/local/bin/bd
@@ -171,8 +172,8 @@ tasks:
       sudo rm -rf /var/lib/apt/lists/*
 
       # Create agent user
-      sudo groupadd -g 1000 agent
-      sudo useradd -u 1000 -g agent -s /bin/bash -m agent
+      sudo groupadd -g 1000 agent 2>/dev/null || true
+      sudo useradd -u 1000 -g agent -s /bin/bash -m agent 2>/dev/null || true
 
       # Go
       curl -fsSL "https://go.dev/dl/go1.25.linux-amd64.tar.gz" | sudo tar -C /usr/local -xzf -
