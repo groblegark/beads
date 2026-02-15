@@ -82,8 +82,16 @@ else
     sed -i '' "s/^version: .*/version: ${GASTOWN_VERSION}/" helm/gastown/Chart.yaml
     sed -i '' "s/^appVersion: .*/appVersion: \"${GASTOWN_VERSION}\"/" helm/gastown/Chart.yaml
 
-    # Update bd-daemon dependency
-    sed -i '' "/name: bd-daemon/,/version:/ s/version: .*/version: \"${BEADS_VERSION}\"/" helm/gastown/Chart.yaml
+    # Update bd-daemon dependency — use the CHART version, not the app version.
+    # The bd-daemon chart version lives in beads/helm/bd-daemon/Chart.yaml and
+    # is bumped by update-versions.sh independently of the beads app version.
+    BD_CHART_VERSION=$(grep '^version:' "$BEADS_DIR/helm/bd-daemon/Chart.yaml" | awk '{print $2}')
+    if [ -z "$BD_CHART_VERSION" ]; then
+        echo "❌ Could not determine bd-daemon chart version from $BEADS_DIR/helm/bd-daemon/Chart.yaml"
+        exit 1
+    fi
+    echo "  bd-daemon chart version: ${BD_CHART_VERSION}"
+    sed -i '' "/name: bd-daemon/,/version:/ s/version: .*/version: \"${BD_CHART_VERSION}\"/" helm/gastown/Chart.yaml
 
     # Update values.yaml - simplified for automation
     sed -i '' "s/tag: \".*\"/tag: \"${COOP_VERSION}\"/" helm/gastown/values.yaml || true
@@ -99,7 +107,7 @@ else
 
 - Update beads to v${BEADS_VERSION}
 - Update coop to v${COOP_VERSION}
-- Update bd-daemon chart dependency to ${BEADS_VERSION}"
+- Update bd-daemon chart dependency to ${BD_CHART_VERSION}"
 
     git tag "v${GASTOWN_VERSION}"
     git push origin main --tags
@@ -118,7 +126,7 @@ echo "✅ Release complete! Triggered builds for:"
 echo "  - ghcr.io/groblegark/coop:${COOP_VERSION}"
 echo "  - ghcr.io/groblegark/beads:${BEADS_VERSION}"
 echo "  - ghcr.io/groblegark/gastown:${GASTOWN_VERSION}"
-echo "  - oci://ghcr.io/groblegark/charts/bd-daemon:${BEADS_VERSION}"
+echo "  - oci://ghcr.io/groblegark/charts/bd-daemon:${BD_CHART_VERSION:-unknown}"
 echo "  - oci://ghcr.io/groblegark/charts/gastown:${GASTOWN_VERSION}"
 echo ""
 echo "Monitor builds at:"
