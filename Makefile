@@ -1,7 +1,7 @@
 # Makefile for beads project
 
 .PHONY: all build test bench bench-quick bench-dolt bench-dolt-quick bench-compare clean install help \
-       docker-build docker-push docker-test
+       image-build image-push
 
 # Default target
 all: build
@@ -106,48 +106,26 @@ clean:
 	rm -f internal/storage/sqlite/bench-cpu-*.prof
 	rm -f beads-perf-*.prof
 
-# Docker image settings
-DOCKER_REGISTRY ?= ghcr.io
-DOCKER_REPO     ?= groblegark/beads
-DOCKER_TAG      ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
-DOCKER_IMAGE    := $(DOCKER_REGISTRY)/$(DOCKER_REPO):$(DOCKER_TAG)
-DOCKER_LATEST   := $(DOCKER_REGISTRY)/$(DOCKER_REPO):latest
+# OCI image settings (built via RWX native — no Dockerfiles)
+IMAGE_REGISTRY ?= ghcr.io
+IMAGE_REPO     ?= groblegark/beads
+IMAGE_TAG      ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 
-# Build Docker image
-docker-build:
-	@echo "Building Docker image $(DOCKER_IMAGE)..."
-	docker build \
-		--build-arg VERSION=$(DOCKER_TAG) \
-		--build-arg BUILD_COMMIT=$$(git rev-parse --short HEAD) \
-		-t $(DOCKER_IMAGE) \
-		-t $(DOCKER_LATEST) \
-		.
-	@echo "Built $(DOCKER_IMAGE)"
+# Build OCI image via RWX native
+image-build:
+	@echo "Building OCI image via RWX (target: image-bd)..."
+	rwx image build -f .rwx/image.yml --target image-bd \
+		--tag $(IMAGE_REGISTRY)/$(IMAGE_REPO):$(IMAGE_TAG) \
+		--tag $(IMAGE_REGISTRY)/$(IMAGE_REPO):latest
+	@echo "Built $(IMAGE_REGISTRY)/$(IMAGE_REPO):$(IMAGE_TAG)"
 
-# Push Docker image to registry
-docker-push: docker-build
-	@echo "Pushing $(DOCKER_IMAGE)..."
-	docker push $(DOCKER_IMAGE)
-	docker push $(DOCKER_LATEST)
-	@echo "Pushed $(DOCKER_IMAGE) and $(DOCKER_LATEST)"
-
-# Test Docker image (build and run health check)
-docker-test: docker-build
-	@echo "Testing Docker image..."
-	@CONTAINER=$$(docker run -d --name bd-test-$$$$ $(DOCKER_IMAGE)); \
-	echo "Started container $$CONTAINER"; \
-	sleep 5; \
-	if docker exec $$CONTAINER nc -z localhost 9877; then \
-		echo "Health check passed"; \
-		docker stop $$CONTAINER >/dev/null; \
-		docker rm $$CONTAINER >/dev/null; \
-	else \
-		echo "Health check failed"; \
-		docker logs $$CONTAINER; \
-		docker stop $$CONTAINER >/dev/null; \
-		docker rm $$CONTAINER >/dev/null; \
-		exit 1; \
-	fi
+# Push OCI image to registry via RWX
+image-push: image-build
+	@echo "Pushing $(IMAGE_REGISTRY)/$(IMAGE_REPO):$(IMAGE_TAG)..."
+	rwx image build -f .rwx/image.yml --target image-bd \
+		--push-to $(IMAGE_REGISTRY)/$(IMAGE_REPO):$(IMAGE_TAG) \
+		--push-to $(IMAGE_REGISTRY)/$(IMAGE_REPO):latest
+	@echo "Pushed $(IMAGE_REGISTRY)/$(IMAGE_REPO):$(IMAGE_TAG)"
 
 # Show help
 help:

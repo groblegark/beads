@@ -1,5 +1,13 @@
-# Optimized OCI image build with aggressive caching
-# Rust builds are expensive - cache them for 7 days via filter
+# OCI image builds for beads — RWX native (no Dockerfiles).
+#
+# Uses $RWX_IMAGE for image metadata instead of inline Dockerfiles.
+# Images are pushed via `rwx image build --push-to` from the CLI.
+#
+# OPTIMIZATIONS:
+# - Filter directives on Go/Rust builds (cached by lockfiles)
+# - Parallel binary builds (Go + Rust)
+# - RWX native layer caching replaces Docker BuildKit
+
 on:
   github:
     push:
@@ -23,13 +31,13 @@ on:
 
 base:
   image: ubuntu:24.04
-  config: rwx/base 1.0.0
+  config: none
 
 tasks:
   # ── System deps (cached until lock changes) ────────────────────────
   - key: build-deps
     filter:
-      - .rwx/build-deps.lock  # Touch weekly to rebuild
+      - .rwx/build-deps.lock
     run: |
       echo "Installing build dependencies (should be cached)..."
       sudo apt-get update
@@ -48,7 +56,7 @@ tasks:
     with:
       go-version: "1.25"
     filter:
-      - .go-version  # Only reinstall if Go version changes
+      - .go-version
 
   # ── Go mod download (cached by lockfiles) ───────────────────────────
   - key: go-deps
@@ -83,7 +91,7 @@ tasks:
   # ── Rust toolchain (cached, rebuild monthly) ────────────────────────
   - key: rust
     filter:
-      - .rwx/rust-version.lock  # Touch monthly to update Rust
+      - .rwx/rust-version.lock
     run: |
       echo "Installing Rust toolchain (should be cached)..."
       curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
@@ -93,12 +101,11 @@ tasks:
   - key: build-oj
     use: rust
     filter:
-      - .rwx/oj-version.lock  # Touch when oddjobs updates needed
+      - .rwx/oj-version.lock
     run: |
       set -ex
       export PATH="$HOME/.cargo/bin:$PATH"
 
-      # Check if we have a cached binary
       if [ -f /tmp/oj-cache/oj ]; then
         echo "Using cached oj binary"
         cp /tmp/oj-cache/oj oj
@@ -108,7 +115,6 @@ tasks:
         rm -f /tmp/oj/.cargo/config.toml
         cargo build --manifest-path /tmp/oj/Cargo.toml --release -p oj
 
-        # Cache the binary
         mkdir -p /tmp/oj-cache
         cp /tmp/oj/target/release/oj /tmp/oj-cache/oj
         cp /tmp/oj/target/release/oj oj
@@ -118,142 +124,71 @@ tasks:
         - key: oj-binary
           path: oj
 
-  # ── Docker image push (uses BuildKit cache) ─────────────────────────
-  - key: push
+  # ── Beads daemon image (RWX native) ─────────────────────────────────
+  - key: image-bd
     use: [build-bd, build-oj]
     if: ${{ init.ref-name != 'pr' }}
-    docker: true
     run: |
-      # Normalize ref
-      REF_NAME="${REF_NAME#refs/tags/}"
-      REF_NAME="${REF_NAME#refs/heads/}"
+      # Install runtime deps
+      sudo apt-get -y update
+      sudo apt-get -y install --no-install-recommends \
+        ca-certificates tzdata libicu74 netcat-openbsd
+      sudo rm -rf /var/lib/apt/lists/*
 
-      # Setup BuildKit for layer caching
-      export DOCKER_BUILDKIT=1
+      # Create beads user
+      sudo userdel -r ubuntu 2>/dev/null; sudo groupdel ubuntu 2>/dev/null; true
+      sudo groupadd -g 1000 beads
+      sudo useradd -u 1000 -g beads -s /bin/sh -m beads
 
-      # Build context
-      mkdir -p /tmp/image-ctx
-      cp ${{ tasks.build-bd.artifacts.bd-binary }} /tmp/image-ctx/bd
-      cp ${{ tasks.build-oj.artifacts.oj-binary }} /tmp/image-ctx/oj
+      # Install binaries
+      sudo cp ${{ tasks.build-bd.artifacts.bd-binary }} /usr/local/bin/bd
+      sudo cp ${{ tasks.build-oj.artifacts.oj-binary }} /usr/local/bin/oj
+      sudo chmod 755 /usr/local/bin/bd /usr/local/bin/oj
+      sudo chown beads:beads /usr/local/bin/bd /usr/local/bin/oj
 
-      # Write optimized Dockerfile
-      printf '%s\n' \
-        'FROM ubuntu:24.04' \
-        '# Install runtime deps in one layer (cached)' \
-        'RUN --mount=type=cache,target=/var/cache/apt \' \
-        '    apt-get update && apt-get install -y --no-install-recommends \' \
-        '        ca-certificates tzdata libicu74 netcat-openbsd \' \
-        '    && rm -rf /var/lib/apt/lists/* \' \
-        '    && userdel -r ubuntu 2>/dev/null; groupdel ubuntu 2>/dev/null; true \' \
-        '    && groupadd -g 1000 beads \' \
-        '    && useradd -u 1000 -g beads -s /bin/sh -m beads' \
-        'COPY bd oj /usr/local/bin/' \
-        'RUN chmod 755 /usr/local/bin/bd /usr/local/bin/oj \' \
-        '    && chown beads:beads /usr/local/bin/bd /usr/local/bin/oj' \
-        'USER beads' \
-        'WORKDIR /home/beads' \
-        'EXPOSE 9876 9877' \
-        'HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \' \
-        '    CMD nc -z localhost 9877 || exit 1' \
-        'ENTRYPOINT ["bd"]' \
-        'CMD ["daemon", "start", "--foreground", "--tcp-addr=:9876", "--http-addr=:9877", "--log-json"]' \
-        > /tmp/image-ctx/Dockerfile
+      # Configure image metadata
+      jq -n '["bd"]' > $RWX_IMAGE/entrypoint.json
+      jq -n '["daemon", "start", "--foreground", "--tcp-addr=:9876", "--http-addr=:9877", "--log-json"]' > $RWX_IMAGE/command.json
+      echo "beads" > $RWX_IMAGE/user
+      echo "/home/beads" > $RWX_IMAGE/workspace
 
-      SHORT_SHA="${COMMIT_SHA:0:7}"
-
-      # Build with cache-from for layer reuse
-      echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_USER" --password-stdin
-
-      docker build \
-        --cache-from ghcr.io/groblegark/beads:latest \
-        -t ghcr.io/groblegark/beads:sha-${SHORT_SHA} \
-        -t ghcr.io/groblegark/beads:latest \
-        /tmp/image-ctx
-
-      # Smoke test
-      docker run --rm ghcr.io/groblegark/beads:sha-${SHORT_SHA} version
-
-      # Push
-      docker push ghcr.io/groblegark/beads:sha-${SHORT_SHA}
-      docker push ghcr.io/groblegark/beads:latest
-
-      # Version tag on release
-      if [[ "$REF_NAME" == v* ]]; then
-        VERSION="${REF_NAME#v}"
-        docker tag ghcr.io/groblegark/beads:sha-${SHORT_SHA} ghcr.io/groblegark/beads:${VERSION}
-        docker push ghcr.io/groblegark/beads:${VERSION}
-      fi
-    env:
-      COMMIT_SHA: ${{ init.commit-sha }}
-      REF_NAME: ${{ init.ref-name }}
-      GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
-      GITHUB_USER: ${{ secrets.GITHUB_USER }}
-
-  # ── Toolchain image (agent runtime with full dev tools) ────────────
-  - key: push-toolchain
+  # ── Toolchain image (agent runtime with full dev tools) ─────────────
+  - key: image-toolchain
     use: [build-bd, build-oj]
     if: ${{ init.ref-name != 'pr' }}
-    docker: true
     filter:
-      - .rwx/toolchain-version.lock  # Touch to rebuild toolchain image
+      - .rwx/toolchain-version.lock
     run: |
-      export DOCKER_BUILDKIT=1
-      SHORT_SHA="${COMMIT_SHA:0:7}"
+      export DEBIAN_FRONTEND=noninteractive
 
-      echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_USER" --password-stdin
-
-      # Build context with bd + oj binaries
-      mkdir -p /tmp/toolchain-ctx
-      cp ${{ tasks.build-bd.artifacts.bd-binary }} /tmp/toolchain-ctx/bd
-      cp ${{ tasks.build-oj.artifacts.oj-binary }} /tmp/toolchain-ctx/oj
-
-      # Full toolchain image: Go + Rust + Node + common build tools
-      cat > /tmp/toolchain-ctx/Dockerfile <<'DOCKERFILE'
-FROM ubuntu:24.04
-RUN apt-get update && apt-get install -y --no-install-recommends \
+      # Runtime + build deps
+      sudo apt-get -y update
+      sudo apt-get -y install --no-install-recommends \
         ca-certificates tzdata libicu74 netcat-openbsd \
         git curl wget jq make gcc g++ libicu-dev \
-        build-essential pkg-config libssl-dev \
-    && rm -rf /var/lib/apt/lists/* \
-    && groupadd -g 1000 agent \
-    && useradd -u 1000 -g agent -s /bin/bash -m agent
-ENV GO_VERSION=1.25
-RUN curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" \
-    | tar -C /usr/local -xzf -
-ENV PATH="/usr/local/go/bin:/home/agent/go/bin:${PATH}"
-USER agent
-RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
-    | sh -s -- -y --default-toolchain 1.93.0
-ENV PATH="/home/agent/.cargo/bin:${PATH}"
-USER root
-RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
-    && apt-get install -y nodejs \
-    && rm -rf /var/lib/apt/lists/*
-COPY bd oj /usr/local/bin/
-RUN chmod 755 /usr/local/bin/bd /usr/local/bin/oj
-USER agent
-WORKDIR /home/agent
-DOCKERFILE
+        build-essential pkg-config libssl-dev
+      sudo rm -rf /var/lib/apt/lists/*
 
-      # Build and tag as both :latest and :full
-      docker build \
-        --cache-from ghcr.io/groblegark/gastown-toolchain:latest \
-        -t ghcr.io/groblegark/gastown-toolchain:latest \
-        -t ghcr.io/groblegark/gastown-toolchain:full \
-        -t ghcr.io/groblegark/gastown-toolchain:sha-${SHORT_SHA} \
-        /tmp/toolchain-ctx
+      # Create agent user
+      sudo groupadd -g 1000 agent
+      sudo useradd -u 1000 -g agent -s /bin/bash -m agent
 
-      # Smoke test: verify key tools are available
-      docker run --rm ghcr.io/groblegark/gastown-toolchain:latest bash -c \
-        'go version && rustc --version && cargo --version && node --version && bd version'
+      # Go
+      curl -fsSL "https://go.dev/dl/go1.25.linux-amd64.tar.gz" | sudo tar -C /usr/local -xzf -
 
-      # Push all tags
-      docker push ghcr.io/groblegark/gastown-toolchain:sha-${SHORT_SHA}
-      docker push ghcr.io/groblegark/gastown-toolchain:full
-      docker push ghcr.io/groblegark/gastown-toolchain:latest
+      # Rust (install as agent user)
+      sudo -u agent bash -c 'curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.93.0'
 
-      echo "Toolchain image pushed: ghcr.io/groblegark/gastown-toolchain:latest (full)"
-    env:
-      COMMIT_SHA: ${{ init.commit-sha }}
-      GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
-      GITHUB_USER: ${{ secrets.GITHUB_USER }}
+      # Node.js
+      curl -fsSL https://deb.nodesource.com/setup_22.x | sudo bash -
+      sudo apt-get -y install --no-install-recommends nodejs
+      sudo rm -rf /var/lib/apt/lists/*
+
+      # Install binaries
+      sudo cp ${{ tasks.build-bd.artifacts.bd-binary }} /usr/local/bin/bd
+      sudo cp ${{ tasks.build-oj.artifacts.oj-binary }} /usr/local/bin/oj
+      sudo chmod 755 /usr/local/bin/bd /usr/local/bin/oj
+
+      # Configure image metadata
+      echo "agent" > $RWX_IMAGE/user
+      echo "/home/agent" > $RWX_IMAGE/workspace
