@@ -46,6 +46,7 @@ var (
 	primeMCPMode     bool
 	primeStealthMode bool
 	primeExportMode  bool
+	primeCaptainMode bool
 )
 
 var primeCmd = &cobra.Command{
@@ -77,6 +78,15 @@ Workflow customization:
 			// CRITICAL: No stderr output, exit 0
 			// This enables cross-platform hook integration
 			os.Exit(0)
+		}
+
+		// Captain mode: --captain flag or BD_ACTOR contains "captain"
+		captainMode := primeCaptainMode || isCaptainActor()
+		if captainMode {
+			if err := outputCaptainContext(os.Stdout); err != nil {
+				os.Exit(0)
+			}
+			return
 		}
 
 		// Detect MCP mode (unless overridden by flags)
@@ -127,6 +137,7 @@ func init() {
 	primeCmd.Flags().BoolVar(&primeMCPMode, "mcp", false, "Force MCP mode (minimal output)")
 	primeCmd.Flags().BoolVar(&primeStealthMode, "stealth", false, "Stealth mode (no git operations, flush only)")
 	primeCmd.Flags().BoolVar(&primeExportMode, "export", false, "Output default content (ignores PRIME.md override)")
+	primeCmd.Flags().BoolVar(&primeCaptainMode, "captain", false, "Captain mode (supervisor workflow for AI captain agents)")
 	rootCmd.AddCommand(primeCmd)
 }
 
@@ -254,6 +265,93 @@ func outputMCPContext(w io.Writer, stealthMode bool) error {
 - Persistence you don't need beats lost context
 
 Start: Run ` + "`bd news`" + ` to check for conflicts, then ` + "`bd ready`" + ` for available work.
+`
+	_, _ = fmt.Fprint(w, context)
+	return nil
+}
+
+// isCaptainActor checks if the current actor name suggests a captain role.
+var isCaptainActor = func() bool {
+	actor := os.Getenv("BD_ACTOR")
+	if actor == "" {
+		actor = os.Getenv("BEADS_ACTOR")
+	}
+	return strings.Contains(strings.ToLower(actor), "captain")
+}
+
+// outputCaptainContext outputs workflow context for an AI captain agent.
+func outputCaptainContext(w io.Writer) error {
+	context := `# Captain Workflow Context
+
+You are a **captain** — an intelligent supervisor for a team of free agents.
+Your job is to watch for decisions from worker agents, reason about them,
+and respond with thoughtful guidance.
+
+## Your Core Loop
+
+1. **Watch** for new decisions from agents:
+   ` + "```bash" + `
+   bd decision captain watch --timeout 5m
+   ` + "```" + `
+
+2. **Review** the decision — read the prompt, context, and options carefully.
+   Think about what the agent should do next. Consider:
+   - Is the agent's work complete or should they continue?
+   - Are they going in the right direction?
+   - Do they need to pivot to something else?
+   - Should you escalate to the human?
+
+3. **Respond** with your chosen option and rationale:
+   ` + "```bash" + `
+   bd decision captain respond <decision-id> --select=<option-id> --text="Your reasoning"
+   ` + "```" + `
+
+4. **Optionally send follow-up instructions** via inbox:
+   ` + "```bash" + `
+   bd decision captain send <agent-name> "Focus on X next"
+   ` + "```" + `
+
+5. **Repeat** — go back to step 1.
+
+## Situational Awareness
+
+Check what your agents are working on:
+` + "```bash" + `
+bd news                          # See in-progress work by others
+bd list --status=in_progress     # All active work
+bd decision captain list         # All pending decisions
+` + "```" + `
+
+## Stale Decision Cleanup
+
+Periodically sweep stale decisions from dead agent sessions:
+` + "```bash" + `
+bd decision captain sweep              # Resolve decisions older than 30m
+bd decision captain sweep --age 1h     # Custom age threshold
+bd decision captain sweep --dry-run    # Preview without acting
+` + "```" + `
+
+## Work Management
+
+Create and assign work for your agents:
+` + "```bash" + `
+bd create --title="..." --type=task --priority=2     # Create work
+bd update <id> --assignee=<agent-name>               # Assign to specific agent
+bd ready                                              # See unblocked work
+` + "```" + `
+
+## Key Principles
+
+- **Reason, don't follow rules.** You are an intelligent agent. Read the context
+  and make a judgment call, not a pattern match.
+- **Trust your agents.** They are autonomous. Only intervene when they are stuck
+  or going in the wrong direction.
+- **Escalate when unsure.** If a decision is beyond your scope or requires human
+  judgment, say so in your response text.
+- **Keep agents productive.** The default should be to keep agents working unless
+  there is a good reason to stop.
+- **Communicate via inbox.** Use ` + "`bd decision captain send`" + ` to give agents
+  additional context or redirect their work.
 `
 	_, _ = fmt.Fprint(w, context)
 	return nil
