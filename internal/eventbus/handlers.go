@@ -189,12 +189,17 @@ func (h *DecisionHandler) Handle(ctx context.Context, event *Event, result *Resu
 	return nil
 }
 
-// InboxDrainHandler drains inbox items on SessionStart and PreCompact.
+// InboxDrainHandler drains inbox items on SessionStart, PreCompact, and Stop.
 // Priority 30 (Phase 3: primary delivery path, replaces DecisionHandler).
+//
+// On Stop events, inbox drain ensures decision responses (and other inbox items)
+// are injected into the agent's context. Without this, responses delivered via
+// inbox while the agent was blocking in `bd decision create --wait` would never
+// be surfaced, causing the agent to create duplicate decisions. (bd-rwzse)
 type InboxDrainHandler struct{}
 
 func (h *InboxDrainHandler) ID() string          { return "inbox-drain" }
-func (h *InboxDrainHandler) Handles() []EventType { return []EventType{EventSessionStart, EventPreCompact} }
+func (h *InboxDrainHandler) Handles() []EventType { return []EventType{EventSessionStart, EventPreCompact, EventStop} }
 func (h *InboxDrainHandler) Priority() int        { return 30 }
 
 func (h *InboxDrainHandler) Handle(ctx context.Context, event *Event, result *Result) error {

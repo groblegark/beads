@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -129,6 +130,26 @@ func TestStopDecisionHandlerMetadata(t *testing.T) {
 	}
 }
 
+func TestInboxDrainHandlerMetadata(t *testing.T) {
+	h := &InboxDrainHandler{}
+	if h.ID() != "inbox-drain" {
+		t.Errorf("expected ID 'inbox-drain', got %q", h.ID())
+	}
+	if h.Priority() != 30 {
+		t.Errorf("expected priority 30, got %d", h.Priority())
+	}
+	handles := h.Handles()
+	if len(handles) != 3 {
+		t.Fatalf("expected 3 event types, got %d", len(handles))
+	}
+	expected := map[EventType]bool{EventSessionStart: true, EventPreCompact: true, EventStop: true}
+	for _, et := range handles {
+		if !expected[et] {
+			t.Errorf("unexpected event type: %s", et)
+		}
+	}
+}
+
 func TestHandlerPriorityOrdering(t *testing.T) {
 	handlers := DefaultHandlers()
 	// Verify non-decreasing priority ordering: prime(10) ≤ stop-decision(15) ≤ gate(20) ≤ decision(30) ≤ oj-*(40)
@@ -149,6 +170,27 @@ func TestBusWithDefaultHandlers(t *testing.T) {
 
 	if len(bus.Handlers()) != 11 {
 		t.Errorf("expected 11 handlers, got %d", len(bus.Handlers()))
+	}
+}
+
+// TestInboxDrainRunsDuringStop verifies that the inbox-drain handler is matched
+// for EventStop, ensuring decision responses are injected during stop hooks. (bd-rwzse)
+func TestInboxDrainRunsDuringStop(t *testing.T) {
+	bus := New()
+	for _, h := range DefaultHandlers() {
+		bus.Register(h)
+	}
+
+	// Get matching handlers for EventStop
+	var stopHandlerIDs []string
+	for _, h := range bus.Handlers() {
+		if slices.Contains(h.Handles(), EventStop) {
+			stopHandlerIDs = append(stopHandlerIDs, h.ID())
+		}
+	}
+
+	if !slices.Contains(stopHandlerIDs, "inbox-drain") {
+		t.Errorf("inbox-drain handler not matched for EventStop; matched handlers: %v", stopHandlerIDs)
 	}
 }
 
