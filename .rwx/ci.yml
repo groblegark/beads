@@ -1,5 +1,18 @@
 # Optimized CI with performance improvements
 on:
+  github:
+    push:
+      if: ${{ event.git.branch == 'main' }}
+      init:
+        commit-sha: ${{ event.git.sha }}
+      status-checks:
+        name: CI
+    pull_request:
+      init:
+        commit-sha: ${{ event.git.sha }}
+      status-checks:
+        - tasks: [build, lint, test, version-check]
+          name: CI
   cli:
     init:
       commit-sha: ${{ event.git.sha }}
