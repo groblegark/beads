@@ -150,6 +150,11 @@ const (
 	OpAgentPodStatus     = "agent_pod_status"
 	OpAgentPodList       = "agent_pod_list"
 
+	// Agent lifecycle operations (beads-2qz5)
+	OpAgentStop    = "agent_stop"
+	OpAgentRestart = "agent_restart"
+	OpAgentSignal  = "agent_signal"
+
 	// VCS operations (bd-ma0s.2)
 	OpVcsCommit        = "vcs_commit"
 	OpVcsPush          = "vcs_push"
@@ -1872,6 +1877,53 @@ type AgentPodInfo struct {
 // AgentPodListResult is returned from pod list queries.
 type AgentPodListResult struct {
 	Agents []AgentPodInfo `json:"agents"`
+}
+
+// ===== Agent Lifecycle Operations (beads-2qz5) =====
+
+// AgentStopArgs requests a graceful stop of an agent.
+// Sets agent_state to "stopping" on the bead (the K8s controller watches
+// for this mutation and deletes the pod). If the agent has a coop_url in
+// its notes, a SIGTERM is also sent to the coop sidecar.
+type AgentStopArgs struct {
+	AgentID string `json:"agent_id"`           // Agent bead ID
+	Reason  string `json:"reason,omitempty"`   // Why the agent is being stopped
+	Force   bool   `json:"force,omitempty"`    // If true, skip graceful coop signal
+}
+
+// AgentStopResult is returned after an agent stop request.
+type AgentStopResult struct {
+	AgentID    string `json:"agent_id"`
+	AgentState string `json:"agent_state"` // Will be "stopping"
+	CoopSignal bool   `json:"coop_signal"` // True if SIGTERM was sent to coop
+}
+
+// AgentRestartArgs requests a restart of an agent.
+// Sets agent_state to "stopping", then immediately to "spawning" so the
+// controller deletes the old pod and creates a new one.
+type AgentRestartArgs struct {
+	AgentID string `json:"agent_id"`         // Agent bead ID
+	Reason  string `json:"reason,omitempty"` // Why the agent is being restarted
+}
+
+// AgentRestartResult is returned after an agent restart request.
+type AgentRestartResult struct {
+	AgentID    string `json:"agent_id"`
+	AgentState string `json:"agent_state"` // Will be "spawning"
+}
+
+// AgentSignalArgs sends a signal to an agent's coop sidecar.
+// Resolves the agent's coop_url from bead notes and POSTs to /api/v1/signal.
+type AgentSignalArgs struct {
+	AgentID string `json:"agent_id"`          // Agent bead ID
+	Signal  string `json:"signal"`            // Signal name: SIGTERM, SIGINT, SIGKILL, etc.
+}
+
+// AgentSignalResult is returned after sending a signal.
+type AgentSignalResult struct {
+	AgentID string `json:"agent_id"`
+	Signal  string `json:"signal"`
+	Sent    bool   `json:"sent"` // True if signal was delivered to coop
 }
 
 // ===== VCS Operations (bd-ma0s.2) =====

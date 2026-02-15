@@ -399,6 +399,7 @@ func TestHTTPMappingCompleteness(t *testing.T) {
 		OpShutdown,
 		// Agent pod operations (gt-el7sxq.7)
 		OpAgentPodRegister, OpAgentPodDeregister, OpAgentPodStatus, OpAgentPodList,
+		OpAgentStop, OpAgentRestart, OpAgentSignal,
 		// Bus operations
 		OpBusEmit, OpBusStatus, OpBusHandlers,
 		// Runbook CRUD (od-dv0.4.1)

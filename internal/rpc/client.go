@@ -1347,6 +1347,53 @@ func (c *Client) AgentPodList(args *AgentPodListArgs) (*AgentPodListResult, erro
 	return &result, nil
 }
 
+// Agent lifecycle operations (beads-2qz5)
+
+// AgentStop requests a graceful stop of an agent.
+func (c *Client) AgentStop(args *AgentStopArgs) (*AgentStopResult, error) {
+	resp, err := c.Execute(OpAgentStop, args)
+	if err != nil {
+		return nil, err
+	}
+
+	var result AgentStopResult
+	if err := json.Unmarshal(resp.Data, &result); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal agent_stop response: %w", err)
+	}
+
+	return &result, nil
+}
+
+// AgentRestart requests a restart of an agent.
+func (c *Client) AgentRestart(args *AgentRestartArgs) (*AgentRestartResult, error) {
+	resp, err := c.Execute(OpAgentRestart, args)
+	if err != nil {
+		return nil, err
+	}
+
+	var result AgentRestartResult
+	if err := json.Unmarshal(resp.Data, &result); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal agent_restart response: %w", err)
+	}
+
+	return &result, nil
+}
+
+// AgentSignal sends a signal to an agent's coop sidecar.
+func (c *Client) AgentSignal(args *AgentSignalArgs) (*AgentSignalResult, error) {
+	resp, err := c.Execute(OpAgentSignal, args)
+	if err != nil {
+		return nil, err
+	}
+
+	var result AgentSignalResult
+	if err := json.Unmarshal(resp.Data, &result); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal agent_signal response: %w", err)
+	}
+
+	return &result, nil
+}
+
 // VCS operations (bd-ma0s.2)
 
 // VcsCommit creates a Dolt commit with the given message.

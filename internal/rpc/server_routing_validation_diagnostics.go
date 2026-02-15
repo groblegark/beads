@@ -431,6 +431,13 @@ func (s *Server) executeOperation(req *Request) Response {
 		resp = s.handleAgentPodStatus(req)
 	case OpAgentPodList:
 		resp = s.handleAgentPodList(req)
+	// Agent lifecycle operations (beads-2qz5)
+	case OpAgentStop:
+		resp = s.handleAgentStop(req)
+	case OpAgentRestart:
+		resp = s.handleAgentRestart(req)
+	case OpAgentSignal:
+		resp = s.handleAgentSignal(req)
 	// VCS operations (bd-ma0s.2)
 	case OpVcsCommit:
 		resp = s.handleVcsCommit(req)

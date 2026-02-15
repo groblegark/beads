@@ -454,6 +454,11 @@ func httpMethodToOperation(method string) string {
 		"AgentPodStatus":     OpAgentPodStatus,
 		"AgentPodList":       OpAgentPodList,
 
+		// Agent lifecycle operations (beads-2qz5)
+		"AgentStop":    OpAgentStop,
+		"AgentRestart": OpAgentRestart,
+		"AgentSignal":  OpAgentSignal,
+
 		// VCS operations (bd-ma0s.2)
 		"VcsCommit":        OpVcsCommit,
 		"VcsPush":          OpVcsPush,
