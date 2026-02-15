@@ -8,11 +8,13 @@ import (
 	"os"
 	"os/exec"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/steveyegge/beads/internal/coop"
 	"github.com/steveyegge/beads/internal/rpc"
+	"github.com/steveyegge/beads/internal/types"
 )
 
 var attachCoopPort int
@@ -25,19 +27,18 @@ var agentAttachCmd = &cobra.Command{
 	Long: `Attach to a running agent's interactive terminal session.
 
 Connects to the Coop sidecar running alongside the agent pod and streams
-terminal I/O over WebSocket. For K8s pods, automatically sets up kubectl
-port-forward to reach the Coop sidecar.
+terminal I/O over WebSocket. Resolves the Coop URL in priority order:
+  1. --url flag (direct override)
+  2. coop_url from agent bead notes (ingress-routable, set by controller)
+  3. Pod IP direct connection (same cluster network)
+  4. kubectl port-forward (last resort fallback)
 
 Detach with Ctrl+] (sends no signal to the agent).
 
-The agent must have a registered pod with a pod_ip (use bd agent pod-list
-to check). The Coop sidecar must be running on the configured port (default 3000).
-
 Examples:
-  bd agent attach gt-gastown-polecat-nux    # Attach via kubectl port-forward
+  bd agent attach gt-gastown-polecat-nux    # Auto-resolve via bead notes or pod info
   bd agent attach gt-mayor                  # Attach to mayor pod
-  bd agent attach gt-emma --url http://localhost:3000  # Direct URL (skip pod lookup)
-  bd agent attach gt-emma --local-port 9400  # Use specific local port for port-forward`,
+  bd agent attach gt-emma --url http://localhost:3000  # Direct URL (skip pod lookup)`,
 	Args: cobra.ExactArgs(1),
 	RunE: runAgentAttach,
 }
@@ -56,7 +57,7 @@ func runAgentAttach(cmd *cobra.Command, args []string) error {
 	var coopURL string
 
 	if attachDirectURL != "" {
-		// Direct URL mode — skip pod lookup
+		// Priority 1: Direct URL mode — skip pod lookup
 		coopURL = attachDirectURL
 	} else {
 		// Look up agent pod info
@@ -72,12 +73,15 @@ func runAgentAttach(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("agent %s pod is %s (must be running)", podInfo.AgentID, podInfo.PodStatus)
 		}
 
-		// If PodIP is directly reachable (e.g., same cluster network), use it
-		// Otherwise, use kubectl port-forward
-		if podInfo.PodIP != "" && isReachable(podInfo.PodIP, attachCoopPort) {
+		// Priority 2: coop_url from bead notes (ingress-routable, set by controller)
+		if url := resolveCoopURLFromNotes(podInfo.AgentID); url != "" {
+			fmt.Fprintf(os.Stderr, "Using coop_url from bead notes\n")
+			coopURL = url
+		} else if podInfo.PodIP != "" && isReachable(podInfo.PodIP, attachCoopPort) {
+			// Priority 3: Pod IP direct connection (same cluster network)
 			coopURL = fmt.Sprintf("http://%s:%d", podInfo.PodIP, attachCoopPort)
 		} else {
-			// Set up kubectl port-forward
+			// Priority 4: kubectl port-forward (last resort fallback)
 			localPort := attachLocalPort
 			if localPort == 0 {
 				localPort, err = findFreePort()
@@ -94,7 +98,7 @@ func runAgentAttach(cmd *cobra.Command, args []string) error {
 				namespace = "default"
 			}
 
-			fmt.Fprintf(os.Stderr, "Starting port-forward to %s (port %d → %d)...\n",
+			fmt.Fprintf(os.Stderr, "Falling back to kubectl port-forward to %s (port %d → %d)...\n",
 				podInfo.PodName, localPort, attachCoopPort)
 
 			pfCmd := exec.CommandContext(pfCtx, "kubectl", "port-forward",
@@ -201,6 +205,29 @@ func waitForPort(ctx context.Context, port int, timeout time.Duration) error {
 		time.Sleep(100 * time.Millisecond)
 	}
 	return fmt.Errorf("port %d not ready after %v", port, timeout)
+}
+
+// resolveCoopURLFromNotes looks up an agent bead's notes for a coop_url field.
+// Returns empty string if not found or on any error.
+func resolveCoopURLFromNotes(agentID string) string {
+	resp, err := daemonClient.Show(&rpc.ShowArgs{ID: agentID})
+	if err != nil {
+		return ""
+	}
+	var issues []types.Issue
+	if err := json.Unmarshal(resp.Data, &issues); err != nil || len(issues) == 0 {
+		return ""
+	}
+	for _, line := range strings.Split(issues[0].Notes, "\n") {
+		parts := strings.SplitN(line, ":", 2)
+		if len(parts) == 2 && strings.TrimSpace(parts[0]) == "coop_url" {
+			url := strings.TrimSpace(parts[1])
+			if url != "" {
+				return url
+			}
+		}
+	}
+	return ""
 }
 
 // isReachable checks if a host:port is directly reachable with a short timeout.

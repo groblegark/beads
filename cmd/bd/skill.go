@@ -1381,8 +1381,14 @@ func resolveCoopClient(ctx context.Context, agentName, directURL string) (*coop.
 	if err != nil {
 		return nil, fmt.Errorf("resolving agent %s: %w", agentName, err)
 	}
+
+	// Try coop_url from bead notes first (ingress-routable)
+	if url := resolveCoopURLFromNotes(podInfo.AgentID); url != "" {
+		return coop.NewClient(url), nil
+	}
+
 	if podInfo.PodIP == "" {
-		return nil, fmt.Errorf("agent %s has no pod IP (use bd agent pod-list to check)", podInfo.AgentID)
+		return nil, fmt.Errorf("agent %s has no pod IP or coop_url (use bd agent pod-list to check)", podInfo.AgentID)
 	}
 
 	coopURL := fmt.Sprintf("http://%s:%d", podInfo.PodIP, 8080)
