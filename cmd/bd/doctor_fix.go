@@ -251,12 +251,10 @@ func applyFixList(path string, fixes []doctorCheck) {
 			err = fix.RepoFingerprint(path)
 		case "Git Merge Driver":
 			err = fix.MergeDriver(path)
-		case "Sync Branch Config":
-			// No auto-fix: sync-branch should be added to config.yaml (version controlled)
-			fmt.Printf("  ⚠ Add 'sync-branch: beads-sync' to .beads/config.yaml\n")
+		case "Sync Branch Config", "Sync Branch Gitignore":
+			// Sync branch support removed (dolt-native handles sync)
+			fmt.Printf("  ⚠ Sync branch support has been removed\n")
 			continue
-		case "Sync Branch Gitignore":
-			err = doctor.FixSyncBranchGitignore()
 		case "Database Config":
 			err = fix.DatabaseConfig(path)
 		case "JSONL Config":

@@ -18,28 +18,13 @@ func isGitWorktree() bool {
 }
 
 // shouldDisableDaemonForWorktree returns true if daemon should be disabled
-// due to being in a git worktree without sync-branch configured.
+// due to being in a git worktree.
 //
 // The daemon is unsafe in worktrees because all worktrees share the same
 // .beads directory, and the daemon commits to whatever branch its working
-// directory has checked out - which can cause commits to go to the wrong branch.
-//
-// However, when sync-branch is configured, the daemon commits to a dedicated
-// branch (e.g., "beads-metadata") using an internal worktree, so the user's
-// current branch is never affected. This makes daemon mode safe in worktrees.
-//
-// Returns:
-//   - true: Disable daemon (in worktree without sync-branch)
-//   - false: Allow daemon (not in worktree, or sync-branch is configured)
+// directory has checked out — which can cause commits to go to the wrong branch.
 func shouldDisableDaemonForWorktree() bool {
-	// If not in a worktree, daemon is safe
-	if !isGitWorktree() {
-		return false
-	}
-
-	// In worktree without sync-branch - daemon is unsafe, disable it
-	// sync-branch support removed (syncbranch package deleted)
-	return true
+	return isGitWorktree()
 }
 
 // gitRevParse runs git rev-parse with the given flag and returns the trimmed output.
@@ -62,28 +47,22 @@ func getWorktreeGitDir() string {
 	return gitDir
 }
 
-// warnWorktreeDaemon prints a warning if using daemon with worktrees without sync-branch.
+// warnWorktreeDaemon prints a warning if using daemon in a worktree.
 // Call this only when daemon mode is actually active (connected).
 //
-// With the new worktree safety logic, this warning should rarely appear because:
-// - Daemon is auto-disabled in worktrees without sync-branch
-// - When sync-branch is configured, daemon is safe (commits go to dedicated branch)
-//
-// This warning is kept as a safety net for edge cases where daemon might still
+// This warning is a safety net for edge cases where daemon might still
 // be connected in a worktree (e.g., daemon started in main repo, then user cd's to worktree).
 func warnWorktreeDaemon(dbPathForWarning string) {
 	if !isGitWorktree() {
 		return
 	}
 
-	// sync-branch support removed (syncbranch package deleted)
-	// Always show warning for worktree daemon usage
 	gitDir := getWorktreeGitDir()
 	beadsDir := filepath.Dir(dbPathForWarning)
 	if beadsDir == "." || beadsDir == "" {
 		beadsDir = dbPathForWarning
 	}
-	
+
 	fmt.Fprintln(os.Stderr)
 	fmt.Fprintln(os.Stderr, "╔══════════════════════════════════════════════════════════════════════════╗")
 	fmt.Fprintln(os.Stderr, "║ WARNING: Git worktree detected with daemon mode                         ║")
@@ -94,10 +73,8 @@ func warnWorktreeDaemon(dbPathForWarning string) {
 	fmt.Fprintf(os.Stderr, "║ Shared database: %-55s ║\n", truncateForBox(beadsDir, 55))
 	fmt.Fprintf(os.Stderr, "║ Worktree git dir: %-54s ║\n", truncateForBox(gitDir, 54))
 	fmt.Fprintln(os.Stderr, "║                                                                          ║")
-	fmt.Fprintln(os.Stderr, "║ RECOMMENDED SOLUTION:                                                    ║")
-	fmt.Fprintln(os.Stderr, "║   Configure sync-branch:   bd config set sync-branch beads-metadata     ║")
-	fmt.Fprintln(os.Stderr, "║                                                                          ║")
-	fmt.Fprintln(os.Stderr, "║ This tells the daemon which branch to use for beads commits.            ║")
+	fmt.Fprintln(os.Stderr, "║ Daemon is disabled in worktrees to prevent branch conflicts.            ║")
+	fmt.Fprintln(os.Stderr, "║ Run commands from the main working tree instead.                         ║")
 	fmt.Fprintln(os.Stderr, "╚══════════════════════════════════════════════════════════════════════════╝")
 	fmt.Fprintln(os.Stderr)
 }

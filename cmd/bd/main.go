@@ -56,8 +56,7 @@ var (
 	// Hook runner for extensibility
 	hookRunner *hooks.Runner
 
-	// skipFinalFlush is set by sync command when sync.branch mode completes successfully.
-	// This prevents PersistentPostRun from re-exporting and dirtying the working directory.
+	// skipFinalFlush prevents PersistentPostRun from re-exporting and dirtying the working directory.
 	skipFinalFlush = false
 
 	// Auto-import state
@@ -542,9 +541,8 @@ var rootCmd = &cobra.Command{
 					}
 				} else {
 					// For import/setup/bootstrap commands, set default database path.
-					// Invariant: dbPath must always be absolute for filepath.Rel() compatibility
-					// in daemon sync-branch code path. Use CanonicalizePath for OS-agnostic
-					// handling (symlinks, case normalization on macOS).
+					// Invariant: dbPath must always be absolute for filepath.Rel() compatibility.
+					// Use CanonicalizePath for OS-agnostic handling (symlinks, case normalization on macOS).
 					//
 					// IMPORTANT: Use FindBeadsDir() to get the correct .beads directory,
 					// which follows redirect files. Without this, a redirected .beads
@@ -601,11 +599,11 @@ var rootCmd = &cobra.Command{
 			}
 			debug.Logf("direct mode forced for this command")
 		} else if shouldDisableDaemonForWorktree() {
-			// In a git worktree without sync-branch configured - daemon is unsafe
-			// because all worktrees share the same .beads directory and the daemon
-			// would commit to whatever branch its working directory has checked out.
-			daemonStatus.Detail = "git worktree without sync-branch"
-			debug.Logf("git worktree detected without sync-branch, using direct mode for safety")
+			// Git worktree detected — daemon is unsafe because all worktrees
+			// share the same .beads directory and the daemon would commit to
+			// whatever branch its working directory has checked out.
+			daemonStatus.Detail = "git worktree detected"
+			debug.Logf("git worktree detected, using direct mode for safety")
 		} else {
 			// Attempt daemon connection (auto-selects TCP via BD_DAEMON_HOST or local Unix socket)
 			client, err := rpc.TryConnectAuto(socketPath)
