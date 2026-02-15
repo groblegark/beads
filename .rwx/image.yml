@@ -136,20 +136,17 @@ tasks:
         ca-certificates tzdata libicu74 netcat-openbsd
       sudo rm -rf /var/lib/apt/lists/*
 
-      # Install binaries (while sudo still works)
+      # Create beads user (don't modify running ubuntu user)
+      sudo groupadd -g 1001 beads
+      sudo useradd -u 1001 -g beads -s /bin/sh -m beads
+
+      # Install binaries
       sudo cp ${{ tasks.build-bd.artifacts.bd-binary }} /usr/local/bin/bd
       sudo cp ${{ tasks.build-oj.artifacts.oj-binary }} /usr/local/bin/oj
       sudo chmod 755 /usr/local/bin/bd /usr/local/bin/oj
-      sudo chown 1000:1000 /usr/local/bin/bd /usr/local/bin/oj
-      sudo mkdir -p /home/beads
-      sudo chown -R 1000:1000 /home/beads
+      sudo chown beads:beads /usr/local/bin/bd /usr/local/bin/oj
 
-      # Rename ubuntu→beads in passwd/group LAST (breaks sudo for running process)
-      sudo sed -i 's/^ubuntu:/beads:/' /etc/passwd
-      sudo sed -i 's|/home/ubuntu|/home/beads|' /etc/passwd
-      sudo sed -i 's/^ubuntu:/beads:/' /etc/group
-
-      # Configure image metadata (no sudo needed)
+      # Configure image metadata
       jq -n '["bd"]' > $RWX_IMAGE/entrypoint.json
       jq -n '["daemon", "start", "--foreground", "--tcp-addr=:9876", "--http-addr=:9877", "--log-json"]' > $RWX_IMAGE/command.json
       echo "beads" > $RWX_IMAGE/user
@@ -172,11 +169,15 @@ tasks:
         build-essential pkg-config libssl-dev
       sudo rm -rf /var/lib/apt/lists/*
 
+      # Create agent user (don't modify running ubuntu user)
+      sudo groupadd -g 1001 agent
+      sudo useradd -u 1001 -g agent -s /bin/bash -m agent
+
       # Go
       curl -fsSL "https://go.dev/dl/go1.25.linux-amd64.tar.gz" | sudo tar -C /usr/local -xzf -
 
-      # Rust (install as UID 1000 user — still named 'ubuntu' in passwd)
-      sudo -u ubuntu bash -c 'curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.93.0'
+      # Rust (install as agent user)
+      sudo -u agent bash -c 'curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.93.0'
 
       # Node.js
       curl -fsSL https://deb.nodesource.com/setup_22.x | sudo bash -
@@ -187,15 +188,7 @@ tasks:
       sudo cp ${{ tasks.build-bd.artifacts.bd-binary }} /usr/local/bin/bd
       sudo cp ${{ tasks.build-oj.artifacts.oj-binary }} /usr/local/bin/oj
       sudo chmod 755 /usr/local/bin/bd /usr/local/bin/oj
-      sudo mkdir -p /home/agent
-      sudo chown -R 1000:1000 /home/agent
 
-      # Rename ubuntu→agent in passwd/group LAST (breaks sudo for running process)
-      sudo sed -i 's/^ubuntu:/agent:/' /etc/passwd
-      sudo sed -i 's|/home/ubuntu|/home/agent|' /etc/passwd
-      sudo sed -i 's|/bin/sh|/bin/bash|' /etc/passwd
-      sudo sed -i 's/^ubuntu:/agent:/' /etc/group
-
-      # Configure image metadata (no sudo needed)
+      # Configure image metadata
       echo "agent" > $RWX_IMAGE/user
       echo "/home/agent" > $RWX_IMAGE/workspace
