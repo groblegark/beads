@@ -117,6 +117,12 @@ var DeployKeys = []DeployKey{
 		Key:         "deploy.ingress_host",
 		Description: "Public ingress hostname",
 	},
+	// K8s cluster
+	{
+		Key:         "deploy.k8s_namespace",
+		Description: "K8s namespace for agent pods and services",
+		EnvVar:      "GT_K8S_NAMESPACE",
+	},
 }
 
 // deployKeyMap is a lookup table built from DeployKeys.
