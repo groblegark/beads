@@ -134,199 +134,6 @@ func promptHookAction(existingHooks []hookInfo) string {
 	return response
 }
 
-// installGitHooks installs git hooks inline (no external dependencies)
-func installGitHooks() error {
-	hooksDir, err := git.GetGitHooksDir()
-	if err != nil {
-		return err
-	}
-
-	// Ensure hooks directory exists
-	if err := os.MkdirAll(hooksDir, 0750); err != nil {
-		return fmt.Errorf("failed to create hooks directory: %w", err)
-	}
-
-	// Detect existing hooks
-	existingHooks := detectExistingHooks()
-
-	// Check if any non-bd hooks exist
-	hasExistingHooks := false
-	for _, hook := range existingHooks {
-		if hook.exists && !hook.isBdHook {
-			hasExistingHooks = true
-			break
-		}
-	}
-
-	// Determine installation mode
-	chainHooks := false
-	if hasExistingHooks {
-		choice := promptHookAction(existingHooks)
-		switch choice {
-		case "1", "":
-			chainHooks = true
-			// Chain mode - rename existing hooks to .old so they can be called
-			for _, hook := range existingHooks {
-				if hook.exists && !hook.isBdHook {
-					oldPath := hook.path + ".old"
-					if err := os.Rename(hook.path, oldPath); err != nil {
-						return fmt.Errorf("failed to rename %s to .old: %w", hook.name, err)
-					}
-					fmt.Printf("  Renamed %s to %s\n", hook.name, filepath.Base(oldPath))
-				}
-			}
-		case "2":
-			// Overwrite mode - backup existing hooks
-			for _, hook := range existingHooks {
-				if hook.exists && !hook.isBdHook {
-					timestamp := time.Now().Format("20060102-150405")
-					backup := hook.path + ".backup-" + timestamp
-					if err := os.Rename(hook.path, backup); err != nil {
-						return fmt.Errorf("failed to backup %s: %w", hook.name, err)
-					}
-					fmt.Printf("  Backed up %s to %s\n", hook.name, filepath.Base(backup))
-				}
-			}
-		case "3":
-			fmt.Printf("Skipping git hooks installation.\n")
-			fmt.Printf("You can install manually later with: %s\n", ui.RenderAccent("./examples/git-hooks/install.sh"))
-			return nil
-		default:
-			return fmt.Errorf("invalid choice: %s", choice)
-		}
-	}
-
-	// pre-commit hook
-	preCommitPath := filepath.Join(hooksDir, "pre-commit")
-	preCommitContent := buildPreCommitHook(chainHooks, existingHooks)
-
-	// post-merge hook
-	postMergePath := filepath.Join(hooksDir, "post-merge")
-	postMergeContent := buildPostMergeHook(chainHooks, existingHooks)
-
-	// Write pre-commit hook (executable scripts need 0700)
-	// #nosec G306 - git hooks must be executable
-	if err := os.WriteFile(preCommitPath, []byte(preCommitContent), 0700); err != nil {
-		return fmt.Errorf("failed to write pre-commit hook: %w", err)
-	}
-
-	// Write post-merge hook (executable scripts need 0700)
-	// #nosec G306 - git hooks must be executable
-	if err := os.WriteFile(postMergePath, []byte(postMergeContent), 0700); err != nil {
-		return fmt.Errorf("failed to write post-merge hook: %w", err)
-	}
-
-	if chainHooks {
-		fmt.Printf("%s Chained bd hooks with existing hooks\n", ui.RenderPass("✓"))
-	}
-
-	return nil
-}
-
-// buildPreCommitHook generates the pre-commit hook content
-func buildPreCommitHook(chainHooks bool, existingHooks []hookInfo) string {
-	if chainHooks {
-		// Find existing pre-commit hook (already renamed to .old by caller)
-		var existingPreCommit string
-		for _, hook := range existingHooks {
-			if hook.name == "pre-commit" && hook.exists && !hook.isBdHook {
-				existingPreCommit = hook.path + ".old"
-				break
-			}
-		}
-
-		return `#!/bin/sh
-#
-# bd (beads) pre-commit hook (chained)
-#
-# This hook chains bd functionality with your existing pre-commit hook.
-
-# Run existing hook first
-if [ -x "` + existingPreCommit + `" ]; then
-    "` + existingPreCommit + `" "$@"
-    EXIT_CODE=$?
-    if [ $EXIT_CODE -ne 0 ]; then
-        exit $EXIT_CODE
-    fi
-fi
-
-` + preCommitHookBody()
-	}
-
-	return `#!/bin/sh
-#
-# bd (beads) pre-commit hook
-#
-# This hook ensures that any pending bd issue changes are flushed to
-# .beads/issues.jsonl before the commit is created, preventing the
-# race condition where daemon auto-flush fires after the commit.
-
-` + preCommitHookBody()
-}
-
-// preCommitHookBody returns the common pre-commit hook logic
-func preCommitHookBody() string {
-	return `# Check if bd is available
-if ! command -v bd >/dev/null 2>&1; then
-    echo "Warning: bd command not found, skipping pre-commit flush" >&2
-    exit 0
-fi
-
-# Check if we're in a bd workspace
-# For worktrees, .beads is in the main repository root, not the worktree
-BEADS_DIR=""
-if git rev-parse --git-dir >/dev/null 2>&1; then
-    # Check if we're in a worktree
-    if [ "$(git rev-parse --git-dir)" != "$(git rev-parse --git-common-dir)" ]; then
-        # Worktree: .beads is in main repo root
-        MAIN_REPO_ROOT="$(git rev-parse --git-common-dir)"
-        MAIN_REPO_ROOT="$(dirname "$MAIN_REPO_ROOT")"
-        if [ -d "$MAIN_REPO_ROOT/.beads" ]; then
-            BEADS_DIR="$MAIN_REPO_ROOT/.beads"
-        fi
-    else
-        # Regular repo: check current directory
-        if [ -d .beads ]; then
-            BEADS_DIR=".beads"
-        fi
-    fi
-fi
-
-if [ -z "$BEADS_DIR" ]; then
-    exit 0
-fi
-
-# Skip for Dolt backend (uses its own sync mechanism, not JSONL)
-if [ -f "$BEADS_DIR/metadata.json" ]; then
-    if grep -q '"backend"[[:space:]]*:[[:space:]]*"dolt"' "$BEADS_DIR/metadata.json" 2>/dev/null; then
-        exit 0
-    fi
-fi
-
-# Flush pending changes to JSONL
-if ! bd export >/dev/null 2>&1; then
-    echo "Error: Failed to flush bd changes to JSONL" >&2
-    echo "Run 'bd export' manually to diagnose" >&2
-    exit 1
-fi
-
-# If the JSONL file was modified, stage it
-# For worktrees, the JSONL is in the main repo's working tree, not the worktree,
-# so we can't use git add. Skip this step for worktrees.
-if [ -f "$BEADS_DIR/issues.jsonl" ]; then
-    if [ "$(git rev-parse --git-dir)" = "$(git rev-parse --git-common-dir)" ]; then
-        # Regular repo: file is in the working tree, safe to add
-        git add "$BEADS_DIR/issues.jsonl" 2>/dev/null || true
-    fi
-    # For worktrees: .beads is in the main repo's working tree, not this worktree
-    # Git rejects adding files outside the worktree, so we skip it.
-    # The main repo will see the changes on the next pull/sync.
-fi
-
-exit 0
-`
-}
-
 // buildPostMergeHook generates the post-merge hook content
 func buildPostMergeHook(chainHooks bool, existingHooks []hookInfo) string {
 	if chainHooks {
@@ -411,18 +218,17 @@ if [ ! -f "$BEADS_DIR/issues.jsonl" ]; then
     exit 0
 fi
 
-# Sync the updated JSONL using the robust sync command
-# This handles store initialization, custom types, and error recovery better than raw import
-SYNC_OUTPUT=$(bd sync --import-only --no-git-history --no-daemon 2>&1)
-SYNC_EXIT=$?
+# Import updated JSONL into the database
+IMPORT_OUTPUT=$(bd import 2>&1)
+IMPORT_EXIT=$?
 
-if [ $SYNC_EXIT -ne 0 ]; then
-    echo "Warning: Failed to sync bd changes after merge (exit code $SYNC_EXIT)" >&2
-    if [ -n "$SYNC_OUTPUT" ]; then
+if [ $IMPORT_EXIT -ne 0 ]; then
+    echo "Warning: Failed to import bd changes after merge (exit code $IMPORT_EXIT)" >&2
+    if [ -n "$IMPORT_OUTPUT" ]; then
         echo "Error details:" >&2
-        echo "$SYNC_OUTPUT" | head -5 >&2
+        echo "$IMPORT_OUTPUT" | head -5 >&2
     fi
-    echo "Run 'bd sync --import-only --no-daemon' manually to diagnose" >&2
+    echo "Run 'bd doctor --fix' to diagnose and repair" >&2
 fi
 
 exit 0
