@@ -273,3 +273,307 @@ func TestWindowSuffix(t *testing.T) {
 		t.Errorf("windowSuffix(30m) = %q, want %q", got, want)
 	}
 }
+
+func TestSortByUpdatedDesc(t *testing.T) {
+	t1 := time.Date(2026, 1, 1, 10, 0, 0, 0, time.UTC)
+	t2 := time.Date(2026, 1, 1, 11, 0, 0, 0, time.UTC)
+	t3 := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+
+	issues := []*types.Issue{
+		{ID: "bd-1", Title: "Oldest", UpdatedAt: t1},
+		{ID: "bd-2", Title: "Middle", UpdatedAt: t2},
+		{ID: "bd-3", Title: "Newest", UpdatedAt: t3},
+	}
+
+	sortByUpdatedDesc(issues)
+
+	wantOrder := []string{"bd-3", "bd-2", "bd-1"}
+	for i, issue := range issues {
+		if issue.ID != wantOrder[i] {
+			t.Errorf("sortByUpdatedDesc()[%d].ID = %q, want %q", i, issue.ID, wantOrder[i])
+		}
+	}
+}
+
+func TestSortByUpdatedDesc_AlreadySorted(t *testing.T) {
+	t1 := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	t2 := time.Date(2026, 1, 1, 11, 0, 0, 0, time.UTC)
+
+	issues := []*types.Issue{
+		{ID: "bd-1", Title: "Newest", UpdatedAt: t1},
+		{ID: "bd-2", Title: "Oldest", UpdatedAt: t2},
+	}
+
+	sortByUpdatedDesc(issues)
+
+	if issues[0].ID != "bd-1" || issues[1].ID != "bd-2" {
+		t.Errorf("sortByUpdatedDesc changed already-sorted order")
+	}
+}
+
+func TestSortByUpdatedDesc_Empty(t *testing.T) {
+	sortByUpdatedDesc(nil)
+	sortByUpdatedDesc([]*types.Issue{})
+	// No panic = pass
+}
+
+func TestSortByClosedDesc(t *testing.T) {
+	t1 := time.Date(2026, 1, 1, 10, 0, 0, 0, time.UTC)
+	t2 := time.Date(2026, 1, 1, 11, 0, 0, 0, time.UTC)
+	t3 := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+
+	issues := []*types.Issue{
+		{ID: "bd-1", Title: "Closed first", ClosedAt: &t1, UpdatedAt: t1},
+		{ID: "bd-2", Title: "Closed second", ClosedAt: &t2, UpdatedAt: t2},
+		{ID: "bd-3", Title: "Closed third", ClosedAt: &t3, UpdatedAt: t3},
+	}
+
+	sortByClosedDesc(issues)
+
+	wantOrder := []string{"bd-3", "bd-2", "bd-1"}
+	for i, issue := range issues {
+		if issue.ID != wantOrder[i] {
+			t.Errorf("sortByClosedDesc()[%d].ID = %q, want %q", i, issue.ID, wantOrder[i])
+		}
+	}
+}
+
+func TestSortByClosedDesc_FallbackToUpdatedAt(t *testing.T) {
+	t1 := time.Date(2026, 1, 1, 10, 0, 0, 0, time.UTC)
+	t2 := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	closedEarly := time.Date(2026, 1, 1, 9, 0, 0, 0, time.UTC)
+
+	issues := []*types.Issue{
+		{ID: "bd-1", Title: "Has ClosedAt", ClosedAt: &closedEarly, UpdatedAt: t1},
+		{ID: "bd-2", Title: "No ClosedAt", ClosedAt: nil, UpdatedAt: t2},
+	}
+
+	sortByClosedDesc(issues)
+
+	// bd-2 has UpdatedAt=12:00, bd-1 has ClosedAt=09:00 → bd-2 first
+	if issues[0].ID != "bd-2" {
+		t.Errorf("sortByClosedDesc() should fallback to UpdatedAt for nil ClosedAt, got %q first", issues[0].ID)
+	}
+}
+
+func TestSortByClosedDesc_Empty(t *testing.T) {
+	sortByClosedDesc(nil)
+	sortByClosedDesc([]*types.Issue{})
+	// No panic = pass
+}
+
+func TestMostRecentUpdate(t *testing.T) {
+	t1 := time.Date(2026, 1, 1, 10, 0, 0, 0, time.UTC)
+	t2 := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	t3 := time.Date(2026, 1, 1, 11, 0, 0, 0, time.UTC)
+
+	issues := []*types.Issue{
+		{ID: "bd-1", UpdatedAt: t1},
+		{ID: "bd-2", UpdatedAt: t2},
+		{ID: "bd-3", UpdatedAt: t3},
+	}
+
+	got := mostRecentUpdate(issues)
+	if !got.Equal(t2) {
+		t.Errorf("mostRecentUpdate() = %v, want %v", got, t2)
+	}
+}
+
+func TestMostRecentUpdate_Single(t *testing.T) {
+	t1 := time.Date(2026, 1, 1, 10, 0, 0, 0, time.UTC)
+	issues := []*types.Issue{{ID: "bd-1", UpdatedAt: t1}}
+
+	got := mostRecentUpdate(issues)
+	if !got.Equal(t1) {
+		t.Errorf("mostRecentUpdate() = %v, want %v", got, t1)
+	}
+}
+
+func TestMostRecentUpdate_Empty(t *testing.T) {
+	got := mostRecentUpdate(nil)
+	if !got.IsZero() {
+		t.Errorf("mostRecentUpdate(nil) = %v, want zero time", got)
+	}
+}
+
+func TestPrepareNewsLines_Expand(t *testing.T) {
+	now := time.Now()
+	issues := []*types.Issue{
+		{ID: "bd-epic", Title: "Epic", IssueType: types.TypeEpic, UpdatedAt: now},
+		{ID: "bd-epic.1", Title: "Child 1", IssueType: "task", UpdatedAt: now},
+		{ID: "bd-epic.2", Title: "Child 2", IssueType: "task", UpdatedAt: now},
+		{ID: "bd-epic.3", Title: "Child 3", IssueType: "task", UpdatedAt: now},
+	}
+
+	// With expand=true, no collapsing should happen
+	lines := prepareNewsLines(issues, true)
+	if len(lines) != 4 {
+		t.Errorf("prepareNewsLines(expand=true) returned %d lines, want 4", len(lines))
+	}
+	for _, line := range lines {
+		if line.collapsed {
+			t.Error("prepareNewsLines(expand=true) returned a collapsed line")
+		}
+	}
+}
+
+func TestPrepareNewsLines_CollapseEpic(t *testing.T) {
+	now := time.Now()
+	issues := []*types.Issue{
+		{ID: "bd-epic", Title: "My Epic", IssueType: types.TypeEpic, UpdatedAt: now},
+		{ID: "bd-epic.1", Title: "Child 1", IssueType: "task", UpdatedAt: now},
+		{ID: "bd-epic.2", Title: "Child 2", IssueType: "task", UpdatedAt: now},
+		{ID: "bd-epic.3", Title: "Child 3", IssueType: "task", UpdatedAt: now},
+	}
+
+	lines := prepareNewsLines(issues, false)
+	if len(lines) != 1 {
+		t.Errorf("prepareNewsLines() returned %d lines, want 1 (collapsed)", len(lines))
+		for _, l := range lines {
+			t.Logf("  line: %s collapsed=%v", l.issue.ID, l.collapsed)
+		}
+		return
+	}
+	if !lines[0].collapsed {
+		t.Error("expected collapsed line")
+	}
+	if lines[0].issue.ID != "bd-epic" {
+		t.Errorf("collapsed line ID = %q, want %q", lines[0].issue.ID, "bd-epic")
+	}
+	if lines[0].childCount != 3 {
+		t.Errorf("collapsed line childCount = %d, want 3", lines[0].childCount)
+	}
+}
+
+func TestPrepareNewsLines_NoCollapseUnderThreshold(t *testing.T) {
+	now := time.Now()
+	issues := []*types.Issue{
+		{ID: "bd-epic", Title: "Small Epic", IssueType: types.TypeEpic, UpdatedAt: now},
+		{ID: "bd-epic.1", Title: "Child 1", IssueType: "task", UpdatedAt: now},
+		{ID: "bd-epic.2", Title: "Child 2", IssueType: "task", UpdatedAt: now},
+	}
+
+	lines := prepareNewsLines(issues, false)
+	// 2 children < threshold of 3, so epic + 2 children shown individually
+	// But the epic itself is shown as a standalone line when < threshold
+	collapsedCount := 0
+	for _, l := range lines {
+		if l.collapsed {
+			collapsedCount++
+		}
+	}
+	if collapsedCount > 0 {
+		t.Errorf("expected no collapsed lines for < threshold children, got %d", collapsedCount)
+	}
+}
+
+func TestPrepareNewsLines_StandaloneIssues(t *testing.T) {
+	now := time.Now()
+	issues := []*types.Issue{
+		{ID: "bd-1", Title: "Standalone task", IssueType: "task", UpdatedAt: now},
+		{ID: "bd-2", Title: "Standalone bug", IssueType: "bug", UpdatedAt: now},
+	}
+
+	lines := prepareNewsLines(issues, false)
+	if len(lines) != 2 {
+		t.Errorf("prepareNewsLines() returned %d lines, want 2", len(lines))
+	}
+	for _, line := range lines {
+		if line.collapsed {
+			t.Error("standalone issues should not be collapsed")
+		}
+	}
+}
+
+func TestPrepareNewsLines_MixedEpicAndStandalone(t *testing.T) {
+	now := time.Now()
+	issues := []*types.Issue{
+		{ID: "bd-1", Title: "Standalone", IssueType: "task", UpdatedAt: now},
+		{ID: "bd-epic", Title: "Big Epic", IssueType: types.TypeEpic, UpdatedAt: now},
+		{ID: "bd-epic.1", Title: "Child 1", IssueType: "task", UpdatedAt: now},
+		{ID: "bd-epic.2", Title: "Child 2", IssueType: "task", UpdatedAt: now},
+		{ID: "bd-epic.3", Title: "Child 3", IssueType: "task", UpdatedAt: now},
+		{ID: "bd-2", Title: "Another standalone", IssueType: "bug", UpdatedAt: now},
+	}
+
+	lines := prepareNewsLines(issues, false)
+
+	// Should have: standalone bd-1, collapsed epic, standalone bd-2
+	if len(lines) != 3 {
+		t.Errorf("prepareNewsLines() returned %d lines, want 3", len(lines))
+		for _, l := range lines {
+			t.Logf("  line: %s collapsed=%v", l.issue.ID, l.collapsed)
+		}
+		return
+	}
+	if lines[0].issue.ID != "bd-1" || lines[0].collapsed {
+		t.Errorf("line[0] = %q collapsed=%v, want bd-1 not collapsed", lines[0].issue.ID, lines[0].collapsed)
+	}
+	if lines[1].issue.ID != "bd-epic" || !lines[1].collapsed {
+		t.Errorf("line[1] = %q collapsed=%v, want bd-epic collapsed", lines[1].issue.ID, lines[1].collapsed)
+	}
+	if lines[2].issue.ID != "bd-2" || lines[2].collapsed {
+		t.Errorf("line[2] = %q collapsed=%v, want bd-2 not collapsed", lines[2].issue.ID, lines[2].collapsed)
+	}
+}
+
+func TestPrepareNewsLines_ChildrenWithoutEpicInList(t *testing.T) {
+	now := time.Now()
+	// Children of an epic that isn't in this list (e.g., only children recently opened)
+	issues := []*types.Issue{
+		{ID: "bd-epic.1", Title: "Child 1", IssueType: "task", CreatedBy: "alice", UpdatedAt: now, Status: "open"},
+		{ID: "bd-epic.2", Title: "Child 2", IssueType: "task", CreatedBy: "alice", UpdatedAt: now, Status: "open"},
+		{ID: "bd-epic.3", Title: "Child 3", IssueType: "task", CreatedBy: "alice", UpdatedAt: now, Status: "open"},
+	}
+
+	lines := prepareNewsLines(issues, false)
+	if len(lines) != 1 {
+		t.Errorf("prepareNewsLines() returned %d lines, want 1 (synthesized epic)", len(lines))
+		for _, l := range lines {
+			t.Logf("  line: %s collapsed=%v title=%q", l.issue.ID, l.collapsed, l.issue.Title)
+		}
+		return
+	}
+	if !lines[0].collapsed {
+		t.Error("expected collapsed line for synthesized epic")
+	}
+	if lines[0].issue.ID != "bd-epic" {
+		t.Errorf("synthesized epic ID = %q, want %q", lines[0].issue.ID, "bd-epic")
+	}
+	if lines[0].childCount != 3 {
+		t.Errorf("synthesized epic childCount = %d, want 3", lines[0].childCount)
+	}
+}
+
+func TestPrepareNewsLines_Empty(t *testing.T) {
+	lines := prepareNewsLines(nil, false)
+	if len(lines) != 0 {
+		t.Errorf("prepareNewsLines(nil) returned %d lines, want 0", len(lines))
+	}
+
+	lines = prepareNewsLines([]*types.Issue{}, false)
+	if len(lines) != 0 {
+		t.Errorf("prepareNewsLines([]) returned %d lines, want 0", len(lines))
+	}
+}
+
+func TestPrepareNewsLines_PreservesOrder(t *testing.T) {
+	t1 := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	t2 := time.Date(2026, 1, 1, 11, 0, 0, 0, time.UTC)
+	t3 := time.Date(2026, 1, 1, 10, 0, 0, 0, time.UTC)
+
+	// Issues already sorted desc — prepareNewsLines should preserve order
+	issues := []*types.Issue{
+		{ID: "bd-3", Title: "Newest", IssueType: "task", UpdatedAt: t1},
+		{ID: "bd-2", Title: "Middle", IssueType: "task", UpdatedAt: t2},
+		{ID: "bd-1", Title: "Oldest", IssueType: "task", UpdatedAt: t3},
+	}
+
+	lines := prepareNewsLines(issues, false)
+	wantOrder := []string{"bd-3", "bd-2", "bd-1"}
+	for i, line := range lines {
+		if line.issue.ID != wantOrder[i] {
+			t.Errorf("prepareNewsLines()[%d].ID = %q, want %q", i, line.issue.ID, wantOrder[i])
+		}
+	}
+}

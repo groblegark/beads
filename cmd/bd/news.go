@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
@@ -16,11 +17,24 @@ import (
 // newsWindow is the lookback window for recent activity (var for testing)
 var newsWindow = 2 * time.Hour
 
+// epicCollapseThreshold is the minimum number of children from the same epic
+// before they get collapsed into a single epic summary line.
+const epicCollapseThreshold = 3
+
 // NewsOutput is the JSON output structure for bd news
 type NewsOutput struct {
 	InProgress     []*types.Issue `json:"in_progress"`
 	RecentlyOpened []*types.Issue `json:"recently_opened"`
 	RecentlyClosed []*types.Issue `json:"recently_closed"`
+}
+
+// newsLine represents a displayable line in bd news output.
+// Either a single issue or a collapsed epic summary.
+type newsLine struct {
+	issue      *types.Issue   // the issue (or the epic for collapsed lines)
+	collapsed  bool           // true if this represents a collapsed epic
+	childCount int            // number of children collapsed into this line
+	children   []*types.Issue // the collapsed children (for age calculation)
 }
 
 var newsCmd = &cobra.Command{
@@ -35,15 +49,19 @@ Use this before starting work to get situational awareness:
 - What was just closed (context on recent progress)
 
 Issues by the current actor are excluded unless --all is specified.
+When 3+ children of the same epic appear, they are collapsed into one line
+showing the epic title and child count. Use --expand to see all individual issues.
 
 Examples:
-  bd news                    # Show recent activity by others
+  bd news                    # Show recent activity by others (epics collapsed)
+  bd news --expand           # Show all individual issues (no collapsing)
   bd news --all              # Include your own activity
   bd news --window 4h        # Look back 4 hours instead of default 2h
   bd news --limit 20         # Show more results per section`,
 	Run: func(cmd *cobra.Command, args []string) {
 		limit, _ := cmd.Flags().GetInt("limit")
 		showAll, _ := cmd.Flags().GetBool("all")
+		expand, _ := cmd.Flags().GetBool("expand")
 		windowStr, _ := cmd.Flags().GetString("window")
 
 		// Parse custom window duration
@@ -85,7 +103,6 @@ Examples:
 		}
 
 		// Deduplicate: remove in-progress and closed items from recently-opened
-		// (an issue opened and immediately claimed, or opened and closed, would appear in multiple sections)
 		excludeFromOpened := make(map[string]bool, len(inProgress)+len(recentlyClosed))
 		for _, issue := range inProgress {
 			excludeFromOpened[issue.ID] = true
@@ -95,10 +112,15 @@ Examples:
 		}
 		recentlyOpened = filterOutIDs(recentlyOpened, excludeFromOpened)
 
-		// Filter out decision points from all sections (they clutter the news feed)
+		// Filter out decision points from all sections
 		inProgress = filterOutDecisions(inProgress)
 		recentlyOpened = filterOutDecisions(recentlyOpened)
 		recentlyClosed = filterOutDecisions(recentlyClosed)
+
+		// Sort: most recently updated first (closed: by closed_at)
+		sortByUpdatedDesc(inProgress)
+		sortByUpdatedDesc(recentlyOpened)
+		sortByClosedDesc(recentlyClosed)
 
 		if jsonOutput {
 			outputJSON(NewsOutput{
@@ -119,10 +141,11 @@ Examples:
 		printed := false
 
 		if len(inProgress) > 0 {
+			lines := prepareNewsLines(inProgress, expand)
 			fmt.Printf("\n%s In-progress by others (%d):\n\n",
 				ui.RenderAccent("◐"), len(inProgress))
-			for _, issue := range inProgress {
-				printNewsIssue(issue)
+			for _, line := range lines {
+				printNewsLine(line)
 			}
 			printed = true
 		}
@@ -131,10 +154,11 @@ Examples:
 			if printed {
 				fmt.Println()
 			}
+			lines := prepareNewsLines(recentlyOpened, expand)
 			fmt.Printf("%s Opened in last %s (%d):\n\n",
 				ui.RenderAccent("○"), formatDurationShort(window), len(recentlyOpened))
-			for _, issue := range recentlyOpened {
-				printNewsIssue(issue)
+			for _, line := range lines {
+				printNewsLine(line)
 			}
 			printed = true
 		}
@@ -143,10 +167,11 @@ Examples:
 			if printed {
 				fmt.Println()
 			}
+			lines := prepareNewsLines(recentlyClosed, expand)
 			fmt.Printf("%s Closed in last %s (%d):\n\n",
 				ui.RenderAccent("✓"), formatDurationShort(window), len(recentlyClosed))
-			for _, issue := range recentlyClosed {
-				printNewsIssue(issue)
+			for _, line := range lines {
+				printNewsLine(line)
 			}
 		}
 
@@ -167,6 +192,180 @@ func fetchNewsList(client *rpc.Client, args *rpc.ListArgs) []*types.Issue {
 		os.Exit(1)
 	}
 	return issues
+}
+
+// sortByUpdatedDesc sorts issues by UpdatedAt descending (most recent first).
+func sortByUpdatedDesc(issues []*types.Issue) {
+	slices.SortFunc(issues, func(a, b *types.Issue) int {
+		if a.UpdatedAt.After(b.UpdatedAt) {
+			return -1
+		}
+		if a.UpdatedAt.Before(b.UpdatedAt) {
+			return 1
+		}
+		return 0
+	})
+}
+
+// sortByClosedDesc sorts issues by ClosedAt descending (most recently closed first).
+// Falls back to UpdatedAt if ClosedAt is nil.
+func sortByClosedDesc(issues []*types.Issue) {
+	slices.SortFunc(issues, func(a, b *types.Issue) int {
+		aTime := a.UpdatedAt
+		if a.ClosedAt != nil {
+			aTime = *a.ClosedAt
+		}
+		bTime := b.UpdatedAt
+		if b.ClosedAt != nil {
+			bTime = *b.ClosedAt
+		}
+		if aTime.After(bTime) {
+			return -1
+		}
+		if aTime.Before(bTime) {
+			return 1
+		}
+		return 0
+	})
+}
+
+// prepareNewsLines converts a list of issues into displayable lines,
+// collapsing children of the same epic when there are >= epicCollapseThreshold.
+// If expand is true, no collapsing is done.
+func prepareNewsLines(issues []*types.Issue, expand bool) []newsLine {
+	if expand || len(issues) == 0 {
+		lines := make([]newsLine, len(issues))
+		for i, issue := range issues {
+			lines[i] = newsLine{issue: issue}
+		}
+		return lines
+	}
+
+	// Group children by their root epic ID
+	epicChildren := make(map[string][]*types.Issue)
+	epicIssue := make(map[string]*types.Issue) // root ID → epic issue (if present)
+	var orphans []*types.Issue
+
+	for _, issue := range issues {
+		rootID, _, depth := types.ParseHierarchicalID(issue.ID)
+		if depth == 0 {
+			// This is a root-level issue (could be an epic or standalone)
+			if issue.IssueType == types.TypeEpic {
+				epicIssue[issue.ID] = issue
+				// Also count the epic itself as appearing
+				epicChildren[issue.ID] = append(epicChildren[issue.ID])
+			} else {
+				orphans = append(orphans, issue)
+			}
+		} else {
+			// This is a child — group by root
+			epicChildren[rootID] = append(epicChildren[rootID], issue)
+		}
+	}
+
+	var lines []newsLine
+
+	// Track which root IDs we've already emitted
+	emitted := make(map[string]bool)
+
+	// Walk original order to preserve sort; emit collapsed or individual
+	for _, issue := range issues {
+		rootID, _, depth := types.ParseHierarchicalID(issue.ID)
+
+		if depth == 0 && issue.IssueType != types.TypeEpic {
+			// Standalone non-epic issue — always show
+			lines = append(lines, newsLine{issue: issue})
+			continue
+		}
+
+		// For epics and children: check if this root should be collapsed
+		if emitted[rootID] {
+			continue // already handled
+		}
+
+		children := epicChildren[rootID]
+		epic := epicIssue[rootID]
+
+		if len(children) >= epicCollapseThreshold && epic != nil {
+			// Collapse: show epic with child count
+			emitted[rootID] = true
+			lines = append(lines, newsLine{
+				issue:      epic,
+				collapsed:  true,
+				childCount: len(children),
+				children:   children,
+			})
+		} else if len(children) >= epicCollapseThreshold && epic == nil {
+			// Children of an epic not in this list — synthesize a summary
+			emitted[rootID] = true
+			// Use first child's metadata as proxy, show root ID
+			lines = append(lines, newsLine{
+				issue: &types.Issue{
+					ID:        rootID,
+					Title:     fmt.Sprintf("(%d subtasks)", len(children)),
+					Status:    children[0].Status,
+					CreatedBy: children[0].CreatedBy,
+					UpdatedAt: mostRecentUpdate(children),
+				},
+				collapsed:  true,
+				childCount: len(children),
+				children:   children,
+			})
+		} else {
+			// Not enough children to collapse — show individually
+			if depth == 0 {
+				// Epic with < threshold children — show the epic itself
+				lines = append(lines, newsLine{issue: issue})
+				emitted[rootID] = true
+			} else {
+				// Individual child
+				lines = append(lines, newsLine{issue: issue})
+			}
+		}
+	}
+
+	return lines
+}
+
+// mostRecentUpdate returns the most recent UpdatedAt time from a list of issues.
+func mostRecentUpdate(issues []*types.Issue) time.Time {
+	var latest time.Time
+	for _, issue := range issues {
+		if issue.UpdatedAt.After(latest) {
+			latest = issue.UpdatedAt
+		}
+	}
+	return latest
+}
+
+// printNewsLine prints a single news line (either a regular issue or a collapsed epic).
+func printNewsLine(line newsLine) {
+	if line.collapsed {
+		printCollapsedEpic(line)
+	} else {
+		printNewsIssue(line.issue)
+	}
+}
+
+// printCollapsedEpic prints a collapsed epic summary line.
+func printCollapsedEpic(line newsLine) {
+	issue := line.issue
+	statusIcon := ui.RenderStatusIcon(string(issue.Status))
+
+	age := formatRelativeTime(mostRecentUpdate(line.children))
+
+	createdByStr := ""
+	if issue.CreatedBy != "" {
+		createdByStr = fmt.Sprintf(" by %s", ui.RenderMuted(issue.CreatedBy))
+	}
+
+	fmt.Printf("  %s %s  %s%s  %s %s\n",
+		statusIcon,
+		ui.RenderID(issue.ID),
+		ui.RenderMuted(age),
+		createdByStr,
+		issue.Title,
+		ui.RenderMuted(fmt.Sprintf("(+%d subtasks)", line.childCount)))
 }
 
 // filterOutActor removes issues where the assignee matches the current actor.
@@ -272,6 +471,7 @@ func windowSuffix(d time.Duration) string {
 func init() {
 	newsCmd.Flags().IntP("limit", "n", 50, "Maximum issues to show per section")
 	newsCmd.Flags().Bool("all", false, "Include your own activity")
+	newsCmd.Flags().Bool("expand", false, "Show all individual issues (disable epic collapsing)")
 	newsCmd.Flags().String("window", "", "Lookback window for recent activity (default 2h, e.g. 4h, 30m)")
 	rootCmd.AddCommand(newsCmd)
 }
