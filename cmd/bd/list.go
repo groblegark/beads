@@ -201,7 +201,16 @@ func formatPrettyIssue(issue *types.Issue, progressMap map[string]*types.EpicPro
 			ui.RenderMuted(" "+issue.Title))
 	}
 
-	return fmt.Sprintf("%s %s %s %s%s", statusIcon, issue.ID, priorityTag, typeBadge, issue.Title)
+	// Add age and created_by metadata
+	meta := ""
+	if !issue.UpdatedAt.IsZero() {
+		meta += " " + ui.RenderMuted(formatRelativeTime(issue.UpdatedAt))
+	}
+	if issue.CreatedBy != "" {
+		meta += fmt.Sprintf(" by %s", ui.RenderMuted(issue.CreatedBy))
+	}
+
+	return fmt.Sprintf("%s %s %s %s%s%s", statusIcon, issue.ID, priorityTag, typeBadge, issue.Title, meta)
 }
 
 // buildIssueTree builds parent-child tree structure from issues
@@ -594,6 +603,12 @@ func formatIssueLong(buf *strings.Builder, issue *types.Issue, labels []string) 
 	if issue.Assignee != "" {
 		buf.WriteString(fmt.Sprintf("  Assignee: %s\n", issue.Assignee))
 	}
+	if issue.CreatedBy != "" {
+		buf.WriteString(fmt.Sprintf("  Created by: %s\n", issue.CreatedBy))
+	}
+	if !issue.UpdatedAt.IsZero() {
+		buf.WriteString(fmt.Sprintf("  Updated: %s\n", formatRelativeTime(issue.UpdatedAt)))
+	}
 	if len(labels) > 0 {
 		buf.WriteString(fmt.Sprintf("  Labels: %v\n", labels))
 	}
@@ -695,6 +710,16 @@ func formatIssueCompact(buf *strings.Builder, issue *types.Issue, labels []strin
 		}
 	}
 
+	// Age and created_by metadata
+	ageStr := ""
+	if !issue.UpdatedAt.IsZero() {
+		ageStr = " " + ui.RenderMuted(formatRelativeTime(issue.UpdatedAt))
+	}
+	createdByStr := ""
+	if issue.CreatedBy != "" {
+		createdByStr = fmt.Sprintf(" by %s", ui.RenderMuted(issue.CreatedBy))
+	}
+
 	if issue.Status == types.StatusClosed {
 		// Closed issues: entire line muted (fades visually)
 		line := fmt.Sprintf("%s %s%s [P%d] [%s]%s%s - %s%s",
@@ -704,13 +729,13 @@ func formatIssueCompact(buf *strings.Builder, issue *types.Issue, labels []strin
 		buf.WriteString("\n")
 	} else {
 		// Active issues: status icon + semantic colors for priority/type
-		buf.WriteString(fmt.Sprintf("%s %s%s [%s] [%s]%s%s - %s%s\n",
+		buf.WriteString(fmt.Sprintf("%s %s%s [%s] [%s]%s%s%s%s - %s%s\n",
 			statusIcon,
 			pinIndicator(issue),
 			ui.RenderID(issue.ID),
 			ui.RenderPriority(issue.Priority),
 			ui.RenderType(typeBadge),
-			assigneeStr, labelsStr, issue.Title, depInfo))
+			assigneeStr, labelsStr, ageStr, createdByStr, issue.Title, depInfo))
 	}
 }
 

@@ -173,10 +173,17 @@ This is useful for agents executing molecules to see which steps can run next.`,
 			} else {
 				fmt.Printf("\n%s Ready work (%d issues with no blockers):\n\n", ui.RenderAccent("📋"), len(issues))
 				for i, issue := range issues {
-					fmt.Printf("%d. [%s] [%s] %s: %s\n", i+1,
+					ageMeta := ""
+					if !issue.UpdatedAt.IsZero() {
+						ageMeta += " " + ui.RenderMuted(formatRelativeTime(issue.UpdatedAt))
+					}
+					if issue.CreatedBy != "" {
+						ageMeta += fmt.Sprintf(" by %s", ui.RenderMuted(issue.CreatedBy))
+					}
+					fmt.Printf("%d. [%s] [%s] %s: %s%s\n", i+1,
 						ui.RenderPriority(issue.Priority),
 						ui.RenderType(string(issue.IssueType)),
-						ui.RenderID(issue.ID), issue.Title)
+						ui.RenderID(issue.ID), issue.Title, ageMeta)
 					if issue.EstimatedMinutes != nil {
 						fmt.Printf("   Estimate: %d min\n", *issue.EstimatedMinutes)
 					}
