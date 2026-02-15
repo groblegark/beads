@@ -45,91 +45,28 @@ func (s *Server) handleSyncExport(req *Request) Response {
 	defer cancel()
 	store := s.storage
 
-	// Get sync mode configuration
-	syncMode := getSyncModeFromStore(ctx, store)
-	shouldExportJSONL := syncMode != string(config.SyncModeDoltNative)
-
-	// Find JSONL path
-	jsonlPath := s.findJSONLPath()
-	if jsonlPath == "" {
-		return Response{Success: false, Error: "not in a bd workspace (no .beads directory found)"}
+	// Dolt-native mode: handle Dolt sync (commit/push), no JSONL export
+	syncMode := string(config.SyncModeDoltNative)
+	if err := s.handleDoltSync(ctx, store, syncMode); err != nil {
+		return Response{Success: false, Error: err.Error()}
 	}
 
-	// Cheap status check: skip export when there are no changes (unless forced)
-	if !args.Force && !args.DryRun {
-		hasChanges, err := hasUncommittedChangesInStore(ctx, store)
-		if err != nil {
-			// Log warning but continue with export
-			fmt.Fprintf(os.Stderr, "Warning: status check failed: %v (proceeding with export)\n", err)
-		} else if !hasChanges {
-			result := SyncExportResult{
-				ExportedCount: 0,
-				ChangedCount:  0,
-				JSONLPath:     jsonlPath,
-				Skipped:       true,
-				Message:       "Already synced (no changes)",
-			}
-			data, _ := json.Marshal(result)
-			return Response{Success: true, Data: data}
-		}
-	}
-
-	// Dry-run mode: just report what would happen
+	// Dry-run mode: just report
 	if args.DryRun {
-		dirtyCount := 0
-		if dirtyIDs, err := store.GetDirtyIssues(ctx); err == nil {
-			dirtyCount = len(dirtyIDs)
-		}
-		result := SyncExportResult{
-			ExportedCount: 0,
-			ChangedCount:  dirtyCount,
-			JSONLPath:     jsonlPath,
-			Message:       fmt.Sprintf("[DRY RUN] Would export %d changed issues to JSONL", dirtyCount),
-		}
-		data, _ := json.Marshal(result)
-		return Response{Success: true, Data: data}
-	}
-
-	// Handle Dolt remote operations for dolt-native and belt-and-suspenders modes
-	shouldUseDolt := syncMode == string(config.SyncModeDoltNative) || syncMode == string(config.SyncModeBeltAndSuspenders)
-	if shouldUseDolt {
-		if err := s.handleDoltSync(ctx, store, syncMode); err != nil {
-			return Response{Success: false, Error: err.Error()}
-		}
-	}
-
-	// Export to JSONL for git-portable, realtime, and belt-and-suspenders modes
-	if !shouldExportJSONL {
-		// dolt-native mode: no JSONL export
 		result := SyncExportResult{
 			ExportedCount: 0,
 			ChangedCount:  0,
-			JSONLPath:     "",
-			Message:       "Dolt-native mode: skipped JSONL export",
+			Message:       "[DRY RUN] Dolt-native mode: would commit/push via Dolt",
 		}
 		data, _ := json.Marshal(result)
 		return Response{Success: true, Data: data}
 	}
 
-	// Get count of dirty (changed) issues for incremental tracking
-	var changedCount int
-	if !args.Force {
-		if dirtyIDs, err := store.GetDirtyIssues(ctx); err == nil {
-			changedCount = len(dirtyIDs)
-		}
-	}
-
-	// Perform the export
-	exportedCount, err := s.performSyncExport(ctx, store, jsonlPath)
-	if err != nil {
-		return Response{Success: false, Error: fmt.Sprintf("export failed: %v", err)}
-	}
-
+	// Return success — Dolt handles the sync
 	result := SyncExportResult{
-		ExportedCount: exportedCount,
-		ChangedCount:  changedCount,
-		JSONLPath:     jsonlPath,
-		Message:       fmt.Sprintf("Exported %d issues to JSONL", exportedCount),
+		ExportedCount: 0,
+		ChangedCount:  0,
+		Message:       "Dolt-native mode: synced via Dolt",
 	}
 	data, _ := json.Marshal(result)
 	return Response{Success: true, Data: data}
@@ -352,16 +289,11 @@ func (s *Server) performSyncExport(ctx context.Context, store storage.Storage, j
 	return len(exportedIDs), nil
 }
 
-// handleDoltSync handles Dolt commit/push for dolt-native and belt-and-suspenders modes.
-func (s *Server) handleDoltSync(ctx context.Context, store storage.Storage, syncMode string) error {
+// handleDoltSync handles Dolt commit/push (dolt-native is the only mode).
+func (s *Server) handleDoltSync(ctx context.Context, store storage.Storage, _ string) error {
 	rs, ok := storage.AsRemote(store)
 	if !ok {
-		if syncMode == string(config.SyncModeDoltNative) {
-			return fmt.Errorf("dolt-native sync mode requires Dolt backend")
-		}
-		// belt-and-suspenders: warn but continue with JSONL
-		fmt.Fprintln(os.Stderr, "Warning: Dolt remote not available, falling back to JSONL-only")
-		return nil
+		return fmt.Errorf("dolt-native sync mode requires Dolt backend")
 	}
 
 	// Commit to Dolt
@@ -386,45 +318,14 @@ func (s *Server) handleDoltSync(ctx context.Context, store storage.Storage, sync
 
 // Helper functions
 
-// getSyncModeFromStore gets the sync mode, checking config.yaml first then database.
-func getSyncModeFromStore(ctx context.Context, s storage.Storage) string {
-	// First check config.yaml
-	yamlMode := config.GetSyncMode()
-	if yamlMode != "" && yamlMode != config.SyncModeGitPortable {
-		return string(yamlMode)
-	}
-
-	// Fall back to database
-	mode, err := s.GetConfig(ctx, "sync.mode")
-	if err == nil && mode != "" {
-		if config.IsValidSyncMode(mode) {
-			return mode
-		}
-	}
-
-	// Check storage-backend for Dolt default
-	storageBackend := config.GetString("storage-backend")
-	if storageBackend == "dolt" {
-		return string(config.SyncModeDoltNative)
-	}
-
-	return string(config.SyncModeGitPortable)
+// getSyncModeFromStore returns the sync mode (always dolt-native).
+func getSyncModeFromStore(_ context.Context, _ storage.Storage) string {
+	return string(config.SyncModeDoltNative)
 }
 
 // getSyncModeDescription returns a human-readable description.
-func getSyncModeDescription(mode string) string {
-	switch mode {
-	case string(config.SyncModeGitPortable):
-		return "JSONL exported on push, imported on pull"
-	case string(config.SyncModeRealtime):
-		return "JSONL exported on every change"
-	case string(config.SyncModeDoltNative):
-		return "Dolt remotes only, no JSONL"
-	case string(config.SyncModeBeltAndSuspenders):
-		return "Both Dolt remotes and JSONL"
-	default:
-		return "unknown mode"
-	}
+func getSyncModeDescription(_ string) string {
+	return "Dolt remotes only, no JSONL"
 }
 
 // hasUncommittedChangesInStore checks if there are uncommitted changes in the store.

@@ -864,29 +864,15 @@ The daemon will now exit.`, strings.ToUpper(backend))
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
-	// Check for dolt-native mode (hq-c005e8)
-	// Dolt-native mode uses lightweight sync without JSONL export/import
-	syncMode := GetSyncMode(ctx, store)
-	isDoltNative := syncMode == SyncModeDoltNative
-
-	// Skip dirty tracking in dolt-native mode to eliminate write amplification (bd-8csx)
-	if isDoltNative {
-		if s, ok := store.(interface{ SetSkipDirtyTracking(bool) }); ok {
-			s.SetSkipDirtyTracking(true)
-			log.Info("dirty tracking disabled (dolt-native mode)")
-		}
+	// Skip dirty tracking — dolt-native mode doesn't use JSONL export (bd-8csx)
+	if s, ok := store.(interface{ SetSkipDirtyTracking(bool) }); ok {
+		s.SetSkipDirtyTracking(true)
+		log.Info("dirty tracking disabled (dolt-native mode)")
 	}
 
-	// Create sync function based on mode
-	var doSync func()
-	if isDoltNative {
-		doSync = createDoltNativeSyncFunc(ctx, store, autoCommit, autoPush, autoPull, log)
-		log.Info("using dolt-native sync mode (no JSONL)")
-	} else if localMode {
-		doSync = createLocalSyncFunc(ctx, store, log)
-	} else {
-		doSync = createSyncFunc(ctx, store, autoCommit, autoPush, log)
-	}
+	// Dolt-native sync: lightweight commit/push/pull without JSONL
+	doSync := createDoltNativeSyncFunc(ctx, store, autoCommit, autoPush, autoPull, log)
+	log.Info("using dolt-native sync mode")
 	doSync()
 
 	// Get parent PID for monitoring (exit if parent dies)
@@ -898,32 +884,11 @@ The daemon will now exit.`, strings.ToUpper(backend))
 	case "events":
 		log.Info("using event-driven mode")
 
-		// Event-driven mode uses separate export-only and import-only functions
-		var doExport, doAutoImport func()
-
-		if isDoltNative {
-			// Dolt-native: lightweight commit/push without JSONL
-			doExport = createDoltNativeExportFunc(ctx, store, autoCommit, autoPush, log)
-			doAutoImport = createDoltNativePullFunc(ctx, store, log)
-			// Use empty jsonlPath since we don't need file watching
-			runEventDrivenLoop(ctx, cancel, server, serverErrChan, store, "", doExport, doAutoImport, autoPull, parentPID, log)
-		} else {
-			jsonlPath := findJSONLPath()
-			if jsonlPath == "" {
-				log.Error("JSONL path not found, cannot use event-driven mode")
-				log.Info("falling back to polling mode")
-				runEventLoop(ctx, cancel, ticker, doSync, server, serverErrChan, parentPID, log)
-			} else {
-				if localMode {
-					doExport = createLocalExportFunc(ctx, store, log)
-					doAutoImport = createLocalAutoImportFunc(ctx, store, log)
-				} else {
-					doExport = createExportFunc(ctx, store, autoCommit, autoPush, log)
-					doAutoImport = createAutoImportFunc(ctx, store, log)
-				}
-				runEventDrivenLoop(ctx, cancel, server, serverErrChan, store, jsonlPath, doExport, doAutoImport, autoPull, parentPID, log)
-			}
-		}
+		// Dolt-native: lightweight commit/push without JSONL
+		doExport := createDoltNativeExportFunc(ctx, store, autoCommit, autoPush, log)
+		doAutoImport := createDoltNativePullFunc(ctx, store, log)
+		// Use empty jsonlPath since we don't need file watching
+		runEventDrivenLoop(ctx, cancel, server, serverErrChan, store, "", doExport, doAutoImport, autoPull, parentPID, log)
 	case "poll":
 		log.Info("using polling mode", "interval", interval)
 		runEventLoop(ctx, cancel, ticker, doSync, server, serverErrChan, parentPID, log)

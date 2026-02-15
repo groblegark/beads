@@ -2,7 +2,6 @@ package main
 
 import (
 	"cmp"
-	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -13,9 +12,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
-	"github.com/steveyegge/beads/internal/config"
 	"github.com/steveyegge/beads/internal/debug"
-	"github.com/steveyegge/beads/internal/storage"
 	"github.com/steveyegge/beads/internal/storage/factory"
 	"github.com/steveyegge/beads/internal/types"
 	"github.com/steveyegge/beads/internal/util"
@@ -698,38 +695,3 @@ func init() {
 	rootCmd.AddCommand(exportCmd)
 }
 
-// --- Sync mode helpers (moved from sync_mode.go during beads-gfz6 cleanup) ---
-
-// Sync mode constants - re-exported from internal/config for backward compatibility.
-const (
-	SyncModeGitPortable      = string(config.SyncModeGitPortable)
-	SyncModeRealtime         = string(config.SyncModeRealtime)
-	SyncModeDoltNative       = string(config.SyncModeDoltNative)
-	SyncModeBeltAndSuspenders = string(config.SyncModeBeltAndSuspenders)
-	SyncModeConfigKey        = "sync.mode"
-)
-
-// GetSyncMode returns the configured sync mode.
-func GetSyncMode(ctx context.Context, s storage.Storage) string {
-	yamlMode := config.GetSyncMode()
-	if yamlMode != "" && yamlMode != config.SyncModeGitPortable {
-		return string(yamlMode)
-	}
-	mode, err := s.GetConfig(ctx, SyncModeConfigKey)
-	if err == nil && mode != "" {
-		if config.IsValidSyncMode(mode) {
-			return mode
-		}
-	}
-	storageBackend := config.GetString("storage-backend")
-	if storageBackend == "dolt" {
-		return SyncModeDoltNative
-	}
-	return SyncModeGitPortable
-}
-
-// ShouldExportJSONL returns true if the current sync mode uses JSONL export.
-func ShouldExportJSONL(ctx context.Context, s storage.Storage) bool {
-	mode := GetSyncMode(ctx, s)
-	return mode != SyncModeDoltNative
-}

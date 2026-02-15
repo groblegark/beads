@@ -20,16 +20,8 @@ import (
 )
 
 // exportToJSONLWithStore exports issues to JSONL using the provided store.
-// If multi-repo mode is configured, routes issues to their respective JSONL files.
-// Otherwise, exports to a single JSONL file.
-// Respects sync mode: skips JSONL export in dolt-native mode (bd-u9yv).
+// In dolt-native mode (the only mode), this is only called for explicit `bd export`.
 func exportToJSONLWithStore(ctx context.Context, store storage.Storage, jsonlPath string) error {
-	// Check sync mode before JSONL export (bd-u9yv: dolt-native mode should skip JSONL)
-	if !ShouldExportJSONL(ctx, store) {
-		debug.Logf("skipping JSONL export (dolt-native mode)")
-		return nil
-	}
-
 	// Single-repo mode
 	// Get all issues including tombstones for sync propagation
 	// Tombstones must be exported so they propagate to other clones and prevent resurrection
