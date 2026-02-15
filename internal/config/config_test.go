@@ -48,6 +48,49 @@ func TestInitialize(t *testing.T) {
 	}
 }
 
+func TestInitializeWithDaemonHostNoFilesystem(t *testing.T) {
+	// bd-2o58p: Verify Initialize() succeeds with BD_DAEMON_HOST set
+	// and no .beads/ directory anywhere on the filesystem.
+	restore := envSnapshot(t)
+	defer restore()
+
+	// Use a temp dir with no .beads/ directory as CWD
+	tmpDir := t.TempDir()
+	origDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd: %v", err)
+	}
+	if err := os.Chdir(tmpDir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer os.Chdir(origDir)
+
+	// Set BD_DAEMON_HOST — the only config source
+	t.Setenv("BD_DAEMON_HOST", "http://localhost:8080")
+	// Prevent loading repo-level config.yaml from beads source tree
+	t.Setenv("BEADS_TEST_IGNORE_REPO_CONFIG", "1")
+
+	if err := Initialize(); err != nil {
+		t.Fatalf("Initialize() with BD_DAEMON_HOST and no filesystem returned error: %v", err)
+	}
+
+	// daemon-host should resolve from env var
+	if got := GetString("daemon-host"); got != "http://localhost:8080" {
+		t.Errorf("GetString(daemon-host) = %q, want %q", got, "http://localhost:8080")
+	}
+
+	// Defaults should still be set
+	if got := GetBool("json"); got != false {
+		t.Errorf("GetBool(json) = %v, want false", got)
+	}
+	if got := GetBool("no-daemon"); got != false {
+		t.Errorf("GetBool(no-daemon) = %v, want false", got)
+	}
+	if got := GetBool("auto-start-daemon"); got != true {
+		t.Errorf("GetBool(auto-start-daemon) = %v, want true", got)
+	}
+}
+
 func TestDefaults(t *testing.T) {
 	// Isolate from environment variables
 	restore := envSnapshot(t)
