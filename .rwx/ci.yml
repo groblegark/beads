@@ -5,17 +5,20 @@ on:
       if: ${{ event.git.branch == 'main' }}
       init:
         commit-sha: ${{ event.git.sha }}
+        trigger: push
       status-checks:
         name: CI
     pull_request:
       init:
         commit-sha: ${{ event.git.sha }}
+        trigger: pr
       status-checks:
         - tasks: [build, lint, test, version-check]
           name: CI
   cli:
     init:
       commit-sha: ${{ event.git.sha }}
+      trigger: cli
 
 base:
   image: ubuntu:24.04
@@ -76,7 +79,7 @@ tasks:
 
   # ── Build (only when source changes) ────────────────────────────────────
   - key: build
-    use: git-config
+    use: [code, git-config]
     filter:
       # List specific directories to avoid version.go cache invalidation
       - "*.go"               # Root package files (beads.go) needed for self-imports
@@ -94,7 +97,7 @@ tasks:
 
   # ── Lint (parallel with build) ──────────────────────────────────────────
   - key: lint
-    use: [git-config, golangci-lint, go-deps]
+    use: [code, git-config, golangci-lint, go-deps]
     filter:
       - "**/*.go"
       - "**/*.sql"                       # Embedded files referenced by //go:embed
@@ -128,15 +131,20 @@ tasks:
         echo "Coverage below ${MIN_COVERAGE}% threshold"
         exit 1
       fi
+    outputs:
+      artifacts:
+        - key: coverage
+          path: coverage.out
 
   # ── Version check ────────────────────────────────────────────────────────
   - key: version-check
     use: code
     run: ./scripts/check-versions.sh
 
-  # ── Beads JSONL guard ────────────────────────────────────────────────────
+  # ── Beads JSONL guard (PRs only — comparing to main is meaningless on main) ─
   - key: beads-changes-check
     use: code
+    if: ${{ init.trigger == 'pr' }}
     run: |
       git fetch origin main --depth=1 2>/dev/null || true
       if git diff --name-only origin/main...HEAD 2>/dev/null | grep -q "^\.beads/issues\.jsonl$"; then

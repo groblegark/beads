@@ -13,7 +13,8 @@ on:
         commit-sha: ${{ event.git.sha }}
         ref-name: pr
       status-checks:
-        name: Helm
+        - tasks: [helm-lint]
+          name: Helm
   cli:
     init:
       commit-sha: ${{ event.git.sha }}

@@ -70,7 +70,12 @@ tasks:
   - key: build-bd
     use: go-deps
     filter:
-      - "**/*.go"
+      - "*.go"
+      - "cmd/bd/*.go"
+      - "!cmd/bd/version.go"
+      - "cmd/**/*.go"
+      - "pkg/**/*.go"
+      - "internal/**/*.go"
       - "go.mod"
       - "go.sum"
       - "cmd/bd/templates/**"
@@ -154,10 +159,11 @@ tasks:
 
   # ── Toolchain image (agent runtime with full dev tools) ─────────────
   - key: image-toolchain
-    use: [build-bd, build-oj]
+    use: [build-bd, build-oj, go]
     if: ${{ init.ref-name != 'pr' }}
     filter:
       - .rwx/toolchain-version.lock
+      - .go-version
     run: |
       export DEBIAN_FRONTEND=noninteractive
 
@@ -173,8 +179,10 @@ tasks:
       sudo groupadd -g 1001 agent
       sudo useradd -u 1001 -g agent -s /bin/bash -m agent
 
-      # Go
-      curl -fsSL "https://go.dev/dl/go1.25.7.linux-amd64.tar.gz" | sudo tar -C /usr/local -xzf -
+      # Go — resolve version from the same golang/install used by build tasks
+      GO_VERSION=$(go env GOVERSION | sed 's/^go//')
+      echo "Installing Go ${GO_VERSION} into image..."
+      curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" | sudo tar -C /usr/local -xzf -
 
       # Rust (install as agent user)
       sudo -u agent bash -c 'curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.93.0'

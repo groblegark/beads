@@ -27,3 +27,24 @@ touch .rwx/rust-version.lock
 git add .rwx/rust-version.lock
 git commit -m "chore: rebuild Rust toolchain cache"
 ```
+
+## Version Sync Requirements
+
+Some versions appear in multiple pipeline files and must be updated together:
+
+### Go version
+Update `.go-version` — the `golang/install` package in ci.yml, image.yml, and release.yml
+all read `go-version: "1.25"` and should match. The image-toolchain task resolves the
+exact patch version dynamically from `go env GOVERSION`.
+
+Files to update: `.go-version`, `ci.yml`, `image.yml`, `release.yml`
+
+### Rust version
+Hardcoded in `image.yml` (rust task) and `image-toolchain` task.
+
+Files to update: `image.yml` (two locations), touch `rust-version.lock`
+
+### golangci-lint version
+Hardcoded in `ci.yml` golangci-lint task (`v2.9.0`).
+
+Files to update: `ci.yml`
