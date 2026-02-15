@@ -653,6 +653,13 @@ variable.`,
 	},
 }
 
+// isGitRepo returns true if the current directory is inside a git repository.
+// Moved from sync_git.go during beads-gfz6 cleanup.
+func isGitRepo() bool {
+	cmd := exec.Command("git", "rev-parse", "--git-dir")
+	return cmd.Run() == nil
+}
+
 func init() {
 	initCmd.Flags().StringP("prefix", "p", "", "Issue prefix (default: current directory name)")
 	initCmd.Flags().BoolP("quiet", "q", false, "Suppress output (quiet mode)")
