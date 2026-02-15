@@ -2,9 +2,9 @@
 # Automated version of release-stack.sh for non-interactive execution
 set -e
 
-COOP_VERSION="0.2.0"
-BEADS_VERSION="0.60.0"
-GASTOWN_VERSION="0.7.5"
+COOP_VERSION="0.11.25"
+BEADS_VERSION="0.61.0"
+GASTOWN_VERSION="0.7.6"
 
 START_TIME=$(date +%s)
 echo "🚀 Starting automated release at $(date)"
@@ -55,8 +55,8 @@ git pull origin main
 if tag_exists "v${BEADS_VERSION}"; then
     echo "Tag v${BEADS_VERSION} already exists in beads. Skipping..."
 else
-    # Use bump-version script
-    ./scripts/bump-version.sh "${BEADS_VERSION}"
+    # Update version numbers across all components
+    ./scripts/update-versions.sh "${BEADS_VERSION}"
 
     # Commit and tag
     git add -A

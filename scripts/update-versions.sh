@@ -97,11 +97,15 @@ NEW_CHART_VERSION="$CHART_MAJOR.$CHART_MINOR.$((CHART_PATCH + 1))"
 update_file "helm/bd-daemon/Chart.yaml" "version: $CHART_VERSION" "version: $NEW_CHART_VERSION"
 echo "    (chart version: $CHART_VERSION → $NEW_CHART_VERSION)"
 
-# 7. Hook templates
-echo "  • cmd/bd/templates/hooks/*"
-for hook in pre-commit post-merge pre-push post-checkout; do
-    update_file "cmd/bd/templates/hooks/$hook" "# bd-hooks-version: $CURRENT_VERSION" "# bd-hooks-version: $NEW_VERSION"
-done
+# 7. Hook templates (skip if directory doesn't exist)
+if [ -d "cmd/bd/templates/hooks" ]; then
+    echo "  • cmd/bd/templates/hooks/*"
+    for hook in pre-commit post-merge pre-push post-checkout; do
+        [ -f "cmd/bd/templates/hooks/$hook" ] && update_file "cmd/bd/templates/hooks/$hook" "# bd-hooks-version: $CURRENT_VERSION" "# bd-hooks-version: $NEW_VERSION"
+    done
+else
+    echo "  • cmd/bd/templates/hooks/* (skipped — directory not found)"
+fi
 
 echo ""
 echo -e "${GREEN}✓ Versions updated to $NEW_VERSION${NC}"
