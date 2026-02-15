@@ -30,7 +30,7 @@ var YamlOnlyKeys = map[string]bool{
 	"db":              true,
 	"actor":           true,
 	"identity":        true,
-	"storage-backend": true, // "sqlite" (default) or "dolt"
+	"storage-backend": true, // Always "dolt" (sqlite removed)
 
 	// Timing settings
 	"flush-debounce":       true,

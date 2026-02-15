@@ -18,7 +18,7 @@ func singleProcessBackendHelp(backend string) string {
 		b = "unknown"
 	}
 	// Keep this short; Cobra will prefix with "Error:".
-	return fmt.Sprintf("daemon mode is not supported with the %q backend (single-process only)", b)
+	return fmt.Sprintf("daemon mode is not supported with the %q backend (single-process only). Check daemon-host configuration.", b)
 }
 
 // guardDaemonStartForDolt blocks daemon start/restart commands when:

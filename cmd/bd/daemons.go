@@ -265,7 +265,7 @@ Stops the daemon gracefully, then starts a new one.`,
 					outputJSON(map[string]string{"error": fmt.Sprintf("daemon mode is not supported for backend %q (single-process only)", cfg.GetBackend())})
 				} else {
 					fmt.Fprintf(os.Stderr, "Error: cannot restart daemon for workspace %s: backend %q is single-process-only\n", workspace, cfg.GetBackend())
-					fmt.Fprintf(os.Stderr, "Hint: initialize the workspace with sqlite backend for daemon mode (e.g. `bd init --backend sqlite`)\n")
+					fmt.Fprintf(os.Stderr, "Hint: check daemon-host configuration and ensure the Dolt server is reachable\n")
 				}
 				os.Exit(1)
 			}

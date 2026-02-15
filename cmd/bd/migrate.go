@@ -29,10 +29,6 @@ Without subcommand, detects and migrates database schema to current version:
 - Updates schema version metadata
 - Removes stale databases (with confirmation)
 
-Backend migration flags:
-  --to-dolt     Migrate from SQLite to Dolt backend
-  --to-sqlite   Migrate from Dolt to SQLite backend (escape hatch)
-
 Subcommands:
   hash-ids    Migrate sequential IDs to hash-based IDs (legacy)
   issues      Move issues between repositories
@@ -62,18 +58,11 @@ Subcommands:
 			return
 		}
 
-		// Handle --to-dolt flag (SQLite to Dolt migration)
+		// Handle --to-dolt flag (legacy, now a no-op since Dolt is the only backend)
 		toDolt, _ := cmd.Flags().GetBool("to-dolt")
 		if toDolt {
-			handleToDoltMigration(dryRun, autoYes)
+			fmt.Fprintln(os.Stderr, "Dolt is already the only backend. --to-dolt is no longer needed.")
 			return
-		}
-
-		// Handle --to-sqlite flag (removed - SQLite backend no longer available)
-		toSQLite, _ := cmd.Flags().GetBool("to-sqlite")
-		if toSQLite {
-			fmt.Fprintln(os.Stderr, "Error: SQLite backend has been removed. --to-sqlite is no longer supported.")
-			os.Exit(1)
 		}
 
 		// Find .beads directory
@@ -970,8 +959,8 @@ func init() {
 	migrateCmd.Flags().Bool("dry-run", false, "Show what would be done without making changes")
 	migrateCmd.Flags().Bool("update-repo-id", false, "Update repository ID (use after changing git remote)")
 	migrateCmd.Flags().Bool("inspect", false, "Show migration plan and database state for AI agent analysis")
-	migrateCmd.Flags().Bool("to-dolt", false, "Migrate from SQLite to Dolt backend")
-	migrateCmd.Flags().Bool("to-sqlite", false, "Migrate from Dolt to SQLite backend (escape hatch)")
+	migrateCmd.Flags().Bool("to-dolt", false, "No-op (Dolt is the only backend)")
+	// --to-sqlite removed: SQLite backend no longer exists
 	migrateCmd.Flags().BoolVar(&jsonOutput, "json", false, "Output migration statistics in JSON format")
 	rootCmd.AddCommand(migrateCmd)
 }
