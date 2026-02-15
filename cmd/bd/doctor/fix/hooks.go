@@ -154,8 +154,9 @@ func DetectActiveHookManager(path string) string {
 	return ""
 }
 
-// recommendedBdHooks are the hooks that should have bd integration
-var recommendedBdHooks = []string{"pre-commit", "post-merge", "pre-push"}
+// recommendedBdHooks are the hooks that should have bd integration.
+// Note: pre-commit was removed because Dolt handles sync automatically.
+var recommendedBdHooks = []string{"post-merge", "pre-push"}
 
 // lefthookConfigFiles lists lefthook config files (derived from hookManagerConfigs).
 // Format is inferred from extension.

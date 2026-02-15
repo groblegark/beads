@@ -20,11 +20,12 @@ Two race conditions can occur:
 
 ## The Solution
 
-These git hooks ensure bd changes are always synchronized with your commits and pushes:
+These git hooks ensure bd changes are always synchronized with your git workflow:
 
-- **pre-commit** - Flushes pending bd changes to JSONL before commit and stages it
 - **pre-push** - Blocks push if JSONL has uncommitted changes (bd-my64)
 - **post-merge** - Imports updated JSONL after git pull/merge
+
+Note: The pre-commit hook was removed because Dolt handles sync automatically.
 
 ## Installation
 
@@ -84,28 +85,12 @@ git commit -m "Add bd git hooks for team"
 ### Manual Install
 
 ```bash
-cp examples/git-hooks/pre-commit .git/hooks/pre-commit
 cp examples/git-hooks/pre-push .git/hooks/pre-push
 cp examples/git-hooks/post-merge .git/hooks/post-merge
-chmod +x .git/hooks/pre-commit .git/hooks/pre-push .git/hooks/post-merge
+chmod +x .git/hooks/pre-push .git/hooks/post-merge
 ```
 
 ## How It Works
-
-### pre-commit
-
-Before each commit, the hook runs:
-
-```bash
-bd export
-```
-
-This:
-1. Exports any pending database changes to `.beads/issues.jsonl`
-2. Stages the JSONL file if modified
-3. Allows the commit to proceed with clean state
-
-The hook is silent on success, fast (no git operations), and safe (fails commit if flush fails).
 
 ### pre-push
 
@@ -158,7 +143,7 @@ This ensures your local database reflects the merged state. The hook:
 Remove the hooks:
 
 ```bash
-rm .git/hooks/pre-commit .git/hooks/pre-push .git/hooks/post-merge
+rm .git/hooks/pre-push .git/hooks/post-merge
 ```
 
 Your backed-up hooks (if any) are in `.git/hooks/*.backup-*`.

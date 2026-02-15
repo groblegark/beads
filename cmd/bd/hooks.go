@@ -22,7 +22,7 @@ var hooksFS embed.FS
 
 func getEmbeddedHooks() (map[string]string, error) {
 	hooks := make(map[string]string)
-	hookNames := []string{"pre-commit", "post-merge", "pre-push", "post-checkout", "prepare-commit-msg"}
+	hookNames := []string{"post-merge", "pre-push", "post-checkout", "prepare-commit-msg"}
 
 	for _, name := range hookNames {
 		content, err := hooksFS.ReadFile("templates/hooks/" + name)
@@ -53,7 +53,7 @@ type HookStatus struct {
 
 // CheckGitHooks checks the status of bd git hooks in .git/hooks/
 func CheckGitHooks() []HookStatus {
-	hooks := []string{"pre-commit", "post-merge", "pre-push", "post-checkout", "prepare-commit-msg"}
+	hooks := []string{"post-merge", "pre-push", "post-checkout", "prepare-commit-msg"}
 	statuses := make([]HookStatus, 0, len(hooks))
 
 	// Get hooks directory from common git dir (hooks are shared across worktrees)
@@ -180,14 +180,15 @@ var hooksCmd = &cobra.Command{
 	Use:     "hooks",
 	GroupID: "setup",
 	Short:   "Manage git hooks for bd auto-sync",
-	Long: `Install, uninstall, or list git hooks for bd JSONL management.
+	Long: `Install, uninstall, or list git hooks for bd integration.
 
 The hooks ensure that:
-- pre-commit: Flushes pending changes to JSONL before commit
 - post-merge: Imports updated JSONL after pull/merge
 - pre-push: Prevents pushing stale JSONL
 - post-checkout: Imports JSONL after branch checkout
-- prepare-commit-msg: Adds agent identity trailers for forensics`,
+- prepare-commit-msg: Adds agent identity trailers for forensics
+
+Note: The pre-commit hook was removed because Dolt handles sync automatically.`,
 }
 
 var hooksInstallCmd = &cobra.Command{
@@ -204,11 +205,12 @@ Use --chain to preserve existing hooks and run them before bd hooks. This is
 useful if you have pre-commit framework hooks or other custom hooks.
 
 Installed hooks:
-  - pre-commit: Flush changes to JSONL before commit
   - post-merge: Import JSONL after pull/merge
   - pre-push: Prevent pushing stale JSONL
   - post-checkout: Import JSONL after branch checkout
-  - prepare-commit-msg: Add agent identity trailers (for orchestrator agents)`,
+  - prepare-commit-msg: Add agent identity trailers (for orchestrator agents)
+
+Note: The pre-commit hook was removed because Dolt handles sync automatically.`,
 	Run: func(cmd *cobra.Command, args []string) {
 		force, _ := cmd.Flags().GetBool("force")
 		shared, _ := cmd.Flags().GetBool("shared")
@@ -464,7 +466,7 @@ func uninstallHooks() error {
 	if err != nil {
 		return err
 	}
-	hookNames := []string{"pre-commit", "post-merge", "pre-push", "post-checkout", "prepare-commit-msg"}
+	hookNames := []string{"post-merge", "pre-push", "post-checkout", "prepare-commit-msg"}
 
 	for _, hookName := range hookNames {
 		hookPath := filepath.Join(hooksDir, hookName)
@@ -539,74 +541,6 @@ func runChainedHook(hookName string, args []string) int {
 		// Other error - treat as failure
 		fmt.Fprintf(os.Stderr, "Warning: chained hook %s failed: %v\n", hookName, err)
 		return 1
-	}
-
-	return 0
-}
-
-// runPreCommitHook flushes pending changes to JSONL before commit.
-// Returns 0 on success (or if not applicable), 1 if unstaged beads changes detected.
-func runPreCommitHook() int {
-	// Run chained hook first (if exists)
-	if exitCode := runChainedHook("pre-commit", nil); exitCode != 0 {
-		return exitCode
-	}
-
-	// Check if we're in a bd workspace
-	if _, err := os.Stat(".beads"); os.IsNotExist(err) {
-		return 0 // Not a bd workspace, nothing to do
-	}
-
-	// Flush pending changes to JSONL
-	// Use bd export (bd sync was removed — dolt handles sync automatically)
-	cmd := exec.Command("bd", "export")
-	if err := cmd.Run(); err != nil {
-		fmt.Fprintln(os.Stderr, "Warning: Failed to flush bd changes to JSONL")
-		fmt.Fprintln(os.Stderr, "Run 'bd export' manually to diagnose")
-		// Don't block the commit - user may have removed beads or have other issues
-	}
-
-	// Stage JSONL files for commit
-	// By default, we auto-stage for convenience. Users with conflicting git hooks
-	// (e.g., hooks that read the staging area) can set BEADS_NO_AUTO_STAGE=1 to
-	// disable this and stage manually. See: https://github.com/steveyegge/beads/issues/826
-	if os.Getenv("BEADS_NO_AUTO_STAGE") != "" {
-		// Safe mode: check for unstaged changes and block if found
-		var unstaged []string
-		for _, f := range jsonlFilePaths {
-			if _, err := os.Stat(f); err == nil {
-				if hasUnstagedChanges(f) {
-					unstaged = append(unstaged, f)
-				}
-			}
-		}
-
-		if len(unstaged) > 0 {
-			fmt.Fprintln(os.Stderr, "❌ Unstaged beads changes detected:")
-			for _, f := range unstaged {
-				fmt.Fprintf(os.Stderr, "   %s\n", f)
-			}
-			fmt.Fprintln(os.Stderr, "")
-			fmt.Fprintln(os.Stderr, "Run: git add .beads/")
-			return 1
-		}
-	} else {
-		// Default: auto-stage JSONL files
-		rc, rcErr := beads.GetRepoContext()
-		ctx := context.Background()
-		for _, f := range jsonlFilePaths {
-			if _, err := os.Stat(f); err == nil {
-				var gitAdd *exec.Cmd
-				if rcErr == nil {
-					gitAdd = rc.GitCmdCWD(ctx, "add", f)
-				} else {
-					// Fallback if RepoContext unavailable
-					// #nosec G204 -- f comes from jsonlFilePaths (controlled, hardcoded paths)
-					gitAdd = exec.Command("git", "add", f)
-				}
-				_ = gitAdd.Run() // Ignore errors - file may not exist
-			}
-		}
 	}
 
 	return 0
@@ -1108,50 +1042,6 @@ func hasBeadsJSONL() bool {
 	return false
 }
 
-// hasUnstagedChanges checks if a file has uncommitted changes (modified or untracked).
-// Returns true if the file needs to be staged before commit.
-func hasUnstagedChanges(path string) bool {
-	// Check git status for this specific file
-	rc, rcErr := beads.GetRepoContext()
-	var cmd *exec.Cmd
-	if rcErr == nil {
-		cmd = rc.GitCmdCWD(context.Background(), "status", "--porcelain", "--", path)
-	} else {
-		// #nosec G204 - path is from hardcoded list in caller
-		cmd = exec.Command("git", "status", "--porcelain", "--", path)
-	}
-	output, err := cmd.Output()
-	if err != nil {
-		return false // If git fails, assume no changes
-	}
-
-	// Parse porcelain output: XY filename
-	// X = staged status, Y = unstaged status
-	// We care about Y (unstaged) being non-space, OR the file being untracked (??)
-	status := strings.TrimSpace(string(output))
-	if status == "" {
-		return false // No changes
-	}
-
-	// Check each line (usually just one for a single file)
-	for _, line := range strings.Split(status, "\n") {
-		if len(line) < 2 {
-			continue
-		}
-		x, y := line[0], line[1]
-		// Untracked file
-		if x == '?' && y == '?' {
-			return true
-		}
-		// Modified but not staged (Y is M, D, etc.)
-		if y != ' ' {
-			return true
-		}
-	}
-
-	return false
-}
-
 var hooksRunCmd = &cobra.Command{
 	Use:   "run <hook-name> [args...]",
 	Short: "Execute a git hook (called by thin shims)",
@@ -1159,14 +1049,15 @@ var hooksRunCmd = &cobra.Command{
 thin shim scripts installed in .git/hooks/.
 
 Supported hooks:
-  - pre-commit: Flush pending changes to JSONL before commit
   - post-merge: Import JSONL after pull/merge
   - pre-push: Prevent pushing stale JSONL
   - post-checkout: Import JSONL after branch checkout
   - prepare-commit-msg: Add agent identity trailers for forensics
 
 The thin shim pattern ensures hook logic is always in sync with the
-installed bd version - upgrading bd automatically updates hook behavior.`,
+installed bd version - upgrading bd automatically updates hook behavior.
+
+Note: The pre-commit hook was removed because Dolt handles sync automatically.`,
 	Args: cobra.MinimumNArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		hookName := args[0]
@@ -1174,8 +1065,6 @@ installed bd version - upgrading bd automatically updates hook behavior.`,
 
 		var exitCode int
 		switch hookName {
-		case "pre-commit":
-			exitCode = runPreCommitHook()
 		case "post-merge":
 			exitCode = runPostMergeHook()
 		case "pre-push":
