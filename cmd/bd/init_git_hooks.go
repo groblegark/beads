@@ -304,9 +304,9 @@ if [ -f "$BEADS_DIR/metadata.json" ]; then
 fi
 
 # Flush pending changes to JSONL
-if ! bd sync --flush-only >/dev/null 2>&1; then
+if ! bd export >/dev/null 2>&1; then
     echo "Error: Failed to flush bd changes to JSONL" >&2
-    echo "Run 'bd sync --flush-only' manually to diagnose" >&2
+    echo "Run 'bd export' manually to diagnose" >&2
     exit 1
 fi
 
@@ -632,9 +632,9 @@ fi
 
 # Flush pending changes to JSONL
 # In jujutsu, changes automatically become part of the working copy commit
-if ! bd sync --flush-only >/dev/null 2>&1; then
+if ! bd export >/dev/null 2>&1; then
     echo "Error: Failed to flush bd changes to JSONL" >&2
-    echo "Run 'bd sync --flush-only' manually to diagnose" >&2
+    echo "Run 'bd export' manually to diagnose" >&2
     exit 1
 fi
 
@@ -650,7 +650,7 @@ func printJJAliasInstructions() {
 	fmt.Printf("Jujutsu doesn't support hooks yet. To auto-export beads on push,\n")
 	fmt.Printf("add this alias to your jj config (~/.config/jj/config.toml):\n\n")
 	fmt.Printf("  %s\n", ui.RenderAccent("[aliases]"))
-	fmt.Printf("  %s\n", ui.RenderAccent(`push = ["util", "exec", "--", "sh", "-c", "bd sync --flush-only && jj git push \"$@\"", ""]`))
+	fmt.Printf("  %s\n", ui.RenderAccent(`push = ["util", "exec", "--", "sh", "-c", "bd export && jj git push \"$@\"", ""]`))
 	fmt.Printf("\nThen use %s instead of %s\n\n", ui.RenderAccent("jj push"), ui.RenderAccent("jj git push"))
 	fmt.Printf("For more details, see: https://github.com/steveyegge/beads/blob/main/docs/JUJUTSU.md\n\n")
 }

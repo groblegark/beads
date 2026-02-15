@@ -217,22 +217,18 @@ func outputPrimeContext(w io.Writer, mcpMode bool, stealthMode bool) error {
 func outputMCPContext(w io.Writer, stealthMode bool) error {
 	ephemeral := isEphemeralBranch()
 	noPush := config.GetBool("no-push")
-	autoSync := isDaemonAutoSyncing()
 	localOnly := !primeHasGitRemote()
 
+	// beads-6mbp: bd sync removed. Dolt handles sync automatically.
 	var closeProtocol string
 	if stealthMode || localOnly {
-		// Stealth mode or local-only: only flush to JSONL, no git operations
-		closeProtocol = "Before saying \"done\": bd sync --flush-only"
-	} else if autoSync && !ephemeral && !noPush {
-		// Daemon is auto-syncing - no bd sync needed
-		closeProtocol = "Before saying \"done\": git status → git add → git commit → git push (beads auto-synced by daemon)"
+		closeProtocol = "Before saying \"done\": beads changes are saved automatically (dolt backend)"
 	} else if ephemeral {
-		closeProtocol = "Before saying \"done\": git status → git add → bd sync --from-main → git commit (no push - ephemeral branch)"
+		closeProtocol = "Before saying \"done\": git status → git add → git commit (no push - ephemeral branch; beads auto-synced)"
 	} else if noPush {
-		closeProtocol = "Before saying \"done\": git status → git add → bd sync → git commit (push disabled - run git push manually)"
+		closeProtocol = "Before saying \"done\": git status → git add → git commit (push disabled; beads auto-synced)"
 	} else {
-		closeProtocol = "Before saying \"done\": git status → git add → bd sync → git commit → bd sync → git push"
+		closeProtocol = "Before saying \"done\": git status → git add → git commit → git push (beads auto-synced)"
 	}
 
 	redirectNotice := getRedirectNotice(false)
@@ -259,7 +255,6 @@ Start: Run ` + "`bd news`" + ` to check for conflicts, then ` + "`bd ready`" + `
 func outputCLIContext(w io.Writer, stealthMode bool) error {
 	ephemeral := isEphemeralBranch()
 	noPush := config.GetBool("no-push")
-	autoSync := isDaemonAutoSyncing()
 	localOnly := !primeHasGitRemote()
 
 	var closeProtocol string
@@ -268,90 +263,64 @@ func outputCLIContext(w io.Writer, stealthMode bool) error {
 	var completingWorkflow string
 	var gitWorkflowRule string
 
+	// beads-6mbp: bd sync removed. Dolt handles sync automatically.
 	if stealthMode || localOnly {
-		// Stealth mode or local-only: only flush to JSONL, no git operations
-		closeProtocol = `[ ] bd sync --flush-only    (export beads to JSONL only)`
+		closeProtocol = `[ ] bd close <ids>             (close completed issues)`
 		syncSection = `### Sync & Collaboration
-- ` + "`bd sync --flush-only`" + ` - Export to JSONL`
+- Dolt backend handles synchronization automatically
+- ` + "`bd export`" + ` - Export to JSONL (manual)
+- ` + "`bd import`" + ` - Import from JSONL (manual)`
 		completingWorkflow = `**Completing work:**
 ` + "```bash" + `
 bd close <id1> <id2> ...    # Close all completed issues at once
-bd sync --flush-only        # Export to JSONL
 ` + "```"
-		// Only show local-only note if not in stealth mode (stealth is explicit user choice)
 		if localOnly && !stealthMode {
 			closeNote = "**Note:** No git remote configured. Issues are saved locally only."
 			gitWorkflowRule = "Git workflow: local-only (no git remote)"
 		} else {
 			gitWorkflowRule = "Git workflow: stealth mode (no git ops)"
 		}
-	} else if autoSync && !ephemeral && !noPush {
-		// Daemon is auto-syncing - simplified protocol (no bd sync needed)
+	} else if ephemeral {
+		closeProtocol = `[ ] 1. git status              (check what changed)
+[ ] 2. git add <files>         (stage code changes)
+[ ] 3. git commit -m "..."     (commit code changes)`
+		closeNote = "**Note:** Ephemeral branch (no upstream). Beads synced automatically by dolt."
+		syncSection = `### Sync & Collaboration
+- Dolt backend handles beads synchronization automatically`
+		completingWorkflow = `**Completing work:**
+` + "```bash" + `
+bd close <id1> <id2> ...    # Close all completed issues at once
+git add . && git commit -m "..."  # Commit your changes
+# Merge to main when ready (local merge, not push)
+` + "```"
+		gitWorkflowRule = "Git workflow: beads auto-synced by dolt"
+	} else if noPush {
+		closeProtocol = `[ ] 1. git status              (check what changed)
+[ ] 2. git add <files>         (stage code changes)
+[ ] 3. git commit -m "..."     (commit code)`
+		closeNote = "**Note:** Push disabled via config. Run `git push` manually when ready. Beads synced automatically by dolt."
+		syncSection = `### Sync & Collaboration
+- Dolt backend handles beads synchronization automatically`
+		completingWorkflow = `**Completing work:**
+` + "```bash" + `
+bd close <id1> <id2> ...    # Close all completed issues at once
+# git push                  # Run manually when ready
+` + "```"
+		gitWorkflowRule = "Git workflow: beads auto-synced by dolt (push disabled)"
+	} else {
 		closeProtocol = `[ ] 1. git status              (check what changed)
 [ ] 2. git add <files>         (stage code changes)
 [ ] 3. git commit -m "..."     (commit code)
 [ ] 4. git push                (push to remote)`
-		closeNote = "**Note:** Daemon is auto-syncing beads changes. No manual `bd sync` needed."
-		syncSection = `### Sync & Collaboration
-- Daemon handles beads sync automatically (auto-commit + auto-push + auto-pull enabled)
-- ` + "`bd sync --status`" + ` - Check sync status`
-		completingWorkflow = `**Completing work:**
-` + "```bash" + `
-bd close <id1> <id2> ...    # Close all completed issues at once
-git push                    # Push to remote (beads auto-synced by daemon)
-` + "```"
-		gitWorkflowRule = "Git workflow: daemon auto-syncs beads changes"
-	} else if ephemeral {
-		closeProtocol = `[ ] 1. git status              (check what changed)
-[ ] 2. git add <files>         (stage code changes)
-[ ] 3. bd sync --from-main     (pull beads updates from main)
-[ ] 4. git commit -m "..."     (commit code changes)`
-		closeNote = "**Note:** This is an ephemeral branch (no upstream). Code is merged to main locally, not pushed."
-		syncSection = `### Sync & Collaboration
-- ` + "`bd sync --from-main`" + ` - Pull beads updates from main (for ephemeral branches)
-- ` + "`bd sync --status`" + ` - Check sync status without syncing`
-		completingWorkflow = `**Completing work:**
-` + "```bash" + `
-bd close <id1> <id2> ...    # Close all completed issues at once
-bd sync --from-main         # Pull latest beads from main
-git add . && git commit -m "..."  # Commit your changes
-# Merge to main when ready (local merge, not push)
-` + "```"
-		gitWorkflowRule = "Git workflow: run `bd sync --from-main` at session end"
-	} else if noPush {
-		closeProtocol = `[ ] 1. git status              (check what changed)
-[ ] 2. git add <files>         (stage code changes)
-[ ] 3. bd sync                 (commit beads changes)
-[ ] 4. git commit -m "..."     (commit code)
-[ ] 5. bd sync                 (commit any new beads changes)`
-		closeNote = "**Note:** Push disabled via config. Run `git push` manually when ready."
-		syncSection = `### Sync & Collaboration
-- ` + "`bd sync`" + ` - Sync with git remote (run at session end)
-- ` + "`bd sync --status`" + ` - Check sync status without syncing`
-		completingWorkflow = `**Completing work:**
-` + "```bash" + `
-bd close <id1> <id2> ...    # Close all completed issues at once
-bd sync                     # Sync beads (push disabled)
-# git push                  # Run manually when ready
-` + "```"
-		gitWorkflowRule = "Git workflow: run `bd sync` at session end (push disabled)"
-	} else {
-		closeProtocol = `[ ] 1. git status              (check what changed)
-[ ] 2. git add <files>         (stage code changes)
-[ ] 3. bd sync                 (commit beads changes)
-[ ] 4. git commit -m "..."     (commit code)
-[ ] 5. bd sync                 (commit any new beads changes)
-[ ] 6. git push                (push to remote)`
 		closeNote = "**NEVER skip this.** Work is not done until pushed."
 		syncSection = `### Sync & Collaboration
-- ` + "`bd sync`" + ` - Sync with git remote (run at session end)
-- ` + "`bd sync --status`" + ` - Check sync status without syncing`
+- Dolt backend handles beads synchronization automatically`
 		completingWorkflow = `**Completing work:**
 ` + "```bash" + `
 bd close <id1> <id2> ...    # Close all completed issues at once
-bd sync                     # Push to remote
+git push                    # Push to remote
 ` + "```"
-		gitWorkflowRule = "Git workflow: hooks auto-sync, run `bd sync` at session end"
+		gitWorkflowRule = "Git workflow: beads auto-synced by dolt"
 	}
 
 	redirectNotice := getRedirectNotice(true)

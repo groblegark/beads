@@ -563,12 +563,11 @@ func runPreCommitHook() int {
 	}
 
 	// Flush pending changes to JSONL
-	// Use --flush-only to skip git operations (we're already in a git hook)
-	// Use --no-daemon to ensure direct mode (inline import requires local store)
-	cmd := exec.Command("bd", "sync", "--flush-only", "--no-daemon")
+	// Use bd export (bd sync was removed — dolt handles sync automatically)
+	cmd := exec.Command("bd", "export")
 	if err := cmd.Run(); err != nil {
 		fmt.Fprintln(os.Stderr, "Warning: Failed to flush bd changes to JSONL")
-		fmt.Fprintln(os.Stderr, "Run 'bd sync --flush-only' manually to diagnose")
+		fmt.Fprintln(os.Stderr, "Run 'bd export' manually to diagnose")
 		// Don't block the commit - user may have removed beads or have other issues
 	}
 
@@ -695,8 +694,7 @@ func runPrePushHook(args []string) int {
 	ctx := context.Background()
 
 	// Flush pending bd changes
-	// Use --no-daemon to ensure direct mode (inline import requires local store)
-	flushCmd := exec.Command("bd", "sync", "--flush-only", "--no-daemon")
+	flushCmd := exec.Command("bd", "export")
 	_ = flushCmd.Run() // Ignore errors
 
 	// Auto-stage JSONL files after flush to prevent race condition.

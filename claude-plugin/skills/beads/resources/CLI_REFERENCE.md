@@ -560,7 +560,7 @@ bd daemons killall --force --json  # Force kill if graceful fails
 
 ### Sync Operations
 
-**Note:** `bd sync` is deprecated. Dolt handles sync automatically now.
+**Note:** `bd sync` has been removed. Dolt handles sync automatically.
 For manual operations, use `bd export` and `bd import` directly.
 
 ```bash
