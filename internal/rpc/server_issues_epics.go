@@ -3903,6 +3903,13 @@ func (s *Server) handleDecisionResolve(req *Request) Response {
 		Rationale:   args.Guidance,
 	})
 
+	// Push decision response to requesting agent's inbox (bd-eo9xt).
+	// This enables push-based delivery of decision responses instead of
+	// relying solely on polling or NATS event subscription.
+	if dp.RequestedBy != "" && dp.RequestedBy != "stop-hook" {
+		s.pushDecisionResponseToInbox(ctx, dp, args)
+	}
+
 	resp := DecisionResponse{
 		Decision: dp,
 		Issue:    issue,
@@ -3912,6 +3919,53 @@ func (s *Server) handleDecisionResolve(req *Request) Response {
 	return Response{
 		Success: true,
 		Data:    data,
+	}
+}
+
+// pushDecisionResponseToInbox pushes a formatted decision response to the
+// requesting agent's inbox. Best-effort: errors are logged but don't fail
+// the resolve operation. (bd-eo9xt: captain→agent comms via inbox)
+func (s *Server) pushDecisionResponseToInbox(ctx context.Context, dp *types.DecisionPoint, args DecisionResolveArgs) {
+	store := s.storage
+	if store == nil {
+		return
+	}
+
+	// Format the response content for the agent
+	var content string
+	if args.ResponseText != "" {
+		content = fmt.Sprintf("Decision %s resolved: selected [%s] — %s",
+			args.IssueID, args.SelectedOption, args.ResponseText)
+	} else {
+		content = fmt.Sprintf("Decision %s resolved: selected [%s]",
+			args.IssueID, args.SelectedOption)
+	}
+	if args.RespondedBy != "" {
+		content += fmt.Sprintf("\nResponded by: %s", args.RespondedBy)
+	}
+
+	now := time.Now().UTC()
+	item := &types.InboxItem{
+		ID:        fmt.Sprintf("decision-response-%s-%d", args.IssueID, now.UnixMilli()),
+		AgentName: dp.RequestedBy,
+		Type:      "decision",
+		Source:    fmt.Sprintf("decision:%s", args.IssueID),
+		Content:   content,
+		Priority:  1, // high priority — agent is waiting for this
+		CreatedAt: now,
+		DedupKey:  fmt.Sprintf("decision:%s", args.IssueID),
+	}
+
+	if err := store.InboxPush(ctx, item); err != nil {
+		fmt.Fprintf(os.Stderr, "handleDecisionResolve: inbox push failed (non-fatal): %v\n", err)
+		return
+	}
+
+	// Also publish to JetStream for real-time delivery
+	data, _ := json.Marshal(item)
+	if s.bus != nil && s.bus.JetStreamEnabled() {
+		subject := "inbox.agent." + dp.RequestedBy
+		s.bus.PublishRaw(subject, data)
 	}
 }
 
