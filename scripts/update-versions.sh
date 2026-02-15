@@ -100,7 +100,7 @@ echo "    (chart version: $CHART_VERSION → $NEW_CHART_VERSION)"
 # 7. Hook templates (skip if directory doesn't exist)
 if [ -d "cmd/bd/templates/hooks" ]; then
     echo "  • cmd/bd/templates/hooks/*"
-    for hook in pre-commit post-merge pre-push post-checkout; do
+    for hook in prepare-commit-msg post-merge pre-push post-checkout; do
         [ -f "cmd/bd/templates/hooks/$hook" ] && update_file "cmd/bd/templates/hooks/$hook" "# bd-hooks-version: $CURRENT_VERSION" "# bd-hooks-version: $NEW_VERSION"
     done
 else

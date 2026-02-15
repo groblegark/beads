@@ -55,8 +55,8 @@ check_version "npm-package/package.json" \
     "$(jq -r '.version' npm-package/package.json 2>/dev/null)" \
     "npm package.json"
 
-check_version "cmd/bd/templates/hooks/pre-commit" \
-    "$(grep '# bd-hooks-version:' cmd/bd/templates/hooks/pre-commit 2>/dev/null | sed 's/.*: //')" \
+check_version "cmd/bd/templates/hooks/prepare-commit-msg" \
+    "$(grep '# bd-hooks-version:' cmd/bd/templates/hooks/prepare-commit-msg 2>/dev/null | sed 's/.*: //')" \
     "Hook templates"
 
 check_version "helm/bd-daemon/Chart.yaml" \
