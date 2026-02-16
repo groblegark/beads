@@ -280,6 +280,7 @@ func findBDBinary() (string, error) {
 // DefaultHandlers returns the standard set of event bus handlers for daemon registration.
 func DefaultHandlers() []Handler {
 	handlers := []Handler{
+		&HealthCheckHandler{},      // 5 — early stuck detection for agents (bd-4mpv3)
 		&PrimeHandler{},            // 10
 		&StopLoopDetector{},        // 14 — must run before StopDecisionHandler to break loops
 		&StopDecisionHandler{},     // 15
