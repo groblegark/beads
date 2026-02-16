@@ -499,14 +499,17 @@ func pollForAgentDecision(ctx context.Context, actorTag string, timeout, pollInt
 // findPendingAgentDecision finds the most recent pending decision created by
 // an agent (i.e., not by stop-hook). Returns nil if none found.
 //
-// Only returns decisions with responded_at IS NULL (truly pending). Previously
-// this also included recently-responded decisions (within 5 minutes), but that
-// caused an infinite loop: after a decision was responded to, the stop hook
-// kept finding it and allowing stop, which fired the hook again immediately.
-// The race condition the 5-minute window was meant to handle (human responds
-// before stop hook fires) is not an actual problem — the agent's
-// `bd decision create --wait` call blocks until response, so by the time the
-// agent tries to stop, the decision flow is complete.
+// Returns decisions that are either:
+//   - Truly pending (responded_at IS NULL), OR
+//   - Recently responded with "stop" selected (within recentStopWindow)
+//
+// The second case prevents infinite stop loops (bd-26snj): after the human
+// approves "stop", the decision is no longer pending, so the next stop-check
+// would block again ("create a decision"), causing the agent to loop. By
+// recognizing recent "stop" responses, we allow the stop to proceed.
+//
+// Only "stop" responses get this treatment — "continue" responses should NOT
+// give a free pass, because the human wants the agent to keep working.
 //
 // Staleness guard: decisions older than staleDecisionAge are skipped. This
 // prevents a dead session's leftover decision from giving all future sessions
@@ -515,8 +518,9 @@ func findPendingAgentDecision(ctx context.Context, actorTag string) (*types.Deci
 	var decisions []*types.DecisionPoint
 
 	if daemonClient != nil {
-		// Use daemon RPC when available
-		listArgs := &rpc.DecisionListArgs{All: false}
+		// Use daemon RPC when available. Fetch ALL decisions (including responded)
+		// so we can find recent "stop" responses. (bd-26snj)
+		listArgs := &rpc.DecisionListArgs{All: true}
 		listResp, err := daemonClient.DecisionList(listArgs)
 		if err != nil {
 			return nil, fmt.Errorf("daemon decision list: %w", err)
@@ -525,12 +529,18 @@ func findPendingAgentDecision(ctx context.Context, actorTag string) (*types.Deci
 			decisions = append(decisions, dr.Decision)
 		}
 	} else if store != nil {
-		// Fall back to direct store access (used in tests)
+		// Fall back to direct store access (used in tests).
+		// Fetch both pending and recently-responded (for stop responses). (bd-26snj)
 		pending, err := store.ListPendingDecisions(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("store list pending decisions: %w", err)
 		}
-		decisions = pending
+		decisions = append(decisions, pending...)
+		recent, err := store.ListRecentlyRespondedDecisions(ctx, time.Now().Add(-recentStopWindow), actorTag)
+		if err != nil {
+			return nil, fmt.Errorf("store list recent decisions: %w", err)
+		}
+		decisions = append(decisions, recent...)
 	} else {
 		return nil, nil
 	}
@@ -550,20 +560,46 @@ func findPendingAgentDecision(ctx context.Context, actorTag string) (*types.Deci
 			continue
 		}
 		// Staleness guard: skip decisions older than the threshold.
-		// A live session's `bd decision create --wait` blocks until response,
-		// so a properly functioning session will always have a recent decision.
-		// Old pending decisions are leftovers from dead sessions.
 		if now.Sub(dp.CreatedAt) > staleDecisionAge {
-			fmt.Fprintf(os.Stderr, "stop-check: skipping stale decision %s (age: %s)\n",
-				dp.IssueID, now.Sub(dp.CreatedAt).Truncate(time.Second))
 			continue
 		}
-		if best == nil || dp.CreatedAt.After(best.CreatedAt) {
-			best = dp
+
+		// Accept pending decisions (not yet responded to).
+		if dp.RespondedAt == nil {
+			if best == nil || dp.CreatedAt.After(best.CreatedAt) {
+				best = dp
+			}
+			continue
+		}
+
+		// Accept recently-responded decisions where "stop" was selected. (bd-26snj)
+		// This breaks the infinite loop: human says "stop" → decision responded →
+		// stop hook fires → stop-check finds this recent "stop" response → allows stop.
+		if now.Sub(*dp.RespondedAt) < recentStopWindow && isStopChoice(dp.SelectedOption) {
+			fmt.Fprintf(os.Stderr, "stop-check: found recent stop response %s (age: %s)\n",
+				dp.IssueID, now.Sub(*dp.RespondedAt).Truncate(time.Second))
+			if best == nil || dp.CreatedAt.After(best.CreatedAt) {
+				best = dp
+			}
 		}
 	}
 
 	return best, nil
+}
+
+// recentStopWindow is how long after a "stop" decision response it remains
+// visible to findPendingAgentDecision. Must be long enough for the agent to
+// receive the response and attempt to stop, but short enough to not cause
+// stale false positives. 60 seconds is generous — the agent typically tries
+// to stop within a few seconds of getting the response.
+const recentStopWindow = 60 * time.Second
+
+// isStopChoice returns true if the selected option indicates the human
+// approved stopping. Matches common "stop" option IDs and labels.
+func isStopChoice(selected string) bool {
+	s := strings.ToLower(selected)
+	return s == "stop" || s == "done" || s == "done for now" ||
+		strings.HasPrefix(s, "stop") || strings.HasPrefix(s, "done")
 }
 
 // staleDecisionAge is the maximum age for a pending decision to be considered

@@ -183,21 +183,22 @@ func TestStopLoopBreakSet_EmptyRaw(t *testing.T) {
 	}
 }
 
-// TestStopLoopDetector_DecisionRespondedResetsCounter verifies that a
-// DecisionResponded event resets the stop counter for the session. This
-// prevents false loop detection when an agent legitimately stops multiple
+// TestStopLoopDetector_ContinueRespondedResetsCounter verifies that a
+// DecisionResponded event with a "continue" choice resets the stop counter.
+// This prevents false loop detection when an agent legitimately stops multiple
 // times with successful decisions between each stop. (beads-ulf5)
-func TestStopLoopDetector_DecisionRespondedResetsCounter(t *testing.T) {
+func TestStopLoopDetector_ContinueRespondedResetsCounter(t *testing.T) {
 	d := &StopLoopDetector{Threshold: 3, WindowDuration: 60 * time.Second}
 
 	// Two stop attempts (under threshold=3).
 	d.Handle(context.Background(), makeStopEvent("sess-1", false), &Result{})
 	d.Handle(context.Background(), makeStopEvent("sess-1", false), &Result{})
 
-	// Decision responded — should reset counter.
-	decPayload, _ := json.Marshal(map[string]string{
+	// Decision responded with "continue" — should reset counter.
+	decPayload, _ := json.Marshal(map[string]any{
 		"decision_id":  "test-dec-1",
 		"requested_by": "test-agent",
+		"chosen_label": "Continue working",
 	})
 	decEvent := &Event{
 		Type:      EventDecisionResponded,
@@ -212,7 +213,7 @@ func TestStopLoopDetector_DecisionRespondedResetsCounter(t *testing.T) {
 	d.Handle(context.Background(), makeStopEvent("sess-1", false), result)
 
 	if len(result.Inject) > 0 {
-		t.Error("should not trigger loop break — counter was reset by DecisionResponded")
+		t.Error("should not trigger loop break — counter was reset by continue response")
 	}
 
 	// Third stop after reset — NOW it should trigger (count=3).
@@ -223,9 +224,41 @@ func TestStopLoopDetector_DecisionRespondedResetsCounter(t *testing.T) {
 	}
 }
 
+// TestStopLoopDetector_StopRespondedDoesNotResetCounter verifies that when a
+// human approves "stop", the counter is NOT reset. This is the fix for bd-26snj:
+// previously, "stop" responses reset the counter, causing an infinite loop
+// because the stop-check would block again and the counter never reached threshold.
+func TestStopLoopDetector_StopRespondedDoesNotResetCounter(t *testing.T) {
+	d := &StopLoopDetector{Threshold: 3, WindowDuration: 60 * time.Second}
+
+	// Two stop attempts.
+	d.Handle(context.Background(), makeStopEvent("sess-1", false), &Result{})
+	d.Handle(context.Background(), makeStopEvent("sess-1", false), &Result{})
+
+	// Decision responded with "stop" — should NOT reset counter.
+	decPayload, _ := json.Marshal(map[string]any{
+		"decision_id":  "test-dec-1",
+		"requested_by": "test-agent",
+		"chosen_label": "Done for now",
+	})
+	decEvent := &Event{
+		Type:      EventDecisionResponded,
+		SessionID: "sess-1",
+		Raw:       decPayload,
+	}
+	d.Handle(context.Background(), decEvent, &Result{})
+
+	// Third stop attempt — should trigger (count=3, counter was NOT reset).
+	result := &Result{}
+	d.Handle(context.Background(), makeStopEvent("sess-1", false), result)
+	if len(result.Inject) == 0 {
+		t.Error("should trigger loop break — stop response should not reset counter")
+	}
+}
+
 // TestStopLoopDetector_ShortTaskWorkflow verifies the realistic scenario:
-// agent does 3 short tasks in 30 min, each with a stop-decision-respond cycle.
-// The counter should reset after each decision response, so no false loop break.
+// agent does 3 short tasks in 30 min, each with a "continue" decision-respond cycle.
+// The counter should reset after each continue response, so no false loop break.
 func TestStopLoopDetector_ShortTaskWorkflow(t *testing.T) {
 	d := &StopLoopDetector{Threshold: 3, WindowDuration: 60 * time.Second}
 
@@ -237,10 +270,11 @@ func TestStopLoopDetector_ShortTaskWorkflow(t *testing.T) {
 			t.Fatalf("stop #%d should not trigger loop break (counter should have been reset)", i+1)
 		}
 
-		// Decision responded (simulates human approving).
-		decPayload, _ := json.Marshal(map[string]string{
+		// Decision responded with "continue" (simulates human directing more work).
+		decPayload, _ := json.Marshal(map[string]any{
 			"decision_id":  "dec-" + string(rune('a'+i)),
 			"requested_by": "test-agent",
+			"chosen_label": "Keep going",
 		})
 		decEvent := &Event{
 			Type:      EventDecisionResponded,

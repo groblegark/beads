@@ -355,7 +355,7 @@ func TestFindPendingAgentDecision_SkipsRespondedDecisions(t *testing.T) {
 }
 
 // TestFindPendingAgentDecision_RespondedDoesNotMaskPending verifies that
-// a responded decision doesn't interfere with finding a newer pending one.
+// a responded "continue" decision doesn't interfere with finding a newer pending one.
 func TestFindPendingAgentDecision_RespondedDoesNotMaskPending(t *testing.T) {
 	s, cleanup := setupStopCheckTestDB(t)
 	defer cleanup()
@@ -366,7 +366,7 @@ func TestFindPendingAgentDecision_RespondedDoesNotMaskPending(t *testing.T) {
 
 	ctx := context.Background()
 
-	// Create first decision and respond to it
+	// Create first decision and respond to it with "continue" (not stop)
 	createTestDecisionAt(t, s, "test-old", "Old question", "session-abc", "",
 		time.Now().Add(-1*time.Minute))
 
@@ -376,7 +376,7 @@ func TestFindPendingAgentDecision_RespondedDoesNotMaskPending(t *testing.T) {
 	}
 	now := time.Now()
 	dp.RespondedAt = &now
-	dp.SelectedOption = "done"
+	dp.SelectedOption = "continue"
 	if err := s.UpdateDecisionPoint(ctx, dp); err != nil {
 		t.Fatalf("update decision: %v", err)
 	}
@@ -394,6 +394,66 @@ func TestFindPendingAgentDecision_RespondedDoesNotMaskPending(t *testing.T) {
 	}
 	if found.IssueID != "test-new" {
 		t.Fatalf("expected test-new, got %s", found.IssueID)
+	}
+}
+
+// TestFindPendingAgentDecision_RecentStopResponseAllowsStop verifies that a
+// recently-responded decision with "stop" selected is returned by
+// findPendingAgentDecision. This is the fix for bd-26snj: without this, the
+// stop-check blocks forever after the human approves "stop" because the
+// decision is no longer pending. (bd-26snj)
+func TestFindPendingAgentDecision_RecentStopResponseAllowsStop(t *testing.T) {
+	s, cleanup := setupStopCheckTestDB(t)
+	defer cleanup()
+
+	oldStore := store
+	store = s
+	defer func() { store = oldStore }()
+
+	ctx := context.Background()
+
+	createTestDecision(t, s, "test-stop-resp", "What next?", "session-abc", "context")
+
+	// Respond with "stop"
+	dp, err := s.GetDecisionPoint(ctx, "test-stop-resp")
+	if err != nil {
+		t.Fatalf("get decision: %v", err)
+	}
+	now := time.Now()
+	dp.RespondedAt = &now
+	dp.SelectedOption = "stop"
+	dp.ResponseText = "Done for now"
+	if err := s.UpdateDecisionPoint(ctx, dp); err != nil {
+		t.Fatalf("update decision: %v", err)
+	}
+
+	// Should find it because "stop" was recently selected.
+	found, err := findPendingAgentDecision(ctx, "session-abc")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if found == nil {
+		t.Fatal("expected recent stop decision, got nil (bd-26snj bug)")
+	}
+	if found.IssueID != "test-stop-resp" {
+		t.Fatalf("expected test-stop-resp, got %s", found.IssueID)
+	}
+}
+
+// TestIsStopChoice verifies the stop choice matcher.
+func TestIsStopChoice(t *testing.T) {
+	stopChoices := []string{"stop", "Stop", "STOP", "done", "Done for now", "done for now", "stopping"}
+	for _, c := range stopChoices {
+		if !isStopChoice(c) {
+			t.Errorf("expected isStopChoice(%q) = true", c)
+		}
+	}
+
+	nonStopChoices := []string{"continue", "keep going", "work on X", ""}
+	for _, c := range nonStopChoices {
+		if isStopChoice(c) {
+			t.Errorf("expected isStopChoice(%q) = false", c)
+		}
 	}
 }
 

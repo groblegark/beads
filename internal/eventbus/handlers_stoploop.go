@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"strings"
 	"sync"
 	"time"
 )
@@ -51,22 +52,32 @@ func (h *StopLoopDetector) SetBus(bus *Bus) {
 }
 
 func (h *StopLoopDetector) Handle(ctx context.Context, event *Event, result *Result) error {
-	// On DecisionResponded, reset the counter for the responding session.
-	// This prevents false loop detection when an agent legitimately stops
-	// multiple times in quick succession (short tasks with human-approved
-	// decisions between each stop). Only consecutive blocked stops without
-	// a successful decision-response cycle should count toward the threshold.
-	// (beads-ulf5)
+	// On DecisionResponded, reset the counter ONLY if the human chose "continue".
+	// If the human chose "stop", do NOT reset — the agent will try to stop,
+	// and if stop-check blocks again (because the decision is already responded),
+	// the counter needs to keep incrementing to eventually break the loop. (bd-26snj)
+	//
+	// Previously this always cleared, which caused infinite loops: human says
+	// "stop" → counter reset → agent tries to stop → blocked → creates decision
+	// → human says "stop" → counter reset → ... never reaches threshold.
 	if event.Type == EventDecisionResponded {
-		h.clearSession(event.SessionID)
-		// Also clear by actor name — decisions use RequestedBy (actor name),
-		// not session_id, so extract and clear that too.
 		if len(event.Raw) > 0 {
 			var payload struct {
 				RequestedBy string `json:"requested_by"`
+				ChosenLabel string `json:"chosen_label"`
 			}
-			if err := json.Unmarshal(event.Raw, &payload); err == nil && payload.RequestedBy != "" {
-				h.clearSession(payload.RequestedBy)
+			if err := json.Unmarshal(event.Raw, &payload); err == nil {
+				if isStopDecisionChoice(payload.ChosenLabel) {
+					// Human approved stop — don't clear counter.
+					log.Printf("stop-loop-detector: not clearing counter — human chose %q", payload.ChosenLabel)
+					return nil
+				}
+				// Human chose continue — clear counter so fresh tasks don't
+				// trigger false loop detection.
+				h.clearSession(event.SessionID)
+				if payload.RequestedBy != "" {
+					h.clearSession(payload.RequestedBy)
+				}
 			}
 		}
 		return nil
@@ -218,4 +229,12 @@ func (h *StopLoopDetector) publishLoopDetected(sessionID string, count int, wind
 
 	subject := SubjectForEvent(EventStopLoopDetected)
 	bus.PublishRaw(subject, data)
+}
+
+// isStopDecisionChoice returns true if the chosen label indicates the human
+// approved stopping. Matches common "stop" option IDs and labels.
+func isStopDecisionChoice(chosen string) bool {
+	s := strings.ToLower(chosen)
+	return s == "stop" || s == "done" || s == "done for now" ||
+		strings.HasPrefix(s, "stop") || strings.HasPrefix(s, "done")
 }
