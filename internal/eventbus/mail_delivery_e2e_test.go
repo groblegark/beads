@@ -27,9 +27,9 @@ func testMailAddressToAgentID(address string) string {
 	address = strings.TrimSuffix(address, "/")
 	switch address {
 	case "mayor":
-		return "gt-mayor"
+		return "hq-mayor"
 	case "deacon":
-		return "gt-deacon"
+		return "hq-deacon"
 	}
 	parts := strings.Split(address, "/")
 	switch len(parts) {

@@ -102,8 +102,8 @@ func (h *MailNudgeHandler) Handle(ctx context.Context, event *Event, result *Res
 // mailAddressToAgentID converts a mail address to a beads agent bead ID.
 //
 // Address normalization (matching gastown's AddressToIdentity):
-//   - "mayor" or "mayor/" -> "gt-mayor" (town-level)
-//   - "deacon" or "deacon/" -> "gt-deacon" (town-level)
+//   - "mayor" or "mayor/" -> "hq-mayor" (town-level)
+//   - "deacon" or "deacon/" -> "hq-deacon" (town-level)
 //   - "gastown/polecats/Toast" -> "gt-gastown-polecat-Toast" (strip middle)
 //   - "gastown/crew/max" -> "gt-gastown-crew-max"
 //   - "gastown/Toast" -> "gt-gastown-polecat-Toast" (canonical)
@@ -113,12 +113,12 @@ func mailAddressToAgentID(address string) string {
 	// Trim trailing slash
 	address = strings.TrimSuffix(address, "/")
 
-	// Town-level agents
+	// Town-level agents — bead IDs use "hq-" prefix (e.g., "hq-mayor").
 	switch address {
 	case "mayor":
-		return "gt-mayor"
+		return "hq-mayor"
 	case "deacon":
-		return "gt-deacon"
+		return "hq-deacon"
 	}
 
 	parts := strings.Split(address, "/")

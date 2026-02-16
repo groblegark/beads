@@ -67,10 +67,10 @@ func TestMailAddressToAgentID(t *testing.T) {
 		want    string
 	}{
 		// Town-level agents
-		{"mayor", "gt-mayor"},
-		{"mayor/", "gt-mayor"},
-		{"deacon", "gt-deacon"},
-		{"deacon/", "gt-deacon"},
+		{"mayor", "hq-mayor"},
+		{"mayor/", "hq-mayor"},
+		{"deacon", "hq-deacon"},
+		{"deacon/", "hq-deacon"},
 
 		// Rig-scoped: known roles
 		{"gastown/witness", "gt-gastown-witness"},
@@ -289,10 +289,10 @@ func TestMailEventIsMailEvent(t *testing.T) {
 func TestResolveCoopURLFromStore_DirectLookup(t *testing.T) {
 	store := &mockNudgeStore{
 		issues: map[string]*types.Issue{
-			"gt-mayor": {ID: "gt-mayor", Notes: "coop_url: http://localhost:8080\nother: val"},
+			"hq-mayor": {ID: "hq-mayor", Notes: "coop_url: http://localhost:8080\nother: val"},
 		},
 	}
-	url, err := resolveCoopURLFromStore(context.Background(), store, "gt-mayor")
+	url, err := resolveCoopURLFromStore(context.Background(), store, "hq-mayor")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -304,10 +304,10 @@ func TestResolveCoopURLFromStore_DirectLookup(t *testing.T) {
 func TestResolveCoopURLFromStore_NameConversion(t *testing.T) {
 	store := &mockNudgeStore{
 		issues: map[string]*types.Issue{
-			"gt-mayor": {ID: "gt-mayor", Notes: "coop_url: http://10.0.0.5:3000"},
+			"hq-mayor": {ID: "hq-mayor", Notes: "coop_url: http://10.0.0.5:3000"},
 		},
 	}
-	// "mayor/" is the actor name, should be converted to "gt-mayor" via mailAddressToAgentID.
+	// "mayor/" is the actor name, should be converted to "hq-mayor" via mailAddressToAgentID.
 	url, err := resolveCoopURLFromStore(context.Background(), store, "mayor/")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -336,7 +336,7 @@ func TestResolveCoopURLFromStore_PoleactConversion(t *testing.T) {
 func TestResolveCoopURLFromStore_NoCoop(t *testing.T) {
 	store := &mockNudgeStore{
 		issues: map[string]*types.Issue{
-			"gt-mayor": {ID: "gt-mayor", Notes: "some_other_key: value"},
+			"hq-mayor": {ID: "hq-mayor", Notes: "some_other_key: value"},
 		},
 	}
 	_, err := resolveCoopURLFromStore(context.Background(), store, "mayor/")
@@ -366,7 +366,7 @@ func TestDecisionNudgeHandler_WithStore(t *testing.T) {
 
 	store := &mockNudgeStore{
 		issues: map[string]*types.Issue{
-			"gt-mayor": {ID: "gt-mayor", Notes: "coop_url: " + coopServer.URL},
+			"hq-mayor": {ID: "hq-mayor", Notes: "coop_url: " + coopServer.URL},
 		},
 	}
 
@@ -395,7 +395,7 @@ func TestDecisionNudgeHandler_WithStore(t *testing.T) {
 func TestDecisionNudgeHandler_StoreNoCoopURL(t *testing.T) {
 	store := &mockNudgeStore{
 		issues: map[string]*types.Issue{
-			"gt-mayor": {ID: "gt-mayor", Notes: "no_coop: true"},
+			"hq-mayor": {ID: "hq-mayor", Notes: "no_coop: true"},
 		},
 	}
 
