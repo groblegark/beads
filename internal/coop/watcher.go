@@ -83,6 +83,12 @@ func (w *Watcher) Watch(ctx context.Context) (<-chan StateChangeEvent, error) {
 	return ch, nil
 }
 
+// wsDialer is a WebSocket dialer with an explicit handshake timeout to prevent
+// indefinite hangs when the Coop endpoint is unresponsive.
+var wsDialer = &websocket.Dialer{
+	HandshakeTimeout: 10 * time.Second,
+}
+
 func (w *Watcher) connect(ctx context.Context, ch chan<- StateChangeEvent) error {
 	u, err := url.Parse(w.wsURL)
 	if err != nil {
@@ -96,7 +102,7 @@ func (w *Watcher) connect(ctx context.Context, ch chan<- StateChangeEvent) error
 	}
 	u.RawQuery = q.Encode()
 
-	conn, _, err := websocket.DefaultDialer.DialContext(ctx, u.String(), nil)
+	conn, _, err := wsDialer.DialContext(ctx, u.String(), nil)
 	if err != nil {
 		return fmt.Errorf("coop: ws dial: %w", err)
 	}
@@ -105,17 +111,25 @@ func (w *Watcher) connect(ctx context.Context, ch chan<- StateChangeEvent) error
 	w.conn = conn
 	w.mu.Unlock()
 
+	// connDone is closed when this function returns, ensuring the cleanup
+	// goroutine exits promptly instead of leaking until ctx is canceled.
+	connDone := make(chan struct{})
 	defer func() {
+		close(connDone)
 		w.mu.Lock()
 		w.conn = nil
 		w.mu.Unlock()
 		conn.Close()
 	}()
 
-	// Read loop — context cancellation closes the conn
+	// Close the connection on context cancellation to unblock ReadMessage.
+	// Uses connDone to avoid leaking this goroutine between reconnect cycles.
 	go func() {
-		<-ctx.Done()
-		conn.Close()
+		select {
+		case <-ctx.Done():
+			conn.Close()
+		case <-connDone:
+		}
 	}()
 
 	for {
