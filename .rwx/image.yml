@@ -203,3 +203,38 @@ tasks:
       # Configure image metadata
       echo "agent" > $RWX_IMAGE/user
       echo "/home/agent" > $RWX_IMAGE/workspace
+
+  # ── Push daemon image to GHCR ─────────────────────────────────────
+  - key: push-bd
+    use: [build-bd, build-oj]
+    if: ${{ init.ref-name != 'pr' }}
+    cache: false
+    run: |
+      # Install crane
+      curl -fsSL "https://github.com/google/go-containerregistry/releases/download/v0.20.2/go-containerregistry_Linux_x86_64.tar.gz" \
+        | tar xz -C /tmp crane
+      sudo mv /tmp/crane /usr/local/bin/
+
+      # Login to GHCR
+      echo "$GHCR_TOKEN" | crane auth login ghcr.io -u "$GITHUB_USER" --password-stdin
+
+      # Resolve tag from ref-name (strip refs/tags/ prefix)
+      TAG="${REF_NAME#refs/tags/}"
+      TAG="${TAG#refs/heads/}"
+
+      # Create a minimal layer with just the binaries
+      mkdir -p /tmp/layer/usr/local/bin
+      cp ${{ tasks.build-bd.artifacts.bd-binary }} /tmp/layer/usr/local/bin/bd
+      cp ${{ tasks.build-oj.artifacts.oj-binary }} /tmp/layer/usr/local/bin/oj
+      chmod 755 /tmp/layer/usr/local/bin/*
+      tar -cf /tmp/layer.tar -C /tmp/layer usr/
+
+      # Push with tag and latest
+      REPO="ghcr.io/groblegark/beads"
+      crane append --base ubuntu:24.04 --new_tag "${REPO}:${TAG}" --new_layer /tmp/layer.tar --platform linux/amd64
+      crane tag "${REPO}:${TAG}" latest
+      echo "Pushed ${REPO}:${TAG} and ${REPO}:latest"
+    env:
+      GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+      GITHUB_USER: ${{ secrets.GITHUB_USER }}
+      REF_NAME: ${{ init.ref-name }}

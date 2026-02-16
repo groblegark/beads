@@ -81,7 +81,7 @@ tasks:
       fi
     env:
       REF_NAME: ${{ init.ref-name }}
-      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
 
   # ── Dispatch to gastown (only for real releases) ────────────────────
   - key: dispatch-gastown
