@@ -31,12 +31,14 @@ func (s *DoltStore) InboxPush(ctx context.Context, item *types.InboxItem) error 
 }
 
 // InboxList returns inbox items for an agent, optionally including delivered items.
+// Also includes broadcast messages (agent_name='all') so that --to=all pushes
+// are visible to every agent.
 func (s *DoltStore) InboxList(ctx context.Context, agentName string, includeDelivered bool) ([]*types.InboxItem, error) {
 	query := `
 		SELECT id, agent_name, rig, session_id, type, source, content,
 		       priority, created_at, delivered_at, expires_at, dedup_key
 		FROM inbox
-		WHERE agent_name = ?`
+		WHERE (agent_name = ? OR agent_name = 'all')`
 	if !includeDelivered {
 		query += ` AND delivered_at IS NULL`
 	}
@@ -53,6 +55,8 @@ func (s *DoltStore) InboxList(ctx context.Context, agentName string, includeDeli
 
 // InboxDrain returns undelivered, non-expired inbox items for an agent.
 // Does NOT mark them as delivered — caller should use InboxMarkDelivered after output.
+// Also includes broadcast messages (agent_name='all') so that --to=all pushes
+// are delivered to every agent on their next drain.
 // Optional maxPriority filters to only return items with priority <= the given value
 // (0=critical only, 1=critical+high, etc.). Omit or pass no value for all priorities.
 func (s *DoltStore) InboxDrain(ctx context.Context, agentName string, maxPriority ...int) ([]*types.InboxItem, error) {
@@ -60,7 +64,7 @@ func (s *DoltStore) InboxDrain(ctx context.Context, agentName string, maxPriorit
 		SELECT id, agent_name, rig, session_id, type, source, content,
 		       priority, created_at, delivered_at, expires_at, dedup_key
 		FROM inbox
-		WHERE agent_name = ?
+		WHERE (agent_name = ? OR agent_name = 'all')
 		  AND delivered_at IS NULL
 		  AND (expires_at IS NULL OR expires_at > NOW())`
 	args := []interface{}{agentName}
