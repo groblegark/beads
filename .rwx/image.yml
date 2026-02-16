@@ -235,19 +235,11 @@ tasks:
       cp ${{ tasks.build-oj.artifacts.oj-binary }} /tmp/layer/usr/local/bin/oj
       chmod 755 /tmp/layer/usr/local/bin/*
 
-      # Copy installed runtime libraries into the layer
-      # libicu74 gets installed into /usr/lib/x86_64-linux-gnu/
-      for pkg in libicu74 ca-certificates tzdata netcat-openbsd; do
-        dpkg -L "$pkg" 2>/dev/null | while read -r f; do
-          if [ -f "$f" ] && [ ! -L "$f" ]; then
-            mkdir -p "/tmp/layer$(dirname "$f")"
-            cp "$f" "/tmp/layer$f"
-          elif [ -L "$f" ]; then
-            mkdir -p "/tmp/layer$(dirname "$f")"
-            cp -P "$f" "/tmp/layer$f"
-          fi
-        done
-      done
+      # Copy libicu74 shared libraries into the layer.
+      # The bd binary is CGO-linked and needs libicu at runtime.
+      # Ubuntu 24.04 base has all other required libs, just not ICU.
+      mkdir -p /tmp/layer/usr/lib/x86_64-linux-gnu
+      cp -a /usr/lib/x86_64-linux-gnu/libicu*.so* /tmp/layer/usr/lib/x86_64-linux-gnu/
 
       tar -cf /tmp/layer.tar -C /tmp/layer .
 
