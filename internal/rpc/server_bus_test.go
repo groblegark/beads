@@ -971,8 +971,8 @@ case "$1" in
     printf "# Workflow Context\nReady to work"
     exit 0
     ;;
-  decision)
-    printf "Decision: deploy approved"
+  inbox)
+    printf "Inbox: 1 new notification"
     exit 0
     ;;
   gate)
@@ -1011,17 +1011,17 @@ exit 1
 		t.Fatalf("unmarshal: %v", err)
 	}
 
-	// Prime (priority 10) and Decision (priority 30) both handle SessionStart.
+	// Prime (priority 10) and InboxDrain (priority 30) both handle SessionStart.
 	if len(result.Inject) != 2 {
 		t.Fatalf("expected 2 inject entries, got %d: %v", len(result.Inject), result.Inject)
 	}
 
-	// Prime output should come before decision output (priority 10 < 30).
+	// Prime output should come before inbox drain output (priority 10 < 30).
 	if !strings.Contains(result.Inject[0], "Workflow Context") {
 		t.Errorf("expected first inject to contain prime output, got: %q", result.Inject[0])
 	}
-	if !strings.Contains(result.Inject[1], "Decision: deploy approved") {
-		t.Errorf("expected second inject to contain decision output, got: %q", result.Inject[1])
+	if !strings.Contains(result.Inject[1], "Inbox:") {
+		t.Errorf("expected second inject to contain inbox output, got: %q", result.Inject[1])
 	}
 
 	if result.Block {
