@@ -144,6 +144,138 @@ func ConnectSSE(ctx context.Context, opts SSEClientOptions) (<-chan SSEEvent, <-
 	return events, errs
 }
 
+// BusSSEEvent represents a parsed Server-Sent Event from the /bus/events endpoint.
+type BusSSEEvent struct {
+	ID      string          `json:"-"`       // SSE id field (JetStream sequence)
+	SSEType string          `json:"-"`       // SSE event field (stream name)
+	Stream  string          `json:"stream"`  // Short stream name
+	Type    string          `json:"type"`    // Event type
+	Subject string          `json:"subject"` // Full NATS subject
+	Seq     uint64          `json:"seq"`     // JetStream sequence
+	TS      string          `json:"ts"`      // ISO 8601 timestamp
+	Payload json.RawMessage `json:"payload"` // Raw event JSON
+}
+
+// BusSSEClientOptions configures the bus SSE client connection.
+type BusSSEClientOptions struct {
+	BaseURL string // e.g., "https://daemon.example.com"
+	Token   string // Bearer auth token
+	Stream  string // comma-separated stream names or "all"
+	Filter  string // event type filter
+	Since   int64  // unix ms timestamp for replay
+}
+
+// ConnectBusSSE connects to the daemon's SSE /bus/events endpoint and returns
+// a channel of parsed bus events. The channel is closed when the context is
+// canceled or the connection drops.
+func ConnectBusSSE(ctx context.Context, opts BusSSEClientOptions) (<-chan BusSSEEvent, <-chan error) {
+	events := make(chan BusSSEEvent, 64)
+	errs := make(chan error, 1)
+
+	go func() {
+		defer close(events)
+		defer close(errs)
+
+		url := fmt.Sprintf("%s/bus/events", strings.TrimSuffix(opts.BaseURL, "/"))
+		sep := "?"
+		if opts.Stream != "" {
+			url += fmt.Sprintf("%sstream=%s", sep, opts.Stream)
+			sep = "&"
+		}
+		if opts.Filter != "" {
+			url += fmt.Sprintf("%sfilter=%s", sep, opts.Filter)
+			sep = "&"
+		}
+		if opts.Since > 0 {
+			url += fmt.Sprintf("%ssince=%d", sep, opts.Since)
+		}
+
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+		if err != nil {
+			errs <- fmt.Errorf("creating bus SSE request: %w", err)
+			return
+		}
+		req.Header.Set("Accept", "text/event-stream")
+		if opts.Token != "" {
+			req.Header.Set("Authorization", "Bearer "+opts.Token)
+		}
+
+		client := &http.Client{
+			Transport: &http.Transport{
+				TLSClientConfig: &tls.Config{
+					InsecureSkipVerify: os.Getenv("BD_INSECURE_SKIP_VERIFY") == "1",
+				},
+			},
+		}
+
+		resp, err := client.Do(req)
+		if err != nil {
+			errs <- fmt.Errorf("bus SSE connection failed: %w", err)
+			return
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			errs <- fmt.Errorf("bus SSE endpoint returned status %d", resp.StatusCode)
+			return
+		}
+
+		scanner := bufio.NewScanner(resp.Body)
+		scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+
+		var currentID, currentEvent, currentData string
+
+		for scanner.Scan() {
+			line := scanner.Text()
+
+			if line == "" {
+				if currentData != "" {
+					var evt BusSSEEvent
+					if err := json.Unmarshal([]byte(currentData), &evt); err == nil {
+						evt.ID = currentID
+						evt.SSEType = currentEvent
+						select {
+						case events <- evt:
+						case <-ctx.Done():
+							return
+						}
+					}
+				}
+				currentID = ""
+				currentEvent = ""
+				currentData = ""
+				continue
+			}
+
+			if strings.HasPrefix(line, "id: ") || strings.HasPrefix(line, "id:") {
+				currentID = strings.TrimPrefix(line, "id: ")
+				currentID = strings.TrimPrefix(currentID, "id:")
+				currentID = strings.TrimSpace(currentID)
+			} else if strings.HasPrefix(line, "event: ") || strings.HasPrefix(line, "event:") {
+				currentEvent = strings.TrimPrefix(line, "event: ")
+				currentEvent = strings.TrimPrefix(currentEvent, "event:")
+				currentEvent = strings.TrimSpace(currentEvent)
+			} else if strings.HasPrefix(line, "data: ") || strings.HasPrefix(line, "data:") {
+				data := strings.TrimPrefix(line, "data: ")
+				data = strings.TrimPrefix(data, "data:")
+				if currentData != "" {
+					currentData += "\n" + data
+				} else {
+					currentData = data
+				}
+			}
+		}
+
+		if err := scanner.Err(); err != nil {
+			if ctx.Err() == nil {
+				errs <- fmt.Errorf("bus SSE stream error: %w", err)
+			}
+		}
+	}()
+
+	return events, errs
+}
+
 // BaseURL returns the base URL of the HTTP client.
 func (c *HTTPClient) BaseURL() string {
 	return c.baseURL

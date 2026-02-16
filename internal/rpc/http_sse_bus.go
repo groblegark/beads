@@ -14,18 +14,8 @@ import (
 	"github.com/steveyegge/beads/internal/eventbus"
 )
 
-// BusSSEEvent is the JSON envelope written to each SSE data: line.
-// All fields come from standard NATS JetStream metadata + the subject convention.
-type BusSSEEvent struct {
-	Stream  string          `json:"stream"`            // Short stream name: hooks, agents, etc.
-	Type    string          `json:"type"`              // Event type from subject suffix
-	Subject string          `json:"subject"`           // Full NATS subject
-	Seq     uint64          `json:"seq"`               // JetStream stream sequence
-	TS      string          `json:"ts"`                // ISO 8601 timestamp
-	Payload json.RawMessage `json:"payload"`           // Raw event JSON (forwarded as-is)
-}
-
 // handleSSEBusEvents handles GET /bus/events for streaming all event bus streams via SSE.
+// The JSON envelope per event is defined by BusSSEEvent in http_client_sse.go.
 // Query parameters:
 //   - stream: comma-separated stream names (hooks,agents,etc.) or "all" (default: all)
 //   - filter: event type filter (e.g., "Stop", "AgentStarted")
