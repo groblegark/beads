@@ -56,6 +56,90 @@ const (
 	SubjectInboxPrefix = "inbox."
 )
 
+// StreamNames lists all known stream short names (used by CLI --stream flag and SSE ?stream= param).
+var StreamNames = []string{"hooks", "decisions", "oj", "agents", "mail", "mutations", "config", "inbox"}
+
+// streamToPrefix maps short stream names to NATS subject prefixes.
+var streamToPrefix = map[string]string{
+	"hooks":     SubjectHookPrefix,
+	"decisions": SubjectDecisionPrefix,
+	"oj":        SubjectOjPrefix,
+	"agents":    SubjectAgentPrefix,
+	"mail":      SubjectMailPrefix,
+	"mutations": SubjectMutationPrefix,
+	"config":    SubjectConfigPrefix,
+	"inbox":     SubjectInboxPrefix,
+}
+
+// prefixToStream maps subject prefixes (without trailing dot) to short stream names.
+var prefixToStream = map[string]string{
+	"hooks":     "hooks",
+	"decisions": "decisions",
+	"oj":        "oj",
+	"agents":    "agents",
+	"mail":      "mail",
+	"mutations": "mutations",
+	"config":    "config",
+	"inbox":     "inbox",
+}
+
+// StreamForSubject returns the short stream name for a NATS subject.
+// e.g., "hooks.SessionStart" → "hooks", "decisions._global.DecisionCreated" → "decisions".
+func StreamForSubject(subject string) string {
+	for i := 0; i < len(subject); i++ {
+		if subject[i] == '.' {
+			if name, ok := prefixToStream[subject[:i]]; ok {
+				return name
+			}
+			break
+		}
+	}
+	return ""
+}
+
+// EventTypeFromSubject extracts the event type from a NATS subject.
+// e.g., "hooks.SessionStart" → "SessionStart",
+// "decisions._global.DecisionCreated" → "DecisionCreated" (last segment).
+func EventTypeFromSubject(subject string) string {
+	for i := len(subject) - 1; i >= 0; i-- {
+		if subject[i] == '.' {
+			return subject[i+1:]
+		}
+	}
+	return subject
+}
+
+// SubjectPrefixForStream returns the NATS subject prefix for a short stream name.
+// e.g., "hooks" → "hooks.", "mutations" → "mutations.".
+// Returns "" if the stream name is unknown.
+func SubjectPrefixForStream(name string) string {
+	return streamToPrefix[name]
+}
+
+// StreamNameForJetStream returns the JetStream stream constant for a short name.
+// e.g., "hooks" → "HOOK_EVENTS". Returns "" if unknown.
+func StreamNameForJetStream(name string) string {
+	switch name {
+	case "hooks":
+		return StreamHookEvents
+	case "decisions":
+		return StreamDecisionEvents
+	case "oj":
+		return StreamOjEvents
+	case "agents":
+		return StreamAgentEvents
+	case "mail":
+		return StreamMailEvents
+	case "mutations":
+		return StreamMutationEvents
+	case "config":
+		return StreamConfigEvents
+	case "inbox":
+		return StreamInboxEvents
+	}
+	return ""
+}
+
 // SubjectForEvent returns the NATS subject for a given event type.
 // Hook events use "hooks.<type>"; decision events use "decisions.<type>";
 // OJ events use "oj.<type>"; mutation events use "mutations.<type>".

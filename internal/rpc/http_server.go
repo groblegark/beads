@@ -45,8 +45,9 @@ func (h *HTTPServer) Start(ctx context.Context) error {
 	mux.HandleFunc("/readyz", h.handleReadiness)
 	mux.HandleFunc("/metrics", h.handleMetrics)
 
-	// SSE event stream (auth required, handled inside handler)
-	mux.HandleFunc("/events", h.handleSSEEvents)
+	// SSE event streams (auth required, handled inside handlers)
+	mux.HandleFunc("/events", h.handleSSEEvents)         // Mutation events only (legacy)
+	mux.HandleFunc("/bus/events", h.handleSSEBusEvents)  // All event bus streams (bd-95p0o)
 
 	// Connect-RPC style endpoints (auth required)
 	mux.HandleFunc("/bd.v1.BeadsService/", h.handleRPC)
