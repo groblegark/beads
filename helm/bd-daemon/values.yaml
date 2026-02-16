@@ -219,6 +219,12 @@ dolt:
     allowPrivilegeEscalation: false
 
   # Health probes
+  startupProbe:
+    enabled: true
+    initialDelaySeconds: 5
+    periodSeconds: 5
+    timeoutSeconds: 3
+    failureThreshold: 30
   livenessProbe:
     enabled: true
     initialDelaySeconds: 30

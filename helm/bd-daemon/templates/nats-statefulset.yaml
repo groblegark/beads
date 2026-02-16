@@ -101,6 +101,14 @@ spec:
               containerPort: {{ .Values.nats.websocket.port | default 8443 }}
               protocol: TCP
             {{- end }}
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: monitoring
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 30
           livenessProbe:
             httpGet:
               path: /healthz
@@ -111,7 +119,7 @@ spec:
             failureThreshold: 3
           readinessProbe:
             httpGet:
-              path: /
+              path: /healthz
               port: monitoring
             initialDelaySeconds: 5
             periodSeconds: 10

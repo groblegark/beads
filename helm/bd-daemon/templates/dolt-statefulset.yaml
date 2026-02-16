@@ -344,6 +344,15 @@ spec:
               mountPath: /docker-entrypoint-initdb.d
               readOnly: true
             {{- end }}
+          {{- if .Values.dolt.startupProbe.enabled }}
+          startupProbe:
+            tcpSocket:
+              port: {{ .Values.dolt.config.port }}
+            initialDelaySeconds: {{ .Values.dolt.startupProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.dolt.startupProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.dolt.startupProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.dolt.startupProbe.failureThreshold }}
+          {{- end }}
           {{- if .Values.dolt.livenessProbe.enabled }}
           livenessProbe:
             tcpSocket:

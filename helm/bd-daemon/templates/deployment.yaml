@@ -215,6 +215,8 @@ spec:
             {{- toYaml .Values.daemon.resources | nindent 12 }}
         {{- if .Values.slackBot.enabled }}
         - name: slack-bot
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
           image: "{{ .Values.slackBot.image.repository | default .Values.image.repository }}:{{ .Values.slackBot.image.tag | default .Values.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.slackBot.image.pullPolicy | default .Values.image.pullPolicy }}
           command: ["bd", "slack", "start"]
