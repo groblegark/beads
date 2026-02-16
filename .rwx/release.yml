@@ -31,7 +31,7 @@ tasks:
     with:
       repository: https://github.com/groblegark/beads.git
       ref: ${{ init.commit-sha }}
-      depth: 0  # Full history needed for changelog generation
+      fetch-full-depth: true  # Full history needed for GoReleaser changelog
 
   # ── Go toolchain (cached by version) ────────────────────────────────
   - key: go
