@@ -150,9 +150,26 @@ the issues will not resurrect from remote branches.`,
 		}
 		// Remove duplicates
 		issueIDs = uniqueStrings(issueIDs)
-		
+
 		requireDaemon("delete")
-		deleteViaDaemon(issueIDs, force, dryRun, cascade, hardDelete, jsonOutput, reason)
+
+		// Resolve partial/short/slug IDs via daemon (bd-dktw5)
+		resolvedIDs := make([]string, 0, len(issueIDs))
+		for _, id := range issueIDs {
+			resp, err := daemonClient.ResolveID(&rpc.ResolveIDArgs{ID: id})
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error resolving ID %s: %v\n", id, err)
+				os.Exit(1)
+			}
+			var resolved string
+			if err := json.Unmarshal(resp.Data, &resolved); err != nil {
+				fmt.Fprintf(os.Stderr, "Error parsing resolved ID for %s: %v\n", id, err)
+				os.Exit(1)
+			}
+			resolvedIDs = append(resolvedIDs, resolved)
+		}
+
+		deleteViaDaemon(resolvedIDs, force, dryRun, cascade, hardDelete, jsonOutput, reason)
 	},
 }
 // createTombstone converts an issue to a tombstone record

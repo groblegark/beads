@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 
@@ -39,7 +40,6 @@ Examples:
 	Run: func(cmd *cobra.Command, args []string) {
 		CheckReadonly("move")
 
-		sourceID := args[0]
 		targetRig, _ := cmd.Flags().GetString("to")
 		if targetRig == "" {
 			FatalError("--to flag is required. Specify target rig (e.g., --to beads, --to gt-)")
@@ -49,6 +49,17 @@ Examples:
 		skipDeps, _ := cmd.Flags().GetBool("skip-deps")
 
 		requireDaemon("move")
+
+		// Resolve partial/short/slug ID via daemon (bd-dktw5)
+		resolveResp, err := daemonClient.ResolveID(&rpc.ResolveIDArgs{ID: args[0]})
+		if err != nil {
+			FatalError("resolving ID %s: %v", args[0], err)
+		}
+		var sourceID string
+		if err := json.Unmarshal(resolveResp.Data, &sourceID); err != nil {
+			FatalError("parsing resolved ID: %v", err)
+		}
+
 		moveViaDaemon(sourceID, targetRig, keepOpen, skipDeps)
 	},
 }

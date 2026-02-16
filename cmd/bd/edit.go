@@ -31,7 +31,16 @@ Examples:
 	Run: func(cmd *cobra.Command, args []string) {
 		CheckReadonly("edit")
 		requireDaemon("edit")
-		id := args[0]
+
+		// Resolve partial/short/slug ID via daemon (bd-dktw5)
+		resolveResp, err := daemonClient.ResolveID(&rpc.ResolveIDArgs{ID: args[0]})
+		if err != nil {
+			FatalErrorRespectJSON("resolving ID %s: %v", args[0], err)
+		}
+		var id string
+		if err := json.Unmarshal(resolveResp.Data, &id); err != nil {
+			FatalErrorRespectJSON("parsing resolved ID: %v", err)
+		}
 
 		// Determine which field to edit
 		fieldToEdit := "description"
@@ -64,17 +73,14 @@ Examples:
 		}
 
 		// Get the current issue
-		var issue *types.Issue
-		var err error
-
 		// Fetch issue via daemon RPC
 		showArgs := &rpc.ShowArgs{ID: id}
-		resp, err := daemonClient.Show(showArgs)
-		if err != nil {
-			FatalErrorRespectJSON("fetching issue %s: %v", id, err)
+		resp, showErr := daemonClient.Show(showArgs)
+		if showErr != nil {
+			FatalErrorRespectJSON("fetching issue %s: %v", id, showErr)
 		}
 
-		issue = &types.Issue{}
+		issue := &types.Issue{}
 		if err := json.Unmarshal(resp.Data, issue); err != nil {
 			FatalErrorRespectJSON("parsing issue data: %v", err)
 		}

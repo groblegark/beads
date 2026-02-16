@@ -60,7 +60,6 @@ func init() {
 func runDecisionRespond(cmd *cobra.Command, args []string) {
 	CheckReadonly("decision respond")
 
-	decisionID := args[0]
 	selectOpt, _ := cmd.Flags().GetString("select")
 	textResponse, _ := cmd.Flags().GetString("text")
 	respondedBy, _ := cmd.Flags().GetString("by")
@@ -88,6 +87,18 @@ func runDecisionRespond(cmd *cobra.Command, args []string) {
 	shouldIterate := textResponse != "" && selectOpt == "" && !acceptGuidance
 
 	requireDaemon("decision respond")
+
+	// Resolve partial/short/slug ID via daemon (bd-dktw5)
+	resolveResp, resolveErr := daemonClient.ResolveID(&rpc.ResolveIDArgs{ID: args[0]})
+	if resolveErr != nil {
+		fmt.Fprintf(os.Stderr, "Error resolving ID %s: %v\n", args[0], resolveErr)
+		os.Exit(1)
+	}
+	var decisionID string
+	if err := json.Unmarshal(resolveResp.Data, &decisionID); err != nil {
+		fmt.Fprintf(os.Stderr, "Error parsing resolved ID: %v\n", err)
+		os.Exit(1)
+	}
 
 	// Build guidance field for iteration if needed
 	guidance := ""

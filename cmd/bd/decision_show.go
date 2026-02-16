@@ -33,8 +33,6 @@ func init() {
 }
 
 func runDecisionShow(cmd *cobra.Command, args []string) {
-	decisionID := args[0]
-
 	var issue *types.Issue
 	var dp *types.DecisionPoint
 	var options []types.DecisionOption
@@ -42,6 +40,18 @@ func runDecisionShow(cmd *cobra.Command, args []string) {
 	var resolvedID string
 
 	requireDaemon("decision show")
+
+	// Resolve partial/short/slug ID via daemon (bd-dktw5)
+	resolveResp, resolveErr := daemonClient.ResolveID(&rpc.ResolveIDArgs{ID: args[0]})
+	if resolveErr != nil {
+		fmt.Fprintf(os.Stderr, "Error resolving ID %s: %v\n", args[0], resolveErr)
+		os.Exit(1)
+	}
+	var decisionID string
+	if err := json.Unmarshal(resolveResp.Data, &decisionID); err != nil {
+		fmt.Fprintf(os.Stderr, "Error parsing resolved ID: %v\n", err)
+		os.Exit(1)
+	}
 
 	// Use daemon to get decision
 	getArgs := &rpc.DecisionGetArgs{

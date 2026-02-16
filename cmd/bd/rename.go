@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"regexp"
 
@@ -34,21 +35,31 @@ func init() {
 }
 
 func runRename(cmd *cobra.Command, args []string) error {
-	oldID := args[0]
 	newID := args[1]
 
-	// Validate IDs
-	if oldID == newID {
-		return fmt.Errorf("old and new IDs are the same")
-	}
-
-	// Basic ID format validation
+	// Basic ID format validation for target
 	idPattern := regexp.MustCompile(`^[a-z]+-[a-zA-Z0-9._-]+$`)
 	if !idPattern.MatchString(newID) {
 		return fmt.Errorf("invalid new ID format %q: must be prefix-suffix (e.g., bd-dolt)", newID)
 	}
 
 	requireDaemon("rename")
+
+	// Resolve partial/short/slug ID via daemon (bd-dktw5)
+	resolveResp, err := daemonClient.ResolveID(&rpc.ResolveIDArgs{ID: args[0]})
+	if err != nil {
+		return fmt.Errorf("resolving ID %s: %w", args[0], err)
+	}
+	var oldID string
+	if err := json.Unmarshal(resolveResp.Data, &oldID); err != nil {
+		return fmt.Errorf("parsing resolved ID: %w", err)
+	}
+
+	// Validate IDs
+	if oldID == newID {
+		return fmt.Errorf("old and new IDs are the same")
+	}
+
 	return renameViaDaemon(oldID, newID)
 }
 

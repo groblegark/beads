@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 
@@ -31,12 +32,21 @@ Examples:
 	Run: func(cmd *cobra.Command, args []string) {
 		CheckReadonly("refile")
 
-		sourceID := args[0]
 		targetRig := args[1]
-
 		keepOpen, _ := cmd.Flags().GetBool("keep-open")
 
 		requireDaemon("refile")
+
+		// Resolve partial/short/slug ID via daemon (bd-dktw5)
+		resolveResp, err := daemonClient.ResolveID(&rpc.ResolveIDArgs{ID: args[0]})
+		if err != nil {
+			FatalError("resolving ID %s: %v", args[0], err)
+		}
+		var sourceID string
+		if err := json.Unmarshal(resolveResp.Data, &sourceID); err != nil {
+			FatalError("parsing resolved ID: %v", err)
+		}
+
 		refileViaDaemon(sourceID, targetRig, keepOpen)
 	},
 }
