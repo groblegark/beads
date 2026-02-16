@@ -113,6 +113,14 @@ curl -X POST https://api.rwx.com/v1/dispatches \
   -d '{"repository":"other-repo","workflow":"rebuild","parameters":{...}}'
 ```
 
+### Release Strategy (IMPORTANT)
+All releasing goes through gastown's `platform-versions.env` — do NOT cut separate beads or coop releases for deployment.
+- Bump versions in `~/gastown3/platform-versions.env` (BEADS_VERSION, COOP_VERSION, PLATFORM_VERSION)
+- Push to gastown main → docker.yml auto-builds CalVer-tagged images
+- Update helm chart values to reference the CalVer tag (e.g., `2026.02.16.2`)
+- Deploy via `helm upgrade`
+- beads/coop tags are still used for version pinning but the REAL deployment uses gastown's unified images
+
 ### Our Pipelines (.rwx/)
 
 | File | Purpose | Triggers | Key tasks |
