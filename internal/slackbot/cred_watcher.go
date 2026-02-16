@@ -596,6 +596,12 @@ func looksLikeAuthCode(s string) bool {
 // and posts the auth URL to Slack. This handles the race where the coopmux
 // emitted reauth_required before the slackbot subscribed.
 func (w *CoopCredWatcher) pullReauthURL(account string) {
+	defer func() {
+		w.reauthInFlightMu.Lock()
+		delete(w.reauthInFlight, account)
+		w.reauthInFlightMu.Unlock()
+	}()
+
 	if w.coopmuxURL == "" {
 		log.Printf("slackbot/cred: cannot pull reauth URL — coopmux URL not configured")
 		return
