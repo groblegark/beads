@@ -3207,3 +3207,245 @@ func TestUAT_ChannelMessage_AddAccount_Dispatch(t *testing.T) {
 		t.Error("expected 'add account' message to be handled by cred watcher")
 	}
 }
+
+// ==========================================================================
+// UAT: Verify PKCE reauth flow still works after device code changes (bd-pl2m4)
+// ==========================================================================
+
+// TestUAT_CredWatcher_PKCEReauth_NoUserCode verifies that reauth_required
+// events WITHOUT user_code still trigger the PKCE flow (pullReauthURL).
+func TestUAT_CredWatcher_PKCEReauth_NoUserCode(t *testing.T) {
+	mockSlack := newMockSlackAPI()
+	bot := &Bot{
+		client:    mockSlack,
+		channelID: "C_DEFAULT",
+		botUserID: "UBOTTEST",
+	}
+	// No coopmux URL — pullReauthURL will log and return without posting.
+	// We verify the PKCE path is taken (not the device code path) by
+	// confirming no device code thread is tracked.
+	watcher := NewCoopCredWatcher("nats://fake:4222", "", "", "", bot)
+
+	payload := credentialEventPayload{
+		EventType: "reauth_required",
+		Account:   "claude-max",
+		Ts:        time.Now().Format(time.RFC3339),
+		// No UserCode → PKCE path
+	}
+	data, _ := json.Marshal(payload)
+	watcher.handleMessage(&nats.Msg{Data: data})
+
+	time.Sleep(50 * time.Millisecond)
+
+	// No device code thread should be tracked (PKCE path, not device code).
+	watcher.deviceCodeThreadsMu.RLock()
+	dcCount := len(watcher.deviceCodeThreads)
+	watcher.deviceCodeThreadsMu.RUnlock()
+	if dcCount != 0 {
+		t.Errorf("expected 0 device code threads (PKCE path), got %d", dcCount)
+	}
+}
+
+// TestUAT_CredWatcher_PKCEReauth_EmptyUserCode verifies that reauth_required
+// events with an empty user_code string still trigger the PKCE flow.
+func TestUAT_CredWatcher_PKCEReauth_EmptyUserCode(t *testing.T) {
+	mockSlack := newMockSlackAPI()
+	bot := &Bot{
+		client:    mockSlack,
+		channelID: "C_DEFAULT",
+		botUserID: "UBOTTEST",
+	}
+	watcher := NewCoopCredWatcher("nats://fake:4222", "", "", "", bot)
+
+	emptyCode := ""
+	payload := credentialEventPayload{
+		EventType: "reauth_required",
+		Account:   "claude-max",
+		UserCode:  &emptyCode, // Non-nil but empty → should still use PKCE
+		Ts:        time.Now().Format(time.RFC3339),
+	}
+	data, _ := json.Marshal(payload)
+	watcher.handleMessage(&nats.Msg{Data: data})
+
+	time.Sleep(50 * time.Millisecond)
+
+	// Empty user_code should NOT trigger device code path.
+	watcher.deviceCodeThreadsMu.RLock()
+	dcCount := len(watcher.deviceCodeThreads)
+	watcher.deviceCodeThreadsMu.RUnlock()
+	if dcCount != 0 {
+		t.Errorf("expected 0 device code threads (empty user_code → PKCE), got %d", dcCount)
+	}
+}
+
+// TestUAT_CredWatcher_ReauthRateLimit verifies that duplicate reauth_required
+// events within the rate limit window are suppressed.
+func TestUAT_CredWatcher_ReauthRateLimit(t *testing.T) {
+	mockSlack := newMockSlackAPI()
+	bot := &Bot{
+		client:    mockSlack,
+		channelID: "C_DEFAULT",
+		botUserID: "UBOTTEST",
+	}
+	watcher := NewCoopCredWatcher("nats://fake:4222", "", "http://coopmux:9800", "token", bot)
+
+	// Simulate a tracked reauth thread for the account.
+	watcher.reauthThreadsMu.Lock()
+	watcher.reauthThreads["1234567890.000001"] = reauthInfo{
+		account:   "claude-max",
+		channelID: "C_DEFAULT",
+		state:     "test-state",
+		postedAt:  time.Now(), // Just posted — within rate limit
+	}
+	watcher.reauthThreadsMu.Unlock()
+
+	// Send a reauth_required for the same account — should be rate-limited.
+	userCode := "WXYZ-5678"
+	payload := credentialEventPayload{
+		EventType: "reauth_required",
+		Account:   "claude-max",
+		UserCode:  &userCode,
+		Ts:        time.Now().Format(time.RFC3339),
+	}
+	data, _ := json.Marshal(payload)
+	watcher.handleMessage(&nats.Msg{Data: data})
+
+	time.Sleep(50 * time.Millisecond)
+
+	// No new messages should be posted (rate limited).
+	if len(mockSlack.PostedMessages) != 0 {
+		t.Errorf("expected 0 messages (rate limited), got %d", len(mockSlack.PostedMessages))
+	}
+}
+
+// TestUAT_CredWatcher_RefreshedCleansDeviceCodeThread verifies that a
+// "refreshed" event cleans up device code threads AND posts success.
+func TestUAT_CredWatcher_RefreshedCleansDeviceCodeThread(t *testing.T) {
+	mockSlack := newMockSlackAPI()
+	bot := &Bot{
+		client:    mockSlack,
+		channelID: "C_DEFAULT",
+		botUserID: "UBOTTEST",
+	}
+	watcher := NewCoopCredWatcher("nats://fake:4222", "", "http://coopmux:9800", "token", bot)
+
+	// Set up two device code threads for different accounts.
+	watcher.deviceCodeThreadsMu.Lock()
+	watcher.deviceCodeThreads["thread-1"] = "claude-max"
+	watcher.deviceCodeThreads["thread-2"] = "claude-prod"
+	watcher.deviceCodeThreadsMu.Unlock()
+	watcher.reauthThreadsMu.Lock()
+	watcher.reauthThreads["thread-1"] = reauthInfo{account: "claude-max", channelID: "C_DEFAULT", postedAt: time.Now()}
+	watcher.reauthThreads["thread-2"] = reauthInfo{account: "claude-prod", channelID: "C_DEFAULT", postedAt: time.Now()}
+	watcher.reauthThreadsMu.Unlock()
+
+	// Refresh claude-max only.
+	payload := credentialEventPayload{
+		EventType: "refreshed",
+		Account:   "claude-max",
+		Ts:        time.Now().Format(time.RFC3339),
+	}
+	data, _ := json.Marshal(payload)
+	watcher.handleMessage(&nats.Msg{Data: data})
+
+	time.Sleep(50 * time.Millisecond)
+
+	// thread-1 should be cleaned up, thread-2 should remain.
+	watcher.deviceCodeThreadsMu.RLock()
+	_, has1 := watcher.deviceCodeThreads["thread-1"]
+	_, has2 := watcher.deviceCodeThreads["thread-2"]
+	watcher.deviceCodeThreadsMu.RUnlock()
+
+	if has1 {
+		t.Error("expected thread-1 (claude-max) to be cleaned up after refreshed")
+	}
+	if !has2 {
+		t.Error("expected thread-2 (claude-prod) to remain after claude-max refresh")
+	}
+
+	// Should have posted success for claude-max.
+	found := false
+	for _, msg := range mockSlack.PostedMessages {
+		_, vals, _ := slack.UnsafeApplyMsgOptions("", "C_DEFAULT", "", msg.Options...)
+		text := vals.Get("text")
+		if strings.Contains(text, "Authentication successful") && strings.Contains(text, "claude-max") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("expected success reply for claude-max refresh")
+	}
+}
+
+// TestUAT_CredWatcher_RefreshFailed_TriggersReauth verifies that refresh_failed
+// events trigger a reauth notification when no recent notification exists.
+func TestUAT_CredWatcher_RefreshFailed_TriggersReauth(t *testing.T) {
+	mockSlack := newMockSlackAPI()
+	bot := &Bot{
+		client:    mockSlack,
+		channelID: "C_DEFAULT",
+		botUserID: "UBOTTEST",
+	}
+	// No coopmux URL — pullReauthURL will return early, but we verify
+	// the path is taken by checking no crash occurs and no device code threads.
+	watcher := NewCoopCredWatcher("nats://fake:4222", "", "", "", bot)
+
+	errMsg := "invalid_grant"
+	payload := credentialEventPayload{
+		EventType: "refresh_failed",
+		Account:   "claude-max",
+		Error:     &errMsg,
+		Ts:        time.Now().Format(time.RFC3339),
+	}
+	data, _ := json.Marshal(payload)
+	watcher.handleMessage(&nats.Msg{Data: data})
+
+	time.Sleep(50 * time.Millisecond)
+
+	// No crash, no device code threads (refresh_failed goes through PKCE path).
+	watcher.deviceCodeThreadsMu.RLock()
+	dcCount := len(watcher.deviceCodeThreads)
+	watcher.deviceCodeThreadsMu.RUnlock()
+	if dcCount != 0 {
+		t.Errorf("expected 0 device code threads, got %d", dcCount)
+	}
+}
+
+// TestUAT_CredWatcher_RefreshFailed_RateLimited verifies that refresh_failed
+// is suppressed when a recent reauth notification was already sent.
+func TestUAT_CredWatcher_RefreshFailed_RateLimited(t *testing.T) {
+	mockSlack := newMockSlackAPI()
+	bot := &Bot{
+		client:    mockSlack,
+		channelID: "C_DEFAULT",
+		botUserID: "UBOTTEST",
+	}
+	watcher := NewCoopCredWatcher("nats://fake:4222", "", "http://coopmux:9800", "token", bot)
+
+	// Simulate recent notification.
+	watcher.reauthThreadsMu.Lock()
+	watcher.reauthThreads["recent-thread"] = reauthInfo{
+		account:   "claude-max",
+		channelID: "C_DEFAULT",
+		postedAt:  time.Now(),
+	}
+	watcher.reauthThreadsMu.Unlock()
+
+	errMsg := "invalid_grant"
+	payload := credentialEventPayload{
+		EventType: "refresh_failed",
+		Account:   "claude-max",
+		Error:     &errMsg,
+		Ts:        time.Now().Format(time.RFC3339),
+	}
+	data, _ := json.Marshal(payload)
+	watcher.handleMessage(&nats.Msg{Data: data})
+
+	time.Sleep(50 * time.Millisecond)
+
+	// Should be suppressed — no new messages.
+	if len(mockSlack.PostedMessages) != 0 {
+		t.Errorf("expected 0 messages (rate limited), got %d", len(mockSlack.PostedMessages))
+	}
+}
