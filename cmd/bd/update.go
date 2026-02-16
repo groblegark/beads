@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -11,7 +10,6 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/steveyegge/beads/internal/hooks"
 	"github.com/steveyegge/beads/internal/rpc"
-	"github.com/steveyegge/beads/internal/storage"
 	"github.com/steveyegge/beads/internal/timeparsing"
 	"github.com/steveyegge/beads/internal/types"
 	"github.com/steveyegge/beads/internal/ui"
@@ -285,78 +283,39 @@ create, update, show, or close operation).`,
 			}
 
 			// Handle routed IDs via centralized routing (bd-z344)
-			forEachRoutedID(ctx, store, routedArgs, func(resolvedID string, routedClient *rpc.Client, directResult *RoutedResult) error {
-				if routedClient != nil {
-					routedClient.SetActor(actor)
-					updateArgs := buildUpdateArgs(resolvedID, updates, claimFlag, cmd)
-					// Handle append_notes via RPC Show to get existing notes
-					if appendNotes, ok := updates["append_notes"].(string); ok {
-						showResp, err := routedClient.Show(&rpc.ShowArgs{ID: resolvedID})
-						if err == nil {
-							var existingIssue types.Issue
-							if json.Unmarshal(showResp.Data, &existingIssue) == nil {
-								combined := existingIssue.Notes
-								if combined != "" {
-									combined += "\n"
-								}
-								combined += appendNotes
-								updateArgs.Notes = &combined
+			forEachRoutedID(routedArgs, func(resolvedID string, routedClient *rpc.Client) error {
+				routedClient.SetActor(actor)
+				updateArgs := buildUpdateArgs(resolvedID, updates, claimFlag, cmd)
+				// Handle append_notes via RPC Show to get existing notes
+				if appendNotes, ok := updates["append_notes"].(string); ok {
+					showResp, err := routedClient.Show(&rpc.ShowArgs{ID: resolvedID})
+					if err == nil {
+						var existingIssue types.Issue
+						if json.Unmarshal(showResp.Data, &existingIssue) == nil {
+							combined := existingIssue.Notes
+							if combined != "" {
+								combined += "\n"
 							}
+							combined += appendNotes
+							updateArgs.Notes = &combined
 						}
 					}
-					resp, updateErr := routedClient.Update(updateArgs)
-					routedClient.Close()
-					if updateErr != nil {
-						return updateErr
-					}
-					var issue types.Issue
-					if json.Unmarshal(resp.Data, &issue) == nil {
-						if hookRunner != nil {
-							hookRunner.Run(hooks.EventUpdate, &issue)
-						}
-						if jsonOutput {
-							updatedIssues = append(updatedIssues, &issue)
-						}
-					}
-					if !jsonOutput {
-						fmt.Printf("%s Updated issue: %s\n", ui.RenderPass("✓"), resolvedID)
-					}
-					if firstUpdatedID == "" {
-						firstUpdatedID = resolvedID
-					}
-					return nil
 				}
-
-				// Direct storage fallback
-				issue := directResult.Issue
-				issueStore := directResult.Store
-				if err := validateIssueUpdatable(resolvedID, issue); err != nil {
-					return err
+				resp, updateErr := routedClient.Update(updateArgs)
+				routedClient.Close()
+				if updateErr != nil {
+					return updateErr
 				}
-				if claimFlag {
-					if issue.Assignee != "" {
-						return fmt.Errorf("already claimed by %s", issue.Assignee)
+				var issue types.Issue
+				if json.Unmarshal(resp.Data, &issue) == nil {
+					if hookRunner != nil {
+						hookRunner.Run(hooks.EventUpdate, &issue)
 					}
-					claimUpdates := map[string]interface{}{
-						"assignee": actor,
-						"status":   "in_progress",
-					}
-					if err := issueStore.UpdateIssue(ctx, resolvedID, claimUpdates, actor); err != nil {
-						return err
+					if jsonOutput {
+						updatedIssues = append(updatedIssues, &issue)
 					}
 				}
-				if err := applyDirectUpdates(ctx, issueStore, resolvedID, issue, updates, actor); err != nil {
-					return err
-				}
-				updatedIssue, _ := issueStore.GetIssue(ctx, resolvedID)
-				if updatedIssue != nil && hookRunner != nil {
-					hookRunner.Run(hooks.EventUpdate, updatedIssue)
-				}
-				if jsonOutput {
-					if updatedIssue != nil {
-						updatedIssues = append(updatedIssues, updatedIssue)
-					}
-				} else {
+				if !jsonOutput {
 					fmt.Printf("%s Updated issue: %s\n", ui.RenderPass("✓"), resolvedID)
 				}
 				if firstUpdatedID == "" {
@@ -493,86 +452,6 @@ func buildUpdateArgs(id string, updates map[string]interface{}, claimFlag bool, 
 	}
 	updateArgs.Claim = claimFlag
 	return updateArgs
-}
-
-// applyDirectUpdates applies field updates, label changes, and parent reparenting
-// directly to storage. Used by both the direct mode main loop and the routed
-// direct-storage fallback path.
-func applyDirectUpdates(ctx context.Context, issueStore storage.Storage, resolvedID string, issue *types.Issue, updates map[string]interface{}, actorName string) error {
-	// Apply regular field updates
-	regularUpdates := make(map[string]interface{})
-	for k, v := range updates {
-		if k != "add_labels" && k != "remove_labels" && k != "set_labels" && k != "parent" && k != "append_notes" {
-			regularUpdates[k] = v
-		}
-	}
-	if appendNotes, ok := updates["append_notes"].(string); ok {
-		combined := issue.Notes
-		if combined != "" {
-			combined += "\n"
-		}
-		combined += appendNotes
-		regularUpdates["notes"] = combined
-	}
-	if len(regularUpdates) > 0 {
-		if err := issueStore.UpdateIssue(ctx, resolvedID, regularUpdates, actorName); err != nil {
-			return err
-		}
-	}
-
-	// Apply label operations
-	var setLabels, addLabels, removeLabels []string
-	if v, ok := updates["set_labels"].([]string); ok {
-		setLabels = v
-	}
-	if v, ok := updates["add_labels"].([]string); ok {
-		addLabels = v
-	}
-	if v, ok := updates["remove_labels"].([]string); ok {
-		removeLabels = v
-	}
-	if len(setLabels) > 0 || len(addLabels) > 0 || len(removeLabels) > 0 {
-		if err := applyLabelUpdates(ctx, issueStore, resolvedID, actorName, setLabels, addLabels, removeLabels); err != nil {
-			return err
-		}
-	}
-
-	// Handle parent reparenting
-	if newParent, ok := updates["parent"].(string); ok {
-		if newParent != "" {
-			parentIssue, err := issueStore.GetIssue(ctx, newParent)
-			if err != nil {
-				return fmt.Errorf("getting parent %s: %w", newParent, err)
-			}
-			if parentIssue == nil {
-				return fmt.Errorf("parent issue %s not found", newParent)
-			}
-		}
-		deps, err := issueStore.GetDependencyRecords(ctx, resolvedID)
-		if err != nil {
-			return fmt.Errorf("getting dependencies for %s: %w", resolvedID, err)
-		}
-		for _, dep := range deps {
-			if dep.Type == types.DepParentChild {
-				if err := issueStore.RemoveDependency(ctx, resolvedID, dep.DependsOnID, actorName); err != nil {
-					fmt.Fprintf(os.Stderr, "Error removing old parent dependency: %v\n", err)
-				}
-				break
-			}
-		}
-		if newParent != "" {
-			newDep := &types.Dependency{
-				IssueID:     resolvedID,
-				DependsOnID: newParent,
-				Type:        types.DepParentChild,
-			}
-			if err := issueStore.AddDependency(ctx, newDep, actorName); err != nil {
-				return fmt.Errorf("adding parent dependency: %w", err)
-			}
-		}
-	}
-
-	return nil
 }
 
 // splitCommaSeparated splits a comma-separated string into a slice,

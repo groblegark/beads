@@ -17,6 +17,11 @@ import (
 // - .git/info/exclude is designed for user-specific, repo-local ignores
 // - Patterns are relative to repo root, so ".beads/" works correctly
 func setupStealthMode(verbose bool) error {
+	// Remote mode: no local git repo or .claude writes needed
+	if os.Getenv("BD_DAEMON_HOST") != "" {
+		return nil
+	}
+
 	// Setup per-repository git exclude file
 	if err := setupGitExclude(verbose); err != nil {
 		return fmt.Errorf("failed to setup git exclude: %w", err)

@@ -147,60 +147,29 @@ create, update, show, or close operation).`,
 			}
 
 			// Handle routed IDs via centralized routing (bd-z344)
-			forEachRoutedID(ctx, store, routedArgs, func(resolvedID string, routedClient *rpc.Client, directResult *RoutedResult) error {
-				if routedClient != nil {
-					routedClient.SetActor(actor)
-					closeArgs := &rpc.CloseArgs{
-						ID:      resolvedID,
-						Reason:  reason,
-						Session: session,
-						Force:   force,
-					}
-					resp, closeErr := routedClient.CloseIssue(closeArgs)
-					routedClient.Close()
-					if closeErr != nil {
-						return closeErr
-					}
-					var issue types.Issue
-					if json.Unmarshal(resp.Data, &issue) == nil {
-						if hookRunner != nil {
-							hookRunner.Run(hooks.EventClose, &issue)
-						}
-						if jsonOutput {
-							closedIssues = append(closedIssues, &issue)
-						}
-					}
-					if !jsonOutput {
-						fmt.Printf("%s Closed %s: %s\n", ui.RenderPass("✓"), resolvedID, reason)
-					}
-					return nil
+			forEachRoutedID(routedArgs, func(resolvedID string, routedClient *rpc.Client) error {
+				routedClient.SetActor(actor)
+				closeArgs := &rpc.CloseArgs{
+					ID:      resolvedID,
+					Reason:  reason,
+					Session: session,
+					Force:   force,
 				}
-
-				// Direct storage fallback
-				if err := validateIssueClosable(resolvedID, directResult.Issue, force); err != nil {
-					return err
+				resp, closeErr := routedClient.CloseIssue(closeArgs)
+				routedClient.Close()
+				if closeErr != nil {
+					return closeErr
 				}
-				if !force {
-					blocked, blockers, err := directResult.Store.IsBlocked(ctx, resolvedID)
-					if err != nil {
-						return err
+				var issue types.Issue
+				if json.Unmarshal(resp.Data, &issue) == nil {
+					if hookRunner != nil {
+						hookRunner.Run(hooks.EventClose, &issue)
 					}
-					if blocked && len(blockers) > 0 {
-						return fmt.Errorf("cannot close %s: blocked by open issues %v (use --force to override)", resolvedID, blockers)
+					if jsonOutput {
+						closedIssues = append(closedIssues, &issue)
 					}
 				}
-				if err := directResult.Store.CloseIssue(ctx, resolvedID, reason, actor, session); err != nil {
-					return err
-				}
-				closedIssue, _ := directResult.Store.GetIssue(ctx, resolvedID)
-				if closedIssue != nil && hookRunner != nil {
-					hookRunner.Run(hooks.EventClose, closedIssue)
-				}
-				if jsonOutput {
-					if closedIssue != nil {
-						closedIssues = append(closedIssues, closedIssue)
-					}
-				} else {
+				if !jsonOutput {
 					fmt.Printf("%s Closed %s: %s\n", ui.RenderPass("✓"), resolvedID, reason)
 				}
 				return nil

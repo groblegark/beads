@@ -227,20 +227,17 @@ func resolveIDsWithRouting(ctx context.Context, localStore storage.Storage,
 }
 
 // RoutedIDAction is a callback for processing a single routed issue ID.
-// It receives the resolved full ID and either a routedClient (daemon at target rig)
-// or a directResult (direct storage fallback). Exactly one will be non-nil.
-type RoutedIDAction func(resolvedID string, routedClient *rpc.Client, directResult *RoutedResult) error
+// It receives the resolved full ID and the routedClient (daemon at target rig).
+type RoutedIDAction func(resolvedID string, routedClient *rpc.Client) error
 
 // forEachRoutedID processes routed IDs via the daemon at the target rig.
 // For each ID, it calls the action callback with the routed daemon client.
 // Errors are logged to stderr and processing continues to the next ID.
-func forEachRoutedID(ctx context.Context, localStore storage.Storage,
-	routedArgs []string, action RoutedIDAction,
-) {
+func forEachRoutedID(routedArgs []string, action RoutedIDAction) {
 	for _, id := range routedArgs {
 		resolvedID, routedClient, routeErr := resolveIDViaRoutedDaemon(id)
 		if routedClient != nil {
-			if err := action(resolvedID, routedClient, nil); err != nil {
+			if err := action(resolvedID, routedClient); err != nil {
 				fmt.Fprintf(os.Stderr, "Error processing %s: %v\n", id, err)
 			}
 			continue

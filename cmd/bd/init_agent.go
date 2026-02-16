@@ -115,6 +115,11 @@ bd sync               # Sync with git
 
 // setupClaudeSettings creates or updates .claude/settings.local.json with onboard instruction
 func setupClaudeSettings(verbose bool) error {
+	// Remote mode: skip local .claude writes — daemon owns config
+	if os.Getenv("BD_DAEMON_HOST") != "" {
+		return nil
+	}
+
 	claudeDir := ".claude"
 	settingsPath := filepath.Join(claudeDir, "settings.local.json")
 

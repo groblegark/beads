@@ -724,7 +724,7 @@ var rootCmd = &cobra.Command{
 				os.Exit(1)
 			}
 
-			// Daemon not available - log the reason and continue to direct storage fallback
+			// Daemon not available - log the reason (daemon-only mode will require it below)
 			debug.Logf("daemon not available (detail: %s)", daemonStatus.Detail)
 		}
 

@@ -91,62 +91,26 @@ var showCmd = &cobra.Command{
 			displayIdx := 0
 
 			// First, handle routed IDs via centralized routing (bd-z344)
-			forEachRoutedID(ctx, store, routedArgs, func(resolvedID string, routedClient *rpc.Client, directResult *RoutedResult) error {
-				if routedClient != nil {
-					showResp, showErr := routedClient.Show(&rpc.ShowArgs{ID: resolvedID})
-					routedClient.Close()
-					if showErr != nil {
-						return showErr
-					}
-					if string(showResp.Data) == "null" || len(showResp.Data) == 0 {
-						fmt.Fprintf(os.Stderr, "Issue %s not found\n", resolvedID)
-						return nil
-					}
-					var details types.IssueDetails
-					if err := json.Unmarshal(showResp.Data, &details); err != nil {
-						return err
-					}
-					issue := &details.Issue
-					if shortMode {
-						fmt.Println(formatShortIssue(issue))
-						return nil
-					}
-					if jsonOutput {
-						for _, dep := range details.Dependencies {
-							if dep.DependencyType == types.DepParentChild {
-								details.Parent = &dep.ID
-								break
-							}
-						}
-						allDetails = append(allDetails, details)
-					} else {
-						if displayIdx > 0 {
-							fmt.Println("\n" + ui.RenderMuted(strings.Repeat("─", 60)))
-						}
-						fmt.Printf("\n%s\n", formatIssueHeader(issue))
-						fmt.Println(formatIssueMetadata(issue))
-						if issue.Description != "" {
-							fmt.Printf("\n%s\n%s\n", ui.RenderBold("DESCRIPTION"), ui.RenderMarkdown(issue.Description))
-						}
-						fmt.Println()
-						displayIdx++
-					}
+			forEachRoutedID(routedArgs, func(resolvedID string, routedClient *rpc.Client) error {
+				showResp, showErr := routedClient.Show(&rpc.ShowArgs{ID: resolvedID})
+				routedClient.Close()
+				if showErr != nil {
+					return showErr
+				}
+				if string(showResp.Data) == "null" || len(showResp.Data) == 0 {
+					fmt.Fprintf(os.Stderr, "Issue %s not found\n", resolvedID)
 					return nil
 				}
-
-				// Direct storage fallback
-				issue := directResult.Issue
-				issueStore := directResult.Store
+				var details types.IssueDetails
+				if err := json.Unmarshal(showResp.Data, &details); err != nil {
+					return err
+				}
+				issue := &details.Issue
 				if shortMode {
 					fmt.Println(formatShortIssue(issue))
 					return nil
 				}
 				if jsonOutput {
-					details := &types.IssueDetails{Issue: *issue}
-					details.Labels, _ = issueStore.GetLabels(ctx, issue.ID)
-					details.Dependencies, _ = issueStore.GetDependenciesWithMetadata(ctx, issue.ID)
-					details.Dependents, _ = issueStore.GetDependentsWithMetadata(ctx, issue.ID)
-					details.Comments, _ = issueStore.GetIssueComments(ctx, issue.ID)
 					for _, dep := range details.Dependencies {
 						if dep.DependencyType == types.DepParentChild {
 							details.Parent = &dep.ID
@@ -552,32 +516,19 @@ func showIssueRefs(ctx context.Context, args []string, resolvedIDs []string, rou
 	// Collect all refs for all issues
 	allRefs := make(map[string][]*types.IssueWithDependencyMetadata)
 
-	// Process each issue (GetDependentsWithMetadata is on Storage interface)
-	processIssue := func(issueID string, issueStore storage.Storage) error {
-		refs, err := issueStore.GetDependentsWithMetadata(ctx, issueID)
-		if err != nil {
+	// Handle routed IDs via centralized routing (bd-z344)
+	forEachRoutedID(routedArgs, func(resolvedID string, routedClient *rpc.Client) error {
+		showResp, showErr := routedClient.Show(&rpc.ShowArgs{ID: resolvedID})
+		routedClient.Close()
+		if showErr != nil {
+			return showErr
+		}
+		var details types.IssueDetails
+		if err := json.Unmarshal(showResp.Data, &details); err != nil {
 			return err
 		}
-		allRefs[issueID] = refs
+		allRefs[resolvedID] = details.Dependents
 		return nil
-	}
-
-	// Handle routed IDs via centralized routing (bd-z344)
-	forEachRoutedID(ctx, store, routedArgs, func(resolvedID string, routedClient *rpc.Client, directResult *RoutedResult) error {
-		if routedClient != nil {
-			showResp, showErr := routedClient.Show(&rpc.ShowArgs{ID: resolvedID})
-			routedClient.Close()
-			if showErr != nil {
-				return showErr
-			}
-			var details types.IssueDetails
-			if err := json.Unmarshal(showResp.Data, &details); err != nil {
-				return err
-			}
-			allRefs[resolvedID] = details.Dependents
-			return nil
-		}
-		return processIssue(resolvedID, directResult.Store)
 	})
 
 	// Handle resolved IDs - use Show RPC which returns IssueDetails with Dependents
@@ -718,50 +669,26 @@ func showIssueChildren(ctx context.Context, args []string, resolvedIDs []string,
 	// Collect all children for all issues
 	allChildren := make(map[string][]*types.IssueWithDependencyMetadata)
 
-	// Process each issue to get its children (GetDependentsWithMetadata is on Storage interface)
-	processIssue := func(issueID string, issueStore storage.Storage) error {
-		// Initialize entry so "no children" message can be shown
-		if _, exists := allChildren[issueID]; !exists {
-			allChildren[issueID] = []*types.IssueWithDependencyMetadata{}
+	// Handle routed IDs via centralized routing (bd-z344)
+	forEachRoutedID(routedArgs, func(resolvedID string, routedClient *rpc.Client) error {
+		showResp, showErr := routedClient.Show(&rpc.ShowArgs{ID: resolvedID})
+		routedClient.Close()
+		if showErr != nil {
+			return showErr
 		}
-
-		// Get all dependents with metadata so we can filter for children
-		refs, err := issueStore.GetDependentsWithMetadata(ctx, issueID)
-		if err != nil {
+		var details types.IssueDetails
+		if err := json.Unmarshal(showResp.Data, &details); err != nil {
 			return err
 		}
-		// Filter for only parent-child relationships
-		for _, ref := range refs {
-			if ref.DependencyType == types.DepParentChild {
-				allChildren[issueID] = append(allChildren[issueID], ref)
+		if _, exists := allChildren[resolvedID]; !exists {
+			allChildren[resolvedID] = []*types.IssueWithDependencyMetadata{}
+		}
+		for _, dep := range details.Dependents {
+			if dep.DependencyType == types.DepParentChild {
+				allChildren[resolvedID] = append(allChildren[resolvedID], dep)
 			}
 		}
 		return nil
-	}
-
-	// Handle routed IDs via centralized routing (bd-z344)
-	forEachRoutedID(ctx, store, routedArgs, func(resolvedID string, routedClient *rpc.Client, directResult *RoutedResult) error {
-		if routedClient != nil {
-			showResp, showErr := routedClient.Show(&rpc.ShowArgs{ID: resolvedID})
-			routedClient.Close()
-			if showErr != nil {
-				return showErr
-			}
-			var details types.IssueDetails
-			if err := json.Unmarshal(showResp.Data, &details); err != nil {
-				return err
-			}
-			if _, exists := allChildren[resolvedID]; !exists {
-				allChildren[resolvedID] = []*types.IssueWithDependencyMetadata{}
-			}
-			for _, dep := range details.Dependents {
-				if dep.DependencyType == types.DepParentChild {
-					allChildren[resolvedID] = append(allChildren[resolvedID], dep)
-				}
-			}
-			return nil
-		}
-		return processIssue(resolvedID, directResult.Store)
 	})
 
 	// Handle resolved IDs - use Show RPC which returns IssueDetails with Dependents
