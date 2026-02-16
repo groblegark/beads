@@ -1,20 +1,6 @@
-# Optimized CI with performance improvements
+# CI — manual only (no auto-trigger on push/PR).
+# Run manually: rwx run .rwx/ci.yml --init commit-sha=$(git rev-parse HEAD) --wait
 on:
-  github:
-    push:
-      if: ${{ event.git.branch == 'main' }}
-      init:
-        commit-sha: ${{ event.git.sha }}
-        trigger: push
-      status-checks:
-        name: CI
-    pull_request:
-      init:
-        commit-sha: ${{ event.git.sha }}
-        trigger: pr
-      status-checks:
-        - tasks: [build, lint, test, version-check]
-          name: CI
   cli:
     init:
       commit-sha: ${{ event.git.sha }}

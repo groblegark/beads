@@ -1,20 +1,14 @@
-# Optimized Helm chart CI/CD with caching
+# Helm chart CI/CD — auto-publishes on v* tags, manual lint via CLI.
+# Lint manually: rwx run .rwx/helm.yml --init commit-sha=$(git rev-parse HEAD) --wait
 on:
   github:
     push:
-      if: ${{ event.git.branch == 'main' || starts-with(event.git.tag, 'v') }}
+      if: ${{ starts-with(event.git.tag, 'v') }}
       init:
         commit-sha: ${{ event.git.sha }}
         ref-name: ${{ event.git.ref }}
       status-checks:
         name: Helm
-    pull_request:
-      init:
-        commit-sha: ${{ event.git.sha }}
-        ref-name: pr
-      status-checks:
-        - tasks: [helm-lint]
-          name: Helm
   cli:
     init:
       commit-sha: ${{ event.git.sha }}

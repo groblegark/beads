@@ -33,21 +33,21 @@ tasks:       # Array of task definitions (the DAG)
 - **cache-ttl** — e.g., `7 days`, `1 hour`
 
 #### Triggers (`on` block):
+CI workflows are **manual-only** (CLI trigger). Release/image/helm workflows auto-trigger on `v*` tags.
 ```yaml
+# Manual-only workflow (ci.yml pattern):
+on:
+  cli:
+    init:
+      commit-sha: ${{ event.git.sha }}
+
+# Auto-trigger on tags only (helm.yml pattern):
 on:
   github:
     push:
-      if: ${{ event.git.branch == 'main' }}
+      if: ${{ starts-with(event.git.tag, 'v') }}
       init:
         commit-sha: ${{ event.git.sha }}
-      status-checks:
-        name: CI
-    pull_request:
-      init:
-        commit-sha: ${{ event.git.sha }}
-      status-checks:
-        - tasks: [build, lint, test]
-          name: CI
   cli:
     init:
       commit-sha: ${{ event.git.sha }}
@@ -117,10 +117,25 @@ curl -X POST https://api.rwx.com/v1/dispatches \
 
 | File | Purpose | Triggers | Key tasks |
 |------|---------|----------|-----------|
-| `ci.yml` | Main CI | push(main), PR | build, lint, test, version-check, beads-guard |
+| `ci.yml` | Main CI | **CLI only** (manual) | build, lint, test, version-check, beads-guard |
 | `image.yml` | OCI image builds | push(main/tags), PR(build only) | build-bd (Go), build-oj (Rust), image-bd, image-toolchain |
 | `release.yml` | GoReleaser releases | push(v* tags), CLI | release, dispatch-gastown |
-| `helm.yml` | Helm chart lint+publish | push(main/tags), PR | helm-lint, helm-publish to ghcr.io |
+| `helm.yml` | Helm chart lint+publish | **v* tags + CLI** (manual) | helm-lint, helm-publish to ghcr.io |
+
+### Running CI Manually
+
+CI does **not** auto-run on push or PR. Run it yourself before releasing:
+
+```bash
+# Full CI (build + lint + test)
+rwx run .rwx/ci.yml --init commit-sha=$(git rev-parse HEAD) --wait
+
+# Single task (e.g., just tests)
+rwx run .rwx/ci.yml --init commit-sha=$(git rev-parse HEAD) --target test --wait
+
+# Helm lint only
+rwx run .rwx/helm.yml --init commit-sha=$(git rev-parse HEAD) --wait
+```
 
 #### Lock files for cache control:
 - `build-deps.lock` — system packages (touch weekly)
