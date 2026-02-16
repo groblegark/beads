@@ -32,6 +32,7 @@ tasks:
       repository: https://github.com/groblegark/beads.git
       ref: ${{ init.commit-sha }}
       fetch-full-depth: true  # Full history needed for GoReleaser changelog
+      preserve-git-dir: true  # GoReleaser needs .git to detect tags/changelog
 
   # ── Go toolchain (cached by version) ────────────────────────────────
   - key: go
