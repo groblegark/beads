@@ -510,29 +510,15 @@ bd dep add beads-yyy beads-xxx  # Tests depend on Feature (Feature blocks tests)
 
 When you need human input (approval, choices, clarification), use decision points:
 
-**Blocking mode (wait for response):**
 ` + "```bash" + `
-# Create decision and wait for response
-id=$(bd decision create --prompt="Deploy to production?" \
-  --options='[{"id":"y","label":"Yes, deploy"},{"id":"n","label":"No, abort"}]' \
-  --json | jq -r .id)
-response=$(bd decision await $id --timeout 5m)
-selected=$(echo $response | jq -r .selected)
-# Continue based on selection...
-` + "```" + `
-
-**Async mode (response via hook):**
-` + "```bash" + `
-# Create decision, continue later when response arrives
-bd decision create --prompt="Which approach?" \
-  --options='[{"id":"a","label":"Option A"},{"id":"b","label":"Option B"}]'
-# Response will be injected via bd decision check --inject hook
+# Create a decision point — blocks until human responds (default --wait=true)
+bd decision create --prompt="Deploy to production?" \
+  --options='[{"id":"y","label":"Yes, deploy"},{"id":"n","label":"No, abort"}]'
+# Blocks until responded. Use --json to get machine-readable output.
 ` + "```" + `
 
 **Decision commands:**
-- ` + "`bd decision create --prompt=\"...\" --options='[...]'`" + ` - Create decision point
-- ` + "`bd decision await <id> --timeout 5m`" + ` - Block until response
-- ` + "`bd decision check --inject`" + ` - Check for responses (hook mode)
+- ` + "`bd decision create --prompt=\"...\" --options='[...]'`" + ` - Create and wait for response (blocks)
 - ` + "`bd decision list`" + ` - Show pending decisions
 - ` + "`bd decision show <id>`" + ` - Decision details
 `

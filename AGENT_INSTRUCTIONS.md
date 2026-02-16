@@ -231,28 +231,36 @@ Without the pre-push hook, you can have database changes committed locally but s
 
 ## Decision Points
 
-When you need **human input on a choice**, create a decision point. This blocks the workflow until a human responds. Use `gt decision request` (the high-level Gas Town workflow) which properly notifies the human overseer and syncs to `gt decision watch`.
+When you need **human input on a choice**, create a decision point. This blocks the workflow until a human responds.
 
 ### Creating a Decision Point
 
+`bd decision create` is the single command for creating decisions. It **blocks by default** (`--wait=true`) until the human responds — no need for a separate await step.
+
 ```bash
-# Create a decision that blocks another issue
-gt decision request \
-  --prompt "Which caching strategy should we use?" \
-  --option "Redis: Distributed caching, handles scaling" \
-  --option "In-memory: Simple and fast, single-process only" \
-  --recommend 1 \
-  --blocks <blocked-issue-id>
+# Simple yes/no — blocks until human responds
+bd decision create --prompt="Deploy to production?" \
+  --options='[{"id":"y","label":"Yes, deploy"},{"id":"n","label":"No, abort"}]'
+
+# With context, urgency, and dependency blocking
+bd decision create --prompt="Which caching strategy?" \
+  --options='[{"id":"redis","label":"Redis: distributed, handles scaling"},{"id":"mem","label":"In-memory: simple, single-process"}]' \
+  --context="Current load is 10k req/s, expected to grow 5x" \
+  --urgency=high \
+  --blocks=<blocked-issue-id>
 ```
 
-**Key options:**
+**Key flags:**
 - `--prompt` - The question to ask (required)
-- `--option` - Option in "Label: Description" format (repeatable, 2-4 required)
-- `--recommend` - Mark option N as recommended (1-indexed)
+- `--options` - JSON array of `{"id","label"}` objects (required)
 - `--context` - Background information or analysis
 - `--blocks` - Bead to unblock when decision is resolved
 - `--parent` - Parent bead for hierarchy
 - `--urgency` - Priority level: high, medium, low (default: medium)
+- `--default` - Option ID to auto-select on timeout
+- `--timeout` - Timeout duration (default: 24h)
+- `--wait` - Block until response (default: true)
+- `--json` - Machine-readable output
 
 ### Responding to Decisions
 
@@ -297,24 +305,21 @@ Use decision points when:
 
 ```bash
 # Architecture decision
-gt decision request \
-  --prompt "Should we use REST or GraphQL for the new API?" \
-  --option "REST API: Well-established, simpler tooling" \
-  --option "GraphQL: Flexible queries, reduces over-fetching"
+bd decision create \
+  --prompt="Should we use REST or GraphQL for the new API?" \
+  --options='[{"id":"rest","label":"REST: well-established, simpler tooling"},{"id":"graphql","label":"GraphQL: flexible queries, reduces over-fetching"}]'
 
-# Approval gate
-gt decision request \
-  --prompt "Approve deployment to production?" \
-  --option "Yes: Deploy now, all tests passing" \
-  --option "No: Wait for maintenance window" \
-  --blocks bd-deploy.1 \
-  --urgency high
+# Approval gate (blocks another issue until responded)
+bd decision create \
+  --prompt="Approve deployment to production?" \
+  --options='[{"id":"y","label":"Yes, deploy now — all tests passing"},{"id":"n","label":"No, wait for maintenance window"}]' \
+  --blocks=bd-deploy.1 \
+  --urgency=high
 
 # Design choice
-gt decision request \
-  --prompt "Which color scheme for the dashboard?" \
-  --option "Light theme: Better readability in bright environments" \
-  --option "Dark theme: Reduced eye strain for long sessions"
+bd decision create \
+  --prompt="Which color scheme for the dashboard?" \
+  --options='[{"id":"light","label":"Light theme: better readability in bright environments"},{"id":"dark","label":"Dark theme: reduced eye strain for long sessions"}]'
 ```
 
 ### Iterative Refinement
