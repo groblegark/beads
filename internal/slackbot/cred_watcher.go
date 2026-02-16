@@ -717,7 +717,17 @@ func (w *CoopCredWatcher) addNewAccount(name, provider, channelID string) {
 
 	log.Printf("slackbot/cred: created new account %s (provider: %s)", name, provider)
 	w.postChannelMessage(channelID,
-		fmt.Sprintf(":new: Account *%s* (provider: %s) created. Waiting for authentication — a device code will appear shortly.", name, provider))
+		fmt.Sprintf(":new: Account *%s* (provider: %s) created. Initiating authentication...", name, provider))
+
+	// The account starts in Expired state. Coopmux's refresh loop will try
+	// device code first, but Cloudflare blocks the Anthropic device code
+	// endpoint, so it falls back to PKCE. The PKCE fallback doesn't emit a
+	// NATS event, so we proactively pull the reauth URL after a short delay
+	// to let coopmux settle its initial auth attempt.
+	go func() {
+		time.Sleep(3 * time.Second)
+		w.pullReauthURL(name)
+	}()
 }
 
 // notifyDeviceCode posts a device code notification to Slack.
