@@ -19,7 +19,7 @@ spec:
       labels:
         {{- include "bd-daemon.dolt.selectorLabels" . | nindent 8 }}
       annotations:
-        checksum/config: {{ include (print $.Template.BasePath "/dolt-configmap.yaml") . | sha256sum }}
+        checksum/config: {{ printf "%s|%s|%d|%d|%d|%v|%v|%d|%d" .Values.dolt.config.log_level .Values.dolt.config.host (.Values.dolt.config.port | int) (.Values.dolt.config.max_connections | int) (.Values.dolt.cluster.replicas | default 1 | int) .Values.dolt.cluster.enabled (.Values.dolt.metrics.enabled | default false) (.Values.dolt.cluster.remotesapiPort | default 50051 | int) (.Values.dolt.cluster.bootstrapEpoch | default 1 | int) | sha256sum | trunc 32 }}
         karpenter.sh/do-not-disrupt: "true"
     spec:
       serviceAccountName: {{ include "bd-daemon.dolt.serviceAccountName" . }}
