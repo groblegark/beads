@@ -325,6 +325,17 @@ CREATE TABLE IF NOT EXISTS inbox (
     UNIQUE INDEX idx_inbox_dedup (dedup_key)
 );
 
+-- Per-agent delivery tracking for broadcast inbox messages (bd-r7slg).
+-- When agent_name='all' broadcasts are marked delivered, a row goes here
+-- instead of setting delivered_at on the shared inbox row. This prevents
+-- agent A's drain from hiding the message from agents B, C, etc.
+CREATE TABLE IF NOT EXISTS inbox_broadcast_ack (
+    inbox_id VARCHAR(255) NOT NULL,
+    agent_name VARCHAR(255) NOT NULL,
+    delivered_at DATETIME NOT NULL,
+    PRIMARY KEY (inbox_id, agent_name)
+);
+
 -- Blocked issues cache (materialized view for GetReadyWork performance, bd-b2ts)
 -- Stores issue_id values for all issues that are currently blocked.
 -- Rebuilt on dependency/status changes instead of computing recursive CTE on every read.

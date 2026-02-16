@@ -168,7 +168,7 @@ func (m *mockInboxStore) InboxDrain(_ context.Context, agentName string, maxPrio
 	return m.items, nil
 }
 
-func (m *mockInboxStore) InboxMarkDelivered(_ context.Context, ids []string) error {
+func (m *mockInboxStore) InboxMarkDelivered(_ context.Context, _ string, ids []string) error {
 	m.drained = append(m.drained, ids...)
 	return m.markErr
 }

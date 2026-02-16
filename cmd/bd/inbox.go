@@ -245,7 +245,7 @@ func runInboxDrain(cmd *cobra.Command, args []string) {
 	for i, item := range result.Items {
 		ids[i] = item.ID
 	}
-	_, markErr := daemonClient.InboxMarkDelivered(&rpc.InboxMarkDeliveredArgs{IDs: ids})
+	_, markErr := daemonClient.InboxMarkDelivered(&rpc.InboxMarkDeliveredArgs{IDs: ids, AgentName: getActor()})
 	if markErr != nil {
 		fmt.Fprintf(os.Stderr, "Warning: failed to mark items delivered: %v\n", markErr)
 	}

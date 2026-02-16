@@ -27,6 +27,7 @@ var migrations = []Migration{
 	{"inbox_table", migrateInboxTable},
 	{"session_registry_table", migrateSessionRegistryTable},
 	{"inbox_dedup_unique", migrateInboxDedupUnique},
+	{"inbox_broadcast_ack", migrateInboxBroadcastAck},
 }
 
 // RunMigrations executes all registered migrations in order.
@@ -322,6 +323,40 @@ func migrateInboxDedupUnique(ctx context.Context, db *sql.DB) error {
 	_, err = db.ExecContext(ctx, `ALTER TABLE inbox ADD UNIQUE INDEX idx_inbox_dedup (dedup_key)`)
 	if err != nil {
 		return fmt.Errorf("failed to add unique inbox dedup index: %w", err)
+	}
+
+	return nil
+}
+
+// migrateInboxBroadcastAck creates the inbox_broadcast_ack table for per-agent
+// delivery tracking of broadcast messages (bd-r7slg).
+func migrateInboxBroadcastAck(ctx context.Context, db *sql.DB) error {
+	var count int
+	err := db.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM information_schema.tables
+		WHERE table_schema = DATABASE()
+		  AND table_name = 'inbox_broadcast_ack'
+	`).Scan(&count)
+	if err != nil {
+		return fmt.Errorf("failed to check for inbox_broadcast_ack table: %w", err)
+	}
+	if count > 0 {
+		return nil
+	}
+
+	_, err = db.ExecContext(ctx, `
+		CREATE TABLE inbox_broadcast_ack (
+			inbox_id VARCHAR(255) NOT NULL,
+			agent_name VARCHAR(255) NOT NULL,
+			delivered_at DATETIME NOT NULL,
+			PRIMARY KEY (inbox_id, agent_name)
+		)
+	`)
+	if err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "already exists") {
+			return nil
+		}
+		return fmt.Errorf("failed to create inbox_broadcast_ack table: %w", err)
 	}
 
 	return nil

@@ -32,19 +32,26 @@ func (s *DoltStore) InboxPush(ctx context.Context, item *types.InboxItem) error 
 
 // InboxList returns inbox items for an agent, optionally including delivered items.
 // Also includes broadcast messages (agent_name='all') so that --to=all pushes
-// are visible to every agent.
+// are visible to every agent. Broadcasts already acked by this agent (via
+// inbox_broadcast_ack) are excluded unless includeDelivered is true. (bd-r7slg)
 func (s *DoltStore) InboxList(ctx context.Context, agentName string, includeDelivered bool) ([]*types.InboxItem, error) {
 	query := `
-		SELECT id, agent_name, rig, session_id, type, source, content,
-		       priority, created_at, delivered_at, expires_at, dedup_key
-		FROM inbox
-		WHERE (agent_name = ? OR agent_name = 'all')`
+		SELECT i.id, i.agent_name, i.rig, i.session_id, i.type, i.source, i.content,
+		       i.priority, i.created_at, i.delivered_at, i.expires_at, i.dedup_key
+		FROM inbox i
+		LEFT JOIN inbox_broadcast_ack ba ON i.id = ba.inbox_id AND ba.agent_name = ?
+		WHERE (i.agent_name = ? OR i.agent_name = 'all')`
+	args := []interface{}{agentName, agentName}
 	if !includeDelivered {
-		query += ` AND delivered_at IS NULL`
+		// Direct messages: delivered_at IS NULL. Broadcasts: no ack row for this agent.
+		query += ` AND (
+			(i.agent_name != 'all' AND i.delivered_at IS NULL)
+			OR (i.agent_name = 'all' AND ba.inbox_id IS NULL)
+		)`
 	}
-	query += ` ORDER BY priority ASC, created_at ASC`
+	query += ` ORDER BY i.priority ASC, i.created_at ASC`
 
-	rows, err := s.db.QueryContext(ctx, query, agentName)
+	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("inbox list: %w", err)
 	}
@@ -56,27 +63,32 @@ func (s *DoltStore) InboxList(ctx context.Context, agentName string, includeDeli
 // InboxDrain returns undelivered, non-expired inbox items for an agent.
 // Does NOT mark them as delivered — caller should use InboxMarkDelivered after output.
 // Also includes broadcast messages (agent_name='all') so that --to=all pushes
-// are delivered to every agent on their next drain.
+// are delivered to every agent on their next drain. Broadcasts already acked by
+// this agent (via inbox_broadcast_ack) are excluded. (bd-r7slg)
 // Optional maxPriority filters to only return items with priority <= the given value
 // (0=critical only, 1=critical+high, etc.). Omit or pass no value for all priorities.
 func (s *DoltStore) InboxDrain(ctx context.Context, agentName string, maxPriority ...int) ([]*types.InboxItem, error) {
 	query := `
-		SELECT id, agent_name, rig, session_id, type, source, content,
-		       priority, created_at, delivered_at, expires_at, dedup_key
-		FROM inbox
-		WHERE (agent_name = ? OR agent_name = 'all')
-		  AND delivered_at IS NULL
-		  AND (expires_at IS NULL OR expires_at > NOW())`
-	args := []interface{}{agentName}
+		SELECT i.id, i.agent_name, i.rig, i.session_id, i.type, i.source, i.content,
+		       i.priority, i.created_at, i.delivered_at, i.expires_at, i.dedup_key
+		FROM inbox i
+		LEFT JOIN inbox_broadcast_ack ba ON i.id = ba.inbox_id AND ba.agent_name = ?
+		WHERE (i.agent_name = ? OR i.agent_name = 'all')
+		  AND (
+		    (i.agent_name != 'all' AND i.delivered_at IS NULL)
+		    OR (i.agent_name = 'all' AND ba.inbox_id IS NULL)
+		  )
+		  AND (i.expires_at IS NULL OR i.expires_at > NOW())`
+	args := []interface{}{agentName, agentName}
 
 	if len(maxPriority) > 0 && maxPriority[0] > 0 {
 		query += `
-		  AND priority <= ?`
+		  AND i.priority <= ?`
 		args = append(args, maxPriority[0])
 	}
 
 	query += `
-		ORDER BY priority ASC, created_at ASC
+		ORDER BY i.priority ASC, i.created_at ASC
 		LIMIT 20`
 
 	rows, err := s.db.QueryContext(ctx, query, args...)
@@ -88,8 +100,11 @@ func (s *DoltStore) InboxDrain(ctx context.Context, agentName string, maxPriorit
 	return scanInboxItems(rows)
 }
 
-// InboxMarkDelivered marks the given inbox items as delivered.
-func (s *DoltStore) InboxMarkDelivered(ctx context.Context, ids []string) error {
+// InboxMarkDelivered marks the given inbox items as delivered for the specified agent.
+// For broadcast messages (agent_name='all'), per-agent ack rows are inserted into
+// inbox_broadcast_ack instead of updating the shared inbox row. This prevents
+// one agent's drain from hiding broadcasts from other agents. (bd-r7slg)
+func (s *DoltStore) InboxMarkDelivered(ctx context.Context, agentName string, ids []string) error {
 	if len(ids) == 0 {
 		return nil
 	}
@@ -102,7 +117,24 @@ func (s *DoltStore) InboxMarkDelivered(ctx context.Context, ids []string) error 
 	defer func() { _ = tx.Rollback() }()
 
 	for _, id := range ids {
-		_, err := tx.ExecContext(ctx, `UPDATE inbox SET delivered_at = ? WHERE id = ?`, now, id)
+		// Check if this is a broadcast message.
+		var itemAgentName string
+		err := tx.QueryRowContext(ctx, `SELECT agent_name FROM inbox WHERE id = ?`, id).Scan(&itemAgentName)
+		if err != nil {
+			// Item may have been deleted; skip silently.
+			continue
+		}
+
+		if itemAgentName == "all" {
+			// Broadcast: insert per-agent ack instead of marking the shared row.
+			_, err = tx.ExecContext(ctx, `
+				INSERT IGNORE INTO inbox_broadcast_ack (inbox_id, agent_name, delivered_at)
+				VALUES (?, ?, ?)
+			`, id, agentName, now)
+		} else {
+			// Direct message: mark delivered as before.
+			_, err = tx.ExecContext(ctx, `UPDATE inbox SET delivered_at = ? WHERE id = ?`, now, id)
+		}
 		if err != nil {
 			return fmt.Errorf("inbox mark delivered %s: %w", id, err)
 		}

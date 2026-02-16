@@ -17,7 +17,7 @@ import (
 // to drain and mark items without spawning a subprocess. (bd-f33nh)
 type InboxStore interface {
 	InboxDrain(ctx context.Context, agentName string, maxPriority ...int) ([]*types.InboxItem, error)
-	InboxMarkDelivered(ctx context.Context, ids []string) error
+	InboxMarkDelivered(ctx context.Context, agentName string, ids []string) error
 }
 
 // PrimeHandler injects bd prime workflow context on SessionStart and PreCompact.
@@ -218,7 +218,7 @@ func (h *InboxDrainHandler) handleInProcess(ctx context.Context, event *Event, r
 	for i, item := range items {
 		ids[i] = item.ID
 	}
-	if markErr := h.store.InboxMarkDelivered(ctx, ids); markErr != nil {
+	if markErr := h.store.InboxMarkDelivered(ctx, event.Actor, ids); markErr != nil {
 		log.Printf("inbox-drain: failed to mark delivered: %v", markErr)
 	}
 
@@ -276,7 +276,7 @@ func (h *PostToolUseInboxHandler) handleInProcess(ctx context.Context, event *Ev
 	for i, item := range items {
 		ids[i] = item.ID
 	}
-	if markErr := h.store.InboxMarkDelivered(ctx, ids); markErr != nil {
+	if markErr := h.store.InboxMarkDelivered(ctx, event.Actor, ids); markErr != nil {
 		log.Printf("post-tool-inbox: failed to mark delivered: %v", markErr)
 	}
 

@@ -56,7 +56,7 @@ func (h *storeInboxDrainHandler) Handle(ctx context.Context, event *eventbus.Eve
 	for i, item := range items {
 		ids[i] = item.ID
 	}
-	_ = h.store.InboxMarkDelivered(ctx, ids)
+	_ = h.store.InboxMarkDelivered(ctx, event.Actor, ids)
 
 	// Format for injection.
 	var sb strings.Builder

@@ -1043,7 +1043,8 @@ type InboxDrainArgs struct {
 
 // InboxMarkDeliveredArgs represents arguments for marking items as delivered.
 type InboxMarkDeliveredArgs struct {
-	IDs []string `json:"ids"` // Item IDs to mark delivered
+	IDs       []string `json:"ids"`        // Item IDs to mark delivered
+	AgentName string   `json:"agent_name"` // Agent marking delivery (for broadcast ack tracking)
 }
 
 // InboxListResponse represents a list of inbox items.

@@ -246,7 +246,12 @@ func (s *Server) handleInboxMarkDelivered(req *Request) Response {
 	ctx, cancel := s.reqCtx(req)
 	defer cancel()
 
-	if err := store.InboxMarkDelivered(ctx, args.IDs); err != nil {
+	agentName := args.AgentName
+	if agentName == "" {
+		agentName = s.reqActor(req)
+	}
+
+	if err := store.InboxMarkDelivered(ctx, agentName, args.IDs); err != nil {
 		return Response{
 			Success: false,
 			Error:   fmt.Sprintf("inbox mark delivered failed: %v", err),
