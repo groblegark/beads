@@ -347,14 +347,14 @@ func TestInboxDedupE2E(t *testing.T) {
 		}
 	}
 
-	// Currently dedup_key is a non-unique index, so both items are stored.
-	// TODO(bd-dedup): Change to UNIQUE index and expect count=1.
+	// dedup_key is a UNIQUE index (bd-56da5), so the second push is silently
+	// deduplicated and only one item is stored.
 	list, err := client.InboxList(&rpc.InboxListArgs{AgentName: "test-agent"})
 	if err != nil {
 		t.Fatalf("InboxList: %v", err)
 	}
-	if list.Count != 2 {
-		t.Errorf("expected 2 items (dedup_key not yet UNIQUE), got %d", list.Count)
+	if list.Count != 1 {
+		t.Errorf("expected 1 item (dedup_key is UNIQUE), got %d", list.Count)
 	}
 }
 

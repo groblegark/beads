@@ -15,12 +15,6 @@ type ReposConfig struct {
 	Additional []string `yaml:"additional,omitempty,flow"`
 }
 
-// configFile represents the structure for reading/writing config.yaml
-// We use yaml.Node to preserve comments and formatting
-type configFile struct {
-	root yaml.Node
-}
-
 // FindConfigYAMLPath finds the config.yaml file in .beads directory
 // Walks up from CWD to find .beads/config.yaml
 func FindConfigYAMLPath() (string, error) {

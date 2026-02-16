@@ -406,17 +406,6 @@ func Set(key string, value interface{}) {
 	}
 }
 
-// BindPFlag is reserved for future use if we want to bind Cobra flags directly to Viper
-// For now, we handle flag precedence manually in PersistentPreRun
-// Uncomment and implement if needed:
-//
-// func BindPFlag(key string, flag *pflag.Flag) error {
-// 	if v == nil {
-// 		return fmt.Errorf("viper not initialized")
-// 	}
-// 	return v.BindPFlag(key, flag)
-// }
-
 // AllSettings returns all configuration settings as a map
 func AllSettings() map[string]interface{} {
 	if v == nil {
