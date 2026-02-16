@@ -60,7 +60,9 @@ type stopDecisionConfig struct {
 func init() {
 	decisionStopCheckCmd.Flags().Duration("timeout", 30*time.Minute, "Override timeout from config")
 	decisionStopCheckCmd.Flags().Duration("poll-interval", 2*time.Second, "Override poll interval from config")
-	decisionStopCheckCmd.Flags().Bool("reentry", false, "Indicates this is a re-entry (Claude tried to stop again after being blocked)")
+	// --reentry is kept for backward compatibility but ignored. Loop breaking
+	// is now handled by StopLoopDetector at the event bus level. (beads-ulf5)
+	decisionStopCheckCmd.Flags().Bool("reentry", false, "Deprecated: loop breaking handled by StopLoopDetector")
 
 	decisionCmd.AddCommand(decisionStopCheckCmd)
 }
@@ -95,8 +97,6 @@ func runDecisionStopCheck(cmd *cobra.Command, args []string) {
 	// -------------------------------------------------------------------------
 
 	if cfg.RequireAgentDecision {
-		isReentry, _ := cmd.Flags().GetBool("reentry")
-
 		// Scope by actor name (human-readable) instead of session UUID.
 		// This means all sessions from the same user share a decision pool,
 		// which is the correct behavior for stop-check gating.
@@ -126,25 +126,12 @@ func runDecisionStopCheck(cmd *cobra.Command, args []string) {
 			os.Exit(0)
 		}
 
-		// No agent decision found.
-		//
-		// On re-entry (stop_hook_active=true), allow stop instead of blocking
-		// again. The agent already received the "create a decision" instructions
-		// on the first block — re-blocking just floods the conversation with
-		// duplicate messages. The agent needs time to process the instructions
-		// and create the decision; blocking again prevents that.
-		if isReentry {
-			fmt.Fprintf(os.Stderr, "Re-entry: no agent decision yet, allowing stop (agent is processing)\n")
-			if jsonOutput {
-				outputJSON(map[string]string{
-					"decision": "allow",
-					"reason":   "re-entry cooldown: agent already received block instructions",
-				})
-			}
-			os.Exit(0)
-		}
-
-		// First stop attempt with no agent decision — block and instruct agent to create one.
+		// No agent decision found — block and instruct agent to create one.
+		// Loop breaking is handled by StopLoopDetector (priority 14) which
+		// counts all stop attempts in a 30-minute sliding window and breaks
+		// the loop after 3 attempts. The --reentry flag from Claude Code is
+		// unreliable (Claude Code doesn't send stop_hook_active), so we don't
+		// depend on it. (beads-ulf5)
 		reason := `Before stopping, create a decision point for the human to review.
 
 Steps:

@@ -28,7 +28,7 @@ type StopLoopDetector struct {
 
 	// Configurable thresholds (defaults applied in Handle).
 	Threshold      int           // stop attempts before triggering (default: 3)
-	WindowDuration time.Duration // sliding window size (default: 120s)
+	WindowDuration time.Duration // sliding window size (default: 30m)
 }
 
 // stopWindow tracks stop attempt timestamps for a single session.
@@ -36,9 +36,11 @@ type stopWindow struct {
 	attempts []time.Time
 }
 
-func (h *StopLoopDetector) ID() string           { return "stop-loop-detector" }
-func (h *StopLoopDetector) Handles() []EventType { return []EventType{EventStop} }
-func (h *StopLoopDetector) Priority() int         { return 14 }
+func (h *StopLoopDetector) ID() string { return "stop-loop-detector" }
+func (h *StopLoopDetector) Handles() []EventType {
+	return []EventType{EventStop, EventDecisionResponded}
+}
+func (h *StopLoopDetector) Priority() int { return 14 }
 
 // SetBus allows the detector to publish loop-detected events to JetStream.
 // Called after registration when the bus reference is available.
@@ -49,6 +51,27 @@ func (h *StopLoopDetector) SetBus(bus *Bus) {
 }
 
 func (h *StopLoopDetector) Handle(ctx context.Context, event *Event, result *Result) error {
+	// On DecisionResponded, reset the counter for the responding session.
+	// This prevents false loop detection when an agent legitimately stops
+	// multiple times in quick succession (short tasks with human-approved
+	// decisions between each stop). Only consecutive blocked stops without
+	// a successful decision-response cycle should count toward the threshold.
+	// (beads-ulf5)
+	if event.Type == EventDecisionResponded {
+		h.clearSession(event.SessionID)
+		// Also clear by actor name — decisions use RequestedBy (actor name),
+		// not session_id, so extract and clear that too.
+		if len(event.Raw) > 0 {
+			var payload struct {
+				RequestedBy string `json:"requested_by"`
+			}
+			if err := json.Unmarshal(event.Raw, &payload); err == nil && payload.RequestedBy != "" {
+				h.clearSession(payload.RequestedBy)
+			}
+		}
+		return nil
+	}
+
 	// Record every stop attempt, not just re-entries. Claude Code doesn't
 	// reliably send stop_hook_active in the event payload, so we can't
 	// depend on it to detect loops. Instead, count all stop attempts within
@@ -69,7 +92,7 @@ func (h *StopLoopDetector) Handle(ctx context.Context, event *Event, result *Res
 	// Loop detected — short-circuit the chain.
 	windowDur := h.WindowDuration
 	if windowDur <= 0 {
-		windowDur = 120 * time.Second
+		windowDur = 30 * time.Minute
 	}
 
 	log.Printf("stop-loop-detector: loop detected for session %s (%d attempts in %v), allowing stop",
@@ -130,7 +153,7 @@ func (h *StopLoopDetector) recordAttempt(sessionID string) int {
 	// Prune entries outside window.
 	windowDur := h.WindowDuration
 	if windowDur <= 0 {
-		windowDur = 120 * time.Second
+		windowDur = 30 * time.Minute
 	}
 	cutoff := now.Add(-windowDur)
 	pruned := w.attempts[:0]
@@ -149,23 +172,6 @@ func (h *StopLoopDetector) clearSession(sessionID string) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	delete(h.windows, sessionID)
-}
-
-// isReentry checks the raw event for stop_hook_active=true.
-func isReentry(event *Event) bool {
-	if len(event.Raw) == 0 {
-		return false
-	}
-	var raw map[string]any
-	if err := json.Unmarshal(event.Raw, &raw); err != nil {
-		return false
-	}
-	active, ok := raw["stop_hook_active"]
-	if !ok {
-		return false
-	}
-	b, ok := active.(bool)
-	return ok && b
 }
 
 // setLoopBreakFlag modifies event.Raw to include stop_loop_break=true so

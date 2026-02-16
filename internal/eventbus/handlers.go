@@ -57,21 +57,12 @@ func (h *StopDecisionHandler) Handle(ctx context.Context, event *Event, result *
 		return nil
 	}
 
-	// Pass stop_hook_active flag through to the stop-check command so it can
-	// decide how to handle re-entry (e.g., skip polling, check for agent decision).
-	// We no longer skip the handler entirely on re-entry because the agent may
-	// have created a decision that needs to be awaited.
+	// Loop breaking is handled by StopLoopDetector (priority 14) which sets
+	// stop_loop_break=true in event.Raw when the threshold is reached. That
+	// check is above (stopLoopBreakSet). The --reentry flag is no longer
+	// passed because Claude Code doesn't reliably send stop_hook_active in
+	// the event payload. (beads-ulf5)
 	args := []string{"decision", "stop-check", "--json"}
-	if len(event.Raw) > 0 {
-		var raw map[string]interface{}
-		if err := json.Unmarshal(event.Raw, &raw); err == nil {
-			if active, ok := raw["stop_hook_active"]; ok {
-				if boolVal, isBool := active.(bool); isBool && boolVal {
-					args = append(args, "--reentry")
-				}
-			}
-		}
-	}
 
 	stdout, _, err := runBDCommandWithEnv(ctx, event.CWD, envFromEvent(event), args...)
 	if err != nil {
