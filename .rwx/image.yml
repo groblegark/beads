@@ -34,22 +34,6 @@ base:
   config: rwx/base 1.0.0
 
 tasks:
-  # ── Resolve ref name (strip refs/tags/ and refs/heads/ prefixes) ───
-  - key: resolve-ref
-    cache: false
-    run: |
-      TAG="${REF_NAME#refs/tags/}"
-      TAG="${TAG#refs/heads/}"
-      mkdir -p /home/ubuntu/artifacts
-      echo -n "$TAG" > /home/ubuntu/artifacts/resolved-tag
-      echo "Resolved ref: $TAG"
-    env:
-      REF_NAME: ${{ init.ref-name }}
-    outputs:
-      artifacts:
-        - key: resolved-tag
-          path: /home/ubuntu/artifacts/resolved-tag
-
   # ── System deps (cached until lock changes) ────────────────────────
   - key: system-deps
     filter:
@@ -84,7 +68,7 @@ tasks:
 
   # ── Build bd binary (only when Go code changes) ─────────────────────
   - key: build-bd
-    use: [go-deps, resolve-ref]
+    use: [go-deps]
     filter:
       - "*.go"
       - "cmd/bd/*.go"
@@ -97,12 +81,14 @@ tasks:
       - "cmd/bd/templates/**"
     run: |
       echo "Building bd binary..."
-      TAG=$(cat ${{ tasks.resolve-ref.artifacts.resolved-tag }})
+      TAG="${REF_NAME#refs/tags/}"
+      TAG="${TAG#refs/heads/}"
       CGO_ENABLED=1 GOOS=linux go build \
         -ldflags="-s -w -X main.Version=${TAG} -X main.Build=${COMMIT_SHA}" \
         -o bd ./cmd/bd
     env:
       COMMIT_SHA: ${{ init.commit-sha }}
+      REF_NAME: ${{ init.ref-name }}
     outputs:
       artifacts:
         - key: bd-binary
@@ -220,7 +206,7 @@ tasks:
 
   # ── Push daemon image to GHCR ─────────────────────────────────────
   - key: push-bd
-    use: [build-bd, build-oj, resolve-ref]
+    use: [build-bd, build-oj]
     if: ${{ init.ref-name != 'pr' }}
     cache: false
     run: |
@@ -239,7 +225,8 @@ tasks:
       # Login to GHCR
       echo "$GHCR_TOKEN" | crane auth login ghcr.io -u "$GITHUB_USER" --password-stdin
 
-      TAG=$(cat ${{ tasks.resolve-ref.artifacts.resolved-tag }})
+      TAG="${REF_NAME#refs/tags/}"
+      TAG="${TAG#refs/heads/}"
 
       # Create layer with runtime deps + binaries
       mkdir -p /tmp/layer/usr/local/bin /tmp/layer/home/beads
@@ -277,3 +264,4 @@ tasks:
     env:
       GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
       GITHUB_USER: ${{ secrets.GITHUB_USER }}
+      REF_NAME: ${{ init.ref-name }}
