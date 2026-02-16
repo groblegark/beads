@@ -1412,7 +1412,7 @@ func TestInstallClaudeDenyRulesPreservesExisting(t *testing.T) {
 }
 
 // TestBusEmitHookCommandsComplete verifies that busEmitHookCommands returns
-// entries for all 4 expected events.
+// entries for all 5 expected events.
 func TestBusEmitHookCommandsComplete(t *testing.T) {
 	cmds := busEmitHookCommands()
 
@@ -1421,6 +1421,7 @@ func TestBusEmitHookCommandsComplete(t *testing.T) {
 		"PreCompact":   "bd bus emit --hook=PreCompact",
 		"Stop":         "bd bus emit --hook=Stop",
 		"PreToolUse":   "bd bus emit --hook=PreToolUse",
+		"PostToolUse":  "bd bus emit --hook=PostToolUse",
 	}
 
 	if len(cmds) != len(expectedEvents) {

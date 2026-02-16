@@ -1034,9 +1034,10 @@ type InboxListArgs struct {
 
 // InboxDrainArgs represents arguments for draining inbox items.
 type InboxDrainArgs struct {
-	AgentName string `json:"agent_name"`           // Target agent
-	SessionID string `json:"session_id,omitempty"` // Session for JSONL routing
-	Reconcile bool   `json:"reconcile,omitempty"`  // Also query DB (for SessionStart)
+	AgentName   string `json:"agent_name"`             // Target agent
+	SessionID   string `json:"session_id,omitempty"`   // Session for JSONL routing
+	Reconcile   bool   `json:"reconcile,omitempty"`    // Also query DB (for SessionStart)
+	MaxPriority int    `json:"max_priority,omitempty"` // Only drain items with priority <= this (0=all)
 }
 
 // InboxMarkDeliveredArgs represents arguments for marking items as delivered.

@@ -1251,6 +1251,110 @@ exit 1
 	}
 }
 
+func TestDefaultHandlerChainPostToolUse(t *testing.T) {
+	server, client, cleanup := setupTestServer(t)
+	defer cleanup()
+
+	setupMockBDForRPC(t, `
+case "$1" in
+  inbox)
+    # PostToolUseInboxHandler calls: bd inbox drain --urgent --json
+    printf "Urgent alert from CI"
+    exit 0
+    ;;
+esac
+exit 1
+`)
+
+	bus := eventbus.New()
+	for _, h := range eventbus.DefaultHandlers() {
+		bus.Register(h)
+	}
+	server.SetBus(bus)
+
+	cwd := t.TempDir()
+	eventJSON := fmt.Sprintf(`{"session_id":"sess-posttool","cwd":%q,"tool_name":"Bash"}`, cwd)
+	args := BusEmitArgs{
+		HookType:  "PostToolUse",
+		EventJSON: json.RawMessage(eventJSON),
+		SessionID: "sess-posttool",
+	}
+
+	resp, err := client.Execute(OpBusEmit, args)
+	if err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	if !resp.Success {
+		t.Fatalf("expected success, got error: %s", resp.Error)
+	}
+
+	var result BusEmitResult
+	if err := json.Unmarshal(resp.Data, &result); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	// PostToolUseInboxHandler (priority 30) handles PostToolUse.
+	if len(result.Inject) != 1 {
+		t.Fatalf("expected 1 inject entry for PostToolUse, got %d: %v", len(result.Inject), result.Inject)
+	}
+	if !strings.Contains(result.Inject[0], "Urgent alert") {
+		t.Errorf("expected inject to contain urgent alert, got: %q", result.Inject[0])
+	}
+	if result.Block {
+		t.Error("expected Block=false for PostToolUse")
+	}
+}
+
+func TestDefaultHandlerChainPostToolUseEmpty(t *testing.T) {
+	server, client, cleanup := setupTestServer(t)
+	defer cleanup()
+
+	setupMockBDForRPC(t, `
+case "$1" in
+  inbox)
+    # No urgent items — empty output
+    exit 0
+    ;;
+esac
+exit 1
+`)
+
+	bus := eventbus.New()
+	for _, h := range eventbus.DefaultHandlers() {
+		bus.Register(h)
+	}
+	server.SetBus(bus)
+
+	cwd := t.TempDir()
+	eventJSON := fmt.Sprintf(`{"session_id":"sess-posttool-empty","cwd":%q,"tool_name":"Read"}`, cwd)
+	args := BusEmitArgs{
+		HookType:  "PostToolUse",
+		EventJSON: json.RawMessage(eventJSON),
+		SessionID: "sess-posttool-empty",
+	}
+
+	resp, err := client.Execute(OpBusEmit, args)
+	if err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	if !resp.Success {
+		t.Fatalf("expected success, got error: %s", resp.Error)
+	}
+
+	var result BusEmitResult
+	if err := json.Unmarshal(resp.Data, &result); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	// No urgent items — nothing should be injected.
+	if len(result.Inject) != 0 {
+		t.Fatalf("expected 0 inject entries for empty PostToolUse, got %d: %v", len(result.Inject), result.Inject)
+	}
+	if result.Block {
+		t.Error("expected Block=false for PostToolUse")
+	}
+}
+
 func TestDefaultHandlerChainBDNotInPath(t *testing.T) {
 	server, client, cleanup := setupTestServer(t)
 	defer cleanup()

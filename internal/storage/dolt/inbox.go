@@ -53,17 +53,29 @@ func (s *DoltStore) InboxList(ctx context.Context, agentName string, includeDeli
 
 // InboxDrain returns undelivered, non-expired inbox items for an agent.
 // Does NOT mark them as delivered — caller should use InboxMarkDelivered after output.
-func (s *DoltStore) InboxDrain(ctx context.Context, agentName string) ([]*types.InboxItem, error) {
-	rows, err := s.db.QueryContext(ctx, `
+// Optional maxPriority filters to only return items with priority <= the given value
+// (0=critical only, 1=critical+high, etc.). Omit or pass no value for all priorities.
+func (s *DoltStore) InboxDrain(ctx context.Context, agentName string, maxPriority ...int) ([]*types.InboxItem, error) {
+	query := `
 		SELECT id, agent_name, rig, session_id, type, source, content,
 		       priority, created_at, delivered_at, expires_at, dedup_key
 		FROM inbox
 		WHERE agent_name = ?
 		  AND delivered_at IS NULL
-		  AND (expires_at IS NULL OR expires_at > NOW())
+		  AND (expires_at IS NULL OR expires_at > NOW())`
+	args := []interface{}{agentName}
+
+	if len(maxPriority) > 0 && maxPriority[0] > 0 {
+		query += `
+		  AND priority <= ?`
+		args = append(args, maxPriority[0])
+	}
+
+	query += `
 		ORDER BY priority ASC, created_at ASC
-		LIMIT 20
-	`, agentName)
+		LIMIT 20`
+
+	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("inbox drain: %w", err)
 	}

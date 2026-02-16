@@ -154,7 +154,7 @@ type Storage interface {
 	// Inbox (agent async message delivery - bd-xtahx)
 	InboxPush(ctx context.Context, item *types.InboxItem) error
 	InboxList(ctx context.Context, agentName string, includeDelivered bool) ([]*types.InboxItem, error)
-	InboxDrain(ctx context.Context, agentName string) ([]*types.InboxItem, error)
+	InboxDrain(ctx context.Context, agentName string, maxPriority ...int) ([]*types.InboxItem, error)
 	InboxMarkDelivered(ctx context.Context, ids []string) error
 
 	// Statistics

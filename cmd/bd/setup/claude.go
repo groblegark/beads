@@ -116,6 +116,7 @@ func installClaude(env claudeEnv, project bool, stealth bool) error {
 		{"PreCompact", "PreCompact"},
 		{"Stop", "Stop"},
 		{"PreToolUse", "PreToolUse"},
+		{"PostToolUse", "PostToolUse"},
 	}
 	for _, bh := range busHooks {
 		cmd := fmt.Sprintf("bd bus emit --hook=%s", bh.hookType)
@@ -460,5 +461,6 @@ func busEmitHookCommands() []hookEntry {
 		{"PreCompact", "bd bus emit --hook=PreCompact"},
 		{"Stop", "bd bus emit --hook=Stop"},
 		{"PreToolUse", "bd bus emit --hook=PreToolUse"},
+		{"PostToolUse", "bd bus emit --hook=PostToolUse"},
 	}
 }

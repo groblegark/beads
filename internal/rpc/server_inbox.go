@@ -191,7 +191,13 @@ func (s *Server) handleInboxDrain(req *Request) Response {
 	ctx, cancel := s.reqCtx(req)
 	defer cancel()
 
-	items, err := store.InboxDrain(ctx, args.AgentName)
+	var items []*types.InboxItem
+	var err error
+	if args.MaxPriority > 0 {
+		items, err = store.InboxDrain(ctx, args.AgentName, args.MaxPriority)
+	} else {
+		items, err = store.InboxDrain(ctx, args.AgentName)
+	}
 	if err != nil {
 		return Response{
 			Success: false,

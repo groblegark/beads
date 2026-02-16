@@ -200,6 +200,31 @@ func (h *InboxDrainHandler) Handle(ctx context.Context, event *Event, result *Re
 	return nil
 }
 
+// PostToolUseInboxHandler drains urgent (P0/P1) inbox items after each tool use.
+// Priority 30 (same level as InboxDrainHandler — runs on PostToolUse only).
+//
+// This enables near-real-time message injection: critical alerts and high-priority
+// notifications reach the agent between tool calls, not just at session boundaries.
+// The handler is intentionally lightweight — it only checks for urgent items to
+// minimize latency impact on the agent's tool execution loop.
+type PostToolUseInboxHandler struct{}
+
+func (h *PostToolUseInboxHandler) ID() string          { return "post-tool-inbox" }
+func (h *PostToolUseInboxHandler) Handles() []EventType { return []EventType{EventPostToolUse} }
+func (h *PostToolUseInboxHandler) Priority() int        { return 30 }
+
+func (h *PostToolUseInboxHandler) Handle(ctx context.Context, event *Event, result *Result) error {
+	stdout, _, err := runBDCommand(ctx, event.CWD, "inbox", "drain", "--urgent", "--json")
+	if err != nil {
+		// Inbox drain is informational — log and continue (fail-open).
+		return fmt.Errorf("post-tool-inbox: %w", err)
+	}
+	if stdout != "" {
+		result.Inject = append(result.Inject, stdout)
+	}
+	return nil
+}
+
 // runBDCommand executes a bd subcommand and captures stdout/stderr.
 // The CWD parameter sets the working directory for the subprocess.
 // Falls back to os.TempDir() if the CWD doesn't exist (e.g., remote daemon in K8s).
@@ -255,11 +280,12 @@ func findBDBinary() (string, error) {
 // DefaultHandlers returns the standard set of event bus handlers for daemon registration.
 func DefaultHandlers() []Handler {
 	handlers := []Handler{
-		&PrimeHandler{},        // 10
-		&StopLoopDetector{},    // 14 — must run before StopDecisionHandler to break loops
-		&StopDecisionHandler{}, // 15
-		&GateHandler{},         // 20
-		&InboxDrainHandler{},   // 30 — sole delivery path (Phase 5)
+		&PrimeHandler{},            // 10
+		&StopLoopDetector{},        // 14 — must run before StopDecisionHandler to break loops
+		&StopDecisionHandler{},     // 15
+		&GateHandler{},             // 20
+		&InboxDrainHandler{},       // 30 — sole delivery path (Phase 5)
+		&PostToolUseInboxHandler{}, // 30 — urgent inbox drain between tool calls (bd-qufo5)
 	}
 	handlers = append(handlers, DefaultOjHandlers()...)
 	handlers = append(handlers, DefaultMailHandlers()...)

@@ -106,6 +106,7 @@ func init() {
 
 	// Drain flags
 	inboxDrainCmd.Flags().Bool("reconcile", false, "Also check DB for missed items (use on SessionStart)")
+	inboxDrainCmd.Flags().Bool("urgent", false, "Only drain urgent items (P0 critical + P1 high)")
 
 	inboxCmd.AddCommand(inboxPushCmd)
 	inboxCmd.AddCommand(inboxListCmd)
@@ -219,8 +220,13 @@ func runInboxDrain(cmd *cobra.Command, args []string) {
 
 	agentName := getActor()
 
+	urgent, _ := cmd.Flags().GetBool("urgent")
+
 	drainArgs := &rpc.InboxDrainArgs{
 		AgentName: agentName,
+	}
+	if urgent {
+		drainArgs.MaxPriority = 1 // P0 (critical) + P1 (high)
 	}
 
 	result, err := daemonClient.InboxDrain(drainArgs)

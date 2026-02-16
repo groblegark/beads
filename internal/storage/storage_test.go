@@ -261,7 +261,7 @@ func (m *mockStorage) InboxPush(ctx context.Context, item *types.InboxItem) erro
 func (m *mockStorage) InboxList(ctx context.Context, agentName string, includeDelivered bool) ([]*types.InboxItem, error) {
 	return nil, nil
 }
-func (m *mockStorage) InboxDrain(ctx context.Context, agentName string) ([]*types.InboxItem, error) {
+func (m *mockStorage) InboxDrain(ctx context.Context, agentName string, maxPriority ...int) ([]*types.InboxItem, error) {
 	return nil, nil
 }
 func (m *mockStorage) InboxMarkDelivered(ctx context.Context, ids []string) error {
