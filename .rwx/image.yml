@@ -259,6 +259,14 @@ tasks:
       # Push with tag and latest
       REPO="ghcr.io/groblegark/beads"
       crane append --base ubuntu:24.04 --new_tag "${REPO}:${TAG}" --new_layer /tmp/layer.tar --platform linux/amd64
+
+      # Set OCI image config to match image-bd task
+      crane mutate "${REPO}:${TAG}" \
+        --entrypoint bd \
+        --cmd daemon --cmd start --cmd --foreground --cmd "--tcp-addr=:9876" --cmd "--http-addr=:9877" --cmd --log-json \
+        --user 1000 \
+        --workdir /home/beads \
+        -t "${REPO}:${TAG}"
       crane tag "${REPO}:${TAG}" latest
       echo "Pushed ${REPO}:${TAG} and ${REPO}:latest"
     env:
