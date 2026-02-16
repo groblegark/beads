@@ -512,7 +512,7 @@ func formatSimpleDependencyLine(prefix string, dep *types.Issue) string {
 }
 
 // showIssueRefs displays issues that reference the given issue(s), grouped by relationship type
-func showIssueRefs(ctx context.Context, args []string, resolvedIDs []string, routedArgs []string, jsonOut bool) {
+func showIssueRefs(_ context.Context, args []string, resolvedIDs []string, routedArgs []string, jsonOut bool) {
 	// Collect all refs for all issues
 	allRefs := make(map[string][]*types.IssueWithDependencyMetadata)
 
@@ -665,7 +665,7 @@ func getRefTypeEmoji(depType types.DependencyType) string {
 }
 
 // showIssueChildren displays only the children of the specified issue(s)
-func showIssueChildren(ctx context.Context, args []string, resolvedIDs []string, routedArgs []string, jsonOut bool, shortMode bool) {
+func showIssueChildren(_ context.Context, args []string, resolvedIDs []string, routedArgs []string, jsonOut bool, shortMode bool) {
 	// Collect all children for all issues
 	allChildren := make(map[string][]*types.IssueWithDependencyMetadata)
 
