@@ -436,8 +436,9 @@ func operationToHTTPMethod(operation string) string {
 		OpInboxDrain:         "InboxDrain",
 		OpInboxMarkDelivered: "InboxMarkDelivered",
 
-		// Session identity (bd-zp6v9)
+		// Session identity (bd-zp6v9, bd-tp3r6)
 		OpSessionRegister: "SessionRegister",
+		OpSessionList:     "SessionList",
 	}
 
 	return methodMap[operation]

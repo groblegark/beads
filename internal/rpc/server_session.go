@@ -249,3 +249,45 @@ func (s *Server) handleSessionRegister(req *Request) Response {
 		Data:    data,
 	}
 }
+
+// handleSessionList returns all registered sessions (bd-tp3r6).
+func (s *Server) handleSessionList(req *Request) Response {
+	var args SessionListArgs
+	if req.Args != nil {
+		_ = json.Unmarshal(req.Args, &args)
+	}
+
+	if s.sessionReg == nil {
+		// No sessions registered yet
+		data, _ := json.Marshal(SessionListResponse{
+			Sessions: []SessionListEntry{},
+			Count:    0,
+		})
+		return Response{Success: true, Data: data}
+	}
+
+	entries := s.sessionReg.list()
+
+	// Filter stale entries unless explicitly requested
+	cutoff := time.Now().Add(-24 * time.Hour)
+	sessions := make([]SessionListEntry, 0, len(entries))
+	for _, e := range entries {
+		if !args.IncludeStale && e.LastSeen.Before(cutoff) {
+			continue
+		}
+		sessions = append(sessions, SessionListEntry{
+			AssignedName: e.AssignedName,
+			BaseName:     e.BaseName,
+			SessionKey:   e.SessionKey,
+			LastSeen:     e.LastSeen,
+		})
+	}
+
+	resp := SessionListResponse{
+		Sessions: sessions,
+		Count:    len(sessions),
+	}
+
+	data, _ := json.Marshal(resp)
+	return Response{Success: true, Data: data}
+}

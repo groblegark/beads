@@ -606,7 +606,7 @@ func TestCheckSyncBranchHealth_DetachedHEAD(t *testing.T) {
 				t.Cleanup(func() { os.Unsetenv("BEADS_SYNC_BRANCH") })
 			},
 			expectedStatus: "ok",
-			expectInMsg:    "remote", // no remote configured, so returns "N/A (remote ... not found)"
+			expectInMsg:    "no sync branch configured", // syncbranch package deleted; always returns N/A
 		},
 		{
 			name: "sync branch exists but remote doesn't",
@@ -630,7 +630,7 @@ func TestCheckSyncBranchHealth_DetachedHEAD(t *testing.T) {
 				t.Cleanup(func() { os.Unsetenv("BEADS_SYNC_BRANCH") })
 			},
 			expectedStatus: "ok",
-			expectInMsg:    "remote",
+			expectInMsg:    "no sync branch configured", // syncbranch package deleted; always returns N/A
 		},
 	}
 

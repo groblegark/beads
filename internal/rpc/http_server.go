@@ -502,8 +502,9 @@ func httpMethodToOperation(method string) string {
 		"InboxDrain":         OpInboxDrain,
 		"InboxMarkDelivered": OpInboxMarkDelivered,
 
-		// Session identity (bd-zp6v9)
+		// Session identity (bd-zp6v9, bd-tp3r6)
 		"SessionRegister": OpSessionRegister,
+		"SessionList":     OpSessionList,
 	}
 
 	return methodMap[method]

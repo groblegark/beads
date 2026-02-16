@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 
@@ -103,6 +104,11 @@ func TestHydrateDeployConfig(t *testing.T) {
 
 func TestWaitForStore_ImmediateSuccess(t *testing.T) {
 	testutil.ForceDirectMode(t)
+
+	// This test requires dolt to be in PATH for Dolt backend initialization
+	if _, err := exec.LookPath("dolt"); err != nil {
+		t.Skip("dolt binary not in PATH, skipping test")
+	}
 
 	// Set up a Dolt embedded store in a temp directory — should connect immediately
 	tmpDir := t.TempDir()

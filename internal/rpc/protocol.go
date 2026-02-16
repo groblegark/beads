@@ -192,8 +192,9 @@ const (
 	OpInboxDrain         = "inbox_drain"
 	OpInboxMarkDelivered = "inbox_mark_delivered"
 
-	// Session identity operations (bd-zp6v9)
+	// Session identity operations (bd-zp6v9, bd-tp3r6)
 	OpSessionRegister = "session_register"
+	OpSessionList     = "session_list"
 
 	// Dirty tracking operations (beads-x1lr)
 	OpDirtyCount = "dirty_count"
@@ -1062,6 +1063,25 @@ type SessionRegisterResponse struct {
 	AssignedName string `json:"assigned_name"` // The unique name assigned to this session
 	IsNew        bool   `json:"is_new"`        // True if this is a newly registered session
 	SessionKey   string `json:"session_key"`   // Echo back the session key
+}
+
+// SessionListArgs represents arguments for listing registered sessions (bd-tp3r6).
+type SessionListArgs struct {
+	IncludeStale bool `json:"include_stale,omitempty"` // Include sessions not seen recently
+}
+
+// SessionListEntry represents a single registered session in the list response.
+type SessionListEntry struct {
+	AssignedName string    `json:"assigned_name"` // Unique name (e.g., "swift-fox")
+	BaseName     string    `json:"base_name"`     // Base name before suffix
+	SessionKey   string    `json:"session_key"`   // Hash identifying this session
+	LastSeen     time.Time `json:"last_seen"`     // Last activity timestamp
+}
+
+// SessionListResponse represents the result of listing sessions.
+type SessionListResponse struct {
+	Sessions []SessionListEntry `json:"sessions"`
+	Count    int                `json:"count"`
 }
 
 // Additional write operations (bd-wj80)

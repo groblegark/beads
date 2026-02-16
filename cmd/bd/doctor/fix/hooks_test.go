@@ -139,10 +139,6 @@ func TestCheckLefthookBdIntegration(t *testing.T) {
 			name:       "yaml with bd hooks run",
 			configFile: "lefthook.yml",
 			configContent: `
-pre-commit:
-  commands:
-    bd:
-      run: bd hooks run pre-commit
 post-merge:
   commands:
     bd:
@@ -153,48 +149,44 @@ pre-push:
       run: bd hooks run pre-push
 `,
 			expectConfigured:  true,
-			expectHooksWithBd: []string{"pre-commit", "post-merge", "pre-push"},
+			expectHooksWithBd: []string{"post-merge", "pre-push"},
 		},
 		{
 			name:       "yaml with partial bd integration",
 			configFile: "lefthook.yml",
 			configContent: `
-pre-commit:
+post-merge:
   commands:
     bd:
-      run: bd hooks run pre-commit
+      run: bd hooks run post-merge
     lint:
       run: eslint .
-post-merge:
+pre-push:
   commands:
     bd:
       run: echo "no bd here"
 `,
 			expectConfigured:     true,
-			expectHooksWithBd:    []string{"pre-commit"},
-			expectHooksWithoutBd: []string{"post-merge"},
-			expectNotInConfig:    []string{"pre-push"},
+			expectHooksWithBd:    []string{"post-merge"},
+			expectHooksWithoutBd: []string{"pre-push"},
 		},
 		{
 			name:       "yaml without bd at all",
 			configFile: "lefthook.yml",
 			configContent: `
-pre-commit:
+post-merge:
   commands:
     lint:
       run: eslint .
 `,
 			expectConfigured:     false,
-			expectHooksWithoutBd: []string{"pre-commit"},
-			expectNotInConfig:    []string{"post-merge", "pre-push"},
+			expectHooksWithoutBd: []string{"post-merge"},
+			expectNotInConfig:    []string{"pre-push"},
 		},
 		{
 			name:       "toml with bd hooks run",
 			configFile: "lefthook.toml",
 			configContent: `
-[pre-commit.commands.bd]
-run = "bd hooks run pre-commit"
-
 [post-merge.commands.bd]
 run = "bd hooks run post-merge"
 
@@ -202,19 +194,12 @@ run = "bd hooks run post-merge"
 run = "bd hooks run pre-push"
 `,
 			expectConfigured:  true,
-			expectHooksWithBd: []string{"pre-commit", "post-merge", "pre-push"},
+			expectHooksWithBd: []string{"post-merge", "pre-push"},
 		},
 		{
 			name:       "json with bd hooks run",
 			configFile: "lefthook.json",
 			configContent: `{
-  "pre-commit": {
-    "commands": {
-      "bd": {
-        "run": "bd hooks run pre-commit"
-      }
-    }
-  },
   "post-merge": {
     "commands": {
       "bd": {
@@ -231,20 +216,20 @@ run = "bd hooks run pre-push"
   }
 }`,
 			expectConfigured:  true,
-			expectHooksWithBd: []string{"pre-commit", "post-merge", "pre-push"},
+			expectHooksWithBd: []string{"post-merge", "pre-push"},
 		},
 		{
 			name:       "hidden config .lefthook.yml",
 			configFile: ".lefthook.yml",
 			configContent: `
-pre-commit:
+post-merge:
   commands:
     bd:
-      run: bd hooks run pre-commit
+      run: bd hooks run post-merge
 `,
 			expectConfigured:  true,
-			expectHooksWithBd: []string{"pre-commit"},
-			expectNotInConfig: []string{"post-merge", "pre-push"},
+			expectHooksWithBd: []string{"post-merge"},
+			expectNotInConfig: []string{"pre-push"},
 		},
 	}
 
@@ -312,32 +297,30 @@ func TestCheckHuskyBdIntegration(t *testing.T) {
 		{
 			name: "all hooks with bd",
 			hooks: map[string]string{
-				"pre-commit": "#!/bin/sh\nbd hooks run pre-commit\n",
 				"post-merge": "#!/bin/sh\nbd hooks run post-merge\n",
 				"pre-push":   "#!/bin/sh\nbd hooks run pre-push\n",
 			},
 			expectConfigured:  true,
-			expectHooksWithBd: []string{"pre-commit", "post-merge", "pre-push"},
+			expectHooksWithBd: []string{"post-merge", "pre-push"},
 		},
 		{
 			name: "partial bd integration",
 			hooks: map[string]string{
-				"pre-commit": "#!/bin/sh\nbd hooks run pre-commit\n",
-				"post-merge": "#!/bin/sh\necho 'no bd'\n",
+				"post-merge": "#!/bin/sh\nbd hooks run post-merge\n",
+				"pre-push":   "#!/bin/sh\necho 'no bd'\n",
 			},
 			expectConfigured:     true,
-			expectHooksWithBd:    []string{"pre-commit"},
-			expectHooksWithoutBd: []string{"post-merge"},
-			expectNotInConfig:    []string{"pre-push"},
+			expectHooksWithBd:    []string{"post-merge"},
+			expectHooksWithoutBd: []string{"pre-push"},
 		},
 		{
 			name: "no bd at all",
 			hooks: map[string]string{
-				"pre-commit": "#!/bin/sh\neslint .\n",
+				"post-merge": "#!/bin/sh\neslint .\n",
 			},
 			expectConfigured:     false,
-			expectHooksWithoutBd: []string{"pre-commit"},
-			expectNotInConfig:    []string{"post-merge", "pre-push"},
+			expectHooksWithoutBd: []string{"post-merge"},
+			expectNotInConfig:    []string{"pre-push"},
 		},
 	}
 
@@ -407,10 +390,6 @@ func TestCheckPrecommitBdIntegration(t *testing.T) {
 			configContent: `repos:
   - repo: local
     hooks:
-      - id: bd-pre-commit
-        entry: bd hooks run pre-commit
-        language: system
-        stages: [pre-commit]
       - id: bd-post-merge
         entry: bd hooks run post-merge
         language: system
@@ -421,37 +400,33 @@ func TestCheckPrecommitBdIntegration(t *testing.T) {
         stages: [pre-push]
 `,
 			expectConfigured:  true,
-			expectHooksWithBd: []string{"pre-commit", "post-merge", "pre-push"},
+			expectHooksWithBd: []string{"post-merge", "pre-push"},
 		},
 		{
-			name: "only pre-commit hook",
+			name: "only post-merge hook",
 			configContent: `repos:
   - repo: local
     hooks:
-      - id: bd-pre-commit
-        entry: bd hooks run pre-commit
+      - id: bd-post-merge
+        entry: bd hooks run post-merge
         language: system
 `,
 			expectConfigured:      true,
-			expectHooksWithBd:     []string{"pre-commit"},
-			expectHooksNotInConfig: []string{"post-merge", "pre-push"},
+			expectHooksWithBd:     []string{"post-merge"},
+			expectHooksNotInConfig: []string{"pre-push"},
 		},
 		{
 			name: "legacy stage names (pre-3.2.0)",
 			configContent: `repos:
   - repo: local
     hooks:
-      - id: bd-commit
-        entry: bd hooks run pre-commit
-        language: system
-        stages: [commit]
       - id: bd-push
         entry: bd hooks run pre-push
         language: system
         stages: [push]
 `,
 			expectConfigured:      true,
-			expectHooksWithBd:     []string{"pre-commit", "pre-push"},
+			expectHooksWithBd:     []string{"pre-push"},
 			expectHooksNotInConfig: []string{"post-merge"},
 		},
 		{
@@ -464,7 +439,7 @@ func TestCheckPrecommitBdIntegration(t *testing.T) {
       - id: end-of-file-fixer
 `,
 			expectConfigured:      false,
-			expectHooksNotInConfig: []string{"pre-commit", "post-merge", "pre-push"},
+			expectHooksNotInConfig: []string{"post-merge", "pre-push"},
 		},
 		{
 			name: "mixed bd and other hooks",
@@ -475,20 +450,20 @@ func TestCheckPrecommitBdIntegration(t *testing.T) {
       - id: trailing-whitespace
   - repo: local
     hooks:
-      - id: bd-pre-commit
-        entry: bd hooks run pre-commit
+      - id: bd-post-merge
+        entry: bd hooks run post-merge
         language: system
 `,
 			expectConfigured:      true,
-			expectHooksWithBd:     []string{"pre-commit"},
-			expectHooksNotInConfig: []string{"post-merge", "pre-push"},
+			expectHooksWithBd:     []string{"post-merge"},
+			expectHooksNotInConfig: []string{"pre-push"},
 		},
 		{
 			name: "empty repos list",
 			configContent: `repos: []
 `,
 			expectConfigured:      false,
-			expectHooksNotInConfig: []string{"pre-commit", "post-merge", "pre-push"},
+			expectHooksNotInConfig: []string{"post-merge", "pre-push"},
 		},
 	}
 

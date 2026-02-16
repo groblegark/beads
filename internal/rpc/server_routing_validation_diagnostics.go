@@ -330,6 +330,8 @@ func (s *Server) executeOperation(req *Request) Response {
 	// Session identity operations (bd-zp6v9)
 	case OpSessionRegister:
 		resp = s.handleSessionRegister(req)
+	case OpSessionList:
+		resp = s.handleSessionList(req)
 	// Mol operations (gt-as9kdm)
 	case OpMolBond:
 		resp = s.handleMolBond(req)
