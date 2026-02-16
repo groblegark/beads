@@ -49,15 +49,11 @@ func (h *StopLoopDetector) SetBus(bus *Bus) {
 }
 
 func (h *StopLoopDetector) Handle(ctx context.Context, event *Event, result *Result) error {
-	// Only act on re-entry (stop_hook_active=true), meaning Claude was already
-	// blocked once and is trying again. First stop attempts are always legitimate.
-	if !isReentry(event) {
-		// First stop attempt — record it but don't interfere.
-		h.recordAttempt(event.SessionID)
-		return nil
-	}
-
-	// Record this re-entry attempt.
+	// Record every stop attempt, not just re-entries. Claude Code doesn't
+	// reliably send stop_hook_active in the event payload, so we can't
+	// depend on it to detect loops. Instead, count all stop attempts within
+	// the sliding window. The first attempt is always allowed through
+	// (count=1 < threshold=3), so legitimate single stops are unaffected.
 	count := h.recordAttempt(event.SessionID)
 
 	threshold := h.Threshold
@@ -158,7 +154,7 @@ func isReentry(event *Event) bool {
 	if len(event.Raw) == 0 {
 		return false
 	}
-	var raw map[string]interface{}
+	var raw map[string]any
 	if err := json.Unmarshal(event.Raw, &raw); err != nil {
 		return false
 	}
@@ -173,13 +169,13 @@ func isReentry(event *Event) bool {
 // setLoopBreakFlag modifies event.Raw to include stop_loop_break=true so
 // downstream handlers (StopDecisionHandler) can skip blocking.
 func (h *StopLoopDetector) setLoopBreakFlag(event *Event) {
-	var raw map[string]interface{}
+	var raw map[string]any
 	if len(event.Raw) > 0 {
 		if err := json.Unmarshal(event.Raw, &raw); err != nil {
-			raw = make(map[string]interface{})
+			raw = make(map[string]any)
 		}
 	} else {
-		raw = make(map[string]interface{})
+		raw = make(map[string]any)
 	}
 	raw["stop_loop_break"] = true
 	if data, err := json.Marshal(raw); err == nil {

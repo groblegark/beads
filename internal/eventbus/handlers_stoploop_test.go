@@ -8,7 +8,7 @@ import (
 )
 
 func makeStopEvent(sessionID string, reentry bool) *Event {
-	raw := map[string]interface{}{
+	raw := map[string]any{
 		"session_id":       sessionID,
 		"stop_hook_active": reentry,
 	}
@@ -36,14 +36,13 @@ func TestStopLoopDetector_FirstAttemptPassesThrough(t *testing.T) {
 	}
 }
 
-func TestStopLoopDetector_ReentryUnderThresholdPassesThrough(t *testing.T) {
+func TestStopLoopDetector_UnderThresholdPassesThrough(t *testing.T) {
 	d := &StopLoopDetector{Threshold: 3, WindowDuration: 60 * time.Second}
 	result := &Result{}
 
-	// First attempt (not reentry)
+	// First and second attempts — both count regardless of reentry flag
 	d.Handle(context.Background(), makeStopEvent("sess-1", false), result)
-	// Second attempt (reentry)
-	d.Handle(context.Background(), makeStopEvent("sess-1", true), result)
+	d.Handle(context.Background(), makeStopEvent("sess-1", false), result)
 
 	if result.Block {
 		t.Error("under threshold should not block")
@@ -56,14 +55,12 @@ func TestStopLoopDetector_ReentryUnderThresholdPassesThrough(t *testing.T) {
 func TestStopLoopDetector_ThresholdTriggersLoopBreak(t *testing.T) {
 	d := &StopLoopDetector{Threshold: 3, WindowDuration: 60 * time.Second}
 
-	// First attempt (not reentry) — recorded
+	// All attempts count — reentry flag is irrelevant
+	d.Handle(context.Background(), makeStopEvent("sess-1", false), &Result{})
 	d.Handle(context.Background(), makeStopEvent("sess-1", false), &Result{})
 
-	// Reentries 2 and 3
-	d.Handle(context.Background(), makeStopEvent("sess-1", true), &Result{})
-
 	result := &Result{}
-	d.Handle(context.Background(), makeStopEvent("sess-1", true), result)
+	d.Handle(context.Background(), makeStopEvent("sess-1", false), result)
 
 	if len(result.Inject) == 0 {
 		t.Fatal("at threshold, should inject loop warning")
@@ -72,12 +69,12 @@ func TestStopLoopDetector_ThresholdTriggersLoopBreak(t *testing.T) {
 		t.Error("loop break should not set Block=true")
 	}
 
-	// Verify the loop-break flag is set in event.Raw
-	event := makeStopEvent("sess-1", true)
-	d.Handle(context.Background(), event, &Result{})
+	// After threshold + clear, next attempt starts counting fresh
+	event := makeStopEvent("sess-1", false)
+	freshResult := &Result{}
+	d.Handle(context.Background(), event, freshResult)
 
-	// After threshold + clear, a new reentry starts counting fresh
-	// (window was cleared, so this is attempt 1 under threshold)
+	// Window was cleared, so this is attempt 1 — under threshold
 	if stopLoopBreakSet(event) {
 		t.Error("after clear, next attempt should not have loop break flag")
 	}
@@ -89,8 +86,8 @@ func TestStopLoopDetector_SetsLoopBreakFlag(t *testing.T) {
 	// First attempt
 	d.Handle(context.Background(), makeStopEvent("sess-1", false), &Result{})
 
-	// Second attempt (reentry) — hits threshold of 2
-	event := makeStopEvent("sess-1", true)
+	// Second attempt — hits threshold of 2
+	event := makeStopEvent("sess-1", false)
 	result := &Result{}
 	d.Handle(context.Background(), event, result)
 
@@ -107,9 +104,9 @@ func TestStopLoopDetector_SeparateSessionsAreIndependent(t *testing.T) {
 
 	// Session A: 3 attempts
 	d.Handle(context.Background(), makeStopEvent("sess-a", false), &Result{})
-	d.Handle(context.Background(), makeStopEvent("sess-a", true), &Result{})
+	d.Handle(context.Background(), makeStopEvent("sess-a", false), &Result{})
 	result := &Result{}
-	d.Handle(context.Background(), makeStopEvent("sess-a", true), result)
+	d.Handle(context.Background(), makeStopEvent("sess-a", false), result)
 
 	if len(result.Inject) == 0 {
 		t.Error("session A should trigger at 3 attempts")
@@ -129,14 +126,14 @@ func TestStopLoopDetector_WindowExpiry(t *testing.T) {
 
 	// Two attempts
 	d.Handle(context.Background(), makeStopEvent("sess-1", false), &Result{})
-	d.Handle(context.Background(), makeStopEvent("sess-1", true), &Result{})
+	d.Handle(context.Background(), makeStopEvent("sess-1", false), &Result{})
 
 	// Wait for window to expire
 	time.Sleep(60 * time.Millisecond)
 
 	// Third attempt — but first two have expired
 	result := &Result{}
-	d.Handle(context.Background(), makeStopEvent("sess-1", true), result)
+	d.Handle(context.Background(), makeStopEvent("sess-1", false), result)
 
 	if len(result.Inject) > 0 {
 		t.Error("should not trigger — old attempts expired from window")
@@ -148,7 +145,7 @@ func TestStopLoopDetector_ClearsAfterDetection(t *testing.T) {
 
 	// Trigger detection
 	d.Handle(context.Background(), makeStopEvent("sess-1", false), &Result{})
-	d.Handle(context.Background(), makeStopEvent("sess-1", true), &Result{})
+	d.Handle(context.Background(), makeStopEvent("sess-1", false), &Result{})
 
 	// Next attempt should start fresh (window was cleared)
 	result := &Result{}
@@ -162,7 +159,7 @@ func TestStopLoopDetector_ClearsAfterDetection(t *testing.T) {
 func TestStopDecisionHandler_RespectsLoopBreakFlag(t *testing.T) {
 	event := makeStopEvent("sess-1", true)
 	// Set the loop break flag manually
-	var raw map[string]interface{}
+	var raw map[string]any
 	json.Unmarshal(event.Raw, &raw)
 	raw["stop_loop_break"] = true
 	event.Raw, _ = json.Marshal(raw)
@@ -204,5 +201,24 @@ func TestIsReentry_NoRaw(t *testing.T) {
 	event := &Event{Type: EventStop, Raw: nil}
 	if isReentry(event) {
 		t.Error("should not detect reentry with nil Raw")
+	}
+}
+
+// TestStopLoopDetector_ReentryFlagIrrelevant verifies that the loop detector
+// counts all stop attempts regardless of the stop_hook_active flag. This is
+// the fix for beads-ulf5: Claude Code doesn't reliably send stop_hook_active,
+// so the detector must not depend on it.
+func TestStopLoopDetector_ReentryFlagIrrelevant(t *testing.T) {
+	d := &StopLoopDetector{Threshold: 3, WindowDuration: 60 * time.Second}
+
+	// All attempts with reentry=false (simulating Claude Code not sending the flag)
+	d.Handle(context.Background(), makeStopEvent("sess-1", false), &Result{})
+	d.Handle(context.Background(), makeStopEvent("sess-1", false), &Result{})
+
+	result := &Result{}
+	d.Handle(context.Background(), makeStopEvent("sess-1", false), result)
+
+	if len(result.Inject) == 0 {
+		t.Fatal("should trigger loop break even without stop_hook_active=true")
 	}
 }
