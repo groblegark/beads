@@ -770,6 +770,20 @@ func (s *Server) handleCreate(req *Request) Response {
 		}
 	}
 
+	// Populate issue.Labels so the mutation event includes them.
+	// Labels were added via tx.AddLabel (DB writes) but the in-memory struct
+	// was never updated. Without this, SSE consumers (e.g. controller beadswatcher)
+	// fall back to ID parsing and mis-identify rig/role.
+	issue.Labels = append(issue.Labels, createArgs.Labels...)
+	if containsLabel(createArgs.Labels, "gt:agent") {
+		if issue.RoleType != "" {
+			issue.Labels = append(issue.Labels, "role_type:"+issue.RoleType)
+		}
+		if issue.Rig != "" {
+			issue.Labels = append(issue.Labels, "rig:"+issue.Rig)
+		}
+	}
+
 	// Emit mutation event for event-driven daemon (after transaction commits)
 	s.emitMutationFor(MutationCreate, issue)
 
@@ -1086,6 +1100,14 @@ func (s *Server) handleUpdate(req *Request) Response {
 		oldStatus := string(issue.Status)
 		// Apply in-memory updates so enrichEvent reflects the new state (e.g., agent_state).
 		applyUpdatesToIssue(issue, updates)
+
+		// Refresh labels from DB so the mutation event reflects post-transaction state.
+		// Without this, label mutations (add/remove/set) are invisible to SSE consumers.
+		if len(updateArgs.SetLabels) > 0 || len(updateArgs.AddLabels) > 0 || len(updateArgs.RemoveLabels) > 0 {
+			if freshLabels, err := store.GetLabels(ctx, updateArgs.ID); err == nil {
+				issue.Labels = freshLabels
+			}
+		}
 
 		effectiveAssignee := issue.Assignee
 		if updateArgs.Assignee != nil && *updateArgs.Assignee != "" {
