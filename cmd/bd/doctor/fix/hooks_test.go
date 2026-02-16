@@ -410,6 +410,7 @@ func TestCheckPrecommitBdIntegration(t *testing.T) {
       - id: bd-post-merge
         entry: bd hooks run post-merge
         language: system
+        stages: [post-merge]
 `,
 			expectConfigured:      true,
 			expectHooksWithBd:     []string{"post-merge"},
@@ -453,6 +454,7 @@ func TestCheckPrecommitBdIntegration(t *testing.T) {
       - id: bd-post-merge
         entry: bd hooks run post-merge
         language: system
+        stages: [post-merge]
 `,
 			expectConfigured:      true,
 			expectHooksWithBd:     []string{"post-merge"},
@@ -756,10 +758,10 @@ func TestCheckExternalHookManagerIntegration(t *testing.T) {
 		{
 			name: "lefthook with bd integration",
 			setup: func(dir string) error {
-				config := `pre-commit:
+				config := `post-merge:
   commands:
     bd:
-      run: bd hooks run pre-commit
+      run: bd hooks run post-merge
 `
 				return os.WriteFile(filepath.Join(dir, "lefthook.yml"), []byte(config), 0644)
 			},
@@ -775,7 +777,7 @@ func TestCheckExternalHookManagerIntegration(t *testing.T) {
 				if err := os.MkdirAll(huskyDir, 0755); err != nil {
 					return err
 				}
-				return os.WriteFile(filepath.Join(huskyDir, "pre-commit"), []byte("#!/bin/sh\nbd hooks run pre-commit\n"), 0755)
+				return os.WriteFile(filepath.Join(huskyDir, "post-merge"), []byte("#!/bin/sh\nbd hooks run post-merge\n"), 0755)
 			},
 			expectNil:           false,
 			expectManager:       "husky",
@@ -798,9 +800,10 @@ func TestCheckExternalHookManagerIntegration(t *testing.T) {
 				config := `repos:
   - repo: local
     hooks:
-      - id: bd-pre-commit
-        entry: bd hooks run pre-commit
+      - id: bd-post-merge
+        entry: bd hooks run post-merge
         language: system
+        stages: [post-merge]
 `
 				return os.WriteFile(filepath.Join(dir, ".pre-commit-config.yaml"), []byte(config), 0644)
 			},

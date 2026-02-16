@@ -47,6 +47,12 @@ var LegacyDatabaseNames = []string{"bd.db", "issues.db", "bugs.db"}
 // Redirect chains are not followed - only one level of redirection is supported.
 // This prevents infinite loops and keeps the behavior predictable.
 func FollowRedirect(beadsDir string) string {
+	// In remote/kube mode there's no local .beads directory to contain a redirect file.
+	// Skip the filesystem I/O entirely — the daemon handles workspace resolution.
+	if isRemoteMode() {
+		return beadsDir
+	}
+
 	redirectFile := filepath.Join(beadsDir, RedirectFileName)
 	data, err := os.ReadFile(redirectFile)
 	if err != nil {
@@ -118,6 +124,11 @@ type RedirectInfo struct {
 // BEADS_DIR is set. This handles the case where BEADS_DIR is pre-set to the redirect target
 // (e.g., by shell environment or tooling), but we still need to detect that a redirect exists.
 func GetRedirectInfo() RedirectInfo {
+	// In remote/kube mode there's no local redirect file — daemon handles routing.
+	if isRemoteMode() {
+		return RedirectInfo{}
+	}
+
 	// First, always check the git repo's local .beads directory for redirects
 	// This handles the case where BEADS_DIR is pre-set to the redirect target
 	if localBeadsDir := findLocalBdsDirInRepo(); localBeadsDir != "" {

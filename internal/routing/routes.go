@@ -91,7 +91,12 @@ func LoadRoutes(beadsDir string) ([]Route, error) {
 
 // LoadRoutesFromFile loads routes from routes.jsonl in the given beads directory.
 // Returns an empty slice if the file doesn't exist.
+// In remote/kube mode (BD_DAEMON_HOST set), returns nil — routes come from the daemon.
 func LoadRoutesFromFile(beadsDir string) ([]Route, error) {
+	if os.Getenv("BD_DAEMON_HOST") != "" {
+		return nil, nil
+	}
+
 	routesPath := filepath.Join(beadsDir, RoutesFileName)
 	file, err := os.Open(routesPath) //nolint:gosec // routesPath is constructed from known beadsDir
 	if err != nil {
@@ -471,7 +476,12 @@ func ResolveBeadsDirForID(ctx context.Context, id, currentBeadsDir string) (stri
 // FindTownRoot walks up from startDir looking for a town root.
 // Returns the town root path, or empty string if not found.
 // A town root is identified by the presence of mayor/town.json.
+// In remote/kube mode, returns empty — no local filesystem tree to walk.
 func FindTownRoot(startDir string) string {
+	if os.Getenv("BD_DAEMON_HOST") != "" {
+		return ""
+	}
+
 	current := startDir
 	for {
 		// Check for primary marker (mayor/town.json)
@@ -552,7 +562,13 @@ func findTownRoutes(currentBeadsDir string) ([]Route, string) {
 
 // resolveRedirect checks for a redirect file in the beads directory
 // and resolves the redirect path if present.
+// In remote/kube mode (BD_DAEMON_HOST set), skips filesystem I/O —
+// the daemon handles workspace resolution and there's no local redirect file.
 func resolveRedirect(beadsDir string) string {
+	if os.Getenv("BD_DAEMON_HOST") != "" {
+		return beadsDir
+	}
+
 	redirectFile := filepath.Join(beadsDir, "redirect")
 	data, err := os.ReadFile(redirectFile) //nolint:gosec // redirectFile is constructed from known beadsDir
 	if err != nil {
