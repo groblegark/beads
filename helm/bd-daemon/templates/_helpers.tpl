@@ -194,6 +194,38 @@ nats://{{ include "bd-daemon.fullname" . }}-nats:4222
 {{- end -}}
 {{- end }}
 
+{{/* ===== Slack bot component helpers ===== */}}
+
+{{/*
+Slack bot fully qualified name
+*/}}
+{{- define "bd-daemon.slackbot.fullname" -}}
+{{- printf "%s-slackbot" (include "bd-daemon.fullname" .) | trunc 63 | trimSuffix "-" }}
+{{- end }}
+
+{{/*
+Slack bot labels
+*/}}
+{{- define "bd-daemon.slackbot.labels" -}}
+{{ include "bd-daemon.labels" . }}
+app.kubernetes.io/component: slackbot
+{{- end }}
+
+{{/*
+Slack bot selector labels
+*/}}
+{{- define "bd-daemon.slackbot.selectorLabels" -}}
+{{ include "bd-daemon.selectorLabels" . }}
+app.kubernetes.io/component: slackbot
+{{- end }}
+
+{{/*
+Daemon service URL (for standalone slack bot to reach the daemon over HTTP).
+*/}}
+{{- define "bd-daemon.daemon.serviceURL" -}}
+http://{{ include "bd-daemon.daemon.fullname" . }}:{{ .Values.daemon.service.httpPort | default 9080 }}
+{{- end }}
+
 {{/*
 Redis URL for the wisp store.
 When the Redis subchart is enabled, constructs the URL from the subchart service name.

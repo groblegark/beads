@@ -1,0 +1,96 @@
+{{- if and .Values.slackBot.enabled .Values.slackBot.standalone }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "bd-daemon.slackbot.fullname" . }}
+  labels:
+    {{- include "bd-daemon.slackbot.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "bd-daemon.slackbot.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        rollout.kubernetes.io/restartedAt: {{ now | date "2006-01-02T15:04:05Z07:00" | quote }}
+      labels:
+        {{- include "bd-daemon.slackbot.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: slack-bot
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.slackBot.image.repository | default .Values.image.repository }}:{{ .Values.slackBot.image.tag | default .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.slackBot.image.pullPolicy | default .Values.image.pullPolicy }}
+          command: ["bd", "slack", "start"]
+          env:
+            - name: SLACK_BOT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.slackBot.secretName | default "slack-bot-credentials" }}
+                  key: bot-token
+            - name: SLACK_APP_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.slackBot.secretName | default "slack-bot-credentials" }}
+                  key: app-token
+            # Standalone mode: connect to daemon service (not localhost)
+            - name: BD_DAEMON_HOST
+              value: {{ include "bd-daemon.daemon.serviceURL" . | quote }}
+            {{- if and .Values.externalSecrets.enabled .Values.externalSecrets.daemonToken.remoteRef }}
+            - name: BD_DAEMON_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "bd-daemon.daemon.tokenSecretName" . }}
+                  key: token
+            {{- else if .Values.daemon.token }}
+            - name: BD_DAEMON_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "bd-daemon.daemon.fullname" . }}
+                  key: daemon-token
+            {{- end }}
+            - name: HOME
+              value: "/home/beads"
+            - name: BEADS_DIR
+              value: "/home/beads/.beads"
+            - name: BEADS_DOLT_SERVER_MODE
+              value: "1"
+            {{- if .Values.slackBot.channelID }}
+            - name: SLACK_CHANNEL
+              value: {{ .Values.slackBot.channelID | quote }}
+            {{- end }}
+            {{- if .Values.nats.enabled }}
+            - name: BD_NATS_URL
+              value: {{ include "bd-daemon.natsURL" . | quote }}
+            {{- end }}
+            {{- if .Values.slackBot.coopmuxURL }}
+            - name: COOPMUX_URL
+              value: {{ .Values.slackBot.coopmuxURL | quote }}
+            {{- end }}
+            {{- if .Values.slackBot.coopmuxTokenSecret }}
+            - name: COOPMUX_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.slackBot.coopmuxTokenSecret }}
+                  key: token
+            {{- end }}
+          resources:
+            {{- toYaml .Values.slackBot.resources | nindent 12 }}
+      volumes:
+        - name: beads-data
+          emptyDir: {}
+      {{- with .Values.daemon.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

@@ -213,7 +213,7 @@ spec:
           {{- end }}
           resources:
             {{- toYaml .Values.daemon.resources | nindent 12 }}
-        {{- if .Values.slackBot.enabled }}
+        {{- if and .Values.slackBot.enabled (not .Values.slackBot.standalone) }}
         - name: slack-bot
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}

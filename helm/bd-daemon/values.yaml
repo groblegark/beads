@@ -257,9 +257,14 @@ dolt:
   tolerations: []
   affinity: {}
 
-# --- Slack bot sidecar ---
+# --- Slack bot ---
+# When standalone=false (default), runs as a sidecar in the daemon pod.
+# When standalone=true, runs as a separate single-replica Deployment.
+# Use standalone mode when running multiple daemon replicas (HA) to avoid
+# duplicate Slack Socket Mode connections.
 slackBot:
   enabled: false
+  standalone: false
   image:
     repository: ""  # Defaults to main image.repository
     tag: ""         # Defaults to main image.tag
