@@ -86,6 +86,8 @@ func (w *NATSWatcher) Run(ctx context.Context) error {
 }
 
 // connect establishes the NATS connection and JetStream subscription.
+// It retries the JetStream subscribe if the durable consumer is still
+// bound from a previous pod (common during rolling updates).
 func (w *NATSWatcher) connect(ctx context.Context) error {
 	connectOpts := []nats.Option{
 		nats.Name("beads-slack-bot"),
@@ -106,17 +108,36 @@ func (w *NATSWatcher) connect(ctx context.Context) error {
 		return fmt.Errorf("jetstream context: %w", err)
 	}
 
-	sub, err := js.Subscribe(
-		eventbus.SubjectDecisionPrefix+">",
-		w.handleMessage,
-		nats.Durable("slack-bot"),
-		nats.DeliverNew(),
-		nats.AckExplicit(),
-		nats.ManualAck(),
-	)
-	if err != nil {
-		nc.Close()
-		return fmt.Errorf("jetstream subscribe: %w", err)
+	// Retry subscribe to handle "consumer already bound" during rolling updates.
+	// The old pod's durable consumer binding may linger briefly after termination.
+	var sub *nats.Subscription
+	for attempt := 1; attempt <= 10; attempt++ {
+		sub, err = js.Subscribe(
+			eventbus.SubjectDecisionPrefix+">",
+			w.handleMessage,
+			nats.Durable("slack-bot"),
+			nats.DeliverNew(),
+			nats.AckExplicit(),
+			nats.ManualAck(),
+		)
+		if err == nil {
+			break
+		}
+		if !strings.Contains(err.Error(), "already bound") {
+			nc.Close()
+			return fmt.Errorf("jetstream subscribe: %w", err)
+		}
+		if attempt == 10 {
+			nc.Close()
+			return fmt.Errorf("jetstream subscribe: consumer still bound after %d attempts: %w", attempt, err)
+		}
+		log.Printf("slackbot/nats: consumer still bound (attempt %d/10), retrying in 3s", attempt)
+		select {
+		case <-ctx.Done():
+			nc.Close()
+			return ctx.Err()
+		case <-time.After(3 * time.Second):
+		}
 	}
 
 	w.conn = nc
