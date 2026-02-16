@@ -16,22 +16,6 @@ base:
   config: rwx/base 1.0.0
 
 tasks:
-  # ── Resolve ref name (strip refs/tags/ and refs/heads/ prefixes) ───
-  - key: resolve-ref
-    cache: false
-    run: |
-      TAG="${REF_NAME#refs/tags/}"
-      TAG="${TAG#refs/heads/}"
-      mkdir -p /home/ubuntu/artifacts
-      echo -n "$TAG" > /home/ubuntu/artifacts/resolved-tag
-      echo "Resolved ref: $TAG"
-    env:
-      REF_NAME: ${{ init.ref-name }}
-    outputs:
-      artifacts:
-        - key: resolved-tag
-          path: /home/ubuntu/artifacts/resolved-tag
-
   # ── System deps (cached until lock changes) ─────────────────────────
   - key: system-deps
     filter:
@@ -79,10 +63,11 @@ tasks:
 
   # ── Run GoReleaser ──────────────────────────────────────────────────
   - key: release
-    use: [go-deps, goreleaser, resolve-ref]
+    use: [go-deps, goreleaser]
     cache: false
     run: |
-      TAG=$(cat ${{ tasks.resolve-ref.artifacts.resolved-tag }})
+      TAG="${REF_NAME#refs/tags/}"
+      TAG="${TAG#refs/heads/}"
 
       # Configure git for GoReleaser
       git config --global user.name "CI Bot"
@@ -97,13 +82,15 @@ tasks:
       fi
     env:
       GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
+      REF_NAME: ${{ init.ref-name }}
 
   # ── Dispatch to gastown (only for real releases) ────────────────────
   - key: dispatch-gastown
-    use: [release, resolve-ref]
+    use: release
     if: ${{ init.ref-name != 'dev' }}
     run: |
-      TAG=$(cat ${{ tasks.resolve-ref.artifacts.resolved-tag }})
+      TAG="${REF_NAME#refs/tags/}"
+      TAG="${TAG#refs/heads/}"
 
       # Only dispatch if this is a version tag
       if [[ "$TAG" == v* ]]; then
@@ -123,3 +110,4 @@ tasks:
       fi
     env:
       RWX_ACCESS_TOKEN: ${{ secrets.RWX_ACCESS_TOKEN }}
+      REF_NAME: ${{ init.ref-name }}
