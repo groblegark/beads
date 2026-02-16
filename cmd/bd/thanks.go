@@ -6,7 +6,6 @@ import (
 	"slices"
 
 	"github.com/charmbracelet/lipgloss"
-	"github.com/spf13/cobra"
 	"github.com/steveyegge/beads/internal/ui"
 )
 
@@ -108,22 +107,7 @@ var beadsContributors = map[string]int{
 	"Zachary Rosen":         1,
 }
 
-var thanksCmd = &cobra.Command{
-	Use:    "thanks",
-	Short:  "Thank the human contributors to beads",
-	Hidden: true, // Deprecated: use 'bd info --thanks' instead
-	Long: `Display a thank you page listing all human contributors to the beads project.
-
-DEPRECATED: Use 'bd info --thanks' instead.
-
-Examples:
-  bd info --thanks       # Show thank you page (preferred)
-  bd thanks              # Legacy command (still works)
-`,
-	Run: func(cmd *cobra.Command, args []string) {
-		printThanksPage()
-	},
-}
+// thanksCmd was removed — use 'bd info --thanks' instead.
 
 // getContributorsSorted returns contributors sorted by commit count descending
 func getContributorsSorted() []string {
@@ -270,6 +254,3 @@ func printThanksWrappedList(label string, names []string, maxWidth int) {
 	fmt.Println()
 }
 
-func init() {
-	rootCmd.AddCommand(thanksCmd)
-}
