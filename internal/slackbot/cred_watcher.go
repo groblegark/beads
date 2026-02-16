@@ -247,6 +247,16 @@ func (w *CoopCredWatcher) handleMessage(msg *nats.Msg) {
 		w.reauthThreadsMu.RUnlock()
 
 		if !recentlyNotified {
+			// Guard against concurrent reauth initiation — same protection
+			// as the reauth_required handler. Without this, burst refresh_failed
+			// events create duplicate PKCE sessions causing "Code challenge failed".
+			w.reauthInFlightMu.Lock()
+			if w.reauthInFlight[payload.Account] {
+				w.reauthInFlightMu.Unlock()
+				return
+			}
+			w.reauthInFlight[payload.Account] = true
+			w.reauthInFlightMu.Unlock()
 			go w.pullReauthURL(payload.Account)
 		}
 	}
@@ -418,11 +428,18 @@ func (w *CoopCredWatcher) submitReauthCode(info reauthInfo, code, channelID, thr
 	}
 }
 
+// reauthSession holds the state and auth URL from a coopmux reauth initiation.
+type reauthSession struct {
+	state   string
+	authURL string
+}
+
 // fetchReauthState calls coopmux's reauth endpoint to get a fresh OAuth state
 // token for an account. Used when recovering reauth threads after pod restart.
-func (w *CoopCredWatcher) fetchReauthState(account string) string {
+// Returns the state and auth URL (auth URL may be empty for existing sessions).
+func (w *CoopCredWatcher) fetchReauthState(account string) reauthSession {
 	if w.coopmuxURL == "" {
-		return ""
+		return reauthSession{}
 	}
 
 	reqBody, _ := json.Marshal(map[string]string{"account": account})
@@ -430,7 +447,7 @@ func (w *CoopCredWatcher) fetchReauthState(account string) string {
 	req, err := http.NewRequest("POST", reqURL, bytes.NewReader(reqBody))
 	if err != nil {
 		log.Printf("slackbot/cred: create reauth state request: %v", err)
-		return ""
+		return reauthSession{}
 	}
 	req.Header.Set("Content-Type", "application/json")
 	if w.authToken != "" {
@@ -441,23 +458,24 @@ func (w *CoopCredWatcher) fetchReauthState(account string) string {
 	resp, err := client.Do(req)
 	if err != nil {
 		log.Printf("slackbot/cred: reauth state request failed: %v", err)
-		return ""
+		return reauthSession{}
 	}
 	defer resp.Body.Close()
 
 	body, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != http.StatusOK {
 		log.Printf("slackbot/cred: reauth state returned %d: %s", resp.StatusCode, string(body))
-		return ""
+		return reauthSession{}
 	}
 
 	var session struct {
-		State string `json:"state"`
+		State   string `json:"state"`
+		AuthURL string `json:"auth_url"`
 	}
 	if err := json.Unmarshal(body, &session); err != nil {
-		return ""
+		return reauthSession{}
 	}
-	return session.State
+	return reauthSession{state: session.State, authURL: session.AuthURL}
 }
 
 // recoverReauthThread checks if a thread's parent message is a reauth notification
@@ -510,15 +528,23 @@ func (w *CoopCredWatcher) recoverReauthThread(channelID, threadTS string) (reaut
 
 	// Re-initiate reauth via coopmux to get a fresh state token.
 	// The original state was lost when the pod restarted.
-	state := w.fetchReauthState(account)
-	if state == "" {
+	session := w.fetchReauthState(account)
+	if session.state == "" {
 		log.Printf("slackbot/cred: recovered thread %s but could not get fresh state for %s", threadTS, account)
+	}
+
+	// The original auth URL is stale (its PKCE challenge no longer has a
+	// matching verifier on coopmux). Post the fresh URL in the thread so
+	// the user clicks the right link.
+	if session.authURL != "" {
+		w.bot.postThreadReply(channelID, threadTS,
+			fmt.Sprintf("Previous auth link expired (server restarted). Please use this new link:\n<%s|Click here to authenticate>", session.authURL))
 	}
 
 	info := reauthInfo{
 		account:   account,
 		channelID: channelID,
-		state:     state,
+		state:     session.state,
 	}
 
 	// Re-track this thread so subsequent replies don't need to fetch again.
