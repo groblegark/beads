@@ -54,9 +54,11 @@ tasks:
     filter:
       - .go-version
     run: |
-      GO_VERSION=$(cat .go-version | tr -d '[:space:]')
-      echo "Installing Go ${GO_VERSION} from .go-version..."
-      curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" | sudo tar -C /usr/local -xzf -
+      GO_MINOR=$(cat .go-version | tr -d '[:space:]')
+      # Resolve latest patch version from Go downloads API
+      GO_VERSION=$(curl -fsSL "https://go.dev/dl/?mode=json" | grep -o "go${GO_MINOR}\.[0-9]*" | head -1)
+      echo "Installing ${GO_VERSION} (from .go-version=${GO_MINOR})..."
+      curl -fsSL "https://go.dev/dl/${GO_VERSION}.linux-amd64.tar.gz" | sudo tar -C /usr/local -xzf -
       echo 'export PATH=/usr/local/go/bin:$HOME/go/bin:$PATH' >> ~/.bashrc
       export PATH=/usr/local/go/bin:$HOME/go/bin:$PATH
       go version
