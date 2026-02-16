@@ -637,76 +637,9 @@ exit 1
 	}
 }
 
-func TestStopDecisionHandler_StopHookActive(t *testing.T) {
-	// When stop_hook_active=true, the handler should still call stop-check but
-	// pass --reentry flag. The stop-check subprocess decides how to handle re-entry.
-	// Here we simulate stop-check allowing the stop on re-entry (exit 0).
-	cleanup := setupMockBD(t, `
-case "$1" in
-  decision)
-    case "$2" in
-      stop-check) printf '{"decision":"allow","reason":"re-entry allowed"}'; exit 0;;
-    esac
-    ;;
-esac
-exit 1
-`)
-	defer cleanup()
-
-	h := &StopDecisionHandler{}
-	event := &Event{
-		Type: EventStop,
-		CWD:  t.TempDir(),
-		Raw:  []byte(`{"stop_hook_active":true}`),
-	}
-	result := &Result{}
-
-	err := h.Handle(context.Background(), event, result)
-	if err != nil {
-		t.Fatalf("expected no error, got: %v", err)
-	}
-	if result.Block {
-		t.Error("expected Block=false when stop-check allows on re-entry")
-	}
-}
-
-func TestStopDecisionHandler_StopHookActiveBlocks(t *testing.T) {
-	// When stop_hook_active=true and agent created a decision but human hasn't
-	// responded yet, the stop-check re-entry should still be able to block.
-	cleanup := setupMockBD(t, `
-case "$1" in
-  decision)
-    case "$2" in
-      stop-check) printf '{"decision":"block","reason":"awaiting human response"}'; exit 1;;
-    esac
-    ;;
-esac
-exit 1
-`)
-	defer cleanup()
-
-	h := &StopDecisionHandler{}
-	event := &Event{
-		Type: EventStop,
-		CWD:  t.TempDir(),
-		Raw:  []byte(`{"stop_hook_active":true}`),
-	}
-	result := &Result{}
-
-	err := h.Handle(context.Background(), event, result)
-	if err != nil {
-		t.Fatalf("expected no error, got: %v", err)
-	}
-	if !result.Block {
-		t.Error("expected Block=true when stop-check blocks on re-entry")
-	}
-	if result.Reason != "awaiting human response" {
-		t.Errorf("expected reason 'awaiting human response', got %q", result.Reason)
-	}
-}
-
-func TestStopDecisionHandler_StopHookActiveFalse(t *testing.T) {
-	// When stop_hook_active=false, handler should proceed normally.
+func TestStopDecisionHandler_AllowsStop(t *testing.T) {
+	// stop_hook_active is ignored (beads-ulf5: --reentry no longer passed).
+	// StopDecisionHandler always calls stop-check without --reentry.
 	cleanup := setupMockBD(t, `
 case "$1" in
   decision)
@@ -723,7 +656,7 @@ exit 1
 	event := &Event{
 		Type: EventStop,
 		CWD:  t.TempDir(),
-		Raw:  []byte(`{"stop_hook_active":false}`),
+		Raw:  []byte(`{"stop_hook_active":true}`),
 	}
 	result := &Result{}
 
@@ -733,6 +666,39 @@ exit 1
 	}
 	if result.Block {
 		t.Error("expected Block=false when stop-check exits 0")
+	}
+}
+
+func TestStopDecisionHandler_BlocksStop(t *testing.T) {
+	// When stop-check blocks (exit 1), the handler should block.
+	cleanup := setupMockBD(t, `
+case "$1" in
+  decision)
+    case "$2" in
+      stop-check) printf '{"decision":"block","reason":"create a decision"}'; exit 1;;
+    esac
+    ;;
+esac
+exit 1
+`)
+	defer cleanup()
+
+	h := &StopDecisionHandler{}
+	event := &Event{
+		Type: EventStop,
+		CWD:  t.TempDir(),
+	}
+	result := &Result{}
+
+	err := h.Handle(context.Background(), event, result)
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if !result.Block {
+		t.Error("expected Block=true when stop-check blocks")
+	}
+	if result.Reason != "create a decision" {
+		t.Errorf("expected reason 'create a decision', got %q", result.Reason)
 	}
 }
 

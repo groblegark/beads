@@ -207,22 +207,19 @@ func TestLoopInbox(t *testing.T) {
 	_ = d // keep reference
 }
 
-// TestLoopNoReentry verifies that non-reentry stops never trigger loop
-// detection, even though they accumulate in the sliding window counter.
-// Only reentry events (stop_hook_active=true) trigger the threshold check.
-// (bd-rrcj4)
-func TestLoopNoReentry(t *testing.T) {
-	// Use a high threshold so non-reentry accumulation alone can't trigger.
+// TestLoopHighThreshold verifies that stop attempts under a high threshold
+// don't trigger loop detection. All stop attempts count equally regardless
+// of the stop_hook_active flag (beads-ulf5 fix). (bd-rrcj4)
+func TestLoopHighThreshold(t *testing.T) {
 	_, client := setupLoopBus(t, 100, 30*time.Second)
 	cwd := t.TempDir()
 	sid := "e2e-nr"
 
-	// Emit many non-reentry stops — none should trigger loop detection
-	// because the handler returns early for non-reentry events.
+	// Emit 10 stops against threshold=100 — none should trigger.
 	for i := 0; i < 10; i++ {
 		r := stopLoopEmit(t, client, sid, cwd, false)
 		if strings.Contains(strings.Join(r.Inject, "\n"), "loop detected") {
-			t.Fatalf("non-reentry stop #%d should not trigger", i+1)
+			t.Fatalf("stop #%d should not trigger (under threshold=100)", i+1)
 		}
 	}
 }
