@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
@@ -173,14 +174,150 @@ Use this after 'bd mux reauth --no-wait' to complete the exchange separately.`,
 	},
 }
 
+var (
+	muxRegisterPodName string
+	muxRegisterPodIP   string
+	muxRegisterPort    int
+	muxRegisterSession string
+)
+
+var muxRegisterCmd = &cobra.Command{
+	Use:   "register <agent-id>",
+	Short: "Register an agent pod with the coopmux broker",
+	Long: `Register an agent pod with the coopmux credential broker.
+
+The broker connects to the pod's coop sidecar to distribute credentials
+and cache multiplexer state. This is typically called during pod startup
+in gastown-next.
+
+Examples:
+  bd mux register gt-gastown-crew-dave --pod-name=crew-dave-abc --pod-ip=10.0.1.5
+  bd mux register gt-beads-crew-alice --pod-name=crew-alice-xyz --pod-ip=10.0.1.6 --port=3000`,
+	Args: cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		agentID := args[0]
+
+		client, err := newMuxClient()
+		if err != nil {
+			return err
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		reg := &coopmux.PodRegistration{
+			AgentID: agentID,
+			PodName: muxRegisterPodName,
+			PodIP:   muxRegisterPodIP,
+			Port:    muxRegisterPort,
+			Session: muxRegisterSession,
+		}
+
+		if err := client.Register(ctx, reg); err != nil {
+			return fmt.Errorf("register failed: %w", err)
+		}
+
+		fmt.Printf("✓ Registered %s (pod=%s, ip=%s)\n", agentID, muxRegisterPodName, muxRegisterPodIP)
+		return nil
+	},
+}
+
+var muxDeregisterCmd = &cobra.Command{
+	Use:   "deregister <agent-id>",
+	Short: "Deregister an agent pod from the coopmux broker",
+	Long: `Remove an agent pod from the coopmux broker.
+
+This is typically called during pod shutdown (preStop hook) in gastown-next.
+
+Examples:
+  bd mux deregister gt-gastown-crew-dave`,
+	Args: cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		agentID := args[0]
+
+		client, err := newMuxClient()
+		if err != nil {
+			return err
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		if err := client.Deregister(ctx, agentID); err != nil {
+			return fmt.Errorf("deregister failed: %w", err)
+		}
+
+		fmt.Printf("✓ Deregistered %s\n", agentID)
+		return nil
+	},
+}
+
+var muxPodsCmd = &cobra.Command{
+	Use:   "pods",
+	Short: "List pods registered with the coopmux broker",
+	Long: `List all agent pods currently registered with the coopmux broker.
+
+Shows pod connection status, IP, and session info.
+
+Examples:
+  bd mux pods
+  bd mux pods --json`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		client, err := newMuxClient()
+		if err != nil {
+			return err
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		pods, err := client.Pods(ctx)
+		if err != nil {
+			return fmt.Errorf("pods list failed: %w", err)
+		}
+
+		if jsonOutput {
+			encoder := json.NewEncoder(os.Stdout)
+			encoder.SetIndent("", "  ")
+			return encoder.Encode(pods)
+		}
+
+		if len(pods) == 0 {
+			fmt.Println("No pods registered")
+			return nil
+		}
+
+		for _, p := range pods {
+			status := p.Status
+			if status == "online" {
+				status = "✓ online"
+			} else {
+				status = "✗ " + status
+			}
+			fmt.Printf("  %s  pod=%s ip=%s %s\n", p.AgentID, p.PodName, p.PodIP, status)
+		}
+		return nil
+	},
+}
+
 func init() {
 	muxCmd.PersistentFlags().StringVar(&muxURL, "mux-url", "", "Coopmux service URL (env: COOPMUX_URL)")
 	muxCmd.PersistentFlags().StringVar(&muxToken, "token", "", "Bearer auth token (env: COOPMUX_TOKEN)")
 
 	muxReauthCmd.Flags().Bool("no-wait", false, "Print auth URL and exit without waiting for code")
 
+	muxRegisterCmd.Flags().StringVar(&muxRegisterPodName, "pod-name", "", "K8s pod name (required)")
+	muxRegisterCmd.Flags().StringVar(&muxRegisterPodIP, "pod-ip", "", "Pod IP address (required)")
+	muxRegisterCmd.Flags().IntVar(&muxRegisterPort, "port", 3000, "Coop sidecar port")
+	muxRegisterCmd.Flags().StringVar(&muxRegisterSession, "session", "", "Screen session name")
+	_ = muxRegisterCmd.MarkFlagRequired("pod-name")
+	_ = muxRegisterCmd.MarkFlagRequired("pod-ip")
+
 	muxCmd.AddCommand(muxStatusCmd)
 	muxCmd.AddCommand(muxReauthCmd)
 	muxCmd.AddCommand(muxExchangeCmd)
+	muxCmd.AddCommand(muxRegisterCmd)
+	muxCmd.AddCommand(muxDeregisterCmd)
+	muxCmd.AddCommand(muxPodsCmd)
 	rootCmd.AddCommand(muxCmd)
 }

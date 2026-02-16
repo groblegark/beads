@@ -86,6 +86,65 @@ func (c *Client) ReauthExchange(ctx context.Context, state, code string) error {
 	}, nil)
 }
 
+// PodRegistration contains the details for registering an agent pod with
+// the broker. The broker uses this to connect to the pod's coop sidecar
+// for credential distribution and multiplexer state caching.
+type PodRegistration struct {
+	AgentID string `json:"agent_id"`         // e.g. "gt-gastown-crew-dave"
+	PodName string `json:"pod_name"`         // K8s pod name
+	PodIP   string `json:"pod_ip"`           // Pod IP for coop sidecar connection
+	Port    int    `json:"port,omitempty"`    // Coop sidecar port (default 3000)
+	Session string `json:"session,omitempty"` // Screen session name
+}
+
+// PodInfo is returned by Pods listing registered pods.
+type PodInfo struct {
+	AgentID   string `json:"agent_id"`
+	PodName   string `json:"pod_name"`
+	PodIP     string `json:"pod_ip"`
+	Port      int    `json:"port"`
+	Session   string `json:"session,omitempty"`
+	Status    string `json:"status"`    // "online", "offline", "error"
+	ConnectedAt string `json:"connected_at,omitempty"`
+}
+
+// Register registers an agent pod with the broker. The broker will connect
+// to the pod's coop sidecar for credential distribution and state monitoring.
+func (c *Client) Register(ctx context.Context, reg *PodRegistration) error {
+	return c.postJSON(ctx, "/api/v1/broker/register", reg, nil)
+}
+
+// Deregister removes an agent pod from the broker.
+func (c *Client) Deregister(ctx context.Context, agentID string) error {
+	return c.postJSON(ctx, "/api/v1/broker/deregister", map[string]string{
+		"agent_id": agentID,
+	}, nil)
+}
+
+// Pods returns all pods currently registered with the broker.
+func (c *Client) Pods(ctx context.Context) ([]PodInfo, error) {
+	req, err := c.newRequest(ctx, http.MethodGet, "/api/v1/broker/pods", nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("coopmux: GET /api/v1/broker/pods: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode >= 400 {
+		return nil, c.parseError(resp)
+	}
+
+	var result struct {
+		Pods []PodInfo `json:"pods"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("coopmux: decode pods: %w", err)
+	}
+	return result.Pods, nil
+}
+
 // Health checks if the coopmux service is reachable.
 func (c *Client) Health(ctx context.Context) error {
 	req, err := c.newRequest(ctx, http.MethodGet, "/api/v1/health", nil)

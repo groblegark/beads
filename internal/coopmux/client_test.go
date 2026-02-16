@@ -172,3 +172,126 @@ func TestNoToken_NoAuthHeader(t *testing.T) {
 		t.Errorf("Authorization header should be empty, got %q", gotHeader)
 	}
 }
+
+func TestRegister_Success(t *testing.T) {
+	var gotBody PodRegistration
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/broker/register" {
+			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+		if r.Method != http.MethodPost {
+			t.Errorf("unexpected method: %s", r.Method)
+		}
+		json.NewDecoder(r.Body).Decode(&gotBody)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	c := NewClient(server.URL, WithHTTPClient(server.Client()))
+	err := c.Register(context.Background(), &PodRegistration{
+		AgentID: "gt-gastown-crew-dave",
+		PodName: "crew-dave-abc",
+		PodIP:   "10.0.1.5",
+		Port:    3000,
+		Session: "dave-screen",
+	})
+	if err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+	if gotBody.AgentID != "gt-gastown-crew-dave" {
+		t.Errorf("AgentID = %q, want %q", gotBody.AgentID, "gt-gastown-crew-dave")
+	}
+	if gotBody.PodIP != "10.0.1.5" {
+		t.Errorf("PodIP = %q, want %q", gotBody.PodIP, "10.0.1.5")
+	}
+}
+
+func TestRegister_Error(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusConflict)
+		w.Write([]byte("pod already registered"))
+	}))
+	defer server.Close()
+
+	c := NewClient(server.URL, WithHTTPClient(server.Client()))
+	err := c.Register(context.Background(), &PodRegistration{
+		AgentID: "gt-test",
+		PodName: "test-pod",
+		PodIP:   "10.0.0.1",
+	})
+	if err == nil {
+		t.Fatal("expected error for HTTP 409")
+	}
+}
+
+func TestDeregister_Success(t *testing.T) {
+	var gotBody map[string]string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/broker/deregister" {
+			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+		json.NewDecoder(r.Body).Decode(&gotBody)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	c := NewClient(server.URL, WithHTTPClient(server.Client()))
+	err := c.Deregister(context.Background(), "gt-gastown-crew-dave")
+	if err != nil {
+		t.Fatalf("Deregister: %v", err)
+	}
+	if gotBody["agent_id"] != "gt-gastown-crew-dave" {
+		t.Errorf("agent_id = %q, want %q", gotBody["agent_id"], "gt-gastown-crew-dave")
+	}
+}
+
+func TestPods_Success(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/broker/pods" {
+			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+		if r.Method != http.MethodGet {
+			t.Errorf("unexpected method: %s", r.Method)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"pods": []PodInfo{
+				{AgentID: "gt-crew-dave", PodName: "dave-pod", PodIP: "10.0.1.5", Status: "online"},
+				{AgentID: "gt-crew-alice", PodName: "alice-pod", PodIP: "10.0.1.6", Status: "offline"},
+			},
+		})
+	}))
+	defer server.Close()
+
+	c := NewClient(server.URL, WithHTTPClient(server.Client()))
+	pods, err := c.Pods(context.Background())
+	if err != nil {
+		t.Fatalf("Pods: %v", err)
+	}
+	if len(pods) != 2 {
+		t.Fatalf("expected 2 pods, got %d", len(pods))
+	}
+	if pods[0].AgentID != "gt-crew-dave" {
+		t.Errorf("pods[0].AgentID = %q", pods[0].AgentID)
+	}
+	if pods[1].Status != "offline" {
+		t.Errorf("pods[1].Status = %q", pods[1].Status)
+	}
+}
+
+func TestPods_Empty(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"pods":[]}`))
+	}))
+	defer server.Close()
+
+	c := NewClient(server.URL, WithHTTPClient(server.Client()))
+	pods, err := c.Pods(context.Background())
+	if err != nil {
+		t.Fatalf("Pods: %v", err)
+	}
+	if len(pods) != 0 {
+		t.Errorf("expected 0 pods, got %d", len(pods))
+	}
+}
