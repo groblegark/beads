@@ -38,6 +38,10 @@ type CoopCredWatcher struct {
 	// Track device code threads (no manual code paste needed — coopmux polls).
 	deviceCodeThreads   map[string]string // thread_ts → account name
 	deviceCodeThreadsMu sync.RWMutex
+
+	// Prevent concurrent reauth initiation for the same account.
+	reauthInFlight   map[string]bool // account → true while pullReauthURL is running
+	reauthInFlightMu sync.Mutex
 }
 
 // reauthInfo tracks a pending reauth notification posted to Slack.
@@ -70,6 +74,7 @@ func NewCoopCredWatcher(natsURL, natsToken, coopmuxURL, authToken string, bot *B
 		reauthThreads:     make(map[string]reauthInfo),
 		completedThreads:  make(map[string]bool),
 		deviceCodeThreads: make(map[string]string),
+		reauthInFlight:    make(map[string]bool),
 	}
 }
 
@@ -202,6 +207,16 @@ func (w *CoopCredWatcher) handleMessage(msg *nats.Msg) {
 
 		// PKCE flow: initiate reauth via coopmux to get the auth URL and
 		// state token needed for the exchange call.
+		// Guard against concurrent dispatches for the same account — burst NATS
+		// events can cause multiple goroutines to pass the rate-limit check before
+		// any posts, leading to duplicate PKCE sessions and "Code challenge failed".
+		w.reauthInFlightMu.Lock()
+		if w.reauthInFlight[payload.Account] {
+			w.reauthInFlightMu.Unlock()
+			return
+		}
+		w.reauthInFlight[payload.Account] = true
+		w.reauthInFlightMu.Unlock()
 		go w.pullReauthURL(payload.Account)
 	case "refreshed":
 		log.Printf("slackbot/cred: account %s refreshed", payload.Account)
