@@ -650,7 +650,7 @@ var rootCmd = &cobra.Command{
 									}
 									if name := registerSession(daemonClient, projectRoot); name != "" {
 										sessionAssignedName = name
-										actor = name
+										setActor(name)
 										daemonClient.SetActor(name)
 									}
 									return
@@ -687,7 +687,7 @@ var rootCmd = &cobra.Command{
 						}
 						if name := registerSession(daemonClient, projectRoot); name != "" {
 							sessionAssignedName = name
-							actor = name
+							setActor(name)
 							daemonClient.SetActor(name)
 							debug.Logf("session registered as %q", name)
 						}
