@@ -159,3 +159,65 @@ func TestSessionRegistry_PersistEntry_NilDB(t *testing.T) {
 		LastSeen:     time.Now(),
 	})
 }
+
+// TestSessionList_ViaRPC verifies the session_list RPC returns registered sessions (bd-tp3r6).
+func TestSessionList_ViaRPC(t *testing.T) {
+	_, client, _, cleanup := setupTestServerWithStore(t)
+	defer cleanup()
+
+	// Register two sessions
+	_, err := client.SessionRegister(&SessionRegisterArgs{
+		SessionKey: "key-alpha",
+		BaseName:   "alice",
+	})
+	if err != nil {
+		t.Fatalf("SessionRegister alice: %v", err)
+	}
+
+	_, err = client.SessionRegister(&SessionRegisterArgs{
+		SessionKey: "key-beta",
+		BaseName:   "bob",
+	})
+	if err != nil {
+		t.Fatalf("SessionRegister bob: %v", err)
+	}
+
+	// List sessions
+	result, err := client.SessionList(&SessionListArgs{})
+	if err != nil {
+		t.Fatalf("SessionList: %v", err)
+	}
+
+	if result.Count != 2 {
+		t.Errorf("Expected 2 sessions, got %d", result.Count)
+	}
+
+	found := map[string]bool{}
+	for _, s := range result.Sessions {
+		found[s.AssignedName] = true
+		if s.LastSeen.IsZero() {
+			t.Errorf("Session %s has zero LastSeen", s.AssignedName)
+		}
+	}
+	if !found["alice"] || !found["bob"] {
+		t.Errorf("Expected alice and bob, got %v", found)
+	}
+}
+
+// TestSessionList_EmptyRegistry verifies empty response when no sessions registered (bd-tp3r6).
+func TestSessionList_EmptyRegistry(t *testing.T) {
+	_, client, _, cleanup := setupTestServerWithStore(t)
+	defer cleanup()
+
+	result, err := client.SessionList(&SessionListArgs{})
+	if err != nil {
+		t.Fatalf("SessionList: %v", err)
+	}
+
+	if result.Count != 0 {
+		t.Errorf("Expected 0 sessions, got %d", result.Count)
+	}
+	if len(result.Sessions) != 0 {
+		t.Errorf("Expected empty sessions list, got %d", len(result.Sessions))
+	}
+}
