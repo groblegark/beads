@@ -3,7 +3,7 @@
 
 image:
   repository: ghcr.io/groblegark/beads
-  tag: "sha-99befd9"
+  tag: "sha-ccb88a24"
 
 daemon:
   replicaCount: 2

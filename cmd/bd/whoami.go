@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/spf13/cobra"
 )
@@ -18,9 +19,7 @@ The identity resolution chain (highest priority first):
   2. BD_ACTOR env var
   3. BEADS_ACTOR env var
   4. GT_ROLE env var (gastown-managed agents)
-  5. Daemon session registry (auto-assigned unique name)
-  6. git config user.name
-  7. $USER
+  5. Daemon session registry (auto-generated agent name, e.g., "swift-fox")
 
 Examples:
   bd whoami
@@ -56,15 +55,16 @@ func runWhoami(cmd *cobra.Command, args []string) {
 	} else if os.Getenv("GT_ROLE") != "" {
 		result.Source = "env (GT_ROLE)"
 	} else if sessionAssignedName != "" {
-		result.Source = "daemon session registry"
-		result.BaseName = getBaseActorName()
-		// Derive session key for display
+		result.Source = "daemon session registry (auto-generated)"
 		projectRoot := ""
 		if dbPath != "" {
-			result.SessionKey = deriveSessionKey(projectRoot)
+			projectRoot = filepath.Dir(filepath.Dir(dbPath))
 		}
+		sessionKey := deriveSessionKey(projectRoot)
+		result.BaseName = getBaseActorName(sessionKey)
+		result.SessionKey = sessionKey
 	} else {
-		// Fell through to git/USER
+		// No daemon, no env — show what getActorWithGit resolved
 		result.Source = "git config user.name / $USER"
 	}
 

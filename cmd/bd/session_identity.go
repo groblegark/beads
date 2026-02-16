@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/steveyegge/beads/internal/debug"
 	"github.com/steveyegge/beads/internal/rpc"
 )
 
@@ -61,8 +62,9 @@ func registerSession(client *rpc.Client, projectRoot string) string {
 	}
 
 	sessionKey := deriveSessionKey(projectRoot)
-	baseName := getBaseActorName()
+	baseName := getBaseActorName(sessionKey)
 
+	debug.Logf("registerSession: sessionKey=%q baseName=%q", sessionKey, baseName)
 	result, err := client.SessionRegister(&rpc.SessionRegisterArgs{
 		SessionKey: sessionKey,
 		BaseName:   baseName,
@@ -70,16 +72,26 @@ func registerSession(client *rpc.Client, projectRoot string) string {
 	if err != nil {
 		// Registration failed — fall through to normal actor resolution.
 		// This is expected when connecting to older daemons that don't support this RPC.
+		debug.Logf("registerSession: RPC failed: %v", err)
 		return ""
 	}
 
+	debug.Logf("registerSession: assigned=%q isNew=%v", result.AssignedName, result.IsNew)
 	return result.AssignedName
 }
 
 // getBaseActorName returns the base actor name before session numbering.
 // This is the name that gets suffixed with -1, -2, etc. for multiple sessions.
-// Priority: BD_ACTOR > BEADS_ACTOR > GT_ROLE > git user.name > $USER
-func getBaseActorName() string {
+//
+// Priority:
+//  1. BD_ACTOR env var (explicit agent identity)
+//  2. BEADS_ACTOR env var (MCP/integration alias)
+//  3. GT_ROLE env var (gastown-managed agents)
+//  4. Generated agent name from session key (e.g., "swift-fox")
+//
+// Human names (git user.name, $USER) are deliberately NOT used as agent identities.
+// Agents get fun, memorable names that persist for the session lifetime.
+func getBaseActorName(sessionKey string) string {
 	if bdActor := os.Getenv("BD_ACTOR"); bdActor != "" {
 		return bdActor
 	}
@@ -90,17 +102,9 @@ func getBaseActorName() string {
 		return gtRole
 	}
 
-	// Try git config user.name
-	// (we can't import exec here to avoid circular deps, so use a simple approach)
-	if gitUser := getGitUserName(); gitUser != "" {
-		return gitUser
-	}
-
-	if user := os.Getenv("USER"); user != "" {
-		return user
-	}
-
-	return "unknown"
+	// Generate a fun agent name from the session key.
+	// Same session always gets the same base name.
+	return rpc.GenerateAgentName(sessionKey)
 }
 
 // getGitUserName reads git config user.name from the .gitconfig file directly

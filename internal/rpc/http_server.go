@@ -495,6 +495,15 @@ func httpMethodToOperation(method string) string {
 		"BusEmit":     OpBusEmit,
 		"BusStatus":   OpBusStatus,
 		"BusHandlers": OpBusHandlers,
+
+		// Inbox operations (bd-xtahx)
+		"InboxPush":          OpInboxPush,
+		"InboxList":          OpInboxList,
+		"InboxDrain":         OpInboxDrain,
+		"InboxMarkDelivered": OpInboxMarkDelivered,
+
+		// Session identity (bd-zp6v9)
+		"SessionRegister": OpSessionRegister,
 	}
 
 	return methodMap[method]
