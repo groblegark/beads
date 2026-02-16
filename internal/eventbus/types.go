@@ -91,6 +91,12 @@ type Event struct {
 	AgentType    string                 `json:"agent_type,omitempty"`
 	Error        string                 `json:"error,omitempty"`
 
+	// Actor is the beads agent name that emitted this event (e.g., "bright-hog").
+	// Set by handleBusEmit from req.Actor — NOT from Claude Code's JSON payload.
+	// Handlers use this to identify which agent's inbox to drain, which session
+	// to scope decisions to, etc. (bd-awrs6)
+	Actor string `json:"actor,omitempty"`
+
 	// PublishedAt is set by the bus when publishing to JetStream (not from Claude Code).
 	// Only populated when Raw is empty and the Event struct is marshaled.
 	PublishedAt *time.Time `json:"published_at,omitempty"`

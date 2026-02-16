@@ -54,6 +54,13 @@ func (s *Server) handleBusEmit(req *Request) Response {
 		event.Type = eventbus.EventType(args.HookType)
 	}
 
+	// Set Actor from the RPC request — this is the beads agent name (e.g., "bright-hog")
+	// resolved by the CLI via session registration. Claude Code's JSON payload doesn't
+	// include this, so we must set it from the authenticated request. (bd-awrs6)
+	if req.Actor != "" {
+		event.Actor = req.Actor
+	}
+
 	timeout := s.requestTimeout
 	if req.TimeoutMs > 0 {
 		requested := time.Duration(req.TimeoutMs) * time.Millisecond

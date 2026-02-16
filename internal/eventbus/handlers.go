@@ -20,7 +20,7 @@ func (h *PrimeHandler) Handles() []EventType     { return []EventType{EventSessi
 func (h *PrimeHandler) Priority() int            { return 10 }
 
 func (h *PrimeHandler) Handle(ctx context.Context, event *Event, result *Result) error {
-	stdout, _, err := runBDCommand(ctx, event.CWD, "prime")
+	stdout, _, err := runBDCommandWithEnv(ctx, event.CWD, envFromEvent(event), "prime")
 	if err != nil {
 		// bd prime exits 0 even on error (silent fail-safe).
 		// Only log if the process didn't start.
@@ -53,7 +53,6 @@ func (h *StopDecisionHandler) Handle(ctx context.Context, event *Event, result *
 	// We no longer skip the handler entirely on re-entry because the agent may
 	// have created a decision that needs to be awaited.
 	args := []string{"decision", "stop-check", "--json"}
-	var callerSessionTag string
 	if len(event.Raw) > 0 {
 		var raw map[string]interface{}
 		if err := json.Unmarshal(event.Raw, &raw); err == nil {
@@ -62,14 +61,10 @@ func (h *StopDecisionHandler) Handle(ctx context.Context, event *Event, result *
 					args = append(args, "--reentry")
 				}
 			}
-			// Extract caller's session tag for decision scoping
-			if tag, ok := raw["caller_session_tag"].(string); ok && tag != "" {
-				callerSessionTag = tag
-			}
 		}
 	}
 
-	stdout, _, err := runBDCommandWithEnv(ctx, event.CWD, callerSessionTag, args...)
+	stdout, _, err := runBDCommandWithEnv(ctx, event.CWD, envFromEvent(event), args...)
 	if err != nil {
 		// Exit code 1 means block (human said "continue").
 		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 {
@@ -127,7 +122,7 @@ func (h *GateHandler) Priority() int            { return 20 }
 
 func (h *GateHandler) Handle(ctx context.Context, event *Event, result *Result) error {
 	hookName := string(event.Type)
-	stdout, _, err := runBDCommand(ctx, event.CWD, "gate", "session-check", "--hook", hookName, "--json")
+	stdout, _, err := runBDCommandWithEnv(ctx, event.CWD, envFromEvent(event), "gate", "session-check", "--hook", hookName, "--json")
 	if err != nil {
 		// Exit code 1 means blocked. Parse the JSON to get the reason.
 		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 {
@@ -189,7 +184,7 @@ func (h *InboxDrainHandler) Handle(ctx context.Context, event *Event, result *Re
 		args = append(args, "--reconcile")
 	}
 
-	stdout, _, err := runBDCommand(ctx, event.CWD, args...)
+	stdout, _, err := runBDCommandWithEnv(ctx, event.CWD, envFromEvent(event), args...)
 	if err != nil {
 		// Inbox drain is informational — log and continue (fail-open).
 		return fmt.Errorf("inbox-drain: %w", err)
@@ -214,7 +209,7 @@ func (h *PostToolUseInboxHandler) Handles() []EventType { return []EventType{Eve
 func (h *PostToolUseInboxHandler) Priority() int        { return 30 }
 
 func (h *PostToolUseInboxHandler) Handle(ctx context.Context, event *Event, result *Result) error {
-	stdout, _, err := runBDCommand(ctx, event.CWD, "inbox", "drain", "--urgent", "--json")
+	stdout, _, err := runBDCommandWithEnv(ctx, event.CWD, envFromEvent(event), "inbox", "drain", "--urgent", "--json")
 	if err != nil {
 		// Inbox drain is informational — log and continue (fail-open).
 		return fmt.Errorf("post-tool-inbox: %w", err)
@@ -229,13 +224,38 @@ func (h *PostToolUseInboxHandler) Handle(ctx context.Context, event *Event, resu
 // The CWD parameter sets the working directory for the subprocess.
 // Falls back to os.TempDir() if the CWD doesn't exist (e.g., remote daemon in K8s).
 func runBDCommand(ctx context.Context, cwd string, args ...string) (string, string, error) {
-	return runBDCommandWithEnv(ctx, cwd, "", args...)
+	return runBDCommandWithEnv(ctx, cwd, nil, args...)
 }
 
-// runBDCommandWithEnv runs a bd subprocess with optional caller session tag override.
-// When callerSessionTag is non-empty, TERM_SESSION_ID is set so the subprocess
-// can scope decisions to the original caller's terminal session.
-func runBDCommandWithEnv(ctx context.Context, cwd string, callerSessionTag string, args ...string) (string, string, error) {
+// SubprocessEnv holds environment overrides for bd subprocesses spawned by handlers.
+// These override the daemon's own environment so the subprocess runs in the
+// context of the calling agent, not the daemon itself. (bd-awrs6, bd-7j9ao)
+type SubprocessEnv struct {
+	Actor             string // BD_ACTOR — the beads agent name (e.g., "bright-hog")
+	CallerSessionTag  string // TERM_SESSION_ID — scopes decisions to the caller's terminal
+}
+
+// envFromEvent builds a SubprocessEnv from an Event's fields.
+func envFromEvent(event *Event) *SubprocessEnv {
+	env := &SubprocessEnv{
+		Actor: event.Actor,
+	}
+	// Extract caller_session_tag from Raw if present.
+	if len(event.Raw) > 0 {
+		var raw map[string]interface{}
+		if err := json.Unmarshal(event.Raw, &raw); err == nil {
+			if tag, ok := raw["caller_session_tag"].(string); ok && tag != "" {
+				env.CallerSessionTag = tag
+			}
+		}
+	}
+	return env
+}
+
+// runBDCommandWithEnv runs a bd subprocess with optional environment overrides.
+// When env is non-nil, BD_ACTOR and TERM_SESSION_ID are set so the subprocess
+// runs in the context of the calling agent. (bd-awrs6, bd-7j9ao)
+func runBDCommandWithEnv(ctx context.Context, cwd string, env *SubprocessEnv, args ...string) (string, string, error) {
 	bdPath, err := findBDBinary()
 	if err != nil {
 		return "", "", err
@@ -258,10 +278,14 @@ func runBDCommandWithEnv(ctx context.Context, cwd string, callerSessionTag strin
 	// (subprocess should discover daemon via normal socket discovery).
 	cmd.Env = os.Environ()
 
-	// Override TERM_SESSION_ID with the caller's session tag so the subprocess
-	// scopes decisions to the original terminal session, not the daemon's.
-	if callerSessionTag != "" {
-		cmd.Env = append(cmd.Env, "TERM_SESSION_ID="+callerSessionTag)
+	// Apply environment overrides from the calling agent's context.
+	if env != nil {
+		if env.Actor != "" {
+			cmd.Env = append(cmd.Env, "BD_ACTOR="+env.Actor)
+		}
+		if env.CallerSessionTag != "" {
+			cmd.Env = append(cmd.Env, "TERM_SESSION_ID="+env.CallerSessionTag)
+		}
 	}
 
 	err = cmd.Run()
