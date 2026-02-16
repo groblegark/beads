@@ -16,6 +16,20 @@ base:
   config: rwx/base 1.0.0
 
 tasks:
+  # ── Resolve ref name (strip refs/tags/ and refs/heads/ prefixes) ───
+  - key: resolve-ref
+    run: |
+      TAG="${REF_NAME#refs/tags/}"
+      TAG="${TAG#refs/heads/}"
+      echo -n "$TAG" > /tmp/resolved-tag
+      echo "Resolved ref: $TAG"
+    env:
+      REF_NAME: ${{ init.ref-name }}
+    outputs:
+      artifacts:
+        - key: resolved-tag
+          path: /tmp/resolved-tag
+
   # ── System deps (cached until lock changes) ─────────────────────────
   - key: system-deps
     filter:
@@ -36,11 +50,16 @@ tasks:
 
   # ── Go toolchain (cached by version) ────────────────────────────────
   - key: go
-    call: golang/install 1.2.0
-    with:
-      go-version: "1.25"
+    use: code
     filter:
       - .go-version
+    run: |
+      GO_VERSION=$(cat .go-version | tr -d '[:space:]')
+      echo "Installing Go ${GO_VERSION} from .go-version..."
+      curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" | sudo tar -C /usr/local -xzf -
+      echo 'export PATH=/usr/local/go/bin:$HOME/go/bin:$PATH' >> ~/.bashrc
+      export PATH=/usr/local/go/bin:$HOME/go/bin:$PATH
+      go version
 
   # ── GoReleaser (cached by version) ──────────────────────────────────
   - key: goreleaser
@@ -63,51 +82,47 @@ tasks:
 
   # ── Run GoReleaser ──────────────────────────────────────────────────
   - key: release
-    use: [go-deps, goreleaser]
+    use: [go-deps, goreleaser, resolve-ref]
     cache: false
     run: |
-      REF_NAME="${REF_NAME#refs/tags/}"
-      REF_NAME="${REF_NAME#refs/heads/}"
+      TAG=$(cat ${{ tasks.resolve-ref.artifacts.resolved-tag }})
 
       # Configure git for GoReleaser
       git config --global user.name "CI Bot"
       git config --global user.email "ci@beads.test"
 
-      if [[ "$REF_NAME" == "dev" ]]; then
+      if [[ "$TAG" == "dev" ]]; then
         echo "Running snapshot release for dev..."
         goreleaser release --clean --snapshot --config .goreleaser.fork.yml
       else
-        echo "Running full release for $REF_NAME..."
+        echo "Running full release for $TAG..."
         goreleaser release --clean --config .goreleaser.fork.yml
       fi
     env:
-      REF_NAME: ${{ init.ref-name }}
       GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
 
   # ── Dispatch to gastown (only for real releases) ────────────────────
   - key: dispatch-gastown
-    use: release
+    use: [release, resolve-ref]
     if: ${{ init.ref-name != 'dev' }}
     run: |
-      REF_NAME="${REF_NAME#refs/tags/}"
-      REF_NAME="${REF_NAME#refs/heads/}"
+      TAG=$(cat ${{ tasks.resolve-ref.artifacts.resolved-tag }})
 
       # Only dispatch if this is a version tag
-      if [[ "$REF_NAME" == v* ]]; then
+      if [[ "$TAG" == v* ]]; then
         echo "Dispatching to gastown for rebuild..."
-        curl -X POST https://api.rwx.com/v1/dispatches \
+        curl -fsSL -X POST https://api.rwx.com/v1/dispatches \
           -H "Authorization: Bearer $RWX_ACCESS_TOKEN" \
           -H "Content-Type: application/json" \
           -d "{
             \"repository\": \"gastown\",
             \"workflow\": \"gastown-agent-rebuild\",
             \"parameters\": {
-              \"trigger\": \"beads-release-$REF_NAME\"
+              \"trigger\": \"beads-release-$TAG\"
             }
           }"
       else
         echo "Not a version tag, skipping gastown dispatch"
       fi
     env:
-      REF_NAME: ${{ init.ref-name }}
       RWX_ACCESS_TOKEN: ${{ secrets.RWX_ACCESS_TOKEN }}

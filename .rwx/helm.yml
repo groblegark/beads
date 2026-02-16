@@ -42,7 +42,10 @@ tasks:
       for chart in helm/*/; do
         if [ -f "$chart/Chart.yaml" ]; then
           echo "=== Linting $chart ==="
-          helm dependency build "$chart" 2>/dev/null || true
+          if [ -f "$chart/Chart.lock" ] || grep -q '^dependencies:' "$chart/Chart.yaml"; then
+            echo "Building dependencies for $chart..."
+            helm dependency build "$chart"
+          fi
           helm lint "$chart"
           helm template "$(basename $chart)" "$chart" > /dev/null
         fi
@@ -69,7 +72,9 @@ tasks:
             echo "Chart ${name} v${version} already exists, skipping..."
           else
             echo "Publishing ${name} v${version}..."
-            helm dependency build "$chart" 2>/dev/null || true
+            if [ -f "$chart/Chart.lock" ] || grep -q '^dependencies:' "$chart/Chart.yaml"; then
+              helm dependency build "$chart"
+            fi
             helm package "$chart" --destination /tmp/helm-packages
             helm push "/tmp/helm-packages/${name}-${version}.tgz" "oci://ghcr.io/groblegark/charts"
             echo "Published: oci://ghcr.io/groblegark/charts/${name}:${version}"

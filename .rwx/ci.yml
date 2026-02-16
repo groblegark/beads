@@ -18,7 +18,7 @@ tasks:
     run: |
       echo "Installing system dependencies (should be cached)..."
       sudo apt-get update
-      sudo apt-get install -y libicu-dev gcc g++ bc
+      sudo apt-get install -y libicu-dev gcc g++
 
   # ── Clone ────────────────────────────────────────────────────────────────
   - key: code
@@ -29,11 +29,16 @@ tasks:
 
   # ── Go toolchain (cached by version) ────────────────────────────────────
   - key: go
-    call: golang/install 1.2.0
-    with:
-      go-version: "1.25"
+    use: code
     filter:
-      - .go-version  # Only reinstall if Go version changes
+      - .go-version
+    run: |
+      GO_VERSION=$(cat .go-version | tr -d '[:space:]')
+      echo "Installing Go ${GO_VERSION} from .go-version..."
+      curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" | sudo tar -C /usr/local -xzf -
+      echo 'export PATH=/usr/local/go/bin:$HOME/go/bin:$PATH' >> ~/.bashrc
+      export PATH=/usr/local/go/bin:$HOME/go/bin:$PATH
+      go version
 
   # ── golangci-lint (cached with fix) ─────────────────────────────────────
   - key: golangci-lint
@@ -43,7 +48,7 @@ tasks:
       - .golangci.yml
     run: |
       mkdir -p $(go env GOPATH)/bin
-      curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh \
+      curl -fsSL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh \
         | sh -s -- -b $(go env GOPATH)/bin v2.9.0
 
   # ── Download modules (cached by lockfiles) ──────────────────────────────
@@ -109,11 +114,12 @@ tasks:
       echo "Running tests with parallel execution..."
       go test -v -short -parallel 8 -coverprofile=coverage.out ./... 2>&1 | tee test-output.txt
 
-      # Check coverage
+      # Check coverage (integer comparison — truncates decimal)
       COVERAGE=$(go tool cover -func=coverage.out | grep total | awk '{print $3}' | sed 's/%//')
+      COVERAGE_INT=${COVERAGE%%.*}
       MIN_COVERAGE=42
       echo "Coverage: $COVERAGE%"
-      if (( $(echo "$COVERAGE < $MIN_COVERAGE" | bc -l) )); then
+      if [ "$COVERAGE_INT" -lt "$MIN_COVERAGE" ]; then
         echo "Coverage below ${MIN_COVERAGE}% threshold"
         exit 1
       fi

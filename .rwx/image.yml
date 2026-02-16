@@ -34,10 +34,24 @@ base:
   config: rwx/base 1.0.0
 
 tasks:
+  # ── Resolve ref name (strip refs/tags/ and refs/heads/ prefixes) ───
+  - key: resolve-ref
+    run: |
+      TAG="${REF_NAME#refs/tags/}"
+      TAG="${TAG#refs/heads/}"
+      echo -n "$TAG" > /tmp/resolved-tag
+      echo "Resolved ref: $TAG"
+    env:
+      REF_NAME: ${{ init.ref-name }}
+    outputs:
+      artifacts:
+        - key: resolved-tag
+          path: /tmp/resolved-tag
+
   # ── System deps (cached until lock changes) ────────────────────────
-  - key: build-deps
+  - key: system-deps
     filter:
-      - .rwx/build-deps.lock
+      - .rwx/system-deps.lock
     run: |
       echo "Installing build dependencies (should be cached)..."
       sudo apt-get update
@@ -52,15 +66,20 @@ tasks:
 
   # ── Go toolchain (cached by version) ────────────────────────────────
   - key: go
-    call: golang/install 1.2.0
-    with:
-      go-version: "1.25"
+    use: code
     filter:
       - .go-version
+    run: |
+      GO_VERSION=$(cat .go-version | tr -d '[:space:]')
+      echo "Installing Go ${GO_VERSION} from .go-version..."
+      curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" | sudo tar -C /usr/local -xzf -
+      echo 'export PATH=/usr/local/go/bin:$HOME/go/bin:$PATH' >> ~/.bashrc
+      export PATH=/usr/local/go/bin:$HOME/go/bin:$PATH
+      go version
 
   # ── Go mod download (cached by lockfiles) ───────────────────────────
   - key: go-deps
-    use: [code, go, build-deps]
+    use: [code, go, system-deps]
     run: go mod download
     filter:
       - go.mod
@@ -68,7 +87,7 @@ tasks:
 
   # ── Build bd binary (only when Go code changes) ─────────────────────
   - key: build-bd
-    use: go-deps
+    use: [go-deps, resolve-ref]
     filter:
       - "*.go"
       - "cmd/bd/*.go"
@@ -81,14 +100,12 @@ tasks:
       - "cmd/bd/templates/**"
     run: |
       echo "Building bd binary..."
-      REF_NAME="${REF_NAME#refs/tags/}"
-      REF_NAME="${REF_NAME#refs/heads/}"
+      TAG=$(cat ${{ tasks.resolve-ref.artifacts.resolved-tag }})
       CGO_ENABLED=1 GOOS=linux go build \
-        -ldflags="-s -w -X main.Version=${REF_NAME} -X main.Build=${COMMIT_SHA}" \
+        -ldflags="-s -w -X main.Version=${TAG} -X main.Build=${COMMIT_SHA}" \
         -o bd ./cmd/bd
     env:
       COMMIT_SHA: ${{ init.commit-sha }}
-      REF_NAME: ${{ init.ref-name }}
     outputs:
       artifacts:
         - key: bd-binary
@@ -100,7 +117,7 @@ tasks:
       - .rwx/rust-version.lock
     run: |
       echo "Installing Rust toolchain (should be cached)..."
-      curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+      curl -fsSL --proto '=https' --tlsv1.2 https://sh.rustup.rs \
         | sh -s -- -y --default-toolchain 1.93.0
 
   # ── Build oj binary (cached, rebuild on oddjobs updates) ────────────
@@ -188,7 +205,7 @@ tasks:
       curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" | sudo tar -C /usr/local -xzf -
 
       # Rust (install as agent user)
-      sudo -u agent bash -c 'curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.93.0'
+      sudo -u agent bash -c 'curl -fsSL --proto "=https" --tlsv1.2 https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.93.0'
 
       # Node.js
       curl -fsSL https://deb.nodesource.com/setup_22.x | sudo bash -
@@ -206,7 +223,7 @@ tasks:
 
   # ── Push daemon image to GHCR ─────────────────────────────────────
   - key: push-bd
-    use: [build-bd, build-oj]
+    use: [build-bd, build-oj, resolve-ref]
     if: ${{ init.ref-name != 'pr' }}
     cache: false
     run: |
@@ -225,9 +242,7 @@ tasks:
       # Login to GHCR
       echo "$GHCR_TOKEN" | crane auth login ghcr.io -u "$GITHUB_USER" --password-stdin
 
-      # Resolve tag from ref-name (strip refs/tags/ prefix)
-      TAG="${REF_NAME#refs/tags/}"
-      TAG="${TAG#refs/heads/}"
+      TAG=$(cat ${{ tasks.resolve-ref.artifacts.resolved-tag }})
 
       # Create layer with runtime deps + binaries
       mkdir -p /tmp/layer/usr/local/bin /tmp/layer/home/beads
@@ -238,8 +253,16 @@ tasks:
       # Copy libicu74 shared libraries into the layer.
       # The bd binary is CGO-linked and needs libicu at runtime.
       # Ubuntu 24.04 base has all other required libs, just not ICU.
-      mkdir -p /tmp/layer/usr/lib/x86_64-linux-gnu
-      cp -a /usr/lib/x86_64-linux-gnu/libicu*.so* /tmp/layer/usr/lib/x86_64-linux-gnu/
+      ICU_LIBS=$(dpkg -L libicu74 | grep '\.so')
+      if [ -z "$ICU_LIBS" ]; then
+        echo "ERROR: no libicu74 shared libraries found"
+        exit 1
+      fi
+      echo "$ICU_LIBS" | while read -r lib; do
+        dir="/tmp/layer$(dirname "$lib")"
+        mkdir -p "$dir"
+        cp -a "$lib" "$dir/"
+      done
 
       tar -cf /tmp/layer.tar -C /tmp/layer .
 
@@ -251,4 +274,3 @@ tasks:
     env:
       GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
       GITHUB_USER: ${{ secrets.GITHUB_USER }}
-      REF_NAME: ${{ init.ref-name }}
