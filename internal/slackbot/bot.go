@@ -169,12 +169,58 @@ func NewBot(cfg BotConfig, decisions *DecisionClient) (*Bot, error) {
 		stateManager:      stateMgr,
 		preferenceManager: NewPreferenceManager(beadsDir),
 	}
+
+	// Wire ChannelCreator so rig/epic/agent routing can find or create channels.
+	if router != nil {
+		router.SetChannelCreator(bot)
+	}
+
 	return bot, nil
 }
 
 // SetCredWatcher attaches a CoopCredWatcher for handling reauth code replies.
 func (b *Bot) SetCredWatcher(w *CoopCredWatcher) {
 	b.credWatcher = w
+}
+
+// FindChannelByName looks up a Slack channel by name, paginating through all
+// public channels visible to the bot. Returns the channel ID or an error.
+func (b *Bot) FindChannelByName(name string) (string, error) {
+	cursor := ""
+	for {
+		params := &slack.GetConversationsParameters{
+			Types:           []string{"public_channel"},
+			Limit:           200,
+			ExcludeArchived: true,
+			Cursor:          cursor,
+		}
+		channels, nextCursor, err := b.client.GetConversations(params)
+		if err != nil {
+			return "", fmt.Errorf("list conversations: %w", err)
+		}
+		for _, ch := range channels {
+			if ch.Name == name {
+				return ch.ID, nil
+			}
+		}
+		if nextCursor == "" {
+			break
+		}
+		cursor = nextCursor
+	}
+	return "", fmt.Errorf("channel %q not found", name)
+}
+
+// CreateChannel creates a new public Slack channel with the given name.
+func (b *Bot) CreateChannel(name string) (string, error) {
+	ch, err := b.client.CreateConversation(slack.CreateConversationParams{
+		ChannelName: name,
+		IsPrivate:   false,
+	})
+	if err != nil {
+		return "", fmt.Errorf("create channel %q: %w", name, err)
+	}
+	return ch.ID, nil
 }
 
 // newBotForTest creates a Bot with injectable mock dependencies for testing.
