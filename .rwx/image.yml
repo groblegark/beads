@@ -64,20 +64,13 @@ tasks:
       repository: https://github.com/groblegark/beads.git
       ref: ${{ init.commit-sha }}
 
-  # ── Go toolchain (cached by version) ────────────────────────────────
+  # ── Go toolchain (cached by version, see .go-version) ───────────────
   - key: go
-    use: code
+    call: golang/install 1.2.0
+    with:
+      go-version: "1.25"
     filter:
       - .go-version
-    run: |
-      GO_MINOR=$(cat .go-version | tr -d '[:space:]')
-      # Resolve latest patch version from Go downloads API
-      GO_VERSION=$(curl -fsSL "https://go.dev/dl/?mode=json" | grep -o "go${GO_MINOR}\.[0-9]*" | head -1)
-      echo "Installing ${GO_VERSION} (from .go-version=${GO_MINOR})..."
-      curl -fsSL "https://go.dev/dl/${GO_VERSION}.linux-amd64.tar.gz" | sudo tar -C /usr/local -xzf -
-      echo 'export PATH=/usr/local/go/bin:$HOME/go/bin:$PATH' >> ~/.bashrc
-      export PATH=/usr/local/go/bin:$HOME/go/bin:$PATH
-      go version
 
   # ── Go mod download (cached by lockfiles) ───────────────────────────
   - key: go-deps
