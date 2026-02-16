@@ -15,6 +15,38 @@ import (
 	"github.com/steveyegge/beads/internal/types"
 )
 
+// DefaultStopDecisionPrompt is the seed value for the agent_decision_prompt
+// field in the claude-hooks config bead. It's written by `bd setup claude`
+// and can be updated at runtime via `bd config set-bead`. There is no
+// hardcoded fallback in the stop-check path — the config bead is the
+// single source of truth.
+const DefaultStopDecisionPrompt = `This is your session wrap-up step — a normal part of finishing, not an interruption.
+
+Your job: present the human with a menu of what to do next. Steps:
+1. Run 'bd ready' and 'bd list --status=in_progress' to find open/available work
+2. If you identified next steps during this session, create beads for them now (don't ask — just create them)
+3. Summarize what you accomplished and what's available
+4. Create a decision point with 2-4 options using 'bd decision create':
+   --prompt="Session wrap-up: what next?"
+   --context="<summary of session work and current state>"
+   --options='[{"id":"...","short":"...","label":"<specific actionable option>"},...]'
+   Always include a "stop" option: {"id":"stop","short":"stop","label":"Done for now"}
+
+The human picks what's next, or gives custom instructions.`
+
+// DefaultStopDecisionConfig returns the seed config for the claude-hooks
+// config bead's stop_decision section. Used by `bd setup claude` to ensure
+// the config bead exists on first install.
+func DefaultStopDecisionConfig() map[string]interface{} {
+	return map[string]interface{}{
+		"stop_decision": map[string]interface{}{
+			"enabled":                true,
+			"require_agent_decision": true,
+			"agent_decision_prompt":  DefaultStopDecisionPrompt,
+		},
+	}
+}
+
 // decisionStopCheckCmd checks whether Claude should be allowed to stop.
 // It reads config from the claude-hooks config bead, creates a decision point,
 // and polls until the human responds. Exit 0 = allow stop, exit 1 = block (continue).
@@ -132,20 +164,19 @@ func runDecisionStopCheck(cmd *cobra.Command, args []string) {
 		// the loop after 3 attempts. The --reentry flag from Claude Code is
 		// unreliable (Claude Code doesn't send stop_hook_active), so we don't
 		// depend on it. (beads-ulf5)
-		reason := `This is your session wrap-up step — a normal part of finishing, not an interruption.
-
-Your job: present the human with a menu of what to do next. Steps:
-1. Run 'bd ready' and 'bd list --status=in_progress' to find open/available work
-2. If you identified next steps during this session, create beads for them now (don't ask — just create them)
-3. Summarize what you accomplished and what's available
-4. Create a decision point with 2-4 options using 'bd decision create':
-   --context="<summary of session work and current state>"
-   --options='[{"id":"...","short":"...","label":"<specific actionable option>"},...]'
-   Always include a "stop" option: {"id":"stop","short":"stop","label":"Done for now"}
-
-The human picks what's next, or gives custom instructions.`
-		if cfg.AgentDecisionPrompt != "" {
-			reason = cfg.AgentDecisionPrompt
+		//
+		// The prompt text lives in the claude-hooks config bead
+		// (agent_decision_prompt field), seeded by `bd setup claude`.
+		// If the config bead is missing, the fallback tells the agent how
+		// to find it. To update the prompt at runtime:
+		//   bd show hq-cfg-claude-hooks-global --json  # view current
+		//   bd config set-bead --category claude-hooks --scope global \
+		//     --title "Claude Code hook settings" \
+		//     --data '{"stop_decision":{...,"agent_decision_prompt":"new prompt"}}'
+		reason := cfg.AgentDecisionPrompt
+		if reason == "" {
+			reason = "Create a decision point for the human before stopping. " +
+				"Run 'bd show hq-cfg-claude-hooks-global' for the full stop-hook prompt configuration."
 		}
 		// Note: we no longer tell the agent to pass --requested-by with the session ID.
 		// The actor name (from BD_ACTOR, git user.name, etc.) is used automatically

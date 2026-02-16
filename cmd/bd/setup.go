@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,6 +11,8 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/steveyegge/beads/cmd/bd/setup"
 	"github.com/steveyegge/beads/internal/recipes"
+	"github.com/steveyegge/beads/internal/rpc"
+	"github.com/steveyegge/beads/internal/types"
 )
 
 var (
@@ -264,6 +267,7 @@ func runClaudeRecipe() {
 		return
 	}
 	setup.InstallClaude(setupProject, setupStealth)
+	seedClaudeHooksConfigBead()
 }
 
 func runGeminiRecipe() {
@@ -353,4 +357,53 @@ func init() {
 	setupCmd.Flags().BoolVar(&setupStealth, "stealth", false, "Use stealth mode (claude/gemini)")
 
 	rootCmd.AddCommand(setupCmd)
+}
+
+// seedClaudeHooksConfigBead ensures the claude-hooks config bead exists with
+// default stop_decision settings. Best-effort — silently skips if no daemon
+// is available (the config bead can be seeded later or the fallback prompt
+// in decision_stop_check.go will tell the agent how to find it).
+func seedClaudeHooksConfigBead() {
+	if daemonClient == nil {
+		return
+	}
+
+	// Check if config bead already exists (don't overwrite user customizations).
+	listArgs := &rpc.ListArgs{
+		IssueType: "config",
+		Labels:    []string{"config:claude-hooks"},
+		Status:    "open",
+		Limit:     1,
+	}
+	resp, err := daemonClient.List(listArgs)
+	if err != nil {
+		return // daemon unavailable
+	}
+
+	var issues []*types.IssueWithCounts
+	if resp.Data != nil {
+		if err := json.Unmarshal(resp.Data, &issues); err == nil && len(issues) > 0 {
+			return // config bead already exists
+		}
+	}
+
+	// Seed the config bead with defaults.
+	seedData := DefaultStopDecisionConfig()
+	metaBytes, err := json.Marshal(seedData)
+	if err != nil {
+		return
+	}
+
+	createArgs := &rpc.CreateArgs{
+		ID:        "hq-cfg-claude-hooks-global",
+		Title:     "Claude Code hook settings",
+		IssueType: "config",
+		Labels:    []string{"config:claude-hooks", "scope:global"},
+		Metadata:  metaBytes,
+	}
+	if _, err := daemonClient.Create(createArgs); err != nil {
+		fmt.Fprintf(os.Stderr, "Note: could not seed claude-hooks config bead: %v\n", err)
+		return
+	}
+	fmt.Println("✓ Seeded claude-hooks config bead (stop_decision prompt)")
 }
