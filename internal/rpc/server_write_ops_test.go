@@ -634,25 +634,52 @@ func TestResolveRigToPrefix(t *testing.T) {
 	}
 }
 
-// TestIsSingleDBMode tests the single-DB mode detection (bd-q3sw).
+// TestIsSingleDBMode tests the single-DB mode detection (bd-q3sw, bd-lnfif).
 func TestIsSingleDBMode(t *testing.T) {
 	server, _, cleanup := setupTestServer(t)
 	defer cleanup()
 
-	// Default: not in single-DB mode
+	// Clear all env vars that affect detection
+	t.Setenv("BEADS_DOLT_SERVER_MODE", "")
+	t.Setenv("BEADS_DOLT_SERVER_HOST", "")
+	t.Setenv("BD_DAEMON_HOST", "")
+
+	// Default: not in single-DB mode (no env vars set)
 	if server.isSingleDBMode() {
 		t.Error("Expected isSingleDBMode() = false by default")
 	}
 
-	// Set env var
+	// Explicit opt-in via BEADS_DOLT_SERVER_MODE=1
 	t.Setenv("BEADS_DOLT_SERVER_MODE", "1")
 	if !server.isSingleDBMode() {
 		t.Error("Expected isSingleDBMode() = true with BEADS_DOLT_SERVER_MODE=1")
 	}
 
-	// Unset
+	// Explicit opt-out via BEADS_DOLT_SERVER_MODE=0
 	t.Setenv("BEADS_DOLT_SERVER_MODE", "0")
 	if server.isSingleDBMode() {
 		t.Error("Expected isSingleDBMode() = false with BEADS_DOLT_SERVER_MODE=0")
+	}
+
+	// Auto-detect: BEADS_DOLT_SERVER_HOST implies server mode (bd-lnfif)
+	t.Setenv("BEADS_DOLT_SERVER_MODE", "")
+	t.Setenv("BEADS_DOLT_SERVER_HOST", "dolt.gastown-uat.svc.cluster.local")
+	if !server.isSingleDBMode() {
+		t.Error("Expected isSingleDBMode() = true with BEADS_DOLT_SERVER_HOST set")
+	}
+	t.Setenv("BEADS_DOLT_SERVER_HOST", "")
+
+	// Auto-detect: BD_DAEMON_HOST implies server mode (bd-lnfif)
+	t.Setenv("BD_DAEMON_HOST", "http://localhost:9080")
+	if !server.isSingleDBMode() {
+		t.Error("Expected isSingleDBMode() = true with BD_DAEMON_HOST set")
+	}
+	t.Setenv("BD_DAEMON_HOST", "")
+
+	// Explicit opt-out overrides auto-detect (bd-lnfif)
+	t.Setenv("BEADS_DOLT_SERVER_MODE", "0")
+	t.Setenv("BD_DAEMON_HOST", "http://localhost:9080")
+	if server.isSingleDBMode() {
+		t.Error("Expected isSingleDBMode() = false — explicit BEADS_DOLT_SERVER_MODE=0 should override auto-detect")
 	}
 }

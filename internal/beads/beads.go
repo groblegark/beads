@@ -410,10 +410,21 @@ func NewSQLiteStorage(ctx context.Context, dbPath string) (Storage, error) {
 	return NewStorage(ctx, dbPath)
 }
 
+// isRemoteMode returns true when connected to a remote daemon (K8s or remote).
+// In remote mode, the database is managed by the daemon — local filesystem
+// discovery is unnecessary and may fail in pods without .beads directories.
+func isRemoteMode() bool {
+	return os.Getenv("BD_DAEMON_HOST") != ""
+}
+
 // FindDatabasePath discovers the bd database path using bd's standard search order:
 //  1. $BEADS_DIR environment variable (points to .beads directory)
 //  2. $BEADS_DB environment variable (points directly to database file, deprecated)
 //  3. .beads/*.db in current directory or ancestors
+//
+// In remote/kube mode (BD_DAEMON_HOST set), the database is managed by the remote
+// daemon. If BEADS_DIR is set, it's checked for a local database; otherwise an
+// empty string is returned (callers should use daemon RPC instead).
 //
 // Redirect files are supported: if a .beads/redirect file exists, its contents
 // are used as the actual .beads directory path.
@@ -442,7 +453,13 @@ func FindDatabasePath() string {
 		return utils.CanonicalizePath(envDB)
 	}
 
-	// 3. Search for .beads/*.db in current directory and ancestors
+	// 3. In remote/kube mode, the database is on the daemon — skip filesystem walk.
+	// This avoids slow/failing directory walks in K8s pods with no local .beads/.
+	if isRemoteMode() {
+		return ""
+	}
+
+	// 4. Search for .beads/*.db in current directory and ancestors
 	if foundDB := findDatabaseInTree(); foundDB != "" {
 		return utils.CanonicalizePath(foundDB)
 	}
@@ -503,11 +520,29 @@ func FindBeadsDir() string {
 		absBeadsDir = FollowRedirect(absBeadsDir)
 
 		if info, err := os.Stat(absBeadsDir); err == nil && info.IsDir() {
+			// In remote/kube mode, trust BEADS_DIR without project file validation.
+			// The daemon manages the database; the local .beads/ may be a minimal
+			// placeholder without metadata.json or .db files yet.
+			if isRemoteMode() {
+				return absBeadsDir
+			}
 			// Validate directory contains actual project files
 			if hasBeadsProjectFiles(absBeadsDir) {
 				return absBeadsDir
 			}
 		}
+
+		// In remote/kube mode with BEADS_DIR set but directory doesn't exist yet,
+		// return it anyway — the caller (ensureBeadsDir) will create it.
+		if isRemoteMode() {
+			return absBeadsDir
+		}
+	}
+
+	// In remote/kube mode without BEADS_DIR, skip filesystem walk entirely.
+	// The daemon handles workspace resolution; local walks fail in pods.
+	if isRemoteMode() {
+		return ""
 	}
 
 	// 2. For worktrees, check main repository root first

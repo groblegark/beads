@@ -385,6 +385,7 @@ func TestFindBeadsDirSkipsDaemonRegistry(t *testing.T) {
 		}
 	}()
 	os.Unsetenv("BEADS_DIR")
+	t.Setenv("BD_DAEMON_HOST", "") // Ensure local mode (bd-sghd8)
 
 	// Create temp directory structure
 	tmpDir, err := os.MkdirTemp("", "beads-daemon-test-*")
@@ -429,6 +430,7 @@ func TestFindBeadsDirValidatesBeadsDirEnv(t *testing.T) {
 			os.Unsetenv("BEADS_DIR")
 		}
 	}()
+	t.Setenv("BD_DAEMON_HOST", "") // Ensure local mode (bd-sghd8)
 
 	// Create temp directory with only daemon registry files
 	tmpDir, err := os.MkdirTemp("", "beads-env-test-*")
@@ -802,6 +804,115 @@ func TestFindBeadsDirWithRedirect(t *testing.T) {
 	if resultResolved != targetDirResolved {
 		t.Errorf("FindBeadsDir() = %q, want %q (via redirect)", result, targetDir)
 	}
+}
+
+// TestFindBeadsDirRemoteMode verifies that FindBeadsDir trusts BEADS_DIR without
+// project file validation when BD_DAEMON_HOST is set (kube/remote mode). (bd-sghd8)
+func TestFindBeadsDirRemoteMode(t *testing.T) {
+	t.Run("BEADS_DIR trusted without project files in remote mode", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		beadsDir := filepath.Join(tmpDir, ".beads")
+		if err := os.MkdirAll(beadsDir, 0755); err != nil {
+			t.Fatal(err)
+		}
+		// Empty directory — no metadata.json, no .db, no .jsonl
+
+		t.Setenv("BEADS_DIR", beadsDir)
+		t.Setenv("BD_DAEMON_HOST", "http://localhost:9080")
+		// Unset BEADS_DB to avoid interference
+		t.Setenv("BEADS_DB", "")
+
+		result := FindBeadsDir()
+
+		resultResolved, _ := filepath.EvalSymlinks(result)
+		beadsDirResolved, _ := filepath.EvalSymlinks(beadsDir)
+		if resultResolved != beadsDirResolved {
+			t.Errorf("FindBeadsDir() = %q, want %q (remote mode should trust BEADS_DIR)", result, beadsDir)
+		}
+	})
+
+	t.Run("BEADS_DIR with non-existent dir returns path in remote mode", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		beadsDir := filepath.Join(tmpDir, "nonexistent", ".beads")
+
+		t.Setenv("BEADS_DIR", beadsDir)
+		t.Setenv("BD_DAEMON_HOST", "http://localhost:9080")
+		t.Setenv("BEADS_DB", "")
+
+		result := FindBeadsDir()
+		if result == "" {
+			t.Error("FindBeadsDir() = empty, want non-empty path in remote mode with BEADS_DIR set")
+		}
+	})
+
+	t.Run("no BEADS_DIR in remote mode returns empty without walk", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		// Create a .beads with project files — should NOT be found via walk in remote mode
+		beadsDir := filepath.Join(tmpDir, ".beads")
+		if err := os.MkdirAll(beadsDir, 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(beadsDir, "beads.db"), []byte{}, 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		t.Setenv("BD_DAEMON_HOST", "http://localhost:9080")
+		t.Setenv("BEADS_DIR", "")
+		t.Setenv("BEADS_DB", "")
+		t.Chdir(tmpDir)
+
+		result := FindBeadsDir()
+		if result != "" {
+			t.Errorf("FindBeadsDir() = %q, want empty (remote mode without BEADS_DIR should skip walk)", result)
+		}
+	})
+}
+
+// TestFindDatabasePathRemoteMode verifies that FindDatabasePath skips filesystem
+// walk in remote/kube mode (BD_DAEMON_HOST set). (bd-sghd8)
+func TestFindDatabasePathRemoteMode(t *testing.T) {
+	t.Run("skips filesystem walk in remote mode", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		// Create .beads with a .db file — should NOT be found via walk in remote mode
+		beadsDir := filepath.Join(tmpDir, ".beads")
+		if err := os.MkdirAll(beadsDir, 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(beadsDir, "beads.db"), []byte{}, 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		t.Setenv("BD_DAEMON_HOST", "http://localhost:9080")
+		t.Setenv("BEADS_DIR", "")
+		t.Setenv("BEADS_DB", "")
+		t.Chdir(tmpDir)
+
+		result := FindDatabasePath()
+		if result != "" {
+			t.Errorf("FindDatabasePath() = %q, want empty (remote mode should skip walk)", result)
+		}
+	})
+
+	t.Run("BEADS_DIR still checked in remote mode", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		beadsDir := filepath.Join(tmpDir, ".beads")
+		if err := os.MkdirAll(beadsDir, 0755); err != nil {
+			t.Fatal(err)
+		}
+		dbPath := filepath.Join(beadsDir, "beads.db")
+		if err := os.WriteFile(dbPath, []byte{}, 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		t.Setenv("BD_DAEMON_HOST", "http://localhost:9080")
+		t.Setenv("BEADS_DIR", beadsDir)
+		t.Setenv("BEADS_DB", "")
+
+		result := FindDatabasePath()
+		if result == "" {
+			t.Error("FindDatabasePath() = empty, want non-empty (BEADS_DIR with .db should still work in remote mode)")
+		}
+	})
 }
 
 // TestFindGitRoot_RegularRepo tests that findGitRoot returns the correct path

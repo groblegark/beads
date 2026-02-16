@@ -803,8 +803,31 @@ func (s *Server) cookFormulaFull(ctx context.Context, formulaName string, condit
 // isSingleDBMode returns true when the daemon is running in single-DB mode
 // (K8s deployment with shared Dolt database). In this mode, all rigs share
 // one database and are distinguished by prefix, not separate .beads directories.
+//
+// Single-DB mode is the default for any server-mode deployment. It's detected by:
+//  1. Explicit BEADS_DOLT_SERVER_MODE=1 (legacy, always works)
+//  2. BEADS_DOLT_SERVER_HOST is set (daemon connecting to remote Dolt server)
+//  3. BD_DAEMON_HOST is set (client connecting to remote daemon — implies server mode)
+//
+// To explicitly disable, set BEADS_DOLT_SERVER_MODE=0. (bd-lnfif)
 func (s *Server) isSingleDBMode() bool {
-	return os.Getenv("BEADS_DOLT_SERVER_MODE") == "1"
+	// Explicit opt-out
+	if os.Getenv("BEADS_DOLT_SERVER_MODE") == "0" {
+		return false
+	}
+	// Explicit opt-in (legacy)
+	if os.Getenv("BEADS_DOLT_SERVER_MODE") == "1" {
+		return true
+	}
+	// Auto-detect: remote Dolt server connection implies single-DB
+	if os.Getenv("BEADS_DOLT_SERVER_HOST") != "" {
+		return true
+	}
+	// Auto-detect: remote daemon implies single-DB
+	if os.Getenv("BD_DAEMON_HOST") != "" {
+		return true
+	}
+	return false
 }
 
 // resolveRigToPrefix queries rig beads (type=rig) from the server's own storage
