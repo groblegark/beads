@@ -18,6 +18,7 @@ base:
 tasks:
   # ── Resolve ref name (strip refs/tags/ and refs/heads/ prefixes) ───
   - key: resolve-ref
+    cache: false
     run: |
       TAG="${REF_NAME#refs/tags/}"
       TAG="${TAG#refs/heads/}"
