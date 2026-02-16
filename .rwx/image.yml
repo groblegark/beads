@@ -210,6 +210,13 @@ tasks:
     if: ${{ init.ref-name != 'pr' }}
     cache: false
     run: |
+      # Install runtime deps (same as image-bd task) — the binary needs
+      # libicu74 at runtime because it's built with CGO_ENABLED=1.
+      sudo apt-get -y update
+      sudo apt-get -y install --no-install-recommends \
+        ca-certificates tzdata libicu74 netcat-openbsd
+      sudo rm -rf /var/lib/apt/lists/*
+
       # Install crane
       curl -fsSL "https://github.com/google/go-containerregistry/releases/download/v0.20.2/go-containerregistry_Linux_x86_64.tar.gz" \
         | tar xz -C /tmp crane
@@ -222,12 +229,27 @@ tasks:
       TAG="${REF_NAME#refs/tags/}"
       TAG="${TAG#refs/heads/}"
 
-      # Create a minimal layer with just the binaries
-      mkdir -p /tmp/layer/usr/local/bin
+      # Create layer with runtime deps + binaries
+      mkdir -p /tmp/layer/usr/local/bin /tmp/layer/home/beads
       cp ${{ tasks.build-bd.artifacts.bd-binary }} /tmp/layer/usr/local/bin/bd
       cp ${{ tasks.build-oj.artifacts.oj-binary }} /tmp/layer/usr/local/bin/oj
       chmod 755 /tmp/layer/usr/local/bin/*
-      tar -cf /tmp/layer.tar -C /tmp/layer usr/
+
+      # Copy installed runtime libraries into the layer
+      # libicu74 gets installed into /usr/lib/x86_64-linux-gnu/
+      for pkg in libicu74 ca-certificates tzdata netcat-openbsd; do
+        dpkg -L "$pkg" 2>/dev/null | while read -r f; do
+          if [ -f "$f" ] && [ ! -L "$f" ]; then
+            mkdir -p "/tmp/layer$(dirname "$f")"
+            cp "$f" "/tmp/layer$f"
+          elif [ -L "$f" ]; then
+            mkdir -p "/tmp/layer$(dirname "$f")"
+            cp -P "$f" "/tmp/layer$f"
+          fi
+        done
+      done
+
+      tar -cf /tmp/layer.tar -C /tmp/layer .
 
       # Push with tag and latest
       REPO="ghcr.io/groblegark/beads"
