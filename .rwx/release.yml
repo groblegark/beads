@@ -73,6 +73,9 @@ tasks:
       git config --global user.name "CI Bot"
       git config --global user.email "ci@beads.test"
 
+      # Fetch tags — git/clone may not include them, and GoReleaser needs them
+      git fetch --tags origin 2>/dev/null || true
+
       if [[ "$TAG" == "dev" ]]; then
         echo "Running snapshot release for dev..."
         goreleaser release --clean --snapshot --config .goreleaser.fork.yml
