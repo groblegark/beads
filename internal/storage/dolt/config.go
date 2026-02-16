@@ -78,6 +78,9 @@ func (s *DoltStore) DeleteConfig(ctx context.Context, key string) error {
 
 // SetMetadata sets a metadata value
 func (s *DoltStore) SetMetadata(ctx context.Context, key, value string) error {
+	if s.db == nil {
+		return fmt.Errorf("database connection is nil")
+	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
@@ -96,6 +99,9 @@ func (s *DoltStore) SetMetadata(ctx context.Context, key, value string) error {
 
 // GetMetadata retrieves a metadata value
 func (s *DoltStore) GetMetadata(ctx context.Context, key string) (string, error) {
+	if s.db == nil {
+		return "", fmt.Errorf("database connection is nil")
+	}
 	var value string
 	err := s.db.QueryRowContext(ctx, "SELECT value FROM metadata WHERE `key` = ?", key).Scan(&value)
 	if err == sql.ErrNoRows {

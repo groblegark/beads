@@ -279,12 +279,17 @@ func checkDaemonHealth(ctx context.Context, store storage.Storage, log daemonLog
 	// This helps detect if external operations (like bd import --force) have modified metadata
 	// Without this, daemon may continue operating with stale metadata cache
 	// Try new key first, fall back to old for migration
-	if _, err := store.GetMetadata(ctx, "jsonl_content_hash"); err != nil {
-		if _, err := store.GetMetadata(ctx, "last_import_hash"); err != nil {
-			log.log("Health check: metadata read failed: %v", err)
-			// Non-fatal: daemon continues but logs the issue
-			// This helps diagnose stuck states in sandboxed environments
+	// Guard: skip if DB is nil (Dolt cluster connectivity lost). (bd-op7sp)
+	if db := store.UnderlyingDB(); db != nil {
+		if _, err := store.GetMetadata(ctx, "jsonl_content_hash"); err != nil {
+			if _, err := store.GetMetadata(ctx, "last_import_hash"); err != nil {
+				log.log("Health check: metadata read failed: %v", err)
+				// Non-fatal: daemon continues but logs the issue
+				// This helps diagnose stuck states in sandboxed environments
+			}
 		}
+	} else {
+		dbOK = false
 	}
 
 	// Health check 2: Database integrity check
