@@ -128,8 +128,9 @@ state.json
 output
 bd_test
 
-# Helm chart dependency downloads (rebuild with `helm dependency build`)
+# Helm chart dependency downloads and packaged charts
 helm/*/charts/
+*.tgz
 
 # Gas Town (added by gt)
 .beads/
