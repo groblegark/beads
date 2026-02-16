@@ -250,6 +250,12 @@ tasks:
       cp ${{ tasks.build-oj.artifacts.oj-binary }} /tmp/layer/usr/local/bin/oj
       chmod 755 /tmp/layer/usr/local/bin/*
 
+      # Copy CA certificates into the layer.
+      # The base ubuntu:24.04 image doesn't include ca-certificates,
+      # which breaks TLS for any outbound HTTPS (e.g., slackbot → slack.com).
+      mkdir -p /tmp/layer/etc/ssl/certs
+      cp /etc/ssl/certs/ca-certificates.crt /tmp/layer/etc/ssl/certs/
+
       # Copy libicu74 shared libraries into the layer.
       # The bd binary is CGO-linked and needs libicu at runtime.
       # Ubuntu 24.04 base has all other required libs, just not ICU.
