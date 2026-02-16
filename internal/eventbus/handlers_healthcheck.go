@@ -1,11 +1,13 @@
 package eventbus
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"log"
 	"os"
+	"os/exec"
 	"strings"
 )
 
@@ -35,12 +37,17 @@ func (h *HealthCheckHandler) Handle(ctx context.Context, event *Event, result *R
 
 	var issues []healthIssue
 
-	// Check 1: Git workspace health
-	if issue := checkGitWorkspace(ctx, event.CWD); issue != nil {
+	// Check 1: Git repository exists and is functional
+	if issue := checkGitRepo(ctx, event.CWD); issue != nil {
 		issues = append(issues, *issue)
 	}
 
-	// Check 2: Daemon connectivity (check if bd health works)
+	// Check 2: Beads workspace health (.beads/ directory accessible)
+	if issue := checkBeadsWorkspace(ctx, event.CWD); issue != nil {
+		issues = append(issues, *issue)
+	}
+
+	// Check 3: Daemon connectivity (check if bd health works)
 	if issue := checkDaemonHealth(ctx, event.CWD); issue != nil {
 		issues = append(issues, *issue)
 	}
@@ -72,18 +79,54 @@ func (h *HealthCheckHandler) Handle(ctx context.Context, event *Event, result *R
 	return nil
 }
 
-// checkGitWorkspace verifies the git workspace is functional.
-func checkGitWorkspace(ctx context.Context, cwd string) *healthIssue {
-	// Check if .beads/ directory is accessible by running bd stats (lightweight)
-	_, stderr, err := runBDCommand(ctx, cwd, "stats", "--json")
-	if err != nil {
+// checkGitRepo verifies a git repository exists at the CWD.
+// This catches the "dispatched to empty pod" failure mode (beads-j4de).
+func checkGitRepo(ctx context.Context, cwd string) *healthIssue {
+	if cwd == "" {
+		return nil // Can't check without a CWD
+	}
+	// Check if .git exists in CWD or any parent
+	if _, err := os.Stat(cwd); os.IsNotExist(err) {
 		return &healthIssue{
 			Category: "workspace",
-			Message:  fmt.Sprintf("workspace check failed: %v (stderr: %s)", err, truncate(stderr, 200)),
+			Message:  fmt.Sprintf("CWD does not exist: %s", cwd),
+			Severity: "error",
+		}
+	}
+	// Use git rev-parse to verify we're in a git repo
+	stdout, _, err := runGitCommand(ctx, cwd, "rev-parse", "--git-dir")
+	if err != nil || strings.TrimSpace(stdout) == "" {
+		return &healthIssue{
+			Category: "workspace",
+			Message:  fmt.Sprintf("not a git repository: %s", cwd),
 			Severity: "error",
 		}
 	}
 	return nil
+}
+
+// checkBeadsWorkspace verifies the .beads/ directory is accessible.
+func checkBeadsWorkspace(ctx context.Context, cwd string) *healthIssue {
+	_, stderr, err := runBDCommand(ctx, cwd, "stats", "--json")
+	if err != nil {
+		return &healthIssue{
+			Category: "beads",
+			Message:  fmt.Sprintf("beads workspace check failed: %v (stderr: %s)", err, truncate(stderr, 200)),
+			Severity: "warning",
+		}
+	}
+	return nil
+}
+
+// runGitCommand executes a git subcommand and captures stdout/stderr.
+func runGitCommand(ctx context.Context, cwd string, args ...string) (string, string, error) {
+	cmd := exec.CommandContext(ctx, "git", args...)
+	cmd.Dir = cwd
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	err := cmd.Run()
+	return stdout.String(), stderr.String(), err
 }
 
 // checkDaemonHealth verifies daemon is reachable and healthy.
