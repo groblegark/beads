@@ -48,14 +48,16 @@ metadata:
   name: {{ $fullname }}-clusterctl
   labels:
     {{- include "bd-daemon.dolt.labels" . | nindent 4 }}
+    app.kubernetes.io/component: dolt-clusterctl
 spec:
   schedule: {{ .Values.dolt.cluster.clusterctl.schedule | quote }}
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 1
-  failedJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 1
   jobTemplate:
     spec:
-      backoffLimit: 1
+      ttlSecondsAfterFinished: 120
+      backoffLimit: 3
       activeDeadlineSeconds: 30
       template:
         metadata:
@@ -92,5 +94,109 @@ spec:
                       key: password
               resources:
                 {{- toYaml .Values.dolt.cluster.clusterctl.resources | nindent 16 }}
+{{- if .Values.dolt.cluster.clusterctl.autoFailover }}
+---
+# =============================================================================
+# CronJob: auto-failover — promote standby if no primary detected
+# Runs every 2 minutes. Queries each Dolt replica for its cluster role via the
+# dolt sql CLI. ONLY promotes if no replica reports as primary — safe to run
+# continuously. Uses the Dolt server image (has /bin/sh + dolt sql CLI).
+# NOTE: Does NOT use doltclusterctl promotestandby (which is unsafe when a
+# primary exists). Instead uses dolt_assume_cluster_role() stored procedure.
+# =============================================================================
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ $fullname }}-autofailover
+  labels:
+    {{- include "bd-daemon.dolt.labels" . | nindent 4 }}
+    app.kubernetes.io/component: dolt-autofailover
+spec:
+  schedule: "*/2 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      ttlSecondsAfterFinished: 120
+      backoffLimit: 0
+      activeDeadlineSeconds: 60
+      template:
+        metadata:
+          labels:
+            {{- include "bd-daemon.selectorLabels" . | nindent 12 }}
+            app.kubernetes.io/component: autofailover
+        spec:
+          serviceAccountName: {{ $fullname }}-clusterctl
+          restartPolicy: Never
+          {{- with .Values.dolt.nodeSelector }}
+          nodeSelector:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.dolt.tolerations }}
+          tolerations:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          containers:
+            - name: failover
+              image: {{ .Values.dolt.image.repository }}:{{ .Values.dolt.image.tag }}
+              imagePullPolicy: {{ .Values.dolt.image.pullPolicy }}
+              command: ["/bin/sh", "-c"]
+              args:
+                - |
+                  HEADLESS="{{ $fullname }}-headless"
+                  REPLICAS={{ .Values.dolt.cluster.replicas | default 3 }}
+                  NS="{{ .Release.Namespace }}"
+                  PORT={{ .Values.dolt.config.port | default 3306 }}
+
+                  echo "Checking $REPLICAS Dolt replicas for primary..."
+                  FOUND_PRIMARY=""
+                  MAX_EPOCH=0
+                  PROMOTE_HOST=""
+
+                  i=0
+                  while [ "$i" -lt "$REPLICAS" ]; do
+                    HOST="{{ $fullname }}-${i}.${HEADLESS}.${NS}"
+                    ROLE=$(dolt sql --host "$HOST" --port "$PORT" --user root --password "$DOLT_PASSWORD" --result-format csv -q "SELECT @@dolt_cluster_role" 2>/dev/null | tail -1 || echo "unreachable")
+                    EPOCH=$(dolt sql --host "$HOST" --port "$PORT" --user root --password "$DOLT_PASSWORD" --result-format csv -q "SELECT @@dolt_cluster_role_epoch" 2>/dev/null | tail -1 || echo "0")
+
+                    echo "  ${HOST}: role=${ROLE} epoch=${EPOCH}"
+
+                    if [ "$ROLE" = "primary" ]; then
+                      FOUND_PRIMARY="$HOST"
+                    fi
+                    if [ "$ROLE" = "standby" ]; then
+                      if [ "$EPOCH" -ge "$MAX_EPOCH" ] 2>/dev/null; then
+                        MAX_EPOCH="$EPOCH"
+                        PROMOTE_HOST="$HOST"
+                      fi
+                    fi
+                    i=$((i + 1))
+                  done
+
+                  if [ -n "$FOUND_PRIMARY" ]; then
+                    echo "Primary is healthy at $FOUND_PRIMARY — no failover needed"
+                    exit 0
+                  fi
+
+                  if [ -z "$PROMOTE_HOST" ]; then
+                    echo "ERROR: no reachable standby found for promotion"
+                    exit 1
+                  fi
+
+                  NEW_EPOCH=$((MAX_EPOCH + 1))
+                  echo "WARNING: no primary detected — promoting $PROMOTE_HOST (epoch $MAX_EPOCH -> $NEW_EPOCH)"
+                  dolt sql --host "$PROMOTE_HOST" --port "$PORT" --user root --password "$DOLT_PASSWORD" \
+                    -q "CALL dolt_assume_cluster_role('primary', $NEW_EPOCH)"
+                  echo "Failover complete: $PROMOTE_HOST is now primary at epoch $NEW_EPOCH"
+              env:
+                - name: DOLT_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ $fullname }}-root-password
+                      key: password
+              resources:
+                {{- toYaml .Values.dolt.cluster.clusterctl.resources | nindent 16 }}
+{{- end }}
 {{- end }}
 {{- end }}
