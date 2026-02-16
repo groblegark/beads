@@ -3,10 +3,26 @@ package eventbus
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
+
+	"github.com/steveyegge/beads/internal/types"
 )
+
+// mockNudgeStore implements NudgeStore for testing. (gt-2md5kf)
+type mockNudgeStore struct {
+	issues map[string]*types.Issue
+}
+
+func (m *mockNudgeStore) GetIssue(_ context.Context, id string) (*types.Issue, error) {
+	if issue, ok := m.issues[id]; ok {
+		return issue, nil
+	}
+	return nil, fmt.Errorf("issue %q not found", id)
+}
 
 func TestMailNudgeHandlerMetadata(t *testing.T) {
 	h := &MailNudgeHandler{}
@@ -265,5 +281,178 @@ func TestMailEventIsMailEvent(t *testing.T) {
 	}
 	if EventOjJobCreated.IsMailEvent() {
 		t.Error("expected EventOjJobCreated.IsMailEvent() = false")
+	}
+}
+
+// --- resolveCoopURLFromStore tests (gt-2md5kf) ---
+
+func TestResolveCoopURLFromStore_DirectLookup(t *testing.T) {
+	store := &mockNudgeStore{
+		issues: map[string]*types.Issue{
+			"gt-mayor": {ID: "gt-mayor", Notes: "coop_url: http://localhost:8080\nother: val"},
+		},
+	}
+	url, err := resolveCoopURLFromStore(context.Background(), store, "gt-mayor")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if url != "http://localhost:8080" {
+		t.Errorf("got %q, want %q", url, "http://localhost:8080")
+	}
+}
+
+func TestResolveCoopURLFromStore_NameConversion(t *testing.T) {
+	store := &mockNudgeStore{
+		issues: map[string]*types.Issue{
+			"gt-mayor": {ID: "gt-mayor", Notes: "coop_url: http://10.0.0.5:3000"},
+		},
+	}
+	// "mayor/" is the actor name, should be converted to "gt-mayor" via mailAddressToAgentID.
+	url, err := resolveCoopURLFromStore(context.Background(), store, "mayor/")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if url != "http://10.0.0.5:3000" {
+		t.Errorf("got %q, want %q", url, "http://10.0.0.5:3000")
+	}
+}
+
+func TestResolveCoopURLFromStore_PoleactConversion(t *testing.T) {
+	store := &mockNudgeStore{
+		issues: map[string]*types.Issue{
+			"gt-gastown-polecat-furiosa": {ID: "gt-gastown-polecat-furiosa", Notes: "coop_url: http://10.0.0.6:3000"},
+		},
+	}
+	// "gastown/furiosa" → "gt-gastown-polecat-furiosa"
+	url, err := resolveCoopURLFromStore(context.Background(), store, "gastown/furiosa")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if url != "http://10.0.0.6:3000" {
+		t.Errorf("got %q, want %q", url, "http://10.0.0.6:3000")
+	}
+}
+
+func TestResolveCoopURLFromStore_NoCoop(t *testing.T) {
+	store := &mockNudgeStore{
+		issues: map[string]*types.Issue{
+			"gt-mayor": {ID: "gt-mayor", Notes: "some_other_key: value"},
+		},
+	}
+	_, err := resolveCoopURLFromStore(context.Background(), store, "mayor/")
+	if err == nil {
+		t.Error("expected error when no coop_url in notes")
+	}
+}
+
+func TestResolveCoopURLFromStore_NotFound(t *testing.T) {
+	store := &mockNudgeStore{issues: map[string]*types.Issue{}}
+	_, err := resolveCoopURLFromStore(context.Background(), store, "unknown-agent")
+	if err == nil {
+		t.Error("expected error when agent bead not found")
+	}
+}
+
+// --- DecisionNudgeHandler with store-based resolution (gt-2md5kf) ---
+
+func TestDecisionNudgeHandler_WithStore(t *testing.T) {
+	var nudgeReceived atomic.Bool
+	coopServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		nudgeReceived.Store(true)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"delivered": true, "state_before": "idle"})
+	}))
+	defer coopServer.Close()
+
+	store := &mockNudgeStore{
+		issues: map[string]*types.Issue{
+			"gt-mayor": {ID: "gt-mayor", Notes: "coop_url: " + coopServer.URL},
+		},
+	}
+
+	h := &DecisionNudgeHandler{HTTPClient: coopServer.Client()}
+	h.SetNudgeStore(store)
+
+	payload := DecisionEventPayload{
+		DecisionID:  "test-dec-1",
+		RequestedBy: "mayor/",
+		ChosenLabel: "deploy",
+		ResolvedBy:  "human",
+	}
+	raw, _ := json.Marshal(payload)
+	event := &Event{Type: EventDecisionResponded, Raw: raw}
+	result := &Result{}
+
+	err := h.Handle(context.Background(), event, result)
+	if err != nil {
+		t.Fatalf("Handle error: %v", err)
+	}
+	if !nudgeReceived.Load() {
+		t.Error("expected nudge to be received by mock Coop server")
+	}
+}
+
+func TestDecisionNudgeHandler_StoreNoCoopURL(t *testing.T) {
+	store := &mockNudgeStore{
+		issues: map[string]*types.Issue{
+			"gt-mayor": {ID: "gt-mayor", Notes: "no_coop: true"},
+		},
+	}
+
+	h := &DecisionNudgeHandler{}
+	h.SetNudgeStore(store)
+
+	payload := DecisionEventPayload{
+		DecisionID:  "test-dec-2",
+		RequestedBy: "mayor/",
+		ChosenLabel: "abort",
+		ResolvedBy:  "human",
+	}
+	raw, _ := json.Marshal(payload)
+	event := &Event{Type: EventDecisionResponded, Raw: raw}
+	result := &Result{}
+
+	// Should not error — just logs and returns nil.
+	err := h.Handle(context.Background(), event, result)
+	if err != nil {
+		t.Fatalf("Handle should not error when coop_url missing: %v", err)
+	}
+}
+
+func TestDecisionNudgeHandler_ExplicitResolverTakesPrecedence(t *testing.T) {
+	var nudgeReceived atomic.Bool
+	coopServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		nudgeReceived.Store(true)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"delivered": true})
+	}))
+	defer coopServer.Close()
+
+	// Even with store set, explicit resolver should take precedence.
+	store := &mockNudgeStore{issues: map[string]*types.Issue{}}
+	h := &DecisionNudgeHandler{
+		HTTPClient: coopServer.Client(),
+		CoopURLResolver: func(_ context.Context, _, _ string) (string, error) {
+			return coopServer.URL, nil
+		},
+	}
+	h.SetNudgeStore(store)
+
+	payload := DecisionEventPayload{
+		DecisionID:  "test-dec-3",
+		RequestedBy: "any-agent",
+		ChosenLabel: "go",
+		ResolvedBy:  "human",
+	}
+	raw, _ := json.Marshal(payload)
+	event := &Event{Type: EventDecisionResponded, Raw: raw}
+	result := &Result{}
+
+	err := h.Handle(context.Background(), event, result)
+	if err != nil {
+		t.Fatalf("Handle error: %v", err)
+	}
+	if !nudgeReceived.Load() {
+		t.Error("expected nudge via explicit resolver")
 	}
 }

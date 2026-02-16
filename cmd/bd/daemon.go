@@ -739,6 +739,7 @@ func runDaemonLoop(interval time.Duration, autoCommit, autoPush, autoPull, local
 
 	// Wire bus reference into StopLoopDetector for JetStream publishing (bd-5r1cw).
 	// Wire storage into inbox handlers for in-process drain (bd-f33nh).
+	// Wire storage into nudge handlers for in-process coop URL resolution (gt-2md5kf).
 	for _, h := range bus.Handlers() {
 		switch handler := h.(type) {
 		case *eventbus.StopLoopDetector:
@@ -747,6 +748,10 @@ func runDaemonLoop(interval time.Duration, autoCommit, autoPush, autoPull, local
 			handler.SetInboxStore(store)
 		case *eventbus.PostToolUseInboxHandler:
 			handler.SetInboxStore(store)
+		case *eventbus.DecisionNudgeHandler:
+			handler.SetNudgeStore(store)
+		case *eventbus.MailNudgeHandler:
+			handler.SetNudgeStore(store)
 		}
 	}
 

@@ -10,7 +10,15 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/steveyegge/beads/internal/types"
 )
+
+// NudgeStore is the minimal storage interface for resolving agent bead
+// coop_url in-process, avoiding subprocess round-trips. (gt-2md5kf)
+type NudgeStore interface {
+	GetIssue(ctx context.Context, id string) (*types.Issue, error)
+}
 
 // MailNudgeHandler pushes mail notifications to the recipient's inbox and
 // nudges them via Coop HTTP API. Inbox is the reliable delivery path (Phase 4);
@@ -19,7 +27,11 @@ import (
 // Priority 50 (runs after standard handlers; nudging is supplementary).
 type MailNudgeHandler struct {
 	httpClient *http.Client
+	store      NudgeStore
 }
+
+// SetNudgeStore wires in direct storage access for coop URL resolution. (gt-2md5kf)
+func (h *MailNudgeHandler) SetNudgeStore(store NudgeStore) { h.store = store }
 
 func (h *MailNudgeHandler) ID() string          { return "mail-nudge" }
 func (h *MailNudgeHandler) Handles() []EventType { return []EventType{EventMailSent} }
@@ -59,10 +71,16 @@ func (h *MailNudgeHandler) Handle(ctx context.Context, event *Event, result *Res
 		log.Printf("mail-nudge: inbox push for %s failed (non-fatal): %v", agentID, pushErr)
 	}
 
-	// Still nudge via Coop HTTP to wake idle agents immediately.
-	coopURL, err := resolveCoopURLFromBead(ctx, event.CWD, agentID)
-	if err != nil {
-		log.Printf("mail-nudge: no coop_url for agent %q: %v", agentID, err)
+	// Nudge via Coop HTTP to wake idle agents immediately.
+	var coopURL string
+	var resolveErr error
+	if h.store != nil {
+		coopURL, resolveErr = resolveCoopURLFromStore(ctx, h.store, agentID)
+	} else {
+		coopURL, resolveErr = resolveCoopURLFromBead(ctx, event.CWD, agentID)
+	}
+	if resolveErr != nil {
+		log.Printf("mail-nudge: no coop_url for agent %q: %v", agentID, resolveErr)
 		return nil // Not a coop agent or not reachable; skip silently.
 	}
 
@@ -137,6 +155,33 @@ func mailAddressToAgentID(address string) string {
 	}
 
 	return ""
+}
+
+// resolveCoopURLFromStore looks up an agent bead's coop_url using direct
+// storage access, avoiding subprocess overhead. Tries:
+//  1. Direct ID lookup (agentID might already be a bead ID)
+//  2. Convert agent name to bead ID via mailAddressToAgentID, then lookup
+//
+// (gt-2md5kf)
+func resolveCoopURLFromStore(ctx context.Context, store NudgeStore, agentID string) (string, error) {
+	// Strategy 1: direct lookup (agentID is already a bead ID).
+	if issue, err := store.GetIssue(ctx, agentID); err == nil && issue != nil {
+		if url := extractCoopURLFromNotes(issue.Notes); url != "" {
+			return url, nil
+		}
+	}
+
+	// Strategy 2: convert agent name to bead ID.
+	beadID := mailAddressToAgentID(agentID)
+	if beadID != "" && beadID != agentID {
+		if issue, err := store.GetIssue(ctx, beadID); err == nil && issue != nil {
+			if url := extractCoopURLFromNotes(issue.Notes); url != "" {
+				return url, nil
+			}
+		}
+	}
+
+	return "", fmt.Errorf("no coop_url for agent %q (store-based)", agentID)
 }
 
 // resolveCoopURLFromBead looks up an agent bead and extracts coop_url from
@@ -271,14 +316,19 @@ func postNudge(ctx context.Context, client *http.Client, coopURL, message string
 type CoopURLResolver func(ctx context.Context, cwd, agentID string) (string, error)
 
 // DecisionNudgeHandler nudges the requesting agent via their Coop HTTP API when
-// a decision is resolved. Also pushes to inbox for reliable delivery (Phase 3:
-// inbox is primary, nudge ensures agent wakes up to drain it). (bd-5mkhu)
+// a decision is resolved. The server-side handleDecisionResolve already pushes
+// to inbox (bd-eo9xt), so this handler focuses on the Coop HTTP nudge to wake
+// idle agents immediately. (bd-5mkhu, gt-2md5kf)
 //
 // Priority 50 (runs after standard handlers; nudging is supplementary).
 type DecisionNudgeHandler struct {
 	HTTPClient      *http.Client    // If nil, a default client with 5s timeout is used.
-	CoopURLResolver CoopURLResolver // If nil, uses resolveCoopURLFromBead.
+	CoopURLResolver CoopURLResolver // If nil, uses store-based or subprocess resolver.
+	store           NudgeStore
 }
+
+// SetNudgeStore wires in direct storage access for coop URL resolution. (gt-2md5kf)
+func (h *DecisionNudgeHandler) SetNudgeStore(store NudgeStore) { h.store = store }
 
 func (h *DecisionNudgeHandler) ID() string          { return "decision-nudge" }
 func (h *DecisionNudgeHandler) Handles() []EventType { return []EventType{EventDecisionResponded} }
@@ -295,30 +345,23 @@ func (h *DecisionNudgeHandler) Handle(ctx context.Context, event *Event, result 
 		return nil // No agent to nudge
 	}
 
-	// Phase 3: push to inbox via CLI for reliable delivery.
-	// The inbox push is idempotent (dedup_key prevents duplicates) and
-	// complements the server-side push in handleDecisionResolve (bd-eo9xt).
-	message := fmt.Sprintf("Decision %s resolved by %s (chose: %s)", payload.DecisionID, payload.ResolvedBy, payload.ChosenLabel)
-	_, _, pushErr := runBDCommand(ctx, event.CWD,
-		"inbox", "push",
-		"--to", agentID,
-		"--type", "decision",
-		"--source", "decision-nudge",
-		"--dedup-key", fmt.Sprintf("decision:%s", payload.DecisionID),
-		message,
-	)
-	if pushErr != nil {
-		log.Printf("decision-nudge: inbox push for %s failed (non-fatal): %v", agentID, pushErr)
-	}
+	// Note: inbox push is handled server-side in handleDecisionResolve (bd-eo9xt).
+	// This handler focuses on the Coop HTTP nudge to wake idle agents. (gt-2md5kf)
 
-	// Still nudge via Coop HTTP to wake idle agents immediately.
-	resolver := h.CoopURLResolver
-	if resolver == nil {
-		resolver = resolveCoopURLFromBead
+	message := fmt.Sprintf("Decision %s resolved by %s (chose: %s)", payload.DecisionID, payload.ResolvedBy, payload.ChosenLabel)
+
+	// Resolve coop URL: explicit resolver > store-based > subprocess fallback.
+	var coopURL string
+	var resolveErr error
+	if h.CoopURLResolver != nil {
+		coopURL, resolveErr = h.CoopURLResolver(ctx, event.CWD, agentID)
+	} else if h.store != nil {
+		coopURL, resolveErr = resolveCoopURLFromStore(ctx, h.store, agentID)
+	} else {
+		coopURL, resolveErr = resolveCoopURLFromBead(ctx, event.CWD, agentID)
 	}
-	coopURL, err := resolver(ctx, event.CWD, agentID)
-	if err != nil {
-		log.Printf("decision-nudge: no coop_url for agent %q: %v", agentID, err)
+	if resolveErr != nil {
+		log.Printf("decision-nudge: no coop_url for agent %q: %v", agentID, resolveErr)
 		return nil // Not a coop agent or not reachable; skip silently.
 	}
 
