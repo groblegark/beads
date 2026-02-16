@@ -51,6 +51,12 @@ func TestDaemonAutoStart(t *testing.T) {
 	// Ensure BEADS_NO_DAEMON doesn't interfere with these tests
 	os.Unsetenv("BEADS_NO_DAEMON")
 
+	// Ensure local mode — clear remote daemon config (beads-jejw.3)
+	t.Setenv("BD_DAEMON_HOST", "")
+	oldDaemonHost := config.GetString("daemon-host")
+	config.Set("daemon-host", "")
+	t.Cleanup(func() { config.Set("daemon-host", oldDaemonHost) })
+
 	// shouldAutoStartDaemon reads config.GetBool("auto-start-daemon") which is
 	// backed by viper. Viper precedence: Set() > env > config file > default.
 	// Tests use config.Set() to control the value since that matches the function's
@@ -206,6 +212,13 @@ func TestGetSocketPath(t *testing.T) {
 			os.Setenv("BEADS_DIR", originalBeadsDir)
 		}
 	}()
+
+	// Ensure local mode — clear remote daemon config so getSocketPath()
+	// returns a local socket path instead of "" (beads-jejw.3)
+	t.Setenv("BD_DAEMON_HOST", "")
+	oldDaemonHost := config.GetString("daemon-host")
+	config.Set("daemon-host", "")
+	t.Cleanup(func() { config.Set("daemon-host", oldDaemonHost) })
 
 	t.Run("prefers local socket when it exists", func(t *testing.T) {
 		localSocket := filepath.Join(beadsDir, "bd.sock")

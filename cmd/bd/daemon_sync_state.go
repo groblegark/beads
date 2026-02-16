@@ -40,9 +40,20 @@ var (
 	syncStateMu sync.Mutex
 )
 
+// isSyncStateLocal returns true if sync state file operations apply.
+// In remote daemon mode (K8s), the daemon manages its own sync;
+// CLI-side sync state files are meaningless. (beads-jejw.4)
+func isSyncStateLocal() bool {
+	return !isRemoteDaemon()
+}
+
 // LoadSyncState loads the sync state from .beads/sync-state.json.
-// Returns empty state if file doesn't exist or is stale.
+// Returns empty state if file doesn't exist, is stale, or in remote mode.
 func LoadSyncState(beadsDir string) SyncState {
+	if !isSyncStateLocal() {
+		return SyncState{}
+	}
+
 	syncStateMu.Lock()
 	defer syncStateMu.Unlock()
 
@@ -67,7 +78,12 @@ func LoadSyncState(beadsDir string) SyncState {
 }
 
 // SaveSyncState saves the sync state to .beads/sync-state.json.
+// No-op in remote daemon mode. (beads-jejw.4)
 func SaveSyncState(beadsDir string, state SyncState) error {
+	if !isSyncStateLocal() {
+		return nil
+	}
+
 	syncStateMu.Lock()
 	defer syncStateMu.Unlock()
 
@@ -88,7 +104,12 @@ func SaveSyncState(beadsDir string, state SyncState) error {
 }
 
 // ClearSyncState removes the sync state file.
+// No-op in remote daemon mode. (beads-jejw.4)
 func ClearSyncState(beadsDir string) error {
+	if !isSyncStateLocal() {
+		return nil
+	}
+
 	syncStateMu.Lock()
 	defer syncStateMu.Unlock()
 
@@ -133,7 +154,11 @@ func RecordSyncSuccess(beadsDir string) {
 }
 
 // ShouldSkipSync returns true if we're still in the backoff period.
+// Always returns false in remote daemon mode (daemon manages its own sync). (beads-jejw.4)
 func ShouldSkipSync(beadsDir string) bool {
+	if !isSyncStateLocal() {
+		return false
+	}
 	state := LoadSyncState(beadsDir)
 	if state.BackoffUntil.IsZero() {
 		return false
@@ -144,7 +169,11 @@ func ShouldSkipSync(beadsDir string) bool {
 // ResetBackoffOnDaemonStart resets backoff counters when daemon starts,
 // but preserves NeedsManualSync flag so hints still show.
 // This allows a fresh start while keeping user informed of conflicts.
+// No-op in remote daemon mode. (beads-jejw.4)
 func ResetBackoffOnDaemonStart(beadsDir string) {
+	if !isSyncStateLocal() {
+		return
+	}
 	state := LoadSyncState(beadsDir)
 
 	// Nothing to reset

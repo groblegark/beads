@@ -662,7 +662,7 @@ func (w *CoopCredWatcher) HandleChannelMessage(channelID, text, userID string) b
 		provider = strings.ToLower(parts[3])
 	}
 
-	go w.addNewAccount(accountName, provider, channelID, userID)
+	go w.addNewAccount(accountName, provider, channelID)
 	return true
 }
 
@@ -670,7 +670,7 @@ func (w *CoopCredWatcher) HandleChannelMessage(channelID, text, userID string) b
 // credential account. The account starts in Expired state; coopmux's refresh
 // loop will initiate device code auth and emit reauth_required on NATS,
 // which triggers the device code notification flow.
-func (w *CoopCredWatcher) addNewAccount(name, provider, channelID, userID string) {
+func (w *CoopCredWatcher) addNewAccount(name, provider, channelID string) {
 	if w.coopmuxURL == "" {
 		w.bot.postThreadReply(channelID, "",
 			"Coopmux URL not configured (set COOPMUX_URL)")
