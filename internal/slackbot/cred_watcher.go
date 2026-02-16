@@ -768,9 +768,13 @@ func (w *CoopCredWatcher) addNewAccount(name, provider, channelID string) {
 
 	// The account starts in Expired state. Coopmux's refresh loop will try
 	// device code first, but Cloudflare blocks the Anthropic device code
-	// endpoint, so it falls back to PKCE. The PKCE fallback doesn't emit a
-	// NATS event, so we proactively pull the reauth URL after a short delay
-	// to let coopmux settle its initial auth attempt.
+	// endpoint, so it falls back to PKCE. Proactively pull the reauth URL
+	// after a short delay to let coopmux settle its initial auth attempt.
+	// Set reauthInFlight BEFORE launching the goroutine so any NATS
+	// reauth_required event arriving in the meantime is deduplicated.
+	w.reauthInFlightMu.Lock()
+	w.reauthInFlight[name] = true
+	w.reauthInFlightMu.Unlock()
 	go func() {
 		time.Sleep(3 * time.Second)
 		w.pullReauthURL(name)
