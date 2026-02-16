@@ -190,6 +190,7 @@ dolt:
     # doltclusterctl label controller
     clusterctl:
       enabled: true          # Deploy CronJob to apply primary/standby labels
+      autoFailover: false    # Auto-promote standby if no primary found
       image:
         repository: dolthub/doltclusterctl
         tag: "latest"

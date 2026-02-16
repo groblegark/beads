@@ -139,11 +139,11 @@ spec:
           {{- end }}
           containers:
             - name: failover
-              image: {{ .Values.dolt.image.repository }}:{{ .Values.dolt.image.tag }}
-              imagePullPolicy: {{ .Values.dolt.image.pullPolicy }}
+              image: alpine:3.19
               command: ["/bin/sh", "-c"]
               args:
                 - |
+                  apk add --no-cache mysql-client >/dev/null 2>&1
                   HEADLESS="{{ $fullname }}-headless"
                   REPLICAS={{ .Values.dolt.cluster.replicas | default 3 }}
                   NS="{{ .Release.Namespace }}"
@@ -157,8 +157,8 @@ spec:
                   i=0
                   while [ "$i" -lt "$REPLICAS" ]; do
                     HOST="{{ $fullname }}-${i}.${HEADLESS}.${NS}"
-                    ROLE=$(dolt sql --host "$HOST" --port "$PORT" --user root --password "$DOLT_PASSWORD" --result-format csv -q "SELECT @@dolt_cluster_role" 2>/dev/null | tail -1 || echo "unreachable")
-                    EPOCH=$(dolt sql --host "$HOST" --port "$PORT" --user root --password "$DOLT_PASSWORD" --result-format csv -q "SELECT @@dolt_cluster_role_epoch" 2>/dev/null | tail -1 || echo "0")
+                    ROLE=$(mysql -h "$HOST" -P "$PORT" -u root -p"$DOLT_PASSWORD" -N -e "SELECT @@dolt_cluster_role" 2>/dev/null || echo "unreachable")
+                    EPOCH=$(mysql -h "$HOST" -P "$PORT" -u root -p"$DOLT_PASSWORD" -N -e "SELECT @@dolt_cluster_role_epoch" 2>/dev/null || echo "0")
 
                     echo "  ${HOST}: role=${ROLE} epoch=${EPOCH}"
 
@@ -186,8 +186,8 @@ spec:
 
                   NEW_EPOCH=$((MAX_EPOCH + 1))
                   echo "WARNING: no primary detected — promoting $PROMOTE_HOST (epoch $MAX_EPOCH -> $NEW_EPOCH)"
-                  dolt sql --host "$PROMOTE_HOST" --port "$PORT" --user root --password "$DOLT_PASSWORD" \
-                    -q "CALL dolt_assume_cluster_role('primary', $NEW_EPOCH)"
+                  mysql -h "$PROMOTE_HOST" -P "$PORT" -u root -p"$DOLT_PASSWORD" \
+                    -e "CALL dolt_assume_cluster_role('primary', $NEW_EPOCH)"
                   echo "Failover complete: $PROMOTE_HOST is now primary at epoch $NEW_EPOCH"
               env:
                 - name: DOLT_PASSWORD
