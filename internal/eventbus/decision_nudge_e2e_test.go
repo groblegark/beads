@@ -63,10 +63,10 @@ func setupDaemonWithNudgeHandler(t *testing.T, httpClient *http.Client, resolver
 	return d
 }
 
-// TestDecisionResponseTriggersCoopNudge verifies the full decision workflow:
+// TestDecNudgeFull verifies the full decision workflow:
 // create decision → resolve decision → EventDecisionResponded emitted →
 // DecisionNudgeHandler fires → POST to coop sidecar /api/v1/agent/nudge.
-func TestDecisionResponseTriggersCoopNudge(t *testing.T) {
+func TestDecNudgeFull(t *testing.T) {
 	// 1. Start a mock Coop sidecar that records nudge requests.
 	var nudgeReceived atomic.Bool
 	var nudgeMessage atomic.Value
@@ -151,9 +151,9 @@ func TestDecisionResponseTriggersCoopNudge(t *testing.T) {
 	}
 }
 
-// TestDecisionResponse_NoRequestedBy_NoNudge verifies that resolving a decision
+// TestDecNudgeNoAgent verifies that resolving a decision
 // without a RequestedBy agent does not trigger a nudge.
-func TestDecisionResponse_NoRequestedBy_NoNudge(t *testing.T) {
+func TestDecNudgeNoAgent(t *testing.T) {
 	var nudgeCalled atomic.Bool
 	coopServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		nudgeCalled.Store(true)
@@ -198,9 +198,9 @@ func TestDecisionResponse_NoRequestedBy_NoNudge(t *testing.T) {
 	}
 }
 
-// TestDecisionResponse_CoopDown_GracefulFailure verifies that the handler
+// TestDecNudgeCoopDown verifies that the handler
 // does not return an error when the Coop sidecar is unreachable.
-func TestDecisionResponse_CoopDown_GracefulFailure(t *testing.T) {
+func TestDecNudgeCoopDown(t *testing.T) {
 	d := setupDaemonWithNudgeHandler(t, nil,
 		func(_ context.Context, _, _ string) (string, error) {
 			return "http://127.0.0.1:1", nil // Unreachable port
@@ -231,9 +231,9 @@ func TestDecisionResponse_CoopDown_GracefulFailure(t *testing.T) {
 	}
 }
 
-// TestDecisionResponse_AgentBusy_NotDelivered verifies graceful handling when
+// TestDecNudgeBusy verifies graceful handling when
 // the Coop sidecar reports the agent is busy (delivered=false).
-func TestDecisionResponse_AgentBusy_NotDelivered(t *testing.T) {
+func TestDecNudgeBusy(t *testing.T) {
 	var nudgeReceived atomic.Bool
 	coopServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		nudgeReceived.Store(true)
