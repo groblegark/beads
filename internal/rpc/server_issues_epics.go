@@ -3625,6 +3625,13 @@ func (s *Server) handleDecisionCreate(req *Request) Response {
 	defer cancel()
 	actor := s.reqActor(req)
 
+	// Auto-populate RequestedBy from the request actor when not explicitly set.
+	// This ensures every decision has agent attribution for Slack display,
+	// inbox routing, and nudge-on-resolve targeting. (bd-3bols)
+	if args.RequestedBy == "" && actor != "" && actor != "daemon" {
+		args.RequestedBy = actor
+	}
+
 	var issue *types.Issue
 
 	// Validate urgency if provided.

@@ -970,3 +970,74 @@ func TestDecisionGet_AfterResolve(t *testing.T) {
 		t.Errorf("Expected selected='Fast path', got %q", getResult.Decision.SelectedOption)
 	}
 }
+
+// TestDecisionCreate_AutoPopulateRequestedBy verifies that when RequestedBy is
+// empty, the daemon auto-populates it from the request actor. (bd-3bols)
+func TestDecisionCreate_AutoPopulateRequestedBy(t *testing.T) {
+	_, client, store, cleanup := setupTestServerWithStore(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	// Set the client actor to simulate a registered session
+	client.SetActor("swift-fox")
+
+	issueID := createTestIssueForDecision(t, client, "Auto-populate RequestedBy test")
+
+	// Create decision WITHOUT setting RequestedBy
+	createArgs := &DecisionCreateArgs{
+		IssueID: issueID,
+		Prompt:  "Should we proceed?",
+		Options: StringOptions("Yes", "No"),
+		// RequestedBy intentionally left empty
+	}
+
+	result, err := client.DecisionCreate(createArgs)
+	if err != nil {
+		t.Fatalf("DecisionCreate failed: %v", err)
+	}
+
+	// Verify RequestedBy was auto-populated from the actor
+	if result.Decision.RequestedBy != "swift-fox" {
+		t.Errorf("Expected requested_by to be auto-populated to %q, got %q", "swift-fox", result.Decision.RequestedBy)
+	}
+
+	// Verify it's persisted in the store
+	storedDP, err := store.GetDecisionPoint(ctx, issueID)
+	if err != nil {
+		t.Fatalf("Failed to get decision from store: %v", err)
+	}
+	if storedDP.RequestedBy != "swift-fox" {
+		t.Errorf("Stored requested_by mismatch: expected %q, got %q", "swift-fox", storedDP.RequestedBy)
+	}
+}
+
+// TestDecisionCreate_ExplicitRequestedByPreserved verifies that an explicitly
+// set RequestedBy is NOT overwritten by the actor. (bd-3bols)
+func TestDecisionCreate_ExplicitRequestedByPreserved(t *testing.T) {
+	_, client, _, cleanup := setupTestServerWithStore(t)
+	defer cleanup()
+
+	// Set the client actor
+	client.SetActor("swift-fox")
+
+	issueID := createTestIssueForDecision(t, client, "Explicit RequestedBy test")
+
+	// Create decision WITH explicit RequestedBy
+	createArgs := &DecisionCreateArgs{
+		IssueID:     issueID,
+		Prompt:      "Explicit agent decision",
+		Options:     StringOptions("A", "B"),
+		RequestedBy: "keen-raven",
+	}
+
+	result, err := client.DecisionCreate(createArgs)
+	if err != nil {
+		t.Fatalf("DecisionCreate failed: %v", err)
+	}
+
+	// Verify the explicit value is preserved, NOT overwritten by actor
+	if result.Decision.RequestedBy != "keen-raven" {
+		t.Errorf("Expected requested_by=%q (explicit), got %q", "keen-raven", result.Decision.RequestedBy)
+	}
+}
