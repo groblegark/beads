@@ -15,7 +15,7 @@ spec:
   template:
     metadata:
       annotations:
-        rollout.kubernetes.io/restartedAt: {{ now | date "2006-01-02T15:04:05Z07:00" | quote }}
+        checksum/config: {{ printf "%s|%s|%s" (.Values.slackBot.image.tag | default .Values.image.tag | default .Chart.AppVersion) .Values.slackBot.channelID .Values.slackBot.coopmuxURL | sha256sum | trunc 32 }}
       labels:
         {{- include "bd-daemon.slackbot.selectorLabels" . | nindent 8 }}
     spec:

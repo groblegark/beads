@@ -19,7 +19,7 @@ spec:
   template:
     metadata:
       annotations:
-        rollout.kubernetes.io/restartedAt: {{ now | date "2006-01-02T15:04:05Z07:00" | quote }}
+        checksum/config: {{ printf "%s|%s|%s|%v" (.Values.image.tag | default .Chart.AppVersion) (toJson .Values.extraEnv | sha256sum) .Values.daemon.logLevel .Values.daemon.logJSON | sha256sum | trunc 32 }}
         {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
