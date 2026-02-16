@@ -95,6 +95,8 @@ func runDecisionStopCheck(cmd *cobra.Command, args []string) {
 	// -------------------------------------------------------------------------
 
 	if cfg.RequireAgentDecision {
+		isReentry, _ := cmd.Flags().GetBool("reentry")
+
 		// Scope by actor name (human-readable) instead of session UUID.
 		// This means all sessions from the same user share a decision pool,
 		// which is the correct behavior for stop-check gating.
@@ -124,7 +126,25 @@ func runDecisionStopCheck(cmd *cobra.Command, args []string) {
 			os.Exit(0)
 		}
 
-		// No agent decision — block and instruct agent to create one.
+		// No agent decision found.
+		//
+		// On re-entry (stop_hook_active=true), allow stop instead of blocking
+		// again. The agent already received the "create a decision" instructions
+		// on the first block — re-blocking just floods the conversation with
+		// duplicate messages. The agent needs time to process the instructions
+		// and create the decision; blocking again prevents that.
+		if isReentry {
+			fmt.Fprintf(os.Stderr, "Re-entry: no agent decision yet, allowing stop (agent is processing)\n")
+			if jsonOutput {
+				outputJSON(map[string]string{
+					"decision": "allow",
+					"reason":   "re-entry cooldown: agent already received block instructions",
+				})
+			}
+			os.Exit(0)
+		}
+
+		// First stop attempt with no agent decision — block and instruct agent to create one.
 		reason := `Before stopping, create a decision point for the human to review.
 
 Steps:
