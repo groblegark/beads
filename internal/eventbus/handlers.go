@@ -9,7 +9,16 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+
+	"github.com/steveyegge/beads/internal/types"
 )
+
+// InboxStore is the minimal storage interface needed by inbox handlers
+// to drain and mark items without spawning a subprocess. (bd-f33nh)
+type InboxStore interface {
+	InboxDrain(ctx context.Context, agentName string, maxPriority ...int) ([]*types.InboxItem, error)
+	InboxMarkDelivered(ctx context.Context, ids []string) error
+}
 
 // PrimeHandler injects bd prime workflow context on SessionStart and PreCompact.
 // Priority 10 (runs first — context injection should happen before gates).
@@ -171,27 +180,58 @@ type gateCheckResponse struct {
 // are injected into the agent's context. Without this, responses delivered via
 // inbox while the agent was blocking in `bd decision create --wait` would never
 // be surfaced, causing the agent to create duplicate decisions. (bd-rwzse)
-type InboxDrainHandler struct{}
+//
+// When store is set (via SetInboxStore), drains in-process — no subprocess.
+// Falls back to subprocess when store is nil (backward compat). (bd-f33nh)
+type InboxDrainHandler struct {
+	store InboxStore
+}
 
 func (h *InboxDrainHandler) ID() string          { return "inbox-drain" }
 func (h *InboxDrainHandler) Handles() []EventType { return []EventType{EventSessionStart, EventPreCompact, EventStop} }
 func (h *InboxDrainHandler) Priority() int        { return 30 }
 
+// SetInboxStore wires in direct storage access, eliminating the subprocess round-trip.
+func (h *InboxDrainHandler) SetInboxStore(store InboxStore) { h.store = store }
+
 func (h *InboxDrainHandler) Handle(ctx context.Context, event *Event, result *Result) error {
+	if h.store != nil && event.Actor != "" {
+		return h.handleInProcess(ctx, event, result)
+	}
+	// Fallback: subprocess (for when store isn't wired or actor is unknown).
 	args := []string{"inbox", "drain", "--json"}
-	// On SessionStart, add --reconcile to also check the DB for missed items
 	if event.Type == EventSessionStart {
 		args = append(args, "--reconcile")
 	}
-
 	stdout, _, err := runBDCommandWithEnv(ctx, event.CWD, envFromEvent(event), args...)
 	if err != nil {
-		// Inbox drain is informational — log and continue (fail-open).
 		return fmt.Errorf("inbox-drain: %w", err)
 	}
 	if stdout != "" {
 		result.Inject = append(result.Inject, stdout)
 	}
+	return nil
+}
+
+func (h *InboxDrainHandler) handleInProcess(ctx context.Context, event *Event, result *Result) error {
+	items, err := h.store.InboxDrain(ctx, event.Actor)
+	if err != nil {
+		return fmt.Errorf("inbox-drain: %w", err)
+	}
+	if len(items) == 0 {
+		return nil
+	}
+
+	// Mark as delivered.
+	ids := make([]string, len(items))
+	for i, item := range items {
+		ids[i] = item.ID
+	}
+	if markErr := h.store.InboxMarkDelivered(ctx, ids); markErr != nil {
+		log.Printf("inbox-drain: failed to mark delivered: %v", markErr)
+	}
+
+	result.Inject = append(result.Inject, formatInboxItems(items))
 	return nil
 }
 
@@ -202,22 +242,70 @@ func (h *InboxDrainHandler) Handle(ctx context.Context, event *Event, result *Re
 // notifications reach the agent between tool calls, not just at session boundaries.
 // The handler is intentionally lightweight — it only checks for urgent items to
 // minimize latency impact on the agent's tool execution loop.
-type PostToolUseInboxHandler struct{}
+//
+// When store is set (via SetInboxStore), drains in-process — no subprocess.
+// Falls back to subprocess when store is nil (backward compat). (bd-f33nh)
+type PostToolUseInboxHandler struct {
+	store InboxStore
+}
 
 func (h *PostToolUseInboxHandler) ID() string          { return "post-tool-inbox" }
 func (h *PostToolUseInboxHandler) Handles() []EventType { return []EventType{EventPostToolUse} }
 func (h *PostToolUseInboxHandler) Priority() int        { return 30 }
 
+// SetInboxStore wires in direct storage access, eliminating the subprocess round-trip.
+func (h *PostToolUseInboxHandler) SetInboxStore(store InboxStore) { h.store = store }
+
 func (h *PostToolUseInboxHandler) Handle(ctx context.Context, event *Event, result *Result) error {
+	if h.store != nil && event.Actor != "" {
+		return h.handleInProcess(ctx, event, result)
+	}
+	// Fallback: subprocess.
 	stdout, _, err := runBDCommandWithEnv(ctx, event.CWD, envFromEvent(event), "inbox", "drain", "--urgent", "--json")
 	if err != nil {
-		// Inbox drain is informational — log and continue (fail-open).
 		return fmt.Errorf("post-tool-inbox: %w", err)
 	}
 	if stdout != "" {
 		result.Inject = append(result.Inject, stdout)
 	}
 	return nil
+}
+
+func (h *PostToolUseInboxHandler) handleInProcess(ctx context.Context, event *Event, result *Result) error {
+	items, err := h.store.InboxDrain(ctx, event.Actor, 1) // maxPriority=1 → P0+P1 only
+	if err != nil {
+		return fmt.Errorf("post-tool-inbox: %w", err)
+	}
+	if len(items) == 0 {
+		return nil
+	}
+
+	// Mark as delivered.
+	ids := make([]string, len(items))
+	for i, item := range items {
+		ids[i] = item.ID
+	}
+	if markErr := h.store.InboxMarkDelivered(ctx, ids); markErr != nil {
+		log.Printf("post-tool-inbox: failed to mark delivered: %v", markErr)
+	}
+
+	result.Inject = append(result.Inject, formatInboxItems(items))
+	return nil
+}
+
+// formatInboxItems formats drained inbox items for injection into the agent's
+// context. Mirrors the formatting from cmd/bd/inbox.go runInboxDrain. (bd-f33nh)
+func formatInboxItems(items []*types.InboxItem) string {
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("Inbox: %d new notification(s)\n\n", len(items)))
+	for _, item := range items {
+		sourceStr := ""
+		if item.Source != "" {
+			sourceStr = fmt.Sprintf(" (from %s)", item.Source)
+		}
+		sb.WriteString(fmt.Sprintf("- [%s]%s: %s\n", item.Type, sourceStr, item.Content))
+	}
+	return sb.String()
 }
 
 // runBDCommand executes a bd subcommand and captures stdout/stderr.

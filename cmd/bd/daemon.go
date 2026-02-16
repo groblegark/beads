@@ -738,10 +738,15 @@ func runDaemonLoop(interval time.Duration, autoCommit, autoPush, autoPull, local
 	}
 
 	// Wire bus reference into StopLoopDetector for JetStream publishing (bd-5r1cw).
+	// Wire storage into inbox handlers for in-process drain (bd-f33nh).
 	for _, h := range bus.Handlers() {
-		if sld, ok := h.(*eventbus.StopLoopDetector); ok {
-			sld.SetBus(bus)
-			break
+		switch handler := h.(type) {
+		case *eventbus.StopLoopDetector:
+			handler.SetBus(bus)
+		case *eventbus.InboxDrainHandler:
+			handler.SetInboxStore(store)
+		case *eventbus.PostToolUseInboxHandler:
+			handler.SetInboxStore(store)
 		}
 	}
 

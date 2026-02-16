@@ -7,6 +7,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/steveyegge/beads/internal/types"
 )
 
 func TestDefaultHandlers(t *testing.T) {
@@ -134,6 +136,209 @@ func TestInboxDrainHandlerMetadata(t *testing.T) {
 		if !expected[et] {
 			t.Errorf("unexpected event type: %s", et)
 		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// In-process inbox drain tests (bd-f33nh)
+// ---------------------------------------------------------------------------
+
+// mockInboxStore is a minimal InboxStore for testing in-process drain.
+type mockInboxStore struct {
+	items    []*types.InboxItem
+	drainErr error
+	markErr  error
+	drained  []string // IDs passed to InboxMarkDelivered
+}
+
+func (m *mockInboxStore) InboxDrain(_ context.Context, agentName string, maxPriority ...int) ([]*types.InboxItem, error) {
+	if m.drainErr != nil {
+		return nil, m.drainErr
+	}
+	// Filter by maxPriority if provided
+	if len(maxPriority) > 0 {
+		var filtered []*types.InboxItem
+		for _, item := range m.items {
+			if item.Priority <= maxPriority[0] {
+				filtered = append(filtered, item)
+			}
+		}
+		return filtered, nil
+	}
+	return m.items, nil
+}
+
+func (m *mockInboxStore) InboxMarkDelivered(_ context.Context, ids []string) error {
+	m.drained = append(m.drained, ids...)
+	return m.markErr
+}
+
+func TestInboxDrainHandler_InProcess(t *testing.T) {
+	store := &mockInboxStore{
+		items: []*types.InboxItem{
+			{ID: "1", Type: "alert", Source: "ci", Content: "Build failed"},
+			{ID: "2", Type: "decision", Source: "human", Content: "Approved"},
+		},
+	}
+
+	h := &InboxDrainHandler{}
+	h.SetInboxStore(store)
+
+	event := &Event{
+		Type:  EventSessionStart,
+		CWD:   t.TempDir(),
+		Actor: "bright-hog",
+	}
+	result := &Result{}
+
+	err := h.Handle(context.Background(), event, result)
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if len(result.Inject) != 1 {
+		t.Fatalf("expected 1 inject entry, got %d", len(result.Inject))
+	}
+	if !strings.Contains(result.Inject[0], "2 new notification") {
+		t.Errorf("expected '2 new notification' in inject, got: %q", result.Inject[0])
+	}
+	if !strings.Contains(result.Inject[0], "Build failed") {
+		t.Errorf("expected 'Build failed' in inject, got: %q", result.Inject[0])
+	}
+	// Verify items were marked delivered.
+	if len(store.drained) != 2 {
+		t.Errorf("expected 2 items marked delivered, got %d", len(store.drained))
+	}
+}
+
+func TestInboxDrainHandler_InProcess_Empty(t *testing.T) {
+	store := &mockInboxStore{items: nil}
+
+	h := &InboxDrainHandler{}
+	h.SetInboxStore(store)
+
+	event := &Event{
+		Type:  EventPreCompact,
+		CWD:   t.TempDir(),
+		Actor: "bright-hog",
+	}
+	result := &Result{}
+
+	err := h.Handle(context.Background(), event, result)
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if len(result.Inject) != 0 {
+		t.Errorf("expected no inject entries, got %d", len(result.Inject))
+	}
+}
+
+func TestInboxDrainHandler_FallsBackWithoutActor(t *testing.T) {
+	// When Actor is empty, handler should fall back to subprocess even if store is set.
+	// We can verify this by not mocking bd — the subprocess will fail, but that's
+	// the expected codepath. We just verify it doesn't use the store.
+	store := &mockInboxStore{
+		items: []*types.InboxItem{
+			{ID: "1", Type: "alert", Content: "Should not appear"},
+		},
+	}
+
+	h := &InboxDrainHandler{}
+	h.SetInboxStore(store)
+
+	event := &Event{
+		Type:  EventSessionStart,
+		CWD:   t.TempDir(),
+		Actor: "", // no actor → fallback
+	}
+	result := &Result{}
+
+	// This will fail because bd isn't in PATH, but that's fine —
+	// we just want to verify it didn't use the store.
+	_ = h.Handle(context.Background(), event, result)
+	if len(store.drained) != 0 {
+		t.Errorf("expected store not to be called when Actor is empty, but got %d drained IDs", len(store.drained))
+	}
+}
+
+func TestPostToolUseInboxHandler_InProcess(t *testing.T) {
+	store := &mockInboxStore{
+		items: []*types.InboxItem{
+			{ID: "1", Type: "alert", Priority: 0, Content: "Critical alert"},
+			{ID: "2", Type: "event", Priority: 2, Content: "Normal event"}, // P2 should be filtered
+			{ID: "3", Type: "alert", Priority: 1, Content: "High priority"},
+		},
+	}
+
+	h := &PostToolUseInboxHandler{}
+	h.SetInboxStore(store)
+
+	event := &Event{
+		Type:  EventPostToolUse,
+		CWD:   t.TempDir(),
+		Actor: "bright-hog",
+	}
+	result := &Result{}
+
+	err := h.Handle(context.Background(), event, result)
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if len(result.Inject) != 1 {
+		t.Fatalf("expected 1 inject entry, got %d", len(result.Inject))
+	}
+	// Should only have P0 and P1 items (IDs 1 and 3).
+	if !strings.Contains(result.Inject[0], "Critical alert") {
+		t.Errorf("expected 'Critical alert' in inject, got: %q", result.Inject[0])
+	}
+	if !strings.Contains(result.Inject[0], "High priority") {
+		t.Errorf("expected 'High priority' in inject, got: %q", result.Inject[0])
+	}
+	if strings.Contains(result.Inject[0], "Normal event") {
+		t.Errorf("should NOT contain 'Normal event' (P2), but got: %q", result.Inject[0])
+	}
+	// Only P0+P1 items should be marked delivered.
+	if len(store.drained) != 2 {
+		t.Errorf("expected 2 items marked delivered, got %d", len(store.drained))
+	}
+}
+
+func TestPostToolUseInboxHandler_InProcess_Empty(t *testing.T) {
+	store := &mockInboxStore{items: nil}
+
+	h := &PostToolUseInboxHandler{}
+	h.SetInboxStore(store)
+
+	event := &Event{
+		Type:  EventPostToolUse,
+		CWD:   t.TempDir(),
+		Actor: "bright-hog",
+	}
+	result := &Result{}
+
+	err := h.Handle(context.Background(), event, result)
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if len(result.Inject) != 0 {
+		t.Errorf("expected no inject entries, got %d", len(result.Inject))
+	}
+}
+
+func TestFormatInboxItems(t *testing.T) {
+	items := []*types.InboxItem{
+		{Type: "alert", Source: "ci", Content: "Build failed on main"},
+		{Type: "decision", Source: "", Content: "Approved deployment"},
+	}
+
+	output := formatInboxItems(items)
+	if !strings.Contains(output, "2 new notification") {
+		t.Errorf("expected '2 new notification' header, got: %q", output)
+	}
+	if !strings.Contains(output, "[alert] (from ci): Build failed on main") {
+		t.Errorf("expected formatted alert item, got: %q", output)
+	}
+	if !strings.Contains(output, "[decision]: Approved deployment") {
+		t.Errorf("expected formatted decision item without source, got: %q", output)
 	}
 }
 
