@@ -139,16 +139,61 @@ func mailAddressToAgentID(address string) string {
 	return ""
 }
 
-// resolveCoopURLFromBead looks up an agent bead via `bd show --json` and
-// extracts coop_url from the notes field. Returns empty string if the agent
-// doesn't have a coop_url.
+// resolveCoopURLFromBead looks up an agent bead and extracts coop_url from
+// its notes field. Tries three strategies:
+//  1. Direct ID lookup via `bd show <agentID> --json`
+//  2. Search for beads containing coop_url whose ID or title matches agentID
+//     (handles naming mismatch: requested_by="mayor" but bead ID="hq-mayor")
 func resolveCoopURLFromBead(ctx context.Context, cwd, agentID string) (string, error) {
-	stdout, _, err := runBDCommand(ctx, cwd, "show", agentID, "--json")
-	if err != nil {
-		return "", fmt.Errorf("bd show %s: %w", agentID, err)
+	// Strategy 1: direct bead ID lookup.
+	if url, err := extractCoopURLFromBead(ctx, cwd, agentID); err == nil {
+		return url, nil
 	}
 
-	// bd show --json returns an array of issues
+	// Strategy 2: search beads with coop_url in notes and match by agent name.
+	// The agentID from RequestedBy (e.g. "mayor/", "furiosa") may not match the
+	// bead ID (e.g. "hq-mayor", "gt-gastown-polecat-furiosa") because the agent
+	// controller uses K8s-style names while BD_ACTOR is a short name.
+	cleanID := strings.TrimRight(agentID, "/")
+	if cleanID == "" {
+		return "", fmt.Errorf("empty agent ID after cleanup")
+	}
+	stdout, _, err := runBDCommand(ctx, cwd, "search", "coop_url", "--json")
+	if err != nil {
+		return "", fmt.Errorf("search for coop_url beads: %w", err)
+	}
+
+	var issues []struct {
+		ID    string `json:"id"`
+		Title string `json:"title"`
+		Notes string `json:"notes"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &issues); err != nil {
+		return "", fmt.Errorf("parse search output: %w", err)
+	}
+
+	// Match: bead ID or title contains the agent name (case-insensitive).
+	lower := strings.ToLower(cleanID)
+	for _, issue := range issues {
+		idLower := strings.ToLower(issue.ID)
+		titleLower := strings.ToLower(issue.Title)
+		if strings.Contains(idLower, lower) || strings.Contains(titleLower, lower) {
+			if url := extractCoopURLFromNotes(issue.Notes); url != "" {
+				return url, nil
+			}
+		}
+	}
+
+	return "", fmt.Errorf("no bead with coop_url matching agent %q", agentID)
+}
+
+// extractCoopURLFromBead does a direct `bd show --json` lookup and extracts coop_url.
+func extractCoopURLFromBead(ctx context.Context, cwd, beadID string) (string, error) {
+	stdout, _, err := runBDCommand(ctx, cwd, "show", beadID, "--json")
+	if err != nil {
+		return "", fmt.Errorf("bd show %s: %w", beadID, err)
+	}
+
 	var issues []struct {
 		Notes string `json:"notes"`
 	}
@@ -156,22 +201,25 @@ func resolveCoopURLFromBead(ctx context.Context, cwd, agentID string) (string, e
 		return "", fmt.Errorf("parse bd show output: %w", err)
 	}
 	if len(issues) == 0 {
-		return "", fmt.Errorf("agent bead %q not found", agentID)
+		return "", fmt.Errorf("bead %q not found", beadID)
 	}
 
-	notes := issues[0].Notes
-	if !strings.Contains(notes, "coop_url") {
-		return "", fmt.Errorf("no coop_url in notes for %q", agentID)
+	url := extractCoopURLFromNotes(issues[0].Notes)
+	if url == "" {
+		return "", fmt.Errorf("no coop_url in notes for %q", beadID)
 	}
+	return url, nil
+}
 
+// extractCoopURLFromNotes parses a notes string for a "coop_url: <url>" line.
+func extractCoopURLFromNotes(notes string) string {
 	for _, line := range strings.Split(notes, "\n") {
 		parts := strings.SplitN(line, ":", 2)
 		if len(parts) == 2 && strings.TrimSpace(parts[0]) == "coop_url" {
-			return strings.TrimSpace(parts[1]), nil
+			return strings.TrimSpace(parts[1])
 		}
 	}
-
-	return "", fmt.Errorf("coop_url not found in notes for %q", agentID)
+	return ""
 }
 
 // postNudge POSTs a nudge message to a Coop sidecar's nudge endpoint.
