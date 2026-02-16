@@ -116,10 +116,14 @@ func runEventDrivenLoop(
 		}
 	}()
 
-	// Periodic health check — tracks consecutive DB failures for HA failover resilience
-	healthTicker := time.NewTicker(60 * time.Second)
+	// Periodic health check — tracks consecutive DB failures for HA failover resilience.
+	// Normal interval: 60s. During degraded state (dbFailures > 0): 5s for faster recovery detection.
+	const healthIntervalNormal = 60 * time.Second
+	const healthIntervalDegraded = 5 * time.Second
+	healthTicker := time.NewTicker(healthIntervalNormal)
 	defer healthTicker.Stop()
 	dbFailures := 0
+	var degradedSince time.Time
 
 	// Periodic dirty flush (every 5 minutes) to prevent dirty_issues table bloat (bd-13lq)
 	// Clears orphaned entries and already-exported entries that accumulate between restarts.
@@ -183,7 +187,14 @@ func runEventDrivenLoop(
 
 		case <-healthTicker.C:
 			// Periodic health validation (not sync)
-			checkDaemonHealth(ctx, store, log, &dbFailures)
+			wasDBDown := dbFailures > 0
+			checkDaemonHealth(ctx, store, log, &dbFailures, &degradedSince)
+			// Switch to fast probing during degraded state, back to normal on recovery
+			if dbFailures > 0 && !wasDBDown {
+				healthTicker.Reset(healthIntervalDegraded)
+			} else if dbFailures == 0 && wasDBDown {
+				healthTicker.Reset(healthIntervalNormal)
+			}
 
 		case <-dirtyFlushTicker.C:
 			// Periodic cleanup of stale dirty_issues entries (bd-13lq)
@@ -273,7 +284,7 @@ func runEventDrivenLoop(
 // Separate from sync operations - just validates state.
 // Returns true if database connectivity is OK, false if degraded.
 // The dbFailures counter tracks consecutive DB failures for logging recovery.
-func checkDaemonHealth(ctx context.Context, store storage.Storage, log daemonLogger, dbFailures *int) bool {
+func checkDaemonHealth(ctx context.Context, store storage.Storage, log daemonLogger, dbFailures *int, degradedSince *time.Time) bool {
 	dbOK := true
 
 	// Capture the *sql.DB once to avoid TOCTOU race with store.Close()
@@ -319,13 +330,18 @@ func checkDaemonHealth(ctx context.Context, store storage.Storage, log daemonLog
 	if !dbOK {
 		*dbFailures++
 		if *dbFailures == 1 {
-			log.log("Database connectivity lost — waiting for reconnection (HA failover?)")
+			*degradedSince = time.Now()
+			log.log("Database connectivity lost — switching to 5s health checks (HA failover?)")
 		} else if *dbFailures%5 == 0 {
-			log.log("Database still unreachable after %d consecutive checks", *dbFailures)
+			log.log("Database still unreachable after %d consecutive checks (%.0fs elapsed)",
+				*dbFailures, time.Since(*degradedSince).Seconds())
 		}
 	} else if *dbFailures > 0 {
-		log.log("Database connectivity restored after %d failed checks", *dbFailures)
+		outage := time.Since(*degradedSince)
+		log.log("Database connectivity restored after %d failed checks (outage: %.1fs) — resuming 60s health checks",
+			*dbFailures, outage.Seconds())
 		*dbFailures = 0
+		*degradedSince = time.Time{}
 	}
 
 	// Health check 3: Disk space check (platform-specific)
