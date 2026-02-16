@@ -325,10 +325,7 @@ CREATE TABLE IF NOT EXISTS inbox (
     UNIQUE INDEX idx_inbox_dedup (dedup_key)
 );
 
--- Per-agent delivery tracking for broadcast inbox messages (bd-r7slg).
--- When agent_name='all' broadcasts are marked delivered, a row goes here
--- instead of setting delivered_at on the shared inbox row. This prevents
--- agent A's drain from hiding the message from agents B, C, etc.
+-- Per-agent broadcast delivery tracking (bd-r7slg).
 CREATE TABLE IF NOT EXISTS inbox_broadcast_ack (
     inbox_id VARCHAR(255) NOT NULL,
     agent_name VARCHAR(255) NOT NULL,
