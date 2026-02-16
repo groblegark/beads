@@ -67,11 +67,16 @@ func runBusEmit(cmd *cobra.Command, args []string) error {
 	}
 
 	// Extract session_id from the event JSON if present.
+	// Fall back to TERM_SESSION_ID so the StopLoopDetector can track
+	// attempts even when Claude Code doesn't send session_id in the hook JSON.
 	var eventMeta struct {
 		SessionID string `json:"session_id"`
 	}
 	if len(eventData) > 0 {
 		_ = json.Unmarshal(eventData, &eventMeta)
+	}
+	if eventMeta.SessionID == "" {
+		eventMeta.SessionID = os.Getenv("TERM_SESSION_ID")
 	}
 
 	// Inject caller's session tag into the event JSON so the daemon-side

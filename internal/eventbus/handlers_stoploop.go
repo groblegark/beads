@@ -106,7 +106,9 @@ func (h *StopLoopDetector) Handle(ctx context.Context, event *Event, result *Res
 // current count of attempts within the window.
 func (h *StopLoopDetector) recordAttempt(sessionID string) int {
 	if sessionID == "" {
-		return 0
+		// Use a fallback key so loops are still detected when Claude Code
+		// doesn't send session_id (e.g., TERM_SESSION_ID not set).
+		sessionID = "_no_session"
 	}
 
 	h.mu.Lock()
