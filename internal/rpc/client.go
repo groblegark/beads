@@ -53,6 +53,21 @@ func TryConnect(socketPath string) (*Client, error) {
 // TryConnectWithTimeout attempts to connect to the daemon socket using the provided dial timeout.
 // Returns nil if no daemon is running or unhealthy.
 func TryConnectWithTimeout(socketPath string, dialTimeout time.Duration) (*Client, error) {
+	client, retryable := tryConnectOnce(socketPath, dialTimeout)
+	if client != nil || !retryable || !connectRetryEnabled() {
+		return client, nil
+	}
+	return retryConnect(socketPath, dialTimeout)
+}
+
+// ConnectRetryMax is the maximum number of retry attempts when daemon lock is held
+// but connection fails (daemon restarting). Exported for testing.
+var ConnectRetryMax = 3
+
+// tryConnectOnce attempts a single connection to the daemon socket.
+// Returns (client, retryable) where retryable indicates whether a retry might help
+// (daemon lock is held but socket/dial/health failed — daemon may be restarting).
+func tryConnectOnce(socketPath string, dialTimeout time.Duration) (*Client, bool) {
 	rpcDebugLog("attempting connection to socket: %s", socketPath)
 
 	// Fast probe: check daemon lock before attempting RPC connection if socket doesn't exist
@@ -69,17 +84,17 @@ func TryConnectWithTimeout(socketPath string, dialTimeout time.Duration) (*Clien
 			rpcDebugLog("daemon lock not held (no daemon running)")
 			// Self-heal: clean up stale artifacts when lock is free and socket is missing
 			cleanupStaleDaemonArtifacts(beadsDir)
-			return nil, nil
+			return nil, false
 		}
 		// Lock is held but socket was missing - re-check socket existence atomically
 		// to handle race where daemon just started between first check and lock check
 		rpcDebugLog("daemon lock held but socket was missing - re-checking socket existence")
 		socketExists = endpointExists(socketPath)
 		if !socketExists {
-			// Lock held but socket still missing after re-check - daemon startup or crash
+			// Lock held but socket still missing — daemon may be restarting (bd-jn461)
 			debug.Logf("daemon lock held but socket missing after re-check (startup race or crash): %s", socketPath)
-			rpcDebugLog("connection aborted: socket still missing despite lock being held")
-			return nil, nil
+			rpcDebugLog("connection failed: socket still missing despite lock being held (retryable)")
+			return nil, true // retryable: daemon lock held
 		}
 		rpcDebugLog("socket now exists after re-check (daemon startup race resolved)")
 	}
@@ -87,12 +102,12 @@ func TryConnectWithTimeout(socketPath string, dialTimeout time.Duration) (*Clien
 	if dialTimeout <= 0 {
 		dialTimeout = 200 * time.Millisecond
 	}
-	
+
 	rpcDebugLog("dialing socket (timeout: %v)", dialTimeout)
 	dialStart := time.Now()
 	conn, err := dialRPC(socketPath, dialTimeout)
 	dialDuration := time.Since(dialStart)
-	
+
 	if err != nil {
 		debug.Logf("failed to connect to RPC endpoint: %v", err)
 		rpcDebugLog("dial failed after %v: %v", dialDuration, err)
@@ -105,10 +120,12 @@ func TryConnectWithTimeout(socketPath string, dialTimeout time.Duration) (*Clien
 			rpcDebugLog("daemon not running (lock free) - cleaning up stale socket")
 			cleanupStaleDaemonArtifacts(beadsDir)
 			_ = os.Remove(socketPath) // Also remove stale socket
+			return nil, false
 		}
-		return nil, nil
+		// Lock held but dial failed — daemon restarting (bd-jn461)
+		return nil, true // retryable: daemon lock held
 	}
-	
+
 	rpcDebugLog("dial succeeded in %v", dialDuration)
 
 	client := &Client{
@@ -121,19 +138,19 @@ func TryConnectWithTimeout(socketPath string, dialTimeout time.Duration) (*Clien
 	healthStart := time.Now()
 	health, err := client.Health()
 	healthDuration := time.Since(healthStart)
-	
+
 	if err != nil {
 		debug.Logf("health check failed: %v", err)
 		rpcDebugLog("health check failed after %v: %v", healthDuration, err)
 		_ = conn.Close()
-		return nil, nil
+		return nil, false
 	}
 
 	if health.Status == "unhealthy" {
 		debug.Logf("daemon unhealthy: %s", health.Error)
 		rpcDebugLog("daemon unhealthy (checked in %v): %s", healthDuration, health.Error)
 		_ = conn.Close()
-		return nil, nil
+		return nil, false
 	}
 
 	debug.Logf("connected to daemon (status: %s, uptime: %.1fs)",
@@ -141,7 +158,55 @@ func TryConnectWithTimeout(socketPath string, dialTimeout time.Duration) (*Clien
 	rpcDebugLog("connection successful (health check: %v, status: %s, uptime: %.1fs)",
 		healthDuration, health.Status, health.Uptime)
 
-	return client, nil
+	return client, false
+}
+
+// connectRetryEnabled returns true if connection retry is enabled.
+// Retry is enabled via BD_CONNECT_RETRY=1 environment variable or when
+// running as an agent (BD_ACTOR or GT_ROLE is set). This avoids adding
+// latency for interactive users while helping agents survive daemon restarts.
+func connectRetryEnabled() bool {
+	if os.Getenv("BD_CONNECT_RETRY") == "1" {
+		return true
+	}
+	// Auto-enable for agents (they run non-interactively and benefit from retry)
+	if os.Getenv("BD_ACTOR") != "" || os.Getenv("GT_ROLE") != "" {
+		return true
+	}
+	return false
+}
+
+// retryConnect retries daemon connection with exponential backoff.
+// Used when daemon lock is held (daemon exists) but socket is temporarily unavailable
+// (daemon restarting). Retries up to ConnectRetryMax times with 500ms, 1s, 2s backoff.
+func retryConnect(socketPath string, dialTimeout time.Duration) (*Client, error) {
+	backoff := 500 * time.Millisecond
+
+	for attempt := 1; attempt <= ConnectRetryMax; attempt++ {
+		rpcDebugLog("retry %d/%d: waiting %v for daemon restart...", attempt, ConnectRetryMax, backoff)
+		time.Sleep(backoff)
+
+		// Re-check if daemon is still running
+		beadsDir := filepath.Dir(socketPath)
+		running, _ := lockfile.TryDaemonLock(beadsDir)
+		if !running {
+			rpcDebugLog("retry %d: daemon lock released (daemon stopped)", attempt)
+			return nil, nil
+		}
+
+		// Try single connection attempt (no nested retry — tryConnectOnce returns retryable
+		// but we handle the retry loop here)
+		client, _ := tryConnectOnce(socketPath, dialTimeout)
+		if client != nil {
+			rpcDebugLog("retry %d: connection succeeded", attempt)
+			return client, nil
+		}
+
+		backoff = min(backoff*2, 4*time.Second)
+	}
+
+	rpcDebugLog("all %d retry attempts failed", ConnectRetryMax)
+	return nil, nil
 }
 
 // GetDaemonHost returns the daemon host address.
