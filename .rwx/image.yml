@@ -36,17 +36,19 @@ base:
 tasks:
   # ── Resolve ref name (strip refs/tags/ and refs/heads/ prefixes) ───
   - key: resolve-ref
+    cache: false
     run: |
       TAG="${REF_NAME#refs/tags/}"
       TAG="${TAG#refs/heads/}"
-      echo -n "$TAG" > /tmp/resolved-tag
+      mkdir -p /home/ubuntu/artifacts
+      echo -n "$TAG" > /home/ubuntu/artifacts/resolved-tag
       echo "Resolved ref: $TAG"
     env:
       REF_NAME: ${{ init.ref-name }}
     outputs:
       artifacts:
         - key: resolved-tag
-          path: /tmp/resolved-tag
+          path: /home/ubuntu/artifacts/resolved-tag
 
   # ── System deps (cached until lock changes) ────────────────────────
   - key: system-deps
