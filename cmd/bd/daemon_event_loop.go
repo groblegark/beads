@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"os"
 	"os/signal"
 	"runtime"
@@ -275,26 +276,35 @@ func runEventDrivenLoop(
 func checkDaemonHealth(ctx context.Context, store storage.Storage, log daemonLogger, dbFailures *int) bool {
 	dbOK := true
 
+	// Capture the *sql.DB once to avoid TOCTOU race with store.Close()
+	// which nils out the DB pointer. If we called store.GetMetadata()
+	// after checking UnderlyingDB(), Close() could nil s.db between
+	// our check and the actual query, causing a nil pointer panic.
+	db := store.UnderlyingDB()
+	if db == nil {
+		dbOK = false
+	}
+
 	// Health check 1: Verify metadata is accessible
 	// This helps detect if external operations (like bd import --force) have modified metadata
 	// Without this, daemon may continue operating with stale metadata cache
 	// Try new key first, fall back to old for migration
-	// Guard: skip if DB is nil (Dolt cluster connectivity lost). (bd-op7sp)
-	if db := store.UnderlyingDB(); db != nil {
-		if _, err := store.GetMetadata(ctx, "jsonl_content_hash"); err != nil {
-			if _, err := store.GetMetadata(ctx, "last_import_hash"); err != nil {
-				log.log("Health check: metadata read failed: %v", err)
+	if dbOK {
+		var value string
+		err := db.QueryRowContext(ctx, "SELECT value FROM metadata WHERE `key` = ?", "jsonl_content_hash").Scan(&value)
+		if err != nil && err != sql.ErrNoRows {
+			err2 := db.QueryRowContext(ctx, "SELECT value FROM metadata WHERE `key` = ?", "last_import_hash").Scan(&value)
+			if err2 != nil && err2 != sql.ErrNoRows {
+				log.log("Health check: metadata read failed: %v", err2)
 				// Non-fatal: daemon continues but logs the issue
 				// This helps diagnose stuck states in sandboxed environments
 			}
 		}
-	} else {
-		dbOK = false
 	}
 
 	// Health check 2: Database integrity check
 	// Verify the database is accessible and structurally sound
-	if db := store.UnderlyingDB(); db != nil {
+	if dbOK {
 		var one int
 		if err := db.QueryRowContext(ctx, "SELECT 1").Scan(&one); err != nil {
 			log.log("Health check: database connectivity check failed: %v", err)
