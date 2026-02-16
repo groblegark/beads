@@ -26,6 +26,7 @@ var migrations = []Migration{
 	{"drop_ready_issues_view", migrateDropReadyIssuesView},
 	{"inbox_table", migrateInboxTable},
 	{"session_registry_table", migrateSessionRegistryTable},
+	{"inbox_dedup_unique", migrateInboxDedupUnique},
 }
 
 // RunMigrations executes all registered migrations in order.
@@ -196,7 +197,7 @@ func migrateInboxTable(ctx context.Context, db *sql.DB) error {
 			expires_at DATETIME,
 			dedup_key VARCHAR(255) NOT NULL,
 			INDEX idx_inbox_pending (agent_name, delivered_at),
-			INDEX idx_inbox_dedup (dedup_key)
+			UNIQUE INDEX idx_inbox_dedup (dedup_key)
 		)
 	`)
 	if err != nil {
@@ -263,6 +264,64 @@ func migrateSessionRegistryTable(ctx context.Context, db *sql.DB) error {
 			return nil
 		}
 		return fmt.Errorf("failed to create session_registry table: %w", err)
+	}
+
+	return nil
+}
+
+// migrateInboxDedupUnique upgrades the inbox dedup_key index from INDEX to UNIQUE INDEX (bd-56da5).
+// Without UNIQUE, INSERT IGNORE cannot deduplicate — duplicates are silently inserted.
+func migrateInboxDedupUnique(ctx context.Context, db *sql.DB) error {
+	// Check if the inbox table exists at all.
+	var count int
+	err := db.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM information_schema.tables
+		WHERE table_schema = DATABASE()
+		  AND table_name = 'inbox'
+	`).Scan(&count)
+	if err != nil {
+		return fmt.Errorf("failed to check for inbox table: %w", err)
+	}
+	if count == 0 {
+		return nil // inbox table doesn't exist yet; migrateInboxTable will create it with UNIQUE.
+	}
+
+	// Check if the index is already unique.
+	var nonUnique int
+	err = db.QueryRowContext(ctx, `
+		SELECT non_unique FROM information_schema.statistics
+		WHERE table_schema = DATABASE()
+		  AND table_name = 'inbox'
+		  AND index_name = 'idx_inbox_dedup'
+	`).Scan(&nonUnique)
+	if err != nil {
+		// Index doesn't exist at all — nothing to fix.
+		return nil
+	}
+	if nonUnique == 0 {
+		return nil // Already unique.
+	}
+
+	// Remove duplicate dedup_keys before adding UNIQUE constraint.
+	// Keep the earliest entry (smallest created_at) for each dedup_key.
+	_, err = db.ExecContext(ctx, `
+		DELETE i1 FROM inbox i1
+		INNER JOIN inbox i2
+		ON i1.dedup_key = i2.dedup_key
+		AND i1.created_at > i2.created_at
+	`)
+	if err != nil {
+		return fmt.Errorf("failed to remove duplicate dedup_keys: %w", err)
+	}
+
+	// Drop old non-unique index and create unique one.
+	_, err = db.ExecContext(ctx, `ALTER TABLE inbox DROP INDEX idx_inbox_dedup`)
+	if err != nil {
+		return fmt.Errorf("failed to drop old inbox dedup index: %w", err)
+	}
+	_, err = db.ExecContext(ctx, `ALTER TABLE inbox ADD UNIQUE INDEX idx_inbox_dedup (dedup_key)`)
+	if err != nil {
+		return fmt.Errorf("failed to add unique inbox dedup index: %w", err)
 	}
 
 	return nil

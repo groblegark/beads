@@ -322,7 +322,7 @@ CREATE TABLE IF NOT EXISTS inbox (
     expires_at DATETIME,
     dedup_key VARCHAR(255) NOT NULL,
     INDEX idx_inbox_pending (agent_name, delivered_at),
-    INDEX idx_inbox_dedup (dedup_key)
+    UNIQUE INDEX idx_inbox_dedup (dedup_key)
 );
 
 -- Blocked issues cache (materialized view for GetReadyWork performance, bd-b2ts)
