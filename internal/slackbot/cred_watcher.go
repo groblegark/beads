@@ -20,6 +20,7 @@ import (
 // CoopCredWatcher subscribes to coop credential events on core NATS
 // and posts reauth notifications to Slack. When a user replies with
 // an authorization code, it completes the reauth flow via the coopmux API.
+// It also handles "add account" commands to create new credential accounts.
 type CoopCredWatcher struct {
 	natsURL   string
 	natsToken string
@@ -33,6 +34,10 @@ type CoopCredWatcher struct {
 	reauthThreads   map[string]reauthInfo // thread_ts → reauth info
 	completedThreads map[string]bool      // threads where reauth succeeded (don't re-recover)
 	reauthThreadsMu sync.RWMutex
+
+	// Track device code threads (no manual code paste needed — coopmux polls).
+	deviceCodeThreads   map[string]string // thread_ts → account name
+	deviceCodeThreadsMu sync.RWMutex
 }
 
 // reauthInfo tracks a pending reauth notification posted to Slack.
@@ -57,13 +62,14 @@ type credentialEventPayload struct {
 // events and forwards reauth URLs to Slack.
 func NewCoopCredWatcher(natsURL, natsToken, coopmuxURL, authToken string, bot *Bot) *CoopCredWatcher {
 	return &CoopCredWatcher{
-		natsURL:          natsURL,
-		natsToken:        natsToken,
-		coopmuxURL:       strings.TrimRight(coopmuxURL, "/"),
-		authToken:        authToken,
-		bot:              bot,
-		reauthThreads:    make(map[string]reauthInfo),
-		completedThreads: make(map[string]bool),
+		natsURL:           natsURL,
+		natsToken:         natsToken,
+		coopmuxURL:        strings.TrimRight(coopmuxURL, "/"),
+		authToken:         authToken,
+		bot:               bot,
+		reauthThreads:     make(map[string]reauthInfo),
+		completedThreads:  make(map[string]bool),
+		deviceCodeThreads: make(map[string]string),
 	}
 }
 
@@ -182,11 +188,25 @@ func (w *CoopCredWatcher) handleMessage(msg *nats.Msg) {
 			return
 		}
 
-		// Always initiate reauth via coopmux to get both the auth URL and
-		// the state token needed for the exchange call.
+		// Device code flow: NATS payload has user_code + auth_url (verification URI).
+		// User visits URL and enters code in browser. coopmux polls automatically.
+		// No code paste needed in Slack.
+		if payload.UserCode != nil && *payload.UserCode != "" {
+			authURL := ""
+			if payload.AuthURL != nil {
+				authURL = *payload.AuthURL
+			}
+			go w.notifyDeviceCode(payload.Account, authURL, *payload.UserCode)
+			return
+		}
+
+		// PKCE flow: initiate reauth via coopmux to get the auth URL and
+		// state token needed for the exchange call.
 		go w.pullReauthURL(payload.Account)
 	case "refreshed":
 		log.Printf("slackbot/cred: account %s refreshed", payload.Account)
+		// Post completion in device code threads (coopmux auto-polled successfully).
+		go w.notifyDeviceCodeComplete(payload.Account)
 		// Don't clear reauth threads here — the credential seeder re-seeds
 		// revoked credentials on pod restart, emitting a false "refreshed"
 		// event that would wipe the thread tracking. Threads are cleaned up
@@ -618,6 +638,189 @@ func (w *CoopCredWatcher) pullReauthURL(account string) {
 
 	log.Printf("slackbot/cred: pulled reauth URL for %s from coopmux (startup race recovery)", account)
 	w.notifyReauth(account, session.AuthURL, session.State)
+}
+
+// HandleChannelMessage checks if a channel message is an "add account" command.
+// Returns true if the message was handled.
+func (w *CoopCredWatcher) HandleChannelMessage(channelID, text, userID string) bool {
+	trimmed := strings.TrimSpace(text)
+	lower := strings.ToLower(trimmed)
+
+	// Match "add account <name>" or "add account <name> <provider>".
+	if !strings.HasPrefix(lower, "add account ") {
+		return false
+	}
+
+	parts := strings.Fields(trimmed)
+	if len(parts) < 3 {
+		return false
+	}
+
+	accountName := parts[2]
+	provider := "claude" // default
+	if len(parts) >= 4 {
+		provider = strings.ToLower(parts[3])
+	}
+
+	go w.addNewAccount(accountName, provider, channelID, userID)
+	return true
+}
+
+// addNewAccount calls coopmux's /api/v1/credentials/new to create a new
+// credential account. The account starts in Expired state; coopmux's refresh
+// loop will initiate device code auth and emit reauth_required on NATS,
+// which triggers the device code notification flow.
+func (w *CoopCredWatcher) addNewAccount(name, provider, channelID, userID string) {
+	if w.coopmuxURL == "" {
+		w.bot.postThreadReply(channelID, "",
+			"Coopmux URL not configured (set COOPMUX_URL)")
+		return
+	}
+
+	reqBody, _ := json.Marshal(map[string]string{
+		"name":     name,
+		"provider": provider,
+	})
+
+	reqURL := w.coopmuxURL + "/api/v1/credentials/new"
+	req, err := http.NewRequest("POST", reqURL, bytes.NewReader(reqBody))
+	if err != nil {
+		log.Printf("slackbot/cred: create new account request: %v", err)
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if w.authToken != "" {
+		req.Header.Set("Authorization", "Bearer "+w.authToken)
+	}
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Printf("slackbot/cred: new account request failed: %v", err)
+		w.postChannelMessage(channelID,
+			fmt.Sprintf("Failed to create account *%s*: %v", name, err))
+		return
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		detail := string(body)
+		if len(detail) > 500 {
+			detail = detail[:500]
+		}
+		log.Printf("slackbot/cred: new account returned %d: %s", resp.StatusCode, detail)
+		w.postChannelMessage(channelID,
+			fmt.Sprintf("Failed to create account *%s* (HTTP %d):\n```\n%s\n```", name, resp.StatusCode, detail))
+		return
+	}
+
+	log.Printf("slackbot/cred: created new account %s (provider: %s)", name, provider)
+	w.postChannelMessage(channelID,
+		fmt.Sprintf(":new: Account *%s* (provider: %s) created. Waiting for authentication — a device code will appear shortly.", name, provider))
+}
+
+// notifyDeviceCode posts a device code notification to Slack.
+// Device code flow: user visits the URL and enters the code in their browser.
+// coopmux polls the token endpoint automatically — no code paste in Slack needed.
+func (w *CoopCredWatcher) notifyDeviceCode(account, authURL, userCode string) {
+	channelID := w.bot.channelID
+
+	blocks := []slack.Block{
+		slack.NewHeaderBlock(
+			slack.NewTextBlockObject("plain_text", "Authentication Required", false, false),
+		),
+		slack.NewSectionBlock(
+			slack.NewTextBlockObject("mrkdwn", fmt.Sprintf(
+				"Account *%s* needs authentication.\n\n"+
+					"1. Open the verification URL below\n"+
+					"2. Enter the code shown\n"+
+					"3. Sign in and authorize access\n\n"+
+					"Authentication will complete automatically — no need to paste anything here.",
+				account,
+			), false, false),
+			nil, nil,
+		),
+		slack.NewSectionBlock(
+			slack.NewTextBlockObject("mrkdwn", fmt.Sprintf(
+				"*Verification URL:* <%s|Open in browser>\n*Code:* `%s`",
+				authURL, userCode,
+			), false, false),
+			nil, nil,
+		),
+		slack.NewContextBlock("",
+			slack.NewTextBlockObject("mrkdwn",
+				fmt.Sprintf("Account: `%s` | Device code flow — coopmux polls automatically", account),
+				false, false),
+		),
+	}
+
+	_, ts, err := w.bot.client.PostMessage(channelID,
+		slack.MsgOptionBlocks(blocks...),
+		slack.MsgOptionText(fmt.Sprintf("Authentication required for %s — code: %s", account, userCode), false),
+	)
+	if err != nil {
+		log.Printf("slackbot/cred: failed to post device code notification: %v", err)
+		return
+	}
+
+	// Track this as a device code thread so we can post completion when refreshed.
+	w.deviceCodeThreadsMu.Lock()
+	w.deviceCodeThreads[ts] = account
+	w.deviceCodeThreadsMu.Unlock()
+
+	// Also track in reauthThreads for rate-limiting.
+	w.reauthThreadsMu.Lock()
+	w.reauthThreads[ts] = reauthInfo{
+		account:   account,
+		channelID: channelID,
+		postedAt:  time.Now(),
+	}
+	w.reauthThreadsMu.Unlock()
+
+	log.Printf("slackbot/cred: posted device code notification for %s (code: %s, thread %s)", account, userCode, ts)
+}
+
+// notifyDeviceCodeComplete posts a success message in device code threads
+// when coopmux's background polling completes authentication.
+func (w *CoopCredWatcher) notifyDeviceCodeComplete(account string) {
+	w.deviceCodeThreadsMu.Lock()
+	var threadsToComplete []string
+	for ts, acct := range w.deviceCodeThreads {
+		if acct == account {
+			threadsToComplete = append(threadsToComplete, ts)
+			delete(w.deviceCodeThreads, ts)
+		}
+	}
+	w.deviceCodeThreadsMu.Unlock()
+
+	if len(threadsToComplete) == 0 {
+		return
+	}
+
+	channelID := w.bot.channelID
+	for _, ts := range threadsToComplete {
+		w.bot.postThreadReply(channelID, ts,
+			fmt.Sprintf(":white_check_mark: Authentication successful for account *%s*. Credentials distributed to sessions.", account))
+
+		// Clean up reauth tracking.
+		w.reauthThreadsMu.Lock()
+		delete(w.reauthThreads, ts)
+		w.completedThreads[ts] = true
+		w.reauthThreadsMu.Unlock()
+	}
+
+	log.Printf("slackbot/cred: device code auth completed for %s (%d threads notified)", account, len(threadsToComplete))
+}
+
+// postChannelMessage posts a message to a channel (not in a thread).
+func (w *CoopCredWatcher) postChannelMessage(channelID, text string) {
+	_, _, err := w.bot.client.PostMessage(channelID,
+		slack.MsgOptionText(text, false),
+	)
+	if err != nil {
+		log.Printf("slackbot/cred: failed to post channel message: %v", err)
+	}
 }
 
 // Close drains the subscription and closes the NATS connection.

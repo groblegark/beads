@@ -2204,6 +2204,13 @@ func (b *Bot) handleEventsAPI(event slackevents.EventsAPIEvent) {
 			b.handleThreadReply(ev)
 			return
 		}
+		// Check for credential commands (e.g. "add account <name>") before
+		// routing to agent channels.
+		if b.credWatcher != nil && ev.User != b.botUserID && ev.BotID == "" {
+			if b.credWatcher.HandleChannelMessage(ev.Channel, ev.Text, ev.User) {
+				return
+			}
+		}
 		b.handleAgentChannelMessage(ev)
 	}
 }

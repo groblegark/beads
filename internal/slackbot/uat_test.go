@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nats-io/nats.go"
 	"github.com/slack-go/slack"
 	"github.com/slack-go/slack/slackevents"
 )
@@ -2963,5 +2964,246 @@ func TestUAT_Timing_BurstDecisions(t *testing.T) {
 	bot.decisionMessagesMu.RUnlock()
 	if tracked != 50 {
 		t.Errorf("tracked %d decisions, want 50", tracked)
+	}
+}
+
+// ==========================================================================
+// UAT Epic: Credential Management — Add Account + Device Code
+// ==========================================================================
+
+// TestUAT_CredWatcher_HandleChannelMessage_AddAccount verifies that
+// "add account <name>" messages are recognized and dispatched.
+func TestUAT_CredWatcher_HandleChannelMessage_AddAccount(t *testing.T) {
+	tests := []struct {
+		name     string
+		text     string
+		handled  bool
+	}{
+		{"basic add account", "add account claude-max-2", true},
+		{"with provider", "add account claude-prod claude", true},
+		{"case insensitive", "Add Account my-acct", true},
+		{"extra spaces", "  add account   test-acct  ", true},
+		{"not a command", "hello world", false},
+		{"partial match", "add accoun", false},
+		{"too few args", "add account", false},
+		{"different command", "remove account foo", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mockSlack := newMockSlackAPI()
+			bot := &Bot{
+				client:    mockSlack,
+				channelID: "C_DEFAULT",
+				botUserID: "UBOTTEST",
+			}
+			watcher := NewCoopCredWatcher("nats://fake:4222", "", "", "", bot)
+			// Don't set coopmuxURL — we just want to test message matching,
+			// not the HTTP call (which would fail without a server).
+
+			got := watcher.HandleChannelMessage("C_DEFAULT", tt.text, "U_HUMAN")
+			if got != tt.handled {
+				t.Errorf("HandleChannelMessage(%q) = %v, want %v", tt.text, got, tt.handled)
+			}
+		})
+	}
+}
+
+// TestUAT_CredWatcher_DeviceCodeNotification verifies that device code
+// notifications are posted with the correct format.
+func TestUAT_CredWatcher_DeviceCodeNotification(t *testing.T) {
+	mockSlack := newMockSlackAPI()
+	bot := &Bot{
+		client:    mockSlack,
+		channelID: "C_DEFAULT",
+		botUserID: "UBOTTEST",
+	}
+	watcher := NewCoopCredWatcher("nats://fake:4222", "", "http://coopmux:9800", "token123", bot)
+
+	watcher.notifyDeviceCode("claude-max-2", "https://console.anthropic.com/device", "ABCD-1234")
+
+	// Should have posted a message.
+	if len(mockSlack.PostedMessages) != 1 {
+		t.Fatalf("expected 1 posted message, got %d", len(mockSlack.PostedMessages))
+	}
+
+	msg := mockSlack.PostedMessages[0]
+	if msg.ChannelID != "C_DEFAULT" {
+		t.Errorf("channelID = %q, want C_DEFAULT", msg.ChannelID)
+	}
+
+	// Check fallback text contains the code.
+	_, vals, _ := slack.UnsafeApplyMsgOptions("", "C_DEFAULT", "", msg.Options...)
+	text := vals.Get("text")
+	if !strings.Contains(text, "ABCD-1234") {
+		t.Errorf("fallback text should contain device code, got: %s", text)
+	}
+	if !strings.Contains(text, "claude-max-2") {
+		t.Errorf("fallback text should contain account name, got: %s", text)
+	}
+
+	// Verify thread is tracked for device code completion.
+	watcher.deviceCodeThreadsMu.RLock()
+	if len(watcher.deviceCodeThreads) != 1 {
+		t.Errorf("expected 1 device code thread tracked, got %d", len(watcher.deviceCodeThreads))
+	}
+	watcher.deviceCodeThreadsMu.RUnlock()
+
+	// Verify rate-limiting is set up.
+	watcher.reauthThreadsMu.RLock()
+	if len(watcher.reauthThreads) != 1 {
+		t.Errorf("expected 1 reauth thread for rate-limiting, got %d", len(watcher.reauthThreads))
+	}
+	watcher.reauthThreadsMu.RUnlock()
+}
+
+// TestUAT_CredWatcher_DeviceCodeComplete verifies that a "refreshed" event
+// posts completion in device code threads.
+func TestUAT_CredWatcher_DeviceCodeComplete(t *testing.T) {
+	mockSlack := newMockSlackAPI()
+	bot := &Bot{
+		client:    mockSlack,
+		channelID: "C_DEFAULT",
+		botUserID: "UBOTTEST",
+	}
+	watcher := NewCoopCredWatcher("nats://fake:4222", "", "http://coopmux:9800", "token123", bot)
+
+	// Simulate a device code thread.
+	threadTS := "1234567890.000100"
+	watcher.deviceCodeThreadsMu.Lock()
+	watcher.deviceCodeThreads[threadTS] = "claude-max-2"
+	watcher.deviceCodeThreadsMu.Unlock()
+	watcher.reauthThreadsMu.Lock()
+	watcher.reauthThreads[threadTS] = reauthInfo{
+		account:   "claude-max-2",
+		channelID: "C_DEFAULT",
+		postedAt:  time.Now(),
+	}
+	watcher.reauthThreadsMu.Unlock()
+
+	// Simulate completion.
+	watcher.notifyDeviceCodeComplete("claude-max-2")
+
+	// Should have posted a success reply in the thread.
+	found := false
+	for _, msg := range mockSlack.PostedMessages {
+		_, vals, _ := slack.UnsafeApplyMsgOptions("", "C_DEFAULT", "", msg.Options...)
+		text := vals.Get("text")
+		if strings.Contains(text, "Authentication successful") && strings.Contains(text, "claude-max-2") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("expected success reply in device code thread")
+	}
+
+	// Device code thread should be cleaned up.
+	watcher.deviceCodeThreadsMu.RLock()
+	if len(watcher.deviceCodeThreads) != 0 {
+		t.Errorf("expected device code thread to be cleaned up, got %d", len(watcher.deviceCodeThreads))
+	}
+	watcher.deviceCodeThreadsMu.RUnlock()
+
+	// Reauth thread should be cleaned up and marked completed.
+	watcher.reauthThreadsMu.RLock()
+	if len(watcher.reauthThreads) != 0 {
+		t.Errorf("expected reauth thread to be cleaned up, got %d", len(watcher.reauthThreads))
+	}
+	if !watcher.completedThreads[threadTS] {
+		t.Error("expected thread to be marked completed")
+	}
+	watcher.reauthThreadsMu.RUnlock()
+}
+
+// TestUAT_CredWatcher_DeviceCodeComplete_NoThread verifies that a "refreshed"
+// event for an account without a device code thread is a no-op.
+func TestUAT_CredWatcher_DeviceCodeComplete_NoThread(t *testing.T) {
+	mockSlack := newMockSlackAPI()
+	bot := &Bot{
+		client:    mockSlack,
+		channelID: "C_DEFAULT",
+		botUserID: "UBOTTEST",
+	}
+	watcher := NewCoopCredWatcher("nats://fake:4222", "", "http://coopmux:9800", "token123", bot)
+
+	// Refreshed for unknown account — should be a no-op.
+	watcher.notifyDeviceCodeComplete("unknown-account")
+
+	if len(mockSlack.PostedMessages) != 0 {
+		t.Errorf("expected no messages for unknown account, got %d", len(mockSlack.PostedMessages))
+	}
+}
+
+// TestUAT_CredWatcher_HandleMessage_DeviceCode verifies that a reauth_required
+// event with user_code triggers the device code notification path.
+func TestUAT_CredWatcher_HandleMessage_DeviceCode(t *testing.T) {
+	mockSlack := newMockSlackAPI()
+	bot := &Bot{
+		client:    mockSlack,
+		channelID: "C_DEFAULT",
+		botUserID: "UBOTTEST",
+	}
+	watcher := NewCoopCredWatcher("nats://fake:4222", "", "http://coopmux:9800", "token123", bot)
+
+	userCode := "ABCD-1234"
+	authURL := "https://console.anthropic.com/device"
+	payload := credentialEventPayload{
+		EventType: "reauth_required",
+		Account:   "claude-max-2",
+		UserCode:  &userCode,
+		AuthURL:   &authURL,
+		Ts:        time.Now().Format(time.RFC3339),
+	}
+	data, _ := json.Marshal(payload)
+
+	// Call handleMessage directly (bypass NATS).
+	watcher.handleMessage(&nats.Msg{Data: data})
+
+	// Give the goroutine a moment to post.
+	time.Sleep(100 * time.Millisecond)
+
+	// Should have posted a device code notification (not a PKCE reauth).
+	found := false
+	for _, msg := range mockSlack.PostedMessages {
+		_, vals, _ := slack.UnsafeApplyMsgOptions("", "C_DEFAULT", "", msg.Options...)
+		text := vals.Get("text")
+		if strings.Contains(text, "ABCD-1234") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("expected device code notification with user code")
+	}
+}
+
+// TestUAT_ChannelMessage_AddAccount_Dispatch verifies that "add account"
+// messages in channels are intercepted before agent channel routing.
+func TestUAT_ChannelMessage_AddAccount_Dispatch(t *testing.T) {
+	mockSlack := newMockSlackAPI()
+	mockDecisions := newMockDecisionProvider()
+	bot := &Bot{
+		client:           mockSlack,
+		decisions:        mockDecisions,
+		channelID:        "C_DEFAULT",
+		botUserID:        "UBOTTEST",
+		decisionMessages: make(map[string]messageInfo),
+	}
+	watcher := NewCoopCredWatcher("nats://fake:4222", "", "", "", bot)
+	bot.SetCredWatcher(watcher)
+
+	// Simulate a channel message "add account test-acct".
+	ev := &slackevents.MessageEvent{
+		User:    "U_HUMAN",
+		Channel: "C_DEFAULT",
+		Text:    "add account test-acct",
+	}
+
+	// This should be handled by the cred watcher, not agent channel routing.
+	// We verify by checking that HandleChannelMessage returns true.
+	handled := watcher.HandleChannelMessage(ev.Channel, ev.Text, ev.User)
+	if !handled {
+		t.Error("expected 'add account' message to be handled by cred watcher")
 	}
 }
