@@ -60,14 +60,10 @@ tasks:
       - go.sum
     run: go mod download
 
-  # ── Run GoReleaser (only rebuilds changed binaries) ─────────────────
+  # ── Run GoReleaser ──────────────────────────────────────────────────
   - key: release
     use: [go-deps, goreleaser]
-    filter:
-      - "**/*.go"
-      - ".goreleaser.fork.yml"
-      - "go.mod"
-      - "go.sum"
+    cache: false
     run: |
       REF_NAME="${REF_NAME#refs/tags/}"
       REF_NAME="${REF_NAME#refs/heads/}"
