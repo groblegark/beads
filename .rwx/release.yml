@@ -105,7 +105,8 @@ tasks:
             \"repository\": \"gastown\",
             \"workflow\": \"gastown-agent-rebuild\",
             \"parameters\": {
-              \"trigger\": \"beads-release-$TAG\"
+              \"trigger-source\": \"beads-release-$TAG\",
+              \"beads-version\": \"$TAG\"
             }
           }"
       else
