@@ -20,10 +20,17 @@ spec:
     spec:
       imagePullSecrets:
         - name: ghcr-credentials
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
       containers:
         - name: bd-daemon
           image: ghcr.io/groblegark/beads:latest
           imagePullPolicy: Always
+          securityContext:
+            allowPrivilegeEscalation: false
           command: ["bd", "daemon", "start", "--foreground", "--tcp-addr=:9876", "--http-addr=:9877", "--log-json"]
           ports:
             - containerPort: 9876
@@ -38,16 +45,30 @@ spec:
           volumeMounts:
             - name: beads-data
               mountPath: /home/beads/.beads
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: 9877
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 30
           livenessProbe:
-            tcpSocket:
+            httpGet:
+              path: /healthz
               port: 9877
             initialDelaySeconds: 10
             periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
           readinessProbe:
-            tcpSocket:
+            httpGet:
+              path: /readyz
               port: 9877
             initialDelaySeconds: 5
             periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
           resources:
             requests:
               cpu: "250m"
@@ -59,6 +80,8 @@ spec:
         - name: slack-bot
           image: ghcr.io/groblegark/beads:latest
           imagePullPolicy: Always
+          securityContext:
+            allowPrivilegeEscalation: false
           command: ["bd", "slack", "start"]
           ports:
             - containerPort: 8080
@@ -85,18 +108,30 @@ spec:
                   key: default-channel
             - name: HEALTH_PORT
               value: "8080"
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 30
           livenessProbe:
             httpGet:
               path: /healthz
               port: 8080
             initialDelaySeconds: 15
             periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
           readinessProbe:
             httpGet:
               path: /readyz
               port: 8080
             initialDelaySeconds: 10
             periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
           resources:
             requests:
               cpu: "100m"

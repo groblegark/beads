@@ -106,6 +106,7 @@ func runAgentAttach(cmd *cobra.Command, args []string) error {
 				"pod/"+podInfo.PodName,
 				fmt.Sprintf("%d:%d", localPort, attachCoopPort),
 			)
+			pfCmd.Stdout = os.Stderr // kubectl port-forward writes diagnostic info to stdout
 			pfCmd.Stderr = os.Stderr
 
 			if err := pfCmd.Start(); err != nil {
