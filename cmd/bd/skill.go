@@ -202,7 +202,6 @@ var (
 	skillInputs         []string
 	skillOutputs        []string
 	skillExamples       []string
-	skillClaudePath     string
 	skillContentFile    string // Path to SKILL.md file to read content from
 	skillFilterCategory string
 	skillTown           bool // Create/list skills at town level (hq- prefix)
@@ -216,7 +215,6 @@ func init() {
 	skillCreateCmd.Flags().StringSliceVar(&skillInputs, "inputs", nil, "What the skill needs (comma-separated)")
 	skillCreateCmd.Flags().StringSliceVar(&skillOutputs, "outputs", nil, "What the skill produces (comma-separated)")
 	skillCreateCmd.Flags().StringSliceVar(&skillExamples, "examples", nil, "Usage examples (comma-separated)")
-	skillCreateCmd.Flags().StringVar(&skillClaudePath, "claude-skill-path", "", "DEPRECATED: Path to SKILL.md (use --content-file instead)")
 	skillCreateCmd.Flags().StringVar(&skillContentFile, "content-file", "", "Path to SKILL.md file to store content in the bead")
 	skillCreateCmd.Flags().BoolVar(&skillTown, "town", false, "Create skill at town level (accessible from all rigs)")
 
@@ -302,7 +300,6 @@ func runSkillCreate(cmd *cobra.Command, args []string) error {
 		SkillInputs:     skillInputs,
 		SkillOutputs:    skillOutputs,
 		SkillExamples:   skillExamples,
-		ClaudeSkillPath: skillClaudePath,
 		SkillContent:    skillContent,
 	}
 	resp, err := daemonClient.Create(createArgs)

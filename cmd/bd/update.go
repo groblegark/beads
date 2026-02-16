@@ -90,13 +90,8 @@ create, update, show, or close operation).`,
 			appendNotes, _ := cmd.Flags().GetString("append-notes")
 			updates["append_notes"] = appendNotes
 		}
-		if cmd.Flags().Changed("acceptance") || cmd.Flags().Changed("acceptance-criteria") {
-			var acceptanceCriteria string
-			if cmd.Flags().Changed("acceptance") {
-				acceptanceCriteria, _ = cmd.Flags().GetString("acceptance")
-			} else {
-				acceptanceCriteria, _ = cmd.Flags().GetString("acceptance-criteria")
-			}
+		if cmd.Flags().Changed("acceptance") {
+			acceptanceCriteria, _ := cmd.Flags().GetString("acceptance")
 			updates["acceptance_criteria"] = acceptanceCriteria
 		}
 		if cmd.Flags().Changed("external-ref") {
@@ -342,8 +337,6 @@ func init() {
 	updateCmd.Flags().String("title", "", "New title")
 	updateCmd.Flags().StringP("type", "t", "", "New type (bug|feature|task|epic|chore|merge-request|molecule|gate|agent|role|rig|convoy|event|slot)")
 	registerCommonIssueFlags(updateCmd)
-	updateCmd.Flags().String("acceptance-criteria", "", "DEPRECATED: use --acceptance")
-	_ = updateCmd.Flags().MarkHidden("acceptance-criteria") // Only fails if flag missing (caught in tests)
 	updateCmd.Flags().IntP("estimate", "e", 0, "Time estimate in minutes (e.g., 60 for 1 hour)")
 	updateCmd.Flags().StringSlice("add-label", nil, "Add labels (repeatable)")
 	updateCmd.Flags().StringSlice("remove-label", nil, "Remove labels (repeatable)")
