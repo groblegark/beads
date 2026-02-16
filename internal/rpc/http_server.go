@@ -42,6 +42,7 @@ func (h *HTTPServer) Start(ctx context.Context) error {
 	// Health endpoints (no auth required)
 	mux.HandleFunc("/health", h.handleHealth)
 	mux.HandleFunc("/healthz", h.handleHealth)
+	mux.HandleFunc("/livez", h.handleLiveness)
 	mux.HandleFunc("/readyz", h.handleReadiness)
 	mux.HandleFunc("/metrics", h.handleMetrics)
 
@@ -154,6 +155,23 @@ func (h *HTTPServer) handleHealth(w http.ResponseWriter, r *http.Request) {
 	}
 
 	_ = json.NewEncoder(w).Encode(result)
+}
+
+// handleLiveness handles GET /livez — lightweight process liveness check.
+// Unlike /healthz, this does NOT ping the database. It only verifies the daemon
+// process is alive and the HTTP server is responsive. Use this for K8s liveness
+// probes to avoid pod restarts during transient DB outages (Dolt HA failover).
+func (h *HTTPServer) handleLiveness(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"status": "alive",
+		"uptime": fmt.Sprintf("%.0fs", time.Since(h.rpcServer.startTime).Seconds()),
+	})
 }
 
 // handleReadiness handles GET /readyz
