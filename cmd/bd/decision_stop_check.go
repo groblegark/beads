@@ -132,18 +132,18 @@ func runDecisionStopCheck(cmd *cobra.Command, args []string) {
 		// the loop after 3 attempts. The --reentry flag from Claude Code is
 		// unreliable (Claude Code doesn't send stop_hook_active), so we don't
 		// depend on it. (beads-ulf5)
-		reason := `Before stopping, create a decision point for the human to review.
+		reason := `This is your session wrap-up step — a normal part of finishing, not an interruption.
 
-Steps:
+Your job: present the human with a menu of what to do next. Steps:
 1. Run 'bd ready' and 'bd list --status=in_progress' to find open/available work
-2. Summarize what you accomplished this session and what remains
-3. Suggest 2-4 concrete next actions as decision options (based on open work, blockers, or logical next steps)
-4. Create the decision with 'bd decision create' including:
+2. If you identified next steps during this session, create beads for them now (don't ask — just create them)
+3. Summarize what you accomplished and what's available
+4. Create a decision point with 2-4 options using 'bd decision create':
    --context="<summary of session work and current state>"
    --options='[{"id":"...","short":"...","label":"<specific actionable option>"},...]'
    Always include a "stop" option: {"id":"stop","short":"stop","label":"Done for now"}
 
-The human will pick which direction to go, or provide custom instructions.`
+The human picks what's next, or gives custom instructions.`
 		if cfg.AgentDecisionPrompt != "" {
 			reason = cfg.AgentDecisionPrompt
 		}

@@ -14,7 +14,7 @@ import (
 
 var (
 	// Version is the current version of bd (overridden by ldflags at build time)
-    Version = "0.62.5"
+	Version = "0.62.7"
 	// Build can be set via ldflags at compile time
 	Build = "dev"
 	// Commit and branch the git revision the binary was built from (optional ldflag)
@@ -36,6 +36,8 @@ var versionCmd = &cobra.Command{
 		commit := resolveCommitHash()
 		branch := resolveBranch()
 
+		platformVersion := os.Getenv("BD_PLATFORM_VERSION")
+
 		if jsonOutput {
 			result := map[string]string{
 				"version": Version,
@@ -47,6 +49,9 @@ var versionCmd = &cobra.Command{
 			if branch != "" {
 				result["branch"] = branch
 			}
+			if platformVersion != "" {
+				result["platform"] = platformVersion
+			}
 			outputJSON(result)
 		} else {
 			if commit != "" && branch != "" {
@@ -55,6 +60,9 @@ var versionCmd = &cobra.Command{
 				fmt.Printf("bd version %s (%s: %s)\n", Version, Build, shortCommit(commit))
 			} else {
 				fmt.Printf("bd version %s (%s)\n", Version, Build)
+			}
+			if platformVersion != "" {
+				fmt.Printf("platform %s\n", platformVersion)
 			}
 		}
 	},
