@@ -20,6 +20,12 @@ spec:
       targetPort: remotesapi
       protocol: TCP
       name: remotesapi
+    {{- if .Values.dolt.metrics.enabled }}
+    - port: {{ .Values.dolt.metrics.port | default 9100 }}
+      targetPort: metrics
+      protocol: TCP
+      name: metrics
+    {{- end }}
   selector:
     {{- include "bd-daemon.dolt.selectorLabels" . | nindent 4 }}
 ---

@@ -28,6 +28,11 @@ data:
       write_timeout_millis: {{ $.Values.dolt.config.write_timeout_millis | int }}
     data_dir: {{ include "bd-daemon.dolt.dataDir" $ }}
     cfg_dir: {{ include "bd-daemon.dolt.dataDir" $ }}/.doltcfg
+    {{- if $.Values.dolt.metrics.enabled }}
+    metrics:
+      host: {{ $.Values.dolt.metrics.host | default "0.0.0.0" | quote }}
+      port: {{ $.Values.dolt.metrics.port | default 9100 }}
+    {{- end }}
     {{- if $clusterEnabled }}
     cluster:
       standby_remotes:

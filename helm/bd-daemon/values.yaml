@@ -203,6 +203,12 @@ dolt:
           cpu: 100m
           memory: 128Mi
 
+  # Prometheus metrics endpoint
+  metrics:
+    enabled: false
+    host: "0.0.0.0"
+    port: 9100
+
   # Init SQL script (optional)
   initSql: ""
 
@@ -406,6 +412,11 @@ nats:
     limits:
       cpu: 500m
       memory: 512Mi
+
+# --- Monitoring (Prometheus ServiceMonitors + alerting rules) ---
+monitoring:
+  enabled: false
+  scrapeInterval: "30s"
 
 # --- Pod configuration ---
 podAnnotations: {}

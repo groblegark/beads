@@ -1,0 +1,154 @@
+{{- if .Values.monitoring.enabled }}
+{{- $clusterEnabled := and .Values.dolt.cluster.enabled (gt (.Values.dolt.cluster.replicas | default 1 | int) 1) }}
+# =============================================================================
+# ServiceMonitor: Dolt Prometheus metrics (port 9100)
+# =============================================================================
+{{- if .Values.dolt.metrics.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: {{ include "bd-daemon.dolt.fullname" . }}
+  labels:
+    {{- include "bd-daemon.dolt.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "bd-daemon.dolt.selectorLabels" . | nindent 6 }}
+  podMetricsEndpoints:
+    - port: metrics
+      interval: {{ .Values.monitoring.scrapeInterval | default "30s" }}
+      path: /metrics
+  namespaceSelector:
+    matchNames:
+      - {{ .Release.Namespace }}
+{{- end }}
+---
+# =============================================================================
+# PrometheusRule: HA alerting rules
+# =============================================================================
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "bd-daemon.fullname" . }}-alerts
+  labels:
+    {{- include "bd-daemon.labels" . | nindent 4 }}
+spec:
+  groups:
+    - name: bd-daemon.rules
+      rules:
+        # --- Daemon pod restart alerting ---
+        - alert: BdDaemonPodRestarting
+          expr: |
+            increase(kube_pod_container_status_restarts_total{
+              namespace="{{ .Release.Namespace }}",
+              container="bd-daemon"
+            }[15m]) > 2
+          for: 1m
+          labels:
+            severity: warning
+            component: daemon
+            namespace: {{ .Release.Namespace }}
+          annotations:
+            summary: "bd-daemon is restarting frequently"
+            description: "{{ "{{ $labels.pod }}" }} has restarted {{ "{{ $value }}" }} times in 15 minutes."
+
+        # --- Daemon pod not ready ---
+        - alert: BdDaemonNotReady
+          expr: |
+            kube_pod_status_ready{
+              namespace="{{ .Release.Namespace }}",
+              condition="true"
+            } * on(pod) kube_pod_labels{
+              namespace="{{ .Release.Namespace }}",
+              label_app_kubernetes_io_component="daemon"
+            } == 0
+          for: 5m
+          labels:
+            severity: critical
+            component: daemon
+            namespace: {{ .Release.Namespace }}
+          annotations:
+            summary: "bd-daemon pod not ready for 5 minutes"
+            description: "{{ "{{ $labels.pod }}" }} has been unready for 5 minutes — may indicate Dolt connectivity loss."
+
+        {{- if $clusterEnabled }}
+        # --- Dolt: no primary detected ---
+        - alert: DoltNoPrimary
+          expr: |
+            count(kube_pod_labels{
+              namespace="{{ .Release.Namespace }}",
+              label_dolthub_com_cluster_role="primary",
+              label_app_kubernetes_io_component="dolt"
+            }) == 0
+          for: 3m
+          labels:
+            severity: critical
+            component: dolt
+            namespace: {{ .Release.Namespace }}
+          annotations:
+            summary: "No Dolt primary detected in cluster"
+            description: "No pod in {{ .Release.Namespace }} has the dolthub.com/cluster_role=primary label. Writes will fail."
+
+        # --- doltclusterctl CronJob failing ---
+        - alert: DoltClusterctlFailing
+          expr: |
+            kube_job_status_failed{
+              namespace="{{ .Release.Namespace }}",
+              job_name=~".*dolt-clusterctl.*"
+            } > 0
+          for: 5m
+          labels:
+            severity: warning
+            component: dolt
+            namespace: {{ .Release.Namespace }}
+          annotations:
+            summary: "doltclusterctl jobs are failing"
+            description: "Cluster label controller has failed jobs — primary/standby labels may be stale."
+        {{- end }}
+
+        {{- if .Values.dolt.metrics.enabled }}
+        # --- Dolt: high replication lag ---
+        - alert: DoltReplicationLagHigh
+          expr: |
+            dss_replication_lag{namespace="{{ .Release.Namespace }}"} > 10000
+          for: 5m
+          labels:
+            severity: warning
+            component: dolt
+            namespace: {{ .Release.Namespace }}
+          annotations:
+            summary: "Dolt replication lag exceeds 10 seconds"
+            description: "{{ "{{ $labels.instance }}" }} has {{ "{{ $value }}" }}ms replication lag."
+
+        # --- Dolt: high connection count ---
+        - alert: DoltConnectionsHigh
+          expr: |
+            dss_concurrent_connections{namespace="{{ .Release.Namespace }}"} > {{ div (mul (.Values.dolt.config.max_connections | default 100 | int) 80) 100 }}
+          for: 5m
+          labels:
+            severity: warning
+            component: dolt
+            namespace: {{ .Release.Namespace }}
+          annotations:
+            summary: "Dolt connections approaching limit"
+            description: "{{ "{{ $labels.instance }}" }} has {{ "{{ $value }}" }} connections (limit: {{ .Values.dolt.config.max_connections | default 100 }})."
+        {{- end }}
+
+        # --- Slackbot not running ---
+        {{- if .Values.slackBot.enabled }}
+        - alert: SlackbotNotRunning
+          expr: |
+            kube_deployment_status_replicas_available{
+              namespace="{{ .Release.Namespace }}",
+              deployment="{{ include "bd-daemon.slackbot.fullname" . }}"
+            } == 0
+          for: 5m
+          labels:
+            severity: warning
+            component: slackbot
+            namespace: {{ .Release.Namespace }}
+          annotations:
+            summary: "Slackbot deployment has no available replicas"
+            description: "Slack integration is down — reauth and decision notifications will not be delivered."
+        {{- end }}
+{{- end }}

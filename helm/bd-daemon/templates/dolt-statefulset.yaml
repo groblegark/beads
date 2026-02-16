@@ -300,6 +300,11 @@ spec:
               containerPort: {{ .Values.dolt.cluster.remotesapiPort | default 50051 }}
               protocol: TCP
             {{- end }}
+            {{- if .Values.dolt.metrics.enabled }}
+            - name: metrics
+              containerPort: {{ .Values.dolt.metrics.port | default 9100 }}
+              protocol: TCP
+            {{- end }}
           env:
             - name: HOME
               value: {{ include "bd-daemon.dolt.dataDir" . }}
