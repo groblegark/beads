@@ -92,9 +92,6 @@ type stopDecisionConfig struct {
 func init() {
 	decisionStopCheckCmd.Flags().Duration("timeout", 30*time.Minute, "Override timeout from config")
 	decisionStopCheckCmd.Flags().Duration("poll-interval", 2*time.Second, "Override poll interval from config")
-	// --reentry is kept for backward compatibility but ignored. Loop breaking
-	// is now handled by StopLoopDetector at the event bus level. (beads-ulf5)
-	decisionStopCheckCmd.Flags().Bool("reentry", false, "Deprecated: loop breaking handled by StopLoopDetector")
 
 	decisionCmd.AddCommand(decisionStopCheckCmd)
 }
@@ -161,9 +158,7 @@ func runDecisionStopCheck(cmd *cobra.Command, args []string) {
 		// No agent decision found — block and instruct agent to create one.
 		// Loop breaking is handled by StopLoopDetector (priority 14) which
 		// counts all stop attempts in a 30-minute sliding window and breaks
-		// the loop after 3 attempts. The --reentry flag from Claude Code is
-		// unreliable (Claude Code doesn't send stop_hook_active), so we don't
-		// depend on it. (beads-ulf5)
+		// the loop after 3 attempts. (beads-ulf5)
 		//
 		// The prompt text lives in the claude-hooks config bead
 		// (agent_decision_prompt field), seeded by `bd setup claude`.
