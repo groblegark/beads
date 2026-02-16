@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -44,9 +45,9 @@ type rowIterator interface {
 // is a thin wrapper with no extra behavior.
 type Rows struct {
 	*sql.Rows
-	conn   *sql.Conn        // Non-nil in watchdog mode (server mode)
+	conn   *sql.Conn         // Non-nil in watchdog mode (server mode)
 	cancel context.CancelFunc // Non-nil in watchdog mode
-	done   chan struct{}      // Non-nil in watchdog mode
+	done   chan struct{}       // Non-nil in watchdog mode
 }
 
 // Close releases the underlying rows, stops the watchdog, and returns
@@ -74,11 +75,34 @@ func (r *Rows) Close() error {
 //  4. Spawns a watchdog goroutine that fires KILL QUERY if the timeout expires
 //  5. Returns *Rows whose Close() method cleans up the watchdog
 //
+// Standby fallback (bd-4az2z): if the primary returns a connection error
+// and a standby pool is configured, the query is transparently retried on
+// the standby replica. This allows read-only operations (bd list, bd show)
+// to continue during primary failover.
+//
 // In embedded mode, delegates directly to db.QueryContext (KILL QUERY is not
 // possible with a single-connection embedded engine).
 func (s *DoltStore) queryContext(ctx context.Context, query string, args ...interface{}) (*Rows, error) {
+	rows, err := s.queryContextOnDB(ctx, s.db, query, args...)
+	if err != nil && s.dbStandby != nil && isConnectionError(err) {
+		// Primary unreachable — try standby for this read query.
+		// Log at stderr so daemon logs capture the failover event.
+		fmt.Fprintf(os.Stderr, "standby: primary connection failed, falling back to standby for read query\n")
+		standbyRows, standbyErr := s.queryContextOnDB(ctx, s.dbStandby, query, args...)
+		if standbyErr == nil {
+			return standbyRows, nil
+		}
+		// Both failed — return the original primary error for clarity
+		fmt.Fprintf(os.Stderr, "standby: standby also failed: %v\n", standbyErr)
+	}
+	return rows, err
+}
+
+// queryContextOnDB executes a query against a specific *sql.DB pool with
+// KILL QUERY watchdog support.
+func (s *DoltStore) queryContextOnDB(ctx context.Context, db *sql.DB, query string, args ...interface{}) (*Rows, error) {
 	if !s.serverMode || s.queryTimeout <= 0 {
-		rows, err := s.db.QueryContext(ctx, query, args...)
+		rows, err := db.QueryContext(ctx, query, args...)
 		if err != nil {
 			return nil, err
 		}
@@ -86,7 +110,7 @@ func (s *DoltStore) queryContext(ctx context.Context, query string, args ...inte
 	}
 
 	// Acquire a dedicated connection for this query
-	conn, err := s.db.Conn(ctx)
+	conn, err := db.Conn(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -113,7 +137,7 @@ func (s *DoltStore) queryContext(ctx context.Context, query string, args ...inte
 			if queryCtx.Err() == context.DeadlineExceeded {
 				killCtx, killCancel := context.WithTimeout(context.Background(), killQueryTimeout)
 				defer killCancel()
-				if _, killErr := s.db.ExecContext(killCtx, fmt.Sprintf("KILL QUERY %d", connID)); killErr != nil {
+				if _, killErr := db.ExecContext(killCtx, fmt.Sprintf("KILL QUERY %d", connID)); killErr != nil {
 					fmt.Fprintf(os.Stderr, "watchdog: KILL QUERY %d failed: %v\n", connID, killErr)
 				} else {
 					fmt.Fprintf(os.Stderr, "watchdog: KILL QUERY %d fired (query timeout %v exceeded)\n", connID, s.queryTimeout)
@@ -137,6 +161,9 @@ func (s *DoltStore) queryContext(ctx context.Context, query string, args ...inte
 //
 // Unlike queryContext, exec completes synchronously so cleanup happens
 // before returning (no wrapper type needed).
+//
+// Note: execContext does NOT fall back to standby — writes must always go
+// to the primary. If the primary is down, the error is returned as-is.
 func (s *DoltStore) execContext(ctx context.Context, query string, args ...interface{}) (sql.Result, error) {
 	if !s.serverMode || s.queryTimeout <= 0 {
 		return s.db.ExecContext(ctx, query, args...)
@@ -180,6 +207,26 @@ func (s *DoltStore) execContext(ctx context.Context, query string, args ...inter
 	result, err := conn.ExecContext(queryCtx, query, args...)
 	close(done)
 	return result, err
+}
+
+// isConnectionError returns true if the error indicates a connection-level
+// failure (TCP connect refused, reset, timeout) rather than a query-level
+// error (syntax, missing table, etc.). Only connection errors trigger
+// standby read fallback.
+func isConnectionError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "connection refused") ||
+		strings.Contains(msg, "connection reset") ||
+		strings.Contains(msg, "broken pipe") ||
+		strings.Contains(msg, "no such host") ||
+		strings.Contains(msg, "i/o timeout") ||
+		strings.Contains(msg, "connect: connection") ||
+		strings.Contains(msg, "bad connection") ||
+		strings.Contains(msg, "invalid connection") ||
+		strings.Contains(msg, "driver: bad connection")
 }
 
 // parseQueryTimeout reads the query timeout from the environment, falling back

@@ -480,6 +480,16 @@ func runDaemonLoop(interval time.Duration, autoCommit, autoPush, autoPull, local
 		factoryOpts.ServerPort = doltServer.SQLPort()
 	}
 
+	// Standby read fallback (bd-4az2z): configure optional standby connection
+	// for read-only query failover during primary Dolt outage.
+	if standbyHost := os.Getenv("BEADS_DOLT_STANDBY_HOST"); standbyHost != "" {
+		factoryOpts.StandbyHost = standbyHost
+		if standbyPort := getEnvInt("BEADS_DOLT_STANDBY_PORT", 0); standbyPort > 0 {
+			factoryOpts.StandbyPort = standbyPort
+		}
+		log.Info("standby read fallback configured", "host", standbyHost)
+	}
+
 	var store storage.Storage
 	if os.Getenv("BEADS_DOLT_SERVER_MODE") == "1" {
 		// In server mode, wait for the Dolt server to become reachable.

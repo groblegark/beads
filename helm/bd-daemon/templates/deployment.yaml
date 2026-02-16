@@ -98,6 +98,17 @@ spec:
                   key: {{ .Values.dolt.serverMode.existingSecretKey | default "dolt-password" }}
             {{- end }}
             {{- end }}
+            {{- /* Standby read fallback (bd-4az2z): when Dolt cluster is enabled,
+                   configure the standby Service for read-only query failover during
+                   primary outage. Reads (bd list, bd show) transparently fall back to
+                   the standby while writes fail fast. */ -}}
+            {{- $clusterEnabled := and .Values.dolt.cluster.enabled (gt (.Values.dolt.cluster.replicas | default 1 | int) 1) }}
+            {{- if and .Values.dolt.statefulSet.enabled $clusterEnabled }}
+            - name: BEADS_DOLT_STANDBY_HOST
+              value: "{{ include "bd-daemon.dolt.fullname" . }}-standby"
+            - name: BEADS_DOLT_STANDBY_PORT
+              value: "{{ .Values.dolt.config.port }}"
+            {{- end }}
             # Daemon token for authentication
             {{- if and .Values.externalSecrets.enabled .Values.externalSecrets.daemonToken.remoteRef }}
             - name: BD_DAEMON_TOKEN

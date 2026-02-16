@@ -36,6 +36,11 @@ type Options struct {
 	ServerPassword string // Server password (or use BEADS_DOLT_PASSWORD env)
 	Database       string // Database name for Dolt server mode (default: beads)
 
+	// Standby read fallback (bd-4az2z): optional secondary connection to a
+	// standby Dolt replica for read-only query failover during primary outage.
+	StandbyHost string // Standby host (e.g., "bd-daemon-dolt-standby"); empty = disabled
+	StandbyPort int    // Standby port (default: same as ServerPort)
+
 	// Remote daemon guard bypass (gt-57wsnm)
 	// When BD_DAEMON_HOST is set, direct database access is normally blocked.
 	// Set this to true to allow direct access (e.g., for daemon process itself).

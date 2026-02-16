@@ -62,6 +62,11 @@ type DoltStore struct {
 	serverMode   bool          // True when connected to dolt sql-server (not embedded)
 	queryTimeout time.Duration // Max query duration before KILL QUERY fires (0 = disabled)
 
+	// Standby read fallback (bd-4az2z): during primary outage, route read-only
+	// queries to a standby replica. Write queries and transactions always go
+	// to primary. The standby pool is nil when not configured.
+	dbStandby *sql.DB
+
 	// skipDirtyTracking disables dirty_issues and export_hashes writes.
 	// Set to true in dolt-native sync mode where JSONL export is not used.
 	skipDirtyTracking bool
@@ -87,6 +92,13 @@ type Config struct {
 	ServerPort     int    // Server port (default: 3306)
 	ServerUser     string // MySQL user (default: root)
 	ServerPassword string // MySQL password (default: empty, can be set via BEADS_DOLT_PASSWORD)
+
+	// Standby read fallback (bd-4az2z): optional secondary connection to a
+	// standby Dolt replica. When configured, read-only queries fall back to
+	// the standby if the primary is unreachable. Writes and transactions
+	// always use the primary.
+	StandbyHost string // Standby host (e.g., "bd-daemon-dolt-standby"); empty = disabled
+	StandbyPort int    // Standby port (default: same as ServerPort)
 
 	// Retry configuration for transient errors
 	LockRetries    int           // Number of retries for lock/serialization errors (default: 5)
@@ -277,6 +289,32 @@ func New(ctx context.Context, cfg *Config) (*DoltStore, error) {
 		}
 	}
 
+	// Standby read fallback (bd-4az2z): open a secondary connection pool to
+	// the standby replica for read-only query failover during primary outage.
+	// Non-fatal: if standby is not reachable at startup, we skip it silently.
+	if cfg.ServerMode && cfg.StandbyHost != "" {
+		standbyPort := cfg.StandbyPort
+		if standbyPort == 0 {
+			standbyPort = cfg.ServerPort
+		}
+		standbyCfg := &Config{
+			ServerMode:     true,
+			ServerHost:     cfg.StandbyHost,
+			ServerPort:     standbyPort,
+			ServerUser:     cfg.ServerUser,
+			ServerPassword: cfg.ServerPassword,
+			Database:       cfg.Database,
+		}
+		standbyDB, _, err := openStandbyConnection(ctx, standbyCfg)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "standby: connection to %s:%d failed (read fallback disabled): %v\n",
+				cfg.StandbyHost, standbyPort, err)
+		} else {
+			store.dbStandby = standbyDB
+			fmt.Fprintf(os.Stderr, "standby: read fallback enabled via %s:%d\n", cfg.StandbyHost, standbyPort)
+		}
+	}
+
 	return store, nil
 }
 
@@ -372,6 +410,39 @@ func openServerConnection(ctx context.Context, cfg *Config) (*sql.DB, string, er
 			return nil, "", fmt.Errorf("failed to create database: %w", err)
 		}
 		// Database already exists - that's fine, continue
+	}
+
+	return db, connStr, nil
+}
+
+// openStandbyConnection opens a read-only connection to a standby Dolt replica.
+// Uses a smaller connection pool since this is only for read failover.
+// Does NOT create the database or run schema init (standby replicates from primary).
+func openStandbyConnection(ctx context.Context, cfg *Config) (*sql.DB, string, error) {
+	var connStr string
+	if cfg.ServerPassword != "" {
+		connStr = fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?parseTime=true&timeout=5s&readTimeout=15s&writeTimeout=5s",
+			cfg.ServerUser, cfg.ServerPassword, cfg.ServerHost, cfg.ServerPort, cfg.Database)
+	} else {
+		connStr = fmt.Sprintf("%s@tcp(%s:%d)/%s?parseTime=true&timeout=5s&readTimeout=15s&writeTimeout=5s",
+			cfg.ServerUser, cfg.ServerHost, cfg.ServerPort, cfg.Database)
+	}
+
+	db, err := sql.Open("mysql", connStr)
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to open standby connection: %w", err)
+	}
+
+	// Smaller pool: standby is read-only failover, not primary traffic
+	db.SetMaxOpenConns(50)
+	db.SetMaxIdleConns(10)
+	db.SetConnMaxLifetime(5 * time.Minute)
+	db.SetConnMaxIdleTime(5 * time.Minute)
+
+	// Verify connectivity
+	if err := db.PingContext(ctx); err != nil {
+		_ = db.Close()
+		return nil, "", fmt.Errorf("failed to ping standby: %w", err)
 	}
 
 	return db, connStr, nil
@@ -595,6 +666,10 @@ func (s *DoltStore) Close() error {
 	var err error
 	if s.db != nil {
 		err = errors.Join(err, s.db.Close())
+	}
+	if s.dbStandby != nil {
+		err = errors.Join(err, s.dbStandby.Close())
+		s.dbStandby = nil
 	}
 	// For embedded mode, ensure the underlying engine is closed to release filesystem locks.
 	if s.embeddedConnector != nil {
