@@ -329,6 +329,7 @@ func DefaultHandlers() []Handler {
 		&PostToolUseInboxHandler{}, // 30 — urgent inbox drain between tool calls (bd-qufo5)
 		&BeadNudgeHandler{},        // 40 — nudge unassigned agents to claim/create beads (bd-0ttt3)
 		&CommitNudgeHandler{},      // 45 — nudge agents to commit before going idle (bd-z4a0u)
+		&DoneWaitHandler{},         // 90 — block Stop until inbox/decision event arrives (bd-s7wv1)
 	}
 	handlers = append(handlers, DefaultOjHandlers()...)
 	handlers = append(handlers, DefaultMailHandlers()...)

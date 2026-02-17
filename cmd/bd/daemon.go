@@ -765,6 +765,11 @@ func runDaemonLoop(interval time.Duration, autoCommit, autoPush, autoPull, local
 			if pt := bus.Presence(); pt != nil {
 				handler.SetPresenceTracker(pt)
 			}
+		case *eventbus.DoneWaitHandler:
+			handler.SetInboxStore(store)
+			if jsCtx != nil {
+				handler.SetJetStream(jsCtx)
+			}
 		}
 	}
 
