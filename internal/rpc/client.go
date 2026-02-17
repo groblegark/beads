@@ -1993,6 +1993,28 @@ func (c *Client) InboxMarkDelivered(args *InboxMarkDeliveredArgs) (*Response, er
 	return c.Execute(OpInboxMarkDelivered, args)
 }
 
+// Done/wait operations (bd-3lheb)
+
+// DoneWait blocks until an event arrives for the agent or timeout expires.
+// The caller should set a long request timeout before calling this method:
+//
+//	c.SetRequestTimeout(timeoutSec * 1000)
+//	result, err := c.DoneWait(args)
+//	c.SetRequestTimeout(0) // reset after
+func (c *Client) DoneWait(args *DoneWaitArgs) (*DoneWaitResult, error) {
+	resp, err := c.Execute(OpDoneWait, args)
+	if err != nil {
+		return nil, err
+	}
+
+	var result DoneWaitResult
+	if err := json.Unmarshal(resp.Data, &result); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal done_wait response: %w", err)
+	}
+
+	return &result, nil
+}
+
 // Session identity operations (bd-zp6v9)
 
 // SessionRegister registers a session and gets a unique assigned name.

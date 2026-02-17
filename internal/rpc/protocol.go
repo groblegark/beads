@@ -193,6 +193,9 @@ const (
 	OpInboxDrain         = "inbox_drain"
 	OpInboxMarkDelivered = "inbox_mark_delivered"
 
+	// Done/wait operation (bd-3lheb)
+	OpDoneWait = "done_wait"
+
 	// Session identity operations (bd-zp6v9, bd-tp3r6)
 	OpSessionRegister = "session_register"
 	OpSessionList     = "session_list"
@@ -1053,6 +1056,21 @@ type InboxMarkDeliveredArgs struct {
 type InboxListResponse struct {
 	Items []*types.InboxItem `json:"items"`
 	Count int                `json:"count"`
+}
+
+// DoneWaitArgs represents arguments for the done.wait blocking operation (bd-3lheb).
+type DoneWaitArgs struct {
+	AgentName  string `json:"agent_name"`            // Agent to wait for events (defaults to request actor)
+	TimeoutSec int    `json:"timeout_sec,omitempty"` // Timeout in seconds (default 1800 = 30m)
+	On         string `json:"on,omitempty"`          // Comma-separated event filter: "inbox,decision" (default: "inbox,decision")
+}
+
+// DoneWaitResult is returned when bd done unblocks.
+type DoneWaitResult struct {
+	EventType string `json:"event_type"`          // What triggered the wake: "inbox", "decision", "timeout"
+	Content   string `json:"content,omitempty"`   // Event payload/message content
+	Source    string `json:"source,omitempty"`    // Who sent the event
+	TimedOut  bool   `json:"timed_out,omitempty"` // True if woke due to timeout
 }
 
 // SessionRegisterArgs represents arguments for registering a session identity (bd-zp6v9).

@@ -327,6 +327,9 @@ func (s *Server) executeOperation(req *Request) Response {
 		resp = s.handleInboxDrain(req)
 	case OpInboxMarkDelivered:
 		resp = s.handleInboxMarkDelivered(req)
+	// Done/wait (bd-3lheb)
+	case OpDoneWait:
+		resp = s.handleDoneWait(req)
 	// Session identity operations (bd-zp6v9)
 	case OpSessionRegister:
 		resp = s.handleSessionRegister(req)

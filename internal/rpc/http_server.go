@@ -531,6 +531,9 @@ func httpMethodToOperation(method string) string {
 		"InboxDrain":         OpInboxDrain,
 		"InboxMarkDelivered": OpInboxMarkDelivered,
 
+		// Done/wait (bd-3lheb)
+		"DoneWait": OpDoneWait,
+
 		// Session identity (bd-zp6v9, bd-tp3r6)
 		"SessionRegister": OpSessionRegister,
 		"SessionList":     OpSessionList,
