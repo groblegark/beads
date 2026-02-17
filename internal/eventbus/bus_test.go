@@ -22,7 +22,7 @@ type testHandler struct {
 
 func (h *testHandler) ID() string           { return h.id }
 func (h *testHandler) Handles() []EventType { return h.handles }
-func (h *testHandler) Priority() int         { return h.priority }
+func (h *testHandler) Priority() int        { return h.priority }
 
 func (h *testHandler) Handle(ctx context.Context, event *Event, result *Result) error {
 	if h.fn != nil {
@@ -597,7 +597,7 @@ func TestLoadPersistedHandlersEmpty(t *testing.T) {
 func TestLoadPersistedHandlersIgnoresNonBusKeys(t *testing.T) {
 	bus := New()
 	configs := map[string]string{
-		"status.custom":       "review,blocked",
+		"status.custom":          "review,blocked",
 		"import.orphan_handling": "allow",
 	}
 	n := bus.LoadPersistedHandlers(configs)
@@ -1846,8 +1846,8 @@ func TestDispatchAgentEventMatchesAgentHandler(t *testing.T) {
 	var handledEvents []EventType
 
 	bus.Register(&testHandler{
-		id:      "agent-tracker",
-		handles: []EventType{EventAgentStarted, EventAgentStopped, EventAgentCrashed, EventAgentIdle, EventAgentHeartbeat},
+		id:       "agent-tracker",
+		handles:  []EventType{EventAgentStarted, EventAgentStopped, EventAgentCrashed, EventAgentIdle, EventAgentHeartbeat},
 		priority: 40,
 		fn: func(ctx context.Context, event *Event, result *Result) error {
 			handledEvents = append(handledEvents, event.Type)
@@ -2427,4 +2427,129 @@ func TestCoopFieldsInStructJSON(t *testing.T) {
 	if _, ok := published["published_at"]; !ok {
 		t.Error("missing published_at timestamp in struct-marshaled payload")
 	}
+}
+
+func TestActorInjectedIntoRawJSON(t *testing.T) {
+	_, js, cleanup := startTestNATS(t)
+	defer cleanup()
+
+	bus := New()
+	bus.SetJetStream(js)
+
+	sub, err := js.SubscribeSync(SubjectHookPrefix+">", nats.DeliverAll())
+	if err != nil {
+		t.Fatalf("subscribe: %v", err)
+	}
+	defer sub.Unsubscribe()
+
+	// Dispatch with Raw JSON AND Actor set — actor should be injected. (bd-14mmg)
+	rawJSON := json.RawMessage(`{"session_id":"s1","tool_name":"Write"}`)
+	event := &Event{
+		Type:  EventPreToolUse,
+		Raw:   rawJSON,
+		Actor: "bright-hog",
+	}
+	_, err = bus.Dispatch(context.Background(), event)
+	if err != nil {
+		t.Fatalf("dispatch: %v", err)
+	}
+
+	msg, err := sub.NextMsg(2 * time.Second)
+	if err != nil {
+		t.Fatalf("expected message: %v", err)
+	}
+
+	var published map[string]interface{}
+	if err := json.Unmarshal(msg.Data, &published); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	// Actor must be present in the published JSON.
+	actor, ok := published["actor"]
+	if !ok {
+		t.Fatal("expected 'actor' field in published JSON")
+	}
+	if actor != "bright-hog" {
+		t.Errorf("expected actor='bright-hog', got %v", actor)
+	}
+
+	// Original fields must be preserved.
+	if published["session_id"] != "s1" {
+		t.Errorf("expected session_id='s1', got %v", published["session_id"])
+	}
+	if published["tool_name"] != "Write" {
+		t.Errorf("expected tool_name='Write', got %v", published["tool_name"])
+	}
+}
+
+func TestActorNotInjectedWhenEmpty(t *testing.T) {
+	_, js, cleanup := startTestNATS(t)
+	defer cleanup()
+
+	bus := New()
+	bus.SetJetStream(js)
+
+	sub, err := js.SubscribeSync(SubjectHookPrefix+">", nats.DeliverAll())
+	if err != nil {
+		t.Fatalf("subscribe: %v", err)
+	}
+	defer sub.Unsubscribe()
+
+	// Dispatch with Raw JSON but NO Actor — raw should pass through unchanged.
+	rawJSON := json.RawMessage(`{"session_id":"s2","tool_name":"Read"}`)
+	event := &Event{
+		Type: EventPreToolUse,
+		Raw:  rawJSON,
+	}
+	_, err = bus.Dispatch(context.Background(), event)
+	if err != nil {
+		t.Fatalf("dispatch: %v", err)
+	}
+
+	msg, err := sub.NextMsg(2 * time.Second)
+	if err != nil {
+		t.Fatalf("expected message: %v", err)
+	}
+
+	// Raw bytes should be published as-is (no actor injected).
+	if string(msg.Data) != string(rawJSON) {
+		t.Errorf("expected raw JSON unchanged, got %q", string(msg.Data))
+	}
+}
+
+func TestInjectActorIntoRaw(t *testing.T) {
+	t.Run("adds actor to valid JSON", func(t *testing.T) {
+		raw := json.RawMessage(`{"key":"val"}`)
+		result := injectActorIntoRaw(raw, "test-agent")
+		var obj map[string]interface{}
+		if err := json.Unmarshal(result, &obj); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		if obj["actor"] != "test-agent" {
+			t.Errorf("expected actor='test-agent', got %v", obj["actor"])
+		}
+		if obj["key"] != "val" {
+			t.Errorf("expected key='val' preserved, got %v", obj["key"])
+		}
+	})
+
+	t.Run("overwrites existing actor", func(t *testing.T) {
+		raw := json.RawMessage(`{"actor":"old","key":"val"}`)
+		result := injectActorIntoRaw(raw, "new-agent")
+		var obj map[string]interface{}
+		if err := json.Unmarshal(result, &obj); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		if obj["actor"] != "new-agent" {
+			t.Errorf("expected actor='new-agent', got %v", obj["actor"])
+		}
+	})
+
+	t.Run("returns original on invalid JSON", func(t *testing.T) {
+		raw := json.RawMessage(`not json`)
+		result := injectActorIntoRaw(raw, "agent")
+		if string(result) != string(raw) {
+			t.Errorf("expected original returned on parse error")
+		}
+	})
 }

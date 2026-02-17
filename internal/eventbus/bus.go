@@ -129,9 +129,14 @@ func (b *Bus) publishToJetStream(js nats.JetStreamContext, event *Event) {
 	}
 
 	// Use the raw JSON if available, otherwise marshal the event.
+	// When Raw is set AND Actor is known, inject actor into the JSON so
+	// external NATS subscribers can attribute events to agents. (bd-14mmg)
 	var data []byte
 	if len(event.Raw) > 0 {
 		data = event.Raw
+		if event.Actor != "" {
+			data = injectActorIntoRaw(data, event.Actor)
+		}
 	} else {
 		now := time.Now().UTC()
 		event.PublishedAt = &now
@@ -206,6 +211,25 @@ func (b *Bus) LoadPersistedHandlers(configs map[string]string) int {
 		log.Printf("eventbus: loaded persisted handler %q (priority=%d, events=%v)", cfg.ID, h.Priority(), cfg.Events)
 	}
 	return count
+}
+
+// injectActorIntoRaw adds or overwrites the "actor" field in a JSON object.
+// Returns the original data unchanged if parsing fails. (bd-14mmg)
+func injectActorIntoRaw(raw json.RawMessage, actor string) json.RawMessage {
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &obj); err != nil {
+		return raw
+	}
+	actorJSON, err := json.Marshal(actor)
+	if err != nil {
+		return raw
+	}
+	obj["actor"] = actorJSON
+	enriched, err := json.Marshal(obj)
+	if err != nil {
+		return raw
+	}
+	return enriched
 }
 
 // matchingHandlers returns handlers that handle the given event type, sorted
