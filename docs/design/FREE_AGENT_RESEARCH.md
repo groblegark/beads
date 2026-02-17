@@ -267,7 +267,7 @@ Agent bead: none (free agent)
 
 ### With Daemon (Remote or Local)
 
-When a daemon is running, the free agent is already "registered" — every bd command goes through the daemon, which tracks the actor via the activity log (`daemon/activity.json`).
+When a daemon is running, the free agent is already "registered" — every bd command goes through the daemon, which tracks the actor via the activity log (`.beads/activity.json`).
 
 No additional registration step needed. The daemon already knows about agents through their commands.
 

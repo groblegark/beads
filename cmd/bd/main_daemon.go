@@ -44,9 +44,11 @@ func signalOrchestratorActivity() {
 		return // Not in orchestrator environment, skip
 	}
 
-	// Ensure daemon directory exists
-	daemonDir := filepath.Join(townRoot, "daemon")
-	if err := os.MkdirAll(daemonDir, 0755); err != nil {
+	// Write activity signal to .beads/ (gitignored) instead of daemon/ (tracked).
+	// The daemon/ directory was tracked in git, causing permanently dirty worktrees
+	// that broke CI for other agents. (bd-te1jm)
+	beadsDir := filepath.Join(townRoot, ".beads")
+	if err := os.MkdirAll(beadsDir, 0755); err != nil {
 		return
 	}
 
@@ -73,7 +75,7 @@ func signalOrchestratorActivity() {
 	}
 
 	// Write atomically (write to temp, rename)
-	activityPath := filepath.Join(daemonDir, "activity.json")
+	activityPath := filepath.Join(beadsDir, "activity.json")
 	tmpPath := activityPath + ".tmp"
 	// nolint:gosec // G306: 0644 is appropriate for a status file
 	if err := os.WriteFile(tmpPath, data, 0644); err != nil {

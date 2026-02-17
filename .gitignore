@@ -117,6 +117,7 @@ history/
 
 # Orchestrator agent state
 state.json
+daemon/activity.json
 .beads/redirect
 
 # Claude Code runtime
