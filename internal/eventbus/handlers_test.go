@@ -14,8 +14,8 @@ import (
 
 func TestDefaultHandlers(t *testing.T) {
 	handlers := DefaultHandlers()
-	if len(handlers) != 13 {
-		t.Fatalf("expected 13 default handlers, got %d", len(handlers))
+	if len(handlers) != 10 {
+		t.Fatalf("expected 10 default handlers, got %d", len(handlers))
 	}
 
 	// Verify IDs
