@@ -13,8 +13,8 @@ import (
 
 func TestDefaultHandlers(t *testing.T) {
 	handlers := DefaultHandlers()
-	if len(handlers) != 12 {
-		t.Fatalf("expected 12 default handlers, got %d", len(handlers))
+	if len(handlers) != 13 {
+		t.Fatalf("expected 13 default handlers, got %d", len(handlers))
 	}
 
 	// Verify IDs
@@ -360,8 +360,8 @@ func TestBusWithDefaultHandlers(t *testing.T) {
 		bus.Register(h)
 	}
 
-	if len(bus.Handlers()) != 12 {
-		t.Errorf("expected 12 handlers, got %d", len(bus.Handlers()))
+	if len(bus.Handlers()) != 13 {
+		t.Errorf("expected 13 handlers, got %d", len(bus.Handlers()))
 	}
 }
 
