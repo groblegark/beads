@@ -316,6 +316,68 @@ func TestPresenceTracker_HandleMutationEvent_IgnoresNonStatus(t *testing.T) {
 	}
 }
 
+func TestPresenceTracker_BackfillTasks(t *testing.T) {
+	pt := NewPresenceTracker()
+
+	seeds := []TaskSeed{
+		{IssueID: "bd-1", Actor: "agent-a"},
+		{IssueID: "bd-2", Actor: "agent-a"},
+		{IssueID: "bd-3", Actor: "agent-b"},
+		{IssueID: "", Actor: "agent-c"},     // empty issue ID — skip
+		{IssueID: "bd-4", Actor: ""},         // empty actor — skip
+	}
+
+	n := pt.BackfillTasks(seeds)
+	if n != 3 {
+		t.Fatalf("expected 3 backfilled tasks, got %d", n)
+	}
+
+	if !pt.HasTask("agent-a") {
+		t.Error("expected agent-a to have tasks after backfill")
+	}
+	if !pt.HasTask("agent-b") {
+		t.Error("expected agent-b to have tasks after backfill")
+	}
+	if pt.HasTask("agent-c") {
+		t.Error("expected agent-c to have no tasks (empty issue ID)")
+	}
+	if pt.HasTask("unknown") {
+		t.Error("expected unknown agent to have no tasks")
+	}
+}
+
+func TestPresenceTracker_BackfillTasks_Empty(t *testing.T) {
+	pt := NewPresenceTracker()
+	n := pt.BackfillTasks(nil)
+	if n != 0 {
+		t.Fatalf("expected 0 from empty backfill, got %d", n)
+	}
+}
+
+func TestBeadNudgeHandler_PresenceTracker_AfterBackfill(t *testing.T) {
+	pt := NewPresenceTracker()
+	pt.BackfillTasks([]TaskSeed{
+		{IssueID: "bd-existing", Actor: "cold-start-agent"},
+	})
+
+	h := &BeadNudgeHandler{cooldown: time.Millisecond}
+	h.SetPresenceTracker(pt)
+
+	event := &Event{
+		Type:  EventPostToolUse,
+		Actor: "cold-start-agent",
+	}
+	result := &Result{}
+
+	if err := h.Handle(context.Background(), event, result); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(result.Warnings) != 0 {
+		t.Fatalf("expected no nudge after backfill shows existing task, got %d warnings", len(result.Warnings))
+	}
+}
+
 // makeMutationMsg creates a nats.Msg with a MutationEventPayload for testing.
 func makeMutationMsg(t *testing.T, payload MutationEventPayload) *nats.Msg {
 	t.Helper()
