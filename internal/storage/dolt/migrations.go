@@ -29,6 +29,7 @@ var migrations = []Migration{
 	{"inbox_dedup_unique", migrateInboxDedupUnique},
 	{"inbox_broadcast_ack", migrateInboxBroadcastAck},
 	{"session_registry_project_root", migrateSessionRegistryProjectRoot},
+	{"created_by_session", migrateCreatedBySession},
 }
 
 // RunMigrations executes all registered migrations in order.
@@ -398,4 +399,10 @@ func migrateSessionRegistryProjectRoot(ctx context.Context, db *sql.DB) error {
 	}
 
 	return nil
+}
+
+// migrateCreatedBySession adds the created_by_session column to the issues table
+// for tracking which Claude Code session created each issue (bd-5azzq).
+func migrateCreatedBySession(ctx context.Context, db *sql.DB) error {
+	return addColumnIfNotExists(ctx, db, "issues", "created_by_session", "VARCHAR(255) DEFAULT ''")
 }

@@ -52,8 +52,9 @@ type Issue struct {
 	UpdatedAt       string       `json:"updated_at,omitempty"`
 	ClosedAt        string       `json:"closed_at,omitempty"`
 	CloseReason     string       `json:"close_reason,omitempty"`     // Reason provided when closing (GH#891)
-	ClosedBySession string       `json:"closed_by_session,omitempty"` // Session that closed this issue (GH#891)
-	CreatedBy       string       `json:"created_by,omitempty"`
+	ClosedBySession  string       `json:"closed_by_session,omitempty"`  // Session that closed this issue (GH#891)
+	CreatedBy        string       `json:"created_by,omitempty"`
+	CreatedBySession string       `json:"created_by_session,omitempty"` // Session that created this issue (bd-5azzq)
 	Dependencies []Dependency `json:"dependencies,omitempty"`
 	RawLine      string       `json:"-"` // Store original line for conflict output
 	// Tombstone fields: inline soft-delete support for merge
@@ -494,9 +495,10 @@ func Merge3WayWithTTL(base, left, right []Issue, ttl time.Duration, debug bool) 
 
 			// CASE: Both are live - merge using deterministic rules with empty base
 			emptyBase := Issue{
-				ID:        leftIssue.ID,
-				CreatedAt: leftIssue.CreatedAt,
-				CreatedBy: leftIssue.CreatedBy,
+				ID:               leftIssue.ID,
+				CreatedAt:        leftIssue.CreatedAt,
+				CreatedBy:        leftIssue.CreatedBy,
+				CreatedBySession: leftIssue.CreatedBySession,
 			}
 			merged, _ := mergeIssue(emptyBase, leftIssue, rightIssue)
 			result = append(result, merged)
@@ -570,9 +572,10 @@ func mergeTombstones(left, right Issue) Issue {
 
 func mergeIssue(base, left, right Issue) (Issue, string) {
 	result := Issue{
-		ID:        base.ID,
-		CreatedAt: base.CreatedAt,
-		CreatedBy: base.CreatedBy,
+		ID:               base.ID,
+		CreatedAt:        base.CreatedAt,
+		CreatedBy:        base.CreatedBy,
+		CreatedBySession: base.CreatedBySession,
 	}
 
 	// Merge title - on conflict, side with latest updated_at wins

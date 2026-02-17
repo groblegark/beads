@@ -490,10 +490,11 @@ func (s *Server) handleCreate(req *Request) Response {
 		AutoClose: createArgs.AutoClose,
 		// NOTE: RepliesTo now handled via replies-to dependency (Decision 004)
 		// ID generation
-		IDPrefix:       createArgs.IDPrefix,
-		PrefixOverride: prefixOverride, // TargetRig resolution (gt-oasyjm.1)
-		CreatedBy:      createArgs.CreatedBy,
-		Owner:     createArgs.Owner,
+		IDPrefix:         createArgs.IDPrefix,
+		PrefixOverride:   prefixOverride, // TargetRig resolution (gt-oasyjm.1)
+		CreatedBy:        createArgs.CreatedBy,
+		CreatedBySession: createArgs.CreatedBySession,
+		Owner:            createArgs.Owner,
 		// Molecule type
 		MolType: types.MolType(createArgs.MolType),
 		// Agent identity fields

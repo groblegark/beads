@@ -37,11 +37,12 @@ type Issue struct {
 
 	// ===== Timestamps =====
 	CreatedAt   time.Time  `json:"created_at"`
-	CreatedBy   string     `json:"created_by,omitempty"` // Who created this issue (GH#748)
-	UpdatedAt   time.Time  `json:"updated_at"`
-	ClosedAt        *time.Time `json:"closed_at,omitempty"`
-	CloseReason     string     `json:"close_reason,omitempty"`      // Reason provided when closing
-	ClosedBySession string     `json:"closed_by_session,omitempty"` // Claude Code session that closed this issue
+	CreatedBy        string     `json:"created_by,omitempty"`         // Who created this issue (GH#748)
+	CreatedBySession string     `json:"created_by_session,omitempty"` // Session that created this issue (bd-5azzq)
+	UpdatedAt        time.Time  `json:"updated_at"`
+	ClosedAt         *time.Time `json:"closed_at,omitempty"`
+	CloseReason      string     `json:"close_reason,omitempty"`      // Reason provided when closing
+	ClosedBySession  string     `json:"closed_by_session,omitempty"` // Claude Code session that closed this issue
 
 	// ===== Time-Based Scheduling (GH#820) =====
 	DueAt      *time.Time `json:"due_at,omitempty"`      // When this issue should be completed
@@ -184,6 +185,7 @@ func (i *Issue) ComputeContentHash() string {
 	w.str(i.Assignee)
 	w.str(i.Owner)
 	w.str(i.CreatedBy)
+	w.str(i.CreatedBySession)
 
 	// Optional fields
 	w.strPtr(i.ExternalRef)

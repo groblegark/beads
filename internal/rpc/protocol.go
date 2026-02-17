@@ -258,8 +258,9 @@ type CreateArgs struct {
 	IDPrefix  string `json:"id_prefix,omitempty"`  // Override prefix for ID generation (mol, eph, etc.)
 	TargetRig string `json:"target_rig,omitempty"` // Create in different rig (resolves prefix from route beads)
 	Prefix    string `json:"prefix,omitempty"`     // Directly override issue prefix (from local config.yaml, gt-wnbjj8.3)
-	CreatedBy string `json:"created_by,omitempty"` // Who created the issue
-	Owner     string `json:"owner,omitempty"`      // Human owner for CV attribution (git author email)
+	CreatedBy        string `json:"created_by,omitempty"`         // Who created the issue
+	CreatedBySession string `json:"created_by_session,omitempty"` // Claude Code session ID that created this issue (bd-5azzq)
+	Owner            string `json:"owner,omitempty"`              // Human owner for CV attribution (git author email)
 	// Molecule type (for swarm coordination)
 	MolType string `json:"mol_type,omitempty"` // swarm, patrol, or work (default)
 	// Agent identity fields (only valid when IssueType == "agent")

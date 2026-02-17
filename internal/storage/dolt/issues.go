@@ -114,7 +114,8 @@ func insertIssue(ctx context.Context, tx *sql.Tx, issue *types.Issue) error {
 			pod_name, pod_ip, pod_node, pod_status, screen_session,
 			due_at, defer_until, metadata,
 			advice_hook_command, advice_hook_trigger, advice_hook_timeout, advice_hook_on_failure,
-			advice_subscriptions, advice_subscriptions_exclude
+			advice_subscriptions, advice_subscriptions_exclude,
+			created_by_session
 		) VALUES (
 			?, ?, ?, ?, ?, ?, ?,
 			?, ?, ?, ?, ?,
@@ -129,7 +130,8 @@ func insertIssue(ctx context.Context, tx *sql.Tx, issue *types.Issue) error {
 			?, ?, ?, ?, ?,
 			?, ?, ?,
 			?, ?, ?, ?,
-			?, ?
+			?, ?,
+			?
 		)
 	`,
 		issue.ID, issue.ContentHash, issue.Title, issue.Description, issue.Design, issue.AcceptanceCriteria, issue.Notes,
@@ -147,6 +149,7 @@ func insertIssue(ctx context.Context, tx *sql.Tx, issue *types.Issue) error {
 		// NOTE: advice_target_* columns removed - advice uses labels now
 		issue.AdviceHookCommand, issue.AdviceHookTrigger, issue.AdviceHookTimeout, issue.AdviceHookOnFailure,
 		formatJSONStringArray(issue.AdviceSubscriptions), formatJSONStringArray(issue.AdviceSubscriptionsExclude),
+		issue.CreatedBySession,
 	)
 	return err
 }
@@ -172,11 +175,13 @@ func scanIssue(ctx context.Context, db *sql.DB, id string) (*types.Issue, error)
 	var adviceHookTimeout sql.NullInt64
 	// Advice subscription fields (gt-w2mh8a.4)
 	var adviceSubscriptions, adviceSubscriptionsExclude sql.NullString
+	// Session identity fields (bd-5azzq)
+	var createdBySession, closedBySession sql.NullString
 
 	err := db.QueryRowContext(ctx, `
 		SELECT id, content_hash, title, description, design, acceptance_criteria, notes,
 		       status, priority, issue_type, assignee, estimated_minutes,
-		       created_at, created_by, owner, updated_at, closed_at, external_ref,
+		       created_at, created_by, created_by_session, owner, updated_at, closed_at, closed_by_session, external_ref,
 		       compaction_level, compacted_at, compacted_at_commit, original_size, source_repo, close_reason,
 		       deleted_at, deleted_by, delete_reason, original_type,
 		       sender, ephemeral, pinned, is_template, crystallizes,
@@ -195,7 +200,7 @@ func scanIssue(ctx context.Context, db *sql.DB, id string) (*types.Issue, error)
 		&issue.ID, &contentHash, &issue.Title, &issue.Description, &issue.Design,
 		&issue.AcceptanceCriteria, &issue.Notes, &issue.Status,
 		&issue.Priority, &issue.IssueType, &assignee, &estimatedMinutes,
-		&createdAtStr, &createdBy, &owner, &updatedAtStr, &closedAt, &externalRef,
+		&createdAtStr, &createdBy, &createdBySession, &owner, &updatedAtStr, &closedAt, &closedBySession, &externalRef,
 		&issue.CompactionLevel, &compactedAt, &compactedAtCommit, &originalSize, &sourceRepo, &closeReason,
 		&deletedAt, &deletedBy, &deleteReason, &originalType,
 		&sender, &ephemeral, &pinned, &isTemplate, &crystallizes,
@@ -244,6 +249,12 @@ func scanIssue(ctx context.Context, db *sql.DB, id string) (*types.Issue, error)
 	}
 	if createdBy.Valid {
 		issue.CreatedBy = createdBy.String
+	}
+	if createdBySession.Valid {
+		issue.CreatedBySession = createdBySession.String
+	}
+	if closedBySession.Valid {
+		issue.ClosedBySession = closedBySession.String
 	}
 	if externalRef.Valid {
 		issue.ExternalRef = &externalRef.String
