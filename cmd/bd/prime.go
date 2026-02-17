@@ -486,6 +486,11 @@ git push                    # Push to remote
 - ` + "`bd stats`" + ` - Project statistics (open/closed/blocked counts)
 - ` + "`bd doctor`" + ` - Check for issues (sync problems, missing hooks)
 
+### Configuration
+- ` + "`bd config list-beads`" + ` - List config beads (hook prompts, MCP settings, etc.)
+- ` + "`bd config show-bead <id>`" + ` - View a config bead's data
+- ` + "`bd config explain <category>`" + ` - Docs for a config category (e.g. claude-hooks)
+
 ## Common Workflows
 
 **Starting work:**

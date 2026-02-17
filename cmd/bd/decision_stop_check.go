@@ -30,7 +30,15 @@ Your job: present the human with a menu of what to do next. Steps:
    --prompt="Session wrap-up: what next?"
    --context="<summary of session work and current state>"
    --options='[{"id":"...","short":"...","label":"<specific actionable option>"},...]'
-   Always include a "stop" option: {"id":"stop","short":"stop","label":"Done for now"}
+
+IMPORTANT GUIDELINES FOR OPTIONS:
+- Instead of a generic "stop" option, offer a "Dive deeper on X" option where X is
+  something specific, concrete, and interesting that you noticed during this session
+  (e.g., "Dive deeper on error handling: add retry with backoff to the API client").
+- Prefer NOT to offer options for work already in progress — the human already decided
+  on that. Focus on new directions, unexplored angles, or adjacent improvements.
+- Always include a "Done for now" option: {"id":"stop","short":"stop","label":"Done for now"}
+  but make the other options genuinely interesting alternatives, not just "keep going".
 
 The human picks what's next, or gives custom instructions.`
 
