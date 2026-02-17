@@ -8,6 +8,8 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/steveyegge/beads/internal/gate"
+	"github.com/steveyegge/beads/internal/rpc"
+	"github.com/steveyegge/beads/internal/types"
 	"github.com/steveyegge/beads/internal/ui"
 )
 
@@ -208,6 +210,15 @@ Examples:
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error evaluating gates: %v\n", err)
 			os.Exit(1)
+		}
+
+		// If blocked by the decision gate, try to load a richer prompt
+		// from the claude-hooks config bead to give the agent detailed
+		// wrap-up instructions instead of a bare gate description.
+		if resp.Decision == "block" && hookType == gate.HookStop {
+			if prompt := loadGatePromptFromConfig("decision"); prompt != "" {
+				resp.Reason = prompt
+			}
 		}
 
 		if jsonOutput {
@@ -532,6 +543,62 @@ func readStdinHookInput() map[string]interface{} {
 		return nil
 	}
 	return input
+}
+
+// loadGatePromptFromConfig loads a rich prompt for a gate from the claude-hooks
+// config bead. This lets the block reason be editable via config beads instead
+// of hardcoded in the gate definition.
+//
+// Lookup path in config bead metadata:
+//   - stop_decision.agent_decision_prompt (current schema)
+//
+// Returns empty string if daemon is unavailable, no config bead exists, or
+// the prompt field is not set. Fail-open: gate still blocks with its default
+// description if this returns empty.
+func loadGatePromptFromConfig(gateID string) string {
+	if daemonClient == nil {
+		return ""
+	}
+
+	listArgs := &rpc.ListArgs{
+		IssueType: "config",
+		Labels:    []string{"config:claude-hooks"},
+		Status:    "open",
+		Limit:     10,
+	}
+	resp, err := daemonClient.List(listArgs)
+	if err != nil {
+		return ""
+	}
+
+	var issues []*types.IssueWithCounts
+	if resp.Data == nil {
+		return ""
+	}
+	if err := json.Unmarshal(resp.Data, &issues); err != nil || len(issues) == 0 {
+		return ""
+	}
+
+	// Merge config beads (lowest specificity first — global beads have score 0).
+	// For simplicity, just iterate and let later beads override earlier ones.
+	var prompt string
+	for _, iwc := range issues {
+		if iwc.Issue.Metadata == nil {
+			continue
+		}
+		var data map[string]interface{}
+		if err := json.Unmarshal(iwc.Issue.Metadata, &data); err != nil {
+			continue
+		}
+
+		// Look up stop_decision.agent_decision_prompt.
+		if sd, ok := data["stop_decision"].(map[string]interface{}); ok {
+			if p, ok := sd["agent_decision_prompt"].(string); ok && p != "" {
+				prompt = p
+			}
+		}
+	}
+	return prompt
 }
 
 // formatGateResults formats gate results as a human-readable string.
