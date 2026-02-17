@@ -74,19 +74,6 @@ func NotClosed() IssueValidator {
 	}
 }
 
-// NotHooked validates that an issue is not in hooked status.
-func NotHooked(force bool) IssueValidator {
-	return func(id string, issue *types.Issue) error {
-		if issue == nil {
-			return nil
-		}
-		if !force && issue.Status == types.StatusHooked {
-			return fmt.Errorf("cannot modify hooked issue %s (use --force to override)", id)
-		}
-		return nil
-	}
-}
-
 // HasStatus validates that an issue has one of the allowed statuses.
 func HasStatus(allowed ...types.Status) IssueValidator {
 	return func(id string, issue *types.Issue) error {
