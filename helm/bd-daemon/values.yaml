@@ -377,7 +377,7 @@ nats:
   # Persistence for JetStream file store
   persistence:
     enabled: true
-    storageClass: ""
+    storageClass: "gp2"
     size: 2Gi
 
   # Official NATS alpine image (tiny, no entrypoint issues)
