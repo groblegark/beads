@@ -35,7 +35,7 @@ func pollDecisionLoop(ctx context.Context, decisionID string, timeout, pollInter
 	for {
 		select {
 		case <-ticker.C:
-			_, selected, text, done, err := checkDecisionResponse(ctx, decisionID)
+			selected, text, done, err := checkDecisionResponse(ctx, decisionID)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "Error polling decision: %v\n", err)
 				continue
@@ -114,7 +114,7 @@ func awaitDecisionOnJetStream(ctx context.Context, js nats.JetStreamContext, dec
 	fmt.Fprintf(os.Stderr, "Listening on NATS %s for decision %s\n", subject, decisionID)
 
 	// Check if already responded (race: response arrived before we subscribed).
-	_, selected, text, done, err := checkDecisionResponse(ctx, decisionID)
+	selected, text, done, err := checkDecisionResponse(ctx, decisionID)
 	if err == nil && done {
 		return selected, text, nil
 	}
@@ -132,7 +132,7 @@ func awaitDecisionOnJetStream(ctx context.Context, js nats.JetStreamContext, dec
 			if err == nats.ErrTimeout {
 				return "", "", nil // timeout
 			}
-			_, selected, text, done, dbErr := checkDecisionResponse(ctx, decisionID)
+			selected, text, done, dbErr := checkDecisionResponse(ctx, decisionID)
 			if dbErr == nil && done {
 				return selected, text, nil
 			}
@@ -148,12 +148,12 @@ func awaitDecisionOnJetStream(ctx context.Context, js nats.JetStreamContext, dec
 		_ = msg.Ack()
 
 		if payload.DecisionID == decisionID {
-			_, selected, text, done, err := checkDecisionResponse(ctx, decisionID)
+			selected, text, done, err := checkDecisionResponse(ctx, decisionID)
 			if err == nil && done {
 				return selected, text, nil
 			}
 			time.Sleep(100 * time.Millisecond)
-			_, selected, text, done, err = checkDecisionResponse(ctx, decisionID)
+			selected, text, done, err = checkDecisionResponse(ctx, decisionID)
 			if err == nil && done {
 				return selected, text, nil
 			}
@@ -163,23 +163,23 @@ func awaitDecisionOnJetStream(ctx context.Context, js nats.JetStreamContext, dec
 }
 
 // checkDecisionResponse checks if a decision point has been responded to.
-func checkDecisionResponse(ctx context.Context, decisionID string) (*types.DecisionPoint, string, string, bool, error) {
+func checkDecisionResponse(ctx context.Context, decisionID string) (string, string, bool, error) {
 	if daemonClient == nil {
 		if store == nil {
-			return nil, "", "", false, nil
+			return "", "", false, nil
 		}
 		dp, err := store.GetDecisionPoint(ctx, decisionID)
 		if err == nil && dp != nil && dp.RespondedAt != nil {
-			return dp, dp.SelectedOption, decisionResponseText(dp), true, nil
+			return dp.SelectedOption, decisionResponseText(dp), true, nil
 		}
 		issue, err := store.GetIssue(ctx, decisionID)
 		if err != nil {
-			return nil, "", "", false, err
+			return "", "", false, err
 		}
 		if issue != nil && issue.Status == types.StatusClosed {
-			return nil, "", "", true, nil
+			return "", "", true, nil
 		}
-		return nil, "", "", false, nil
+		return "", "", false, nil
 	}
 
 	getArgs := &rpc.DecisionGetArgs{IssueID: decisionID}
@@ -187,26 +187,26 @@ func checkDecisionResponse(ctx context.Context, decisionID string) (*types.Decis
 	if err == nil && result != nil && result.Decision != nil {
 		dp := result.Decision
 		if dp.RespondedAt != nil {
-			return dp, dp.SelectedOption, decisionResponseText(dp), true, nil
+			return dp.SelectedOption, decisionResponseText(dp), true, nil
 		}
 	}
 
 	showArgs := &rpc.ShowArgs{ID: decisionID}
 	resp, err := daemonClient.Show(showArgs)
 	if err != nil {
-		return nil, "", "", false, err
+		return "", "", false, err
 	}
 
 	var issue types.Issue
 	if err := json.Unmarshal(resp.Data, &issue); err != nil {
-		return nil, "", "", false, err
+		return "", "", false, err
 	}
 
 	if issue.Status == types.StatusClosed {
-		return nil, "", "", true, nil
+		return "", "", true, nil
 	}
 
-	return nil, "", "", false, nil
+	return "", "", false, nil
 }
 
 // decisionResponseText returns the best available text from a decision response.
