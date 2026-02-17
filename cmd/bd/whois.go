@@ -12,15 +12,20 @@ import (
 
 // whoisCmd looks up an agent by name across sessions, issues, and agent beads.
 var whoisCmd = &cobra.Command{
-	Use:   "whois <name>",
-	Short: "Look up an agent by name",
+	Use:   "whois <name-or-id>",
+	Short: "Look up an agent by name, bead ID, mail address, or session key",
 	Long: `Look up an agent identity across all naming systems.
 
-Searches:
+Forward lookup (name → identity):
   1. Active daemon sessions (adjective-animal names like "fast-ox")
   2. Issues assigned to or created by this name
   3. Agent beads with matching pod/role information
   4. Derives gt mail address from agent bead identity
+
+Reverse lookup (identifier → name):
+  5. Bead ID (e.g., "bd-tds62", "gt-gastown-polecat-nux") → owner/assignee
+  6. Session key hash → assigned name and project
+  7. GT mail address (e.g., "gastown/polecats/nux") → agent bead + session
 
 Bridges the naming systems:
   - Beads sessions: adjective-animal names (fast-ox, keen-newt)
@@ -28,10 +33,13 @@ Bridges the naming systems:
   - GT mail: rig/role/name addresses (gastown/polecats/nux)
 
 Examples:
-  bd whois fast-ox                # Look up a session by adjective-animal name
-  bd whois nux                    # Find K8s agent + gt mail address
-  bd whois mayor                  # Town-level agent
-  bd whois keen-newt --json       # JSON output with all fields`,
+  bd whois fast-ox                    # Look up a session by adjective-animal name
+  bd whois nux                        # Find K8s agent + gt mail address
+  bd whois mayor                      # Town-level agent
+  bd whois bd-tds62                   # Reverse: who owns this bead?
+  bd whois gt-gastown-polecat-nux     # Reverse: agent bead → session + mail
+  bd whois gastown/polecats/nux       # Reverse: mail address → agent bead
+  bd whois keen-newt --json           # JSON output with all fields`,
 	Args: cobra.ExactArgs(1),
 	Run:  runWhois,
 }
@@ -41,10 +49,22 @@ func init() {
 }
 
 type whoisResult struct {
-	Name     string        `json:"name"`
-	Sessions []whoisSession `json:"sessions,omitempty"`
-	Issues   whoisIssues    `json:"issues,omitempty"`
-	Agents   []whoisAgent   `json:"agents,omitempty"`
+	Name     string          `json:"name"`
+	Sessions []whoisSession  `json:"sessions,omitempty"`
+	Issues   whoisIssues     `json:"issues,omitempty"`
+	Agents   []whoisAgent    `json:"agents,omitempty"`
+	Reverse  *whoisReverse   `json:"reverse,omitempty"`
+}
+
+// whoisReverse holds reverse-lookup results (bead ID → owner, mail → agent, etc.)
+type whoisReverse struct {
+	InputType   string `json:"input_type"`              // "bead_id", "mail_address", "session_key"
+	BeadID      string `json:"bead_id,omitempty"`       // The resolved bead ID
+	Title       string `json:"title,omitempty"`         // Bead title
+	Status      string `json:"status,omitempty"`        // Bead status
+	Assignee    string `json:"assignee,omitempty"`      // Who it's assigned to
+	CreatedBy   string `json:"created_by,omitempty"`    // Who created it
+	MailAddress string `json:"mail_address,omitempty"`  // Derived mail address
 }
 
 type whoisSession struct {
@@ -79,6 +99,18 @@ func runWhois(cmd *cobra.Command, args []string) {
 	if daemonClient == nil {
 		fmt.Println("Error: daemon not connected (bd whois requires a running daemon)")
 		return
+	}
+
+	// 0. Reverse lookup detection — check if input is a bead ID, mail address, or session key
+	if strings.Contains(name, "/") {
+		// Mail address format (e.g., "gastown/polecats/nux")
+		reverseFromMailAddress(&result, name)
+	} else if looksLikeBeadID(name) {
+		// Bead ID format (e.g., "bd-tds62", "gt-gastown-polecat-nux", "hq-mayor")
+		reverseFromBeadID(&result, name)
+	} else if looksLikeSessionKey(name) {
+		// Session key hash (16 hex chars)
+		reverseFromSessionKey(&result, name)
 	}
 
 	// 1. Search active sessions
@@ -223,6 +255,30 @@ func runWhois(cmd *cobra.Command, args []string) {
 		}
 	}
 
+	if result.Reverse != nil {
+		found = true
+		r := result.Reverse
+		fmt.Printf("Reverse lookup (%s):\n", r.InputType)
+		if r.BeadID != "" {
+			fmt.Printf("  Bead:       %s\n", r.BeadID)
+		}
+		if r.Title != "" {
+			fmt.Printf("  Title:      %s\n", r.Title)
+		}
+		if r.Status != "" {
+			fmt.Printf("  Status:     %s\n", r.Status)
+		}
+		if r.Assignee != "" {
+			fmt.Printf("  Assignee:   %s\n", r.Assignee)
+		}
+		if r.CreatedBy != "" {
+			fmt.Printf("  Created by: %s\n", r.CreatedBy)
+		}
+		if r.MailAddress != "" {
+			fmt.Printf("  Mail:       %s\n", r.MailAddress)
+		}
+	}
+
 	if !found {
 		fmt.Printf("No records found for %q\n", name)
 	}
@@ -300,4 +356,174 @@ func extractAgentName(agentID, rig, roleType string) string {
 		return ""
 	}
 	return agentID[idx+len(marker):]
+}
+
+// --- Reverse lookup helpers (bd-tds62) ---
+
+// looksLikeBeadID returns true if the input looks like a bead ID.
+// Matches patterns: bd-xxxxx, gt-xxxxx, hq-xxxxx, beads-xxxxx, or any prefix-alphanumeric.
+func looksLikeBeadID(s string) bool {
+	// Known prefixes for bead IDs
+	for _, prefix := range []string{"bd-", "gt-", "hq-", "beads-"} {
+		if strings.HasPrefix(s, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+// looksLikeSessionKey returns true if the input looks like a session key hash (16 hex chars).
+func looksLikeSessionKey(s string) bool {
+	if len(s) != 16 {
+		return false
+	}
+	for _, c := range s {
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
+			return false
+		}
+	}
+	return true
+}
+
+// reverseFromBeadID looks up a bead by ID and shows its owner/assignee/metadata.
+func reverseFromBeadID(result *whoisResult, beadID string) {
+	if daemonClient == nil {
+		return
+	}
+
+	resp, err := daemonClient.Show(&rpc.ShowArgs{ID: beadID})
+	if err != nil {
+		return
+	}
+
+	var issue map[string]interface{}
+	if resp.Data != nil {
+		_ = json.Unmarshal(resp.Data, &issue)
+	}
+	if issue == nil {
+		return
+	}
+
+	rev := &whoisReverse{
+		InputType: "bead_id",
+		BeadID:    beadID,
+	}
+
+	if t, ok := issue["title"].(string); ok {
+		rev.Title = t
+	}
+	if s, ok := issue["status"].(string); ok {
+		rev.Status = s
+	}
+	if a, ok := issue["assignee"].(string); ok && a != "" {
+		rev.Assignee = a
+	}
+	if cb, ok := issue["created_by"].(string); ok && cb != "" {
+		rev.CreatedBy = cb
+	}
+
+	// For agent beads (gt-*), try to derive mail address from bead metadata
+	if strings.HasPrefix(beadID, "gt-") {
+		rig := ""
+		roleType := ""
+		if r, ok := issue["rig"].(string); ok {
+			rig = r
+		}
+		if rt, ok := issue["role_type"].(string); ok {
+			roleType = rt
+		}
+		if mail := agentBeadToMailAddress(beadID, rig, roleType); mail != "" {
+			rev.MailAddress = mail
+		}
+	}
+
+	result.Reverse = rev
+}
+
+// reverseFromMailAddress resolves a gt mail address to an agent bead.
+// Mail format: rig/role/name (e.g., "gastown/polecats/nux") or rig/role (e.g., "gastown/witness")
+func reverseFromMailAddress(result *whoisResult, addr string) {
+	if daemonClient == nil {
+		return
+	}
+
+	parts := strings.Split(addr, "/")
+	if len(parts) < 2 {
+		return
+	}
+
+	rev := &whoisReverse{
+		InputType:   "mail_address",
+		MailAddress: addr,
+	}
+
+	// Try to find matching agent bead
+	podResp, err := daemonClient.AgentPodList(&rpc.AgentPodListArgs{})
+	if err != nil {
+		result.Reverse = rev
+		return
+	}
+
+	for _, a := range podResp.Agents {
+		mail := agentBeadToMailAddress(a.AgentID, a.Rig, a.RoleType)
+		if strings.EqualFold(mail, addr) {
+			rev.BeadID = a.AgentID
+			rev.Status = a.AgentState
+			// Also try to find the session name (assignee) from the bead
+			if resp, err := daemonClient.Show(&rpc.ShowArgs{ID: a.AgentID}); err == nil {
+				var issue map[string]interface{}
+				if resp.Data != nil {
+					_ = json.Unmarshal(resp.Data, &issue)
+				}
+				if assignee, ok := issue["assignee"].(string); ok && assignee != "" {
+					rev.Assignee = assignee
+				}
+				if cb, ok := issue["created_by"].(string); ok && cb != "" {
+					rev.CreatedBy = cb
+				}
+				if t, ok := issue["title"].(string); ok {
+					rev.Title = t
+				}
+			}
+			break
+		}
+	}
+
+	result.Reverse = rev
+}
+
+// reverseFromSessionKey finds a session by its key hash.
+func reverseFromSessionKey(result *whoisResult, key string) {
+	if daemonClient == nil {
+		return
+	}
+
+	sessResp, err := daemonClient.SessionList(&rpc.SessionListArgs{IncludeStale: true})
+	if err != nil {
+		return
+	}
+
+	for _, s := range sessResp.Sessions {
+		if s.SessionKey == key {
+			rev := &whoisReverse{
+				InputType: "session_key",
+				BeadID:    s.SessionKey,
+				Title:     fmt.Sprintf("Session: %s", s.AssignedName),
+				Assignee:  s.AssignedName,
+			}
+			result.Reverse = rev
+
+			// Also add to sessions list for unified display
+			cutoff := time.Now().Add(-1 * time.Hour)
+			result.Sessions = append(result.Sessions, whoisSession{
+				AssignedName: s.AssignedName,
+				BaseName:     s.BaseName,
+				SessionKey:   s.SessionKey,
+				LastSeen:     s.LastSeen,
+				Active:       s.LastSeen.After(cutoff),
+				ProjectRoot:  s.ProjectRoot,
+			})
+			return
+		}
+	}
 }
