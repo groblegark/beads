@@ -2553,3 +2553,117 @@ func TestInjectActorIntoRaw(t *testing.T) {
 		}
 	})
 }
+
+// TestHookEventAgentScopedSubject verifies that hook events are published to
+// agent-scoped subjects (hooks.<actor>.<EventType>) when Actor is set, and
+// to hooks._global.<EventType> when Actor is empty. (bd-fwylb)
+func TestHookEventAgentScopedSubject(t *testing.T) {
+	_, js, cleanup := startTestNATS(t)
+	defer cleanup()
+
+	bus := New()
+	bus.SetJetStream(js)
+
+	// Subscribe to hooks.> to catch all hook events
+	sub, err := js.SubscribeSync(SubjectHookPrefix+">", nats.DeliverAll())
+	if err != nil {
+		t.Fatalf("subscribe: %v", err)
+	}
+	defer sub.Unsubscribe()
+
+	// Dispatch with Actor set — subject should be hooks.<actor>.<EventType>
+	event := &Event{
+		Type:  EventPreToolUse,
+		Raw:   json.RawMessage(`{"session_id":"s1","tool_name":"Write"}`),
+		Actor: "bright-hog",
+	}
+	if _, err := bus.Dispatch(context.Background(), event); err != nil {
+		t.Fatalf("dispatch: %v", err)
+	}
+
+	msg, err := sub.NextMsg(2 * time.Second)
+	if err != nil {
+		t.Fatalf("expected message: %v", err)
+	}
+	if msg.Subject != "hooks.bright-hog.PreToolUse" {
+		t.Errorf("expected subject %q, got %q", "hooks.bright-hog.PreToolUse", msg.Subject)
+	}
+
+	// Dispatch without Actor — subject should be hooks._global.<EventType>
+	event2 := &Event{
+		Type: EventStop,
+		Raw:  json.RawMessage(`{"session_id":"s2"}`),
+	}
+	if _, err := bus.Dispatch(context.Background(), event2); err != nil {
+		t.Fatalf("dispatch: %v", err)
+	}
+
+	msg2, err := sub.NextMsg(2 * time.Second)
+	if err != nil {
+		t.Fatalf("expected message: %v", err)
+	}
+	if msg2.Subject != "hooks._global.Stop" {
+		t.Errorf("expected subject %q, got %q", "hooks._global.Stop", msg2.Subject)
+	}
+}
+
+// TestHookEventPerAgentSubscription verifies that subscribing to
+// hooks.<actor>.> only receives events from that specific agent. (bd-fwylb)
+func TestHookEventPerAgentSubscription(t *testing.T) {
+	_, js, cleanup := startTestNATS(t)
+	defer cleanup()
+
+	bus := New()
+	bus.SetJetStream(js)
+
+	// Subscribe ONLY to bright-hog's events
+	sub, err := js.SubscribeSync("hooks.bright-hog.>", nats.DeliverAll())
+	if err != nil {
+		t.Fatalf("subscribe: %v", err)
+	}
+	defer sub.Unsubscribe()
+
+	// Dispatch event from bright-hog
+	event1 := &Event{
+		Type:  EventPreToolUse,
+		Raw:   json.RawMessage(`{"session_id":"s1"}`),
+		Actor: "bright-hog",
+	}
+	if _, err := bus.Dispatch(context.Background(), event1); err != nil {
+		t.Fatalf("dispatch: %v", err)
+	}
+
+	// Dispatch event from kind-ape (should NOT arrive on our subscription)
+	event2 := &Event{
+		Type:  EventPreToolUse,
+		Raw:   json.RawMessage(`{"session_id":"s2"}`),
+		Actor: "kind-ape",
+	}
+	if _, err := bus.Dispatch(context.Background(), event2); err != nil {
+		t.Fatalf("dispatch: %v", err)
+	}
+
+	// Dispatch event with no actor (should NOT arrive)
+	event3 := &Event{
+		Type: EventStop,
+		Raw:  json.RawMessage(`{"session_id":"s3"}`),
+	}
+	if _, err := bus.Dispatch(context.Background(), event3); err != nil {
+		t.Fatalf("dispatch: %v", err)
+	}
+
+	// Should receive only the bright-hog event
+	msg, err := sub.NextMsg(2 * time.Second)
+	if err != nil {
+		t.Fatalf("expected message from bright-hog: %v", err)
+	}
+	if msg.Subject != "hooks.bright-hog.PreToolUse" {
+		t.Errorf("expected subject %q, got %q", "hooks.bright-hog.PreToolUse", msg.Subject)
+	}
+
+	// No more messages should arrive
+	_, err = sub.NextMsg(500 * time.Millisecond)
+	if err == nil {
+		t.Error("received unexpected message on agent-scoped subscription")
+	}
+}

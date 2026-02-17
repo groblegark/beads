@@ -128,6 +128,14 @@ func (b *Bus) publishToJetStream(js nats.JetStreamContext, event *Event) {
 		}
 	}
 
+	// For hook events, use agent-scoped subjects when actor is known.
+	// hooks.<actor>.<EventType> allows per-agent subscriptions. (bd-fwylb)
+	if !event.Type.IsDecisionEvent() && !event.Type.IsOjEvent() &&
+		!event.Type.IsAgentEvent() && !event.Type.IsMailEvent() &&
+		!event.Type.IsMutationEvent() && !event.Type.IsConfigEvent() {
+		subject = SubjectForHookEvent(event.Type, event.Actor)
+	}
+
 	// Use the raw JSON if available, otherwise marshal the event.
 	// When Raw is set AND Actor is known, inject actor into the JSON so
 	// external NATS subscribers can attribute events to agents. (bd-14mmg)

@@ -62,6 +62,72 @@ func TestSubjectForDecisionEventScoped(t *testing.T) {
 	}
 }
 
+// TestSubjectForHookEventScoped verifies agent-scoped hook event subjects. (bd-fwylb)
+func TestSubjectForHookEventScoped(t *testing.T) {
+	tests := []struct {
+		eventType EventType
+		actor     string
+		want      string
+	}{
+		{EventSessionStart, "bright-hog", "hooks.bright-hog.SessionStart"},
+		{EventPreToolUse, "kind-ape", "hooks.kind-ape.PreToolUse"},
+		{EventStop, "agent-123", "hooks.agent-123.Stop"},
+		{EventSessionStart, "", "hooks._global.SessionStart"},
+		{EventStop, "", "hooks._global.Stop"},
+		{EventNotification, "fast-gull", "hooks.fast-gull.Notification"},
+	}
+	for _, tt := range tests {
+		got := SubjectForHookEvent(tt.eventType, tt.actor)
+		if got != tt.want {
+			t.Errorf("SubjectForHookEvent(%s, %q) = %q, want %q",
+				tt.eventType, tt.actor, got, tt.want)
+		}
+	}
+}
+
+// TestEventTypeFromSubjectScopedHook verifies EventTypeFromSubject works with
+// agent-scoped hook subjects. (bd-fwylb)
+func TestEventTypeFromSubjectScopedHook(t *testing.T) {
+	tests := []struct {
+		subject string
+		want    string
+	}{
+		{"hooks.bright-hog.SessionStart", "SessionStart"},
+		{"hooks._global.Stop", "Stop"},
+		{"hooks.kind-ape.PreToolUse", "PreToolUse"},
+		// Legacy flat format still works
+		{"hooks.SessionStart", "SessionStart"},
+		// Decision scoped
+		{"decisions.agent-123.DecisionCreated", "DecisionCreated"},
+	}
+	for _, tt := range tests {
+		got := EventTypeFromSubject(tt.subject)
+		if got != tt.want {
+			t.Errorf("EventTypeFromSubject(%q) = %q, want %q", tt.subject, got, tt.want)
+		}
+	}
+}
+
+// TestStreamForSubjectScopedHook verifies StreamForSubject works with
+// agent-scoped hook subjects. (bd-fwylb)
+func TestStreamForSubjectScopedHook(t *testing.T) {
+	tests := []struct {
+		subject string
+		want    string
+	}{
+		{"hooks.bright-hog.SessionStart", "hooks"},
+		{"hooks._global.Stop", "hooks"},
+		{"hooks.SessionStart", "hooks"},
+		{"decisions.agent-123.DecisionCreated", "decisions"},
+	}
+	for _, tt := range tests {
+		got := StreamForSubject(tt.subject)
+		if got != tt.want {
+			t.Errorf("StreamForSubject(%q) = %q, want %q", tt.subject, got, tt.want)
+		}
+	}
+}
+
 func TestEnsureStreamsCreatesDecisionStream(t *testing.T) {
 	_, js, cleanup := startTestNATS(t)
 	defer cleanup()

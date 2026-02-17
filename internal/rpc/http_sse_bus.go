@@ -113,8 +113,9 @@ func (h *HTTPServer) handleSSEBusEvents(w http.ResponseWriter, r *http.Request) 
 		// If filtering by event type, subscribe to specific subject; otherwise wildcard
 		subject := prefix + ">"
 		if filterType != "" {
-			// For decision events, the subject has an extra scope segment
-			if streamName == "decisions" {
+			// Hook and decision events have an agent-scope segment:
+			// hooks.<actor>.<EventType>, decisions.<scope>.<EventType>
+			if streamName == "decisions" || streamName == "hooks" {
 				subject = prefix + "*." + filterType
 			} else {
 				subject = prefix + filterType

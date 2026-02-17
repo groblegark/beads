@@ -233,7 +233,17 @@ func runBusSubscribeNATS(cmd *cobra.Command) error {
 	var subjects []string
 	switch {
 	case filter != "":
-		subjects = []string{eventbus.SubjectForEvent(eventbus.EventType(filter))}
+		// Hook and decision events use agent-scoped subjects (hooks.<actor>.<type>,
+		// decisions.<scope>.<type>), so filter with wildcard scope. (bd-fwylb)
+		et := eventbus.EventType(filter)
+		if et.IsDecisionEvent() {
+			subjects = []string{eventbus.SubjectDecisionPrefix + "*." + filter}
+		} else if !et.IsOjEvent() && !et.IsAgentEvent() && !et.IsMailEvent() &&
+			!et.IsMutationEvent() && !et.IsConfigEvent() {
+			subjects = []string{eventbus.SubjectHookPrefix + "*." + filter}
+		} else {
+			subjects = []string{eventbus.SubjectForEvent(et)}
+		}
 	case allFlag:
 		for _, name := range eventbus.StreamNames {
 			prefix := eventbus.SubjectPrefixForStream(name)

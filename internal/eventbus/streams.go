@@ -181,6 +181,19 @@ func SubjectForDecisionEvent(eventType EventType, requestedBy string) string {
 	return SubjectDecisionPrefix + scope + "." + string(eventType)
 }
 
+// SubjectForHookEvent returns an agent-scoped NATS subject for a hook event.
+// When actor is non-empty, the subject is "hooks.<actor>.<EventType>" so that
+// consumers can subscribe to a single agent's events via "hooks.<actor>.>".
+// When actor is empty, falls back to "hooks._global.<EventType>".
+// Subscribers using the wildcard "hooks.>" still receive all hook events. (bd-fwylb)
+func SubjectForHookEvent(eventType EventType, actor string) string {
+	scope := "_global"
+	if actor != "" {
+		scope = actor
+	}
+	return SubjectHookPrefix + scope + "." + string(eventType)
+}
+
 // EnsureStreams creates the required JetStream streams if they don't already
 // exist. Called during daemon startup when NATS is enabled.
 func EnsureStreams(js nats.JetStreamContext) error {
