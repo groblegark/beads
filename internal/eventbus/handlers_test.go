@@ -102,23 +102,6 @@ func TestGateHandlerMetadata(t *testing.T) {
 }
 
 
-func TestStopDecisionHandlerMetadata(t *testing.T) {
-	h := &StopDecisionHandler{}
-	if h.ID() != "stop-decision" {
-		t.Errorf("expected ID 'stop-decision', got %q", h.ID())
-	}
-	if h.Priority() != 15 {
-		t.Errorf("expected priority 15, got %d", h.Priority())
-	}
-	handles := h.Handles()
-	if len(handles) != 1 {
-		t.Fatalf("expected 1 event type, got %d", len(handles))
-	}
-	if handles[0] != EventStop {
-		t.Errorf("expected EventStop, got %s", handles[0])
-	}
-}
-
 func TestInboxDrainHandlerMetadata(t *testing.T) {
 	h := &InboxDrainHandler{}
 	if h.ID() != "inbox-drain" {
@@ -344,7 +327,7 @@ func TestFormatInboxItems(t *testing.T) {
 
 func TestHandlerPriorityOrdering(t *testing.T) {
 	handlers := DefaultHandlers()
-	// Verify non-decreasing priority ordering: prime(10) ≤ stop-decision(15) ≤ gate(20) ≤ decision(30) ≤ oj-*(40)
+	// Verify non-decreasing priority ordering: health(5) ≤ prime(10) ≤ gate(20) ≤ inbox(30) ≤ oj-*(40)
 	for i := 0; i < len(handlers)-1; i++ {
 		if handlers[i].Priority() > handlers[i+1].Priority() {
 			t.Errorf("handler %q (priority %d) should not have higher priority than %q (priority %d)",
@@ -360,8 +343,8 @@ func TestBusWithDefaultHandlers(t *testing.T) {
 		bus.Register(h)
 	}
 
-	if len(bus.Handlers()) != 13 {
-		t.Errorf("expected 13 handlers, got %d", len(bus.Handlers()))
+	if len(bus.Handlers()) != 10 {
+		t.Errorf("expected 10 handlers, got %d", len(bus.Handlers()))
 	}
 }
 
@@ -569,204 +552,6 @@ exit 1
 	}
 }
 
-
-// ---------------------------------------------------------------------------
-// StopDecisionHandler.Handle integration tests
-// ---------------------------------------------------------------------------
-
-func TestStopDecisionHandler_Allow(t *testing.T) {
-	// bd decision stop-check exits 0 → allow stop.
-	cleanup := setupMockBD(t, `
-case "$1" in
-  decision)
-    case "$2" in
-      stop-check) printf '{"decision":"allow","reason":"human selected stop"}'; exit 0;;
-    esac
-    ;;
-esac
-exit 1
-`)
-	defer cleanup()
-
-	h := &StopDecisionHandler{}
-	event := &Event{
-		Type: EventStop,
-		CWD:  t.TempDir(),
-	}
-	result := &Result{}
-
-	err := h.Handle(context.Background(), event, result)
-	if err != nil {
-		t.Fatalf("expected no error, got: %v", err)
-	}
-	if result.Block {
-		t.Error("expected Block=false when stop-check exits 0")
-	}
-}
-
-func TestStopDecisionHandler_Block(t *testing.T) {
-	// bd decision stop-check exits 1 with JSON → block stop.
-	cleanup := setupMockBD(t, `
-case "$1" in
-  decision)
-    case "$2" in
-      stop-check) printf '{"decision":"block","reason":"Keep going with the tests"}'; exit 1;;
-    esac
-    ;;
-esac
-exit 1
-`)
-	defer cleanup()
-
-	h := &StopDecisionHandler{}
-	event := &Event{
-		Type: EventStop,
-		CWD:  t.TempDir(),
-	}
-	result := &Result{}
-
-	err := h.Handle(context.Background(), event, result)
-	if err != nil {
-		t.Fatalf("expected no error (block is not an error), got: %v", err)
-	}
-	if !result.Block {
-		t.Error("expected Block=true when stop-check exits 1")
-	}
-	if result.Reason != "Keep going with the tests" {
-		t.Errorf("expected reason 'Keep going with the tests', got %q", result.Reason)
-	}
-}
-
-func TestStopDecisionHandler_AllowsStop(t *testing.T) {
-	// stop_hook_active is ignored (beads-ulf5: --reentry no longer passed).
-	// StopDecisionHandler always calls stop-check without --reentry.
-	cleanup := setupMockBD(t, `
-case "$1" in
-  decision)
-    case "$2" in
-      stop-check) printf '{"decision":"allow","reason":"ok"}'; exit 0;;
-    esac
-    ;;
-esac
-exit 1
-`)
-	defer cleanup()
-
-	h := &StopDecisionHandler{}
-	event := &Event{
-		Type: EventStop,
-		CWD:  t.TempDir(),
-		Raw:  []byte(`{"stop_hook_active":true}`),
-	}
-	result := &Result{}
-
-	err := h.Handle(context.Background(), event, result)
-	if err != nil {
-		t.Fatalf("expected no error, got: %v", err)
-	}
-	if result.Block {
-		t.Error("expected Block=false when stop-check exits 0")
-	}
-}
-
-func TestStopDecisionHandler_BlocksStop(t *testing.T) {
-	// When stop-check blocks (exit 1), the handler should block.
-	cleanup := setupMockBD(t, `
-case "$1" in
-  decision)
-    case "$2" in
-      stop-check) printf '{"decision":"block","reason":"create a decision"}'; exit 1;;
-    esac
-    ;;
-esac
-exit 1
-`)
-	defer cleanup()
-
-	h := &StopDecisionHandler{}
-	event := &Event{
-		Type: EventStop,
-		CWD:  t.TempDir(),
-	}
-	result := &Result{}
-
-	err := h.Handle(context.Background(), event, result)
-	if err != nil {
-		t.Fatalf("expected no error, got: %v", err)
-	}
-	if !result.Block {
-		t.Error("expected Block=true when stop-check blocks")
-	}
-	if result.Reason != "create a decision" {
-		t.Errorf("expected reason 'create a decision', got %q", result.Reason)
-	}
-}
-
-func TestStopDecisionHandler_Error(t *testing.T) {
-	// bd exits with unexpected error (exit code 2) → handler returns error, no block.
-	cleanup := setupMockBD(t, `
-case "$1" in
-  decision)
-    case "$2" in
-      stop-check) printf "unexpected failure"; exit 2;;
-    esac
-    ;;
-esac
-exit 1
-`)
-	defer cleanup()
-
-	h := &StopDecisionHandler{}
-	event := &Event{
-		Type: EventStop,
-		CWD:  t.TempDir(),
-	}
-	result := &Result{}
-
-	err := h.Handle(context.Background(), event, result)
-	if err == nil {
-		t.Fatal("expected error for unexpected exit code, got nil")
-	}
-	if !strings.Contains(err.Error(), "stop-decision") {
-		t.Errorf("expected error to mention 'stop-decision', got: %v", err)
-	}
-	if result.Block {
-		t.Error("expected Block=false on unexpected error (fail-open)")
-	}
-}
-
-func TestStopDecisionHandler_BlockRawOutput(t *testing.T) {
-	// bd exits 1 with non-JSON output → treat as block with raw reason.
-	cleanup := setupMockBD(t, `
-case "$1" in
-  decision)
-    case "$2" in
-      stop-check) printf "raw block reason"; exit 1;;
-    esac
-    ;;
-esac
-exit 1
-`)
-	defer cleanup()
-
-	h := &StopDecisionHandler{}
-	event := &Event{
-		Type: EventStop,
-		CWD:  t.TempDir(),
-	}
-	result := &Result{}
-
-	err := h.Handle(context.Background(), event, result)
-	if err != nil {
-		t.Fatalf("expected no error (block is not an error), got: %v", err)
-	}
-	if !result.Block {
-		t.Error("expected Block=true for non-JSON exit-1 output")
-	}
-	if result.Reason != "raw block reason" {
-		t.Errorf("expected reason 'raw block reason', got %q", result.Reason)
-	}
-}
 
 // ---------------------------------------------------------------------------
 // HealthCheckHandler tests

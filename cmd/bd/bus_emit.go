@@ -67,8 +67,8 @@ func runBusEmit(cmd *cobra.Command, args []string) error {
 	}
 
 	// Extract session_id from the event JSON if present.
-	// Fall back to TERM_SESSION_ID so the StopLoopDetector can track
-	// attempts even when Claude Code doesn't send session_id in the hook JSON.
+	// Fall back to TERM_SESSION_ID so handlers can track sessions
+	// even when Claude Code doesn't send session_id in the hook JSON.
 	var eventMeta struct {
 		SessionID string `json:"session_id"`
 	}
@@ -98,8 +98,8 @@ func runBusEmit(cmd *cobra.Command, args []string) error {
 	// Dispatch via daemon RPC
 	requireDaemon("bus emit")
 
-	// For Stop hooks, extend the request timeout so the stop-decision
-	// handler can poll for up to 1 hour without hitting daemon timeouts.
+	// For Stop hooks, extend the request timeout so handlers
+	// can complete without hitting daemon timeouts.
 	if resolvedType == "Stop" {
 		daemonClient.SetRequestTimeout(3600 * 1000) // 1 hour
 	}

@@ -30,9 +30,9 @@ message to the inbox.
    rules. Built-ins: `decision` (strict), `commit-push` (soft), `bead-update`
    (soft). Checked by `GateHandler` at priority 20 in event bus.
 
-3. **StopDecisionHandler** (priority 15): Separate handler that creates/checks
-   decision points on Stop events. Runs before GateHandler. Overlaps with the
-   `decision` session gate.
+3. ~~**StopDecisionHandler** (priority 15)~~: **REMOVED.** Was a separate handler
+   that created/checked decision points on Stop events. Removed in favor of the
+   Stop hook directly injecting wrap-up instructions via `bd bus emit --hook=Stop`.
 
 4. **DecisionHandler** (priority 30): Polls DB for recently-responded decisions
    via `bd decision check --inject`, formats them, enqueues to inject queue.
@@ -40,7 +40,7 @@ message to the inbox.
 ### Problems
 
 - Decision injection is pull-based (polls on every hook) instead of push-based
-- StopDecisionHandler and the `decision` session gate overlap in purpose
+- ~~StopDecisionHandler and the `decision` session gate overlap in purpose~~ (resolved: StopDecisionHandler removed)
 - No general mechanism for external processes to inject messages
 - Adding a new notification type requires: new handler, new check command, new
   injection logic
@@ -115,21 +115,13 @@ conditions are met.
 **Cross-rig gates**: `await_id="<rig>:<bead-id>"` waits for a bead in a
 different rig to close. Enables cross-agent coordination.
 
-### Stop-Decision Handler
+### Stop-Decision Handler (REMOVED)
 
-Not technically a "gate" but acts as one — a separate event bus handler at
-priority 15 (`StopDecisionHandler`) that:
-
-- Reads `claude-hooks` config bead for `RequireAgentDecision` setting
-- Calls `findPendingAgentDecision()` via daemon RPC
-- If no decision exists: blocks with multi-line instruction block telling agent
-  what to create
-- Respects `stop_loop_break` flag from `StopLoopDetector` (priority 14)
-
-**The overlap**: Both `StopDecisionHandler` (priority 15) and the `decision`
-session gate (checked by `GateHandler` at priority 20) enforce "agent must offer
-a decision before stopping." The handler is the "creator" (tells agent what to
-do), the gate is the "enforcer" (blocks if agent didn't do it).
+~~Not technically a "gate" but acted as one — a separate event bus handler at
+priority 15 (`StopDecisionHandler`).~~ **Removed.** The Stop hook now directly
+injects wrap-up instructions via `bd bus emit --hook=Stop` without needing a
+separate handler. The `decision` session gate (checked by `GateHandler` at
+priority 20) remains as the enforcer.
 
 ### Bridge Gate: `mol-gate-pending`
 
@@ -142,8 +134,6 @@ the agent is warned about outstanding DB gates at stop time.
 
 **Stop hook:**
 ```
-Priority 14: StopLoopDetector      -- detects infinite stop loops, sets break flag
-Priority 15: StopDecisionHandler   -- creates/checks decision points
 Priority 20: GateHandler           -- evaluates session gates (strict=block, soft=warn)
 ```
 
@@ -165,7 +155,6 @@ bus GateHandler.
 **Minimal.** The gate architecture stays intact:
 - Session gates (Layer 1): unchanged
 - DB gates (Layer 2): unchanged
-- StopDecisionHandler (Layer 3): stays at priority 15, unchanged
 - Bridge gate: unchanged
 
 The only gate-related change is the **Gate -> Inbox bridge**: when a gate
@@ -184,10 +173,9 @@ Each tier is a fallback for the one above. Common case: message arrives via
 JetStream, written to JSONL, drained on next hook. Degraded case: JetStream
 down, DB reconciliation catches it.
 
-**P3: StopDecisionHandler stays as a handler at priority 15.**
-Gates are predicates. StopDecisionHandler has side effects (RPC, config reads,
-instruction blocks). They are complementary: handler is the "creator" (tells
-agent what to do), gate is the "enforcer" (blocks if agent didn't do it).
+**P3: Stop behavior is driven by the hook config, not a handler.**
+The Stop hook directly injects wrap-up instructions. The `decision` session gate
+(GateHandler, priority 20) enforces that the agent offered a decision before stopping.
 
 **P4: Backwards-compatible migration via dual-read with phased removal.**
 
@@ -547,8 +535,6 @@ inboxPush(InboxItem{
 
 **Stop hook:**
 ```
-14: StopLoopDetector      -- sets stop_loop_break if looping
-15: StopDecisionHandler   -- tells agent to create decision (if not already done)
 20: GateHandler           -- enforces all gates including decision (strict)
 ```
 
@@ -558,8 +544,8 @@ inboxPush(InboxItem{
 30: InboxDrainHandler     -- drains inbox (decisions, alerts, gates, mail, etc.)
 ```
 
-StopDecisionHandler is the "creator" (side effects: RPC, config reads, instruction
-blocks). The decision gate is the "enforcer" (pure predicate). Complementary.
+The decision gate is the "enforcer" (pure predicate). The Stop hook config
+directly injects wrap-up instructions.
 InboxDrainHandler runs on SessionStart/PreCompact, NOT on Stop.
 
 ## Decision Migration

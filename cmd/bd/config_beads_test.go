@@ -599,17 +599,17 @@ func TestSchemaForCategory(t *testing.T) {
 		if !ok {
 			t.Fatal("Expected fields to be a map")
 		}
-		// claude-hooks has 8 fields in categoryDocs
+		// claude-hooks has at least 1 field in categoryDocs
 		if len(fields) == 0 {
 			t.Error("Expected at least one field in schema")
 		}
 		// Check a specific field has type and description
-		stopEnabled, ok := fields["stop_decision.enabled"].(map[string]interface{})
+		hooksField, ok := fields["hooks"].(map[string]interface{})
 		if !ok {
-			t.Fatal("Expected stop_decision.enabled field")
+			t.Fatal("Expected hooks field")
 		}
-		if stopEnabled["type"] != "bool" {
-			t.Errorf("Expected type=bool, got %v", stopEnabled["type"])
+		if hooksField["type"] != "object" {
+			t.Errorf("Expected type=object, got %v", hooksField["type"])
 		}
 	})
 

@@ -359,10 +359,8 @@ func init() {
 	rootCmd.AddCommand(setupCmd)
 }
 
-// seedClaudeHooksConfigBead ensures the claude-hooks config bead exists with
-// default stop_decision settings. Best-effort — silently skips if no daemon
-// is available (the config bead can be seeded later or the fallback prompt
-// in decision_stop_check.go will tell the agent how to find it).
+// seedClaudeHooksConfigBead ensures the claude-hooks config bead exists.
+// Best-effort — silently skips if no daemon is available.
 func seedClaudeHooksConfigBead() {
 	if daemonClient == nil {
 		return
@@ -408,5 +406,5 @@ func seedClaudeHooksConfigBead() {
 		fmt.Fprintf(os.Stderr, "Note: could not seed claude-hooks config bead: %v\n", err)
 		return
 	}
-	fmt.Println("✓ Seeded claude-hooks config bead (stop_decision prompt)")
+	fmt.Println("✓ Seeded claude-hooks config bead")
 }

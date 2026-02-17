@@ -138,22 +138,13 @@ func SchemaForCategory(category string) map[string]interface{} {
 var categoryDocs = map[string]categoryDoc{
 	"claude-hooks": {
 		Name:        "claude-hooks",
-		Description: "Claude Code hook settings (stop prompts, session behavior)",
+		Description: "Claude Code hook settings (session behavior)",
 		Fields: []fieldDoc{
-			{Key: "stop_decision.enabled", Type: "bool", Description: "Whether the stop hook fires when Claude tries to stop."},
-			{Key: "stop_decision.require_agent_decision", Type: "bool", Description: "If true, agent must create a decision point before stopping."},
-			{Key: "stop_decision.agent_decision_prompt", Type: "string", Description: "Prompt shown to the agent when the stop hook fires."},
-			{Key: "stop_decision.agent_context_prompt", Type: "string", Description: "Additional context injected into the stop prompt."},
-			{Key: "stop_decision.agent_close_old_prompt", Type: "string", Description: "Prompt for closing stale in-progress issues."},
-			{Key: "stop_decision.timeout", Type: "duration", Description: "How long to wait for a decision response (e.g. '5m')."},
-			{Key: "stop_decision.poll_interval", Type: "duration", Description: "How often to poll for a decision response."},
 			{Key: "hooks", Type: "object", Description: "Hook definitions merged by specificity (arrays APPEND, scalars OVERRIDE)."},
 		},
 		Example: `  {
-    "stop_decision": {
-      "enabled": true,
-      "require_agent_decision": true,
-      "agent_decision_prompt": "Present wrap-up options..."
+    "hooks": {
+      "SessionStart": [{"type": "command", "command": "bd prime"}]
     }
   }`,
 	},

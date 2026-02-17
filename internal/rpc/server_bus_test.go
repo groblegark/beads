@@ -1930,7 +1930,7 @@ func TestHandleBusEmitOjWithDefaultHandlers(t *testing.T) {
 		t.Fatalf("unmarshal: %v", err)
 	}
 
-	// No block expected for OJ events (they don't use gate/stop-decision).
+	// No block expected for OJ events (they don't use gate handlers).
 	if result.Block {
 		t.Error("expected no block for OJ event")
 	}

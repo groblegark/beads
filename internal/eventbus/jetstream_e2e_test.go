@@ -105,63 +105,6 @@ func TestJSHookEventPublish(t *testing.T) {
 	}
 }
 
-// TestJSStopLoopDetectedEvent verifies that the StopLoopDetector publishes
-// StopLoopDetected events to the AGENT_EVENTS JetStream stream. (bd-pfv4d)
-func TestJSStopLoopDetectedEvent(t *testing.T) {
-	js, cleanup := startEmbeddedNATS(t)
-	defer cleanup()
-
-	d := testdaemon.Start(t)
-	client := d.Client(t)
-	t.Setenv("BD_DAEMON_HOST", d.URL)
-	t.Setenv("BD_ACTOR", "test-agent")
-
-	detector := &eventbus.StopLoopDetector{
-		Threshold:      2,
-		WindowDuration: 30 * time.Second,
-	}
-	bus := eventbus.New()
-	bus.Register(detector)
-	bus.SetJetStream(js)
-	detector.SetBus(bus)
-	d.Server.SetBus(bus)
-
-	// Subscribe to agent events.
-	sub, err := js.SubscribeSync(eventbus.SubjectAgentPrefix+">", nats.DeliverAll())
-	if err != nil {
-		t.Fatalf("subscribe: %v", err)
-	}
-	defer sub.Unsubscribe()
-
-	cwd := t.TempDir()
-	sid := "e2e-js-loop"
-
-	// Trigger loop detection.
-	stopLoopEmit(t, client, sid, cwd, false)
-	result := stopLoopEmit(t, client, sid, cwd, true)
-
-	// Verify loop was detected.
-	allInject := strings.Join(result.Inject, "\n")
-	if !strings.Contains(allInject, "loop detected") {
-		t.Fatal("expected loop detection")
-	}
-
-	// Read StopLoopDetected event from JetStream.
-	msg, err := sub.NextMsg(5 * time.Second)
-	if err != nil {
-		t.Fatalf("expected StopLoopDetected event: %v", err)
-	}
-
-	expectedSubject := eventbus.SubjectForEvent(eventbus.EventStopLoopDetected)
-	if msg.Subject != expectedSubject {
-		t.Errorf("subject: expected %q, got %q", expectedSubject, msg.Subject)
-	}
-
-	// Verify payload contains session ID.
-	if !strings.Contains(string(msg.Data), sid) {
-		t.Errorf("payload missing session_id %q, got: %s", sid, string(msg.Data))
-	}
-}
 
 // TestJSEventOrdering verifies that events are published in sequence order
 // within a stream. (bd-pfv4d)
