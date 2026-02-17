@@ -758,8 +758,6 @@ func runDaemonLoop(interval time.Duration, autoCommit, autoPush, autoPull, local
 			handler.SetInboxStore(store)
 		case *eventbus.PostToolUseInboxHandler:
 			handler.SetInboxStore(store)
-		case *eventbus.StopFallbackHandler:
-			handler.SetFallbackCreator(server)
 		case *eventbus.DecisionNudgeHandler:
 			handler.SetNudgeStore(store)
 		case *eventbus.MailNudgeHandler:

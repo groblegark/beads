@@ -387,7 +387,6 @@ func DefaultHandlers() []Handler {
 		&PrimeHandler{},            // 10
 		&StopLoopDetector{},        // 14 — must run before StopDecisionHandler to break loops
 		&StopDecisionHandler{},     // 15
-		&StopFallbackHandler{},     // 16 — daemon fallback when agent doesn't create decision (bd-csxrl)
 		&GateHandler{},             // 20
 		&InboxDrainHandler{},       // 30 — sole delivery path (Phase 5)
 		&PostToolUseInboxHandler{}, // 30 — urgent inbox drain between tool calls (bd-qufo5)
