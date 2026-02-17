@@ -350,13 +350,13 @@ func agentBeadToMailAddress(agentID, rig, roleType string) string {
 		}
 		return ""
 	case "polecat":
-		name := extractAgentName(agentID, rig, roleType)
+		name := extractAgentName(agentID, roleType)
 		if rig != "" && name != "" {
 			return rig + "/polecats/" + name
 		}
 		return ""
 	case "crew":
-		name := extractAgentName(agentID, rig, roleType)
+		name := extractAgentName(agentID, roleType)
 		if rig != "" && name != "" {
 			return rig + "/crew/" + name
 		}
@@ -367,7 +367,7 @@ func agentBeadToMailAddress(agentID, rig, roleType string) string {
 
 // extractAgentName extracts the agent name from a bead ID like "gt-gastown-polecat-nux".
 // Looks for the "-{roleType}-" segment and returns everything after it.
-func extractAgentName(agentID, rig, roleType string) string {
+func extractAgentName(agentID, roleType string) string {
 	marker := "-" + roleType + "-"
 	idx := strings.Index(agentID, marker)
 	if idx < 0 {

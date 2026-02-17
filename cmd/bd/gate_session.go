@@ -221,7 +221,7 @@ Examples:
 		// from the claude-hooks config bead to give the agent detailed
 		// wrap-up instructions instead of a bare gate description.
 		if resp.Decision == "block" && hookType == gate.HookStop {
-			if prompt := loadGatePromptFromConfig("decision"); prompt != "" {
+			if prompt := loadGatePromptFromConfig(); prompt != "" {
 				resp.Reason = prompt
 			}
 		}
@@ -561,7 +561,7 @@ func readStdinHookInput() map[string]interface{} {
 // Returns empty string if daemon is unavailable, no config bead exists, or
 // the prompt field is not set. Fail-open: gate still blocks with its default
 // description if this returns empty.
-func loadGatePromptFromConfig(gateID string) string {
+func loadGatePromptFromConfig() string {
 	if daemonClient == nil {
 		return ""
 	}

@@ -202,7 +202,7 @@ func TestLoadGatePromptFromConfig_NoDaemon(t *testing.T) {
 	daemonClient = nil
 	defer func() { daemonClient = oldClient }()
 
-	prompt := loadGatePromptFromConfig("decision")
+	prompt := loadGatePromptFromConfig()
 	if prompt != "" {
 		t.Errorf("expected empty prompt with nil daemon, got %q", prompt)
 	}
