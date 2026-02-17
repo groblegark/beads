@@ -168,12 +168,14 @@ func runWhois(cmd *cobra.Command, args []string) {
 		result.Issues.Created = createdCount
 	}
 
-	// 4. Search agent beads
+	// 4. Search agent beads (active pods first, then all gt:agent beads for stopped agents)
+	seenAgentIDs := map[string]bool{}
 	podResp, err := daemonClient.AgentPodList(&rpc.AgentPodListArgs{})
 	if err == nil {
 		for _, a := range podResp.Agents {
 			// Match agent ID suffix, pod name, or role
 			if matchesAgent(a, name) {
+				seenAgentIDs[a.AgentID] = true
 				result.Agents = append(result.Agents, whoisAgent{
 					AgentID:     a.AgentID,
 					PodName:     a.PodName,
@@ -184,6 +186,22 @@ func runWhois(cmd *cobra.Command, args []string) {
 					MailAddress: agentBeadToMailAddress(a.AgentID, a.Rig, a.RoleType),
 				})
 			}
+		}
+	}
+
+	// 4b. Also search all gt:agent labeled beads (includes stopped/closed agents)
+	for _, ab := range listAgentBeads() {
+		if seenAgentIDs[ab.id] {
+			continue // Already found via active pods
+		}
+		if matchesAgentBead(ab, name) {
+			result.Agents = append(result.Agents, whoisAgent{
+				AgentID:     ab.id,
+				AgentState:  ab.status,
+				Rig:         ab.rig,
+				RoleType:    ab.roleType,
+				MailAddress: agentBeadToMailAddress(ab.id, ab.rig, ab.roleType),
+			})
 		}
 	}
 
@@ -442,6 +460,7 @@ func reverseFromBeadID(result *whoisResult, beadID string) {
 
 // reverseFromMailAddress resolves a gt mail address to an agent bead.
 // Mail format: rig/role/name (e.g., "gastown/polecats/nux") or rig/role (e.g., "gastown/witness")
+// Searches active pods first, then all gt:agent labeled beads (including stopped agents).
 func reverseFromMailAddress(result *whoisResult, addr string) {
 	if daemonClient == nil {
 		return
@@ -457,34 +476,30 @@ func reverseFromMailAddress(result *whoisResult, addr string) {
 		MailAddress: addr,
 	}
 
-	// Try to find matching agent bead
+	// Try active pods first
 	podResp, err := daemonClient.AgentPodList(&rpc.AgentPodListArgs{})
-	if err != nil {
-		result.Reverse = rev
-		return
+	if err == nil {
+		for _, a := range podResp.Agents {
+			mail := agentBeadToMailAddress(a.AgentID, a.Rig, a.RoleType)
+			if strings.EqualFold(mail, addr) {
+				rev.BeadID = a.AgentID
+				rev.Status = a.AgentState
+				populateReverseFromBead(rev, a.AgentID)
+				result.Reverse = rev
+				return
+			}
+		}
 	}
 
-	for _, a := range podResp.Agents {
-		mail := agentBeadToMailAddress(a.AgentID, a.Rig, a.RoleType)
+	// Fall back to all gt:agent labeled beads (includes stopped/closed agents)
+	for _, ab := range listAgentBeads() {
+		mail := agentBeadToMailAddress(ab.id, ab.rig, ab.roleType)
 		if strings.EqualFold(mail, addr) {
-			rev.BeadID = a.AgentID
-			rev.Status = a.AgentState
-			// Also try to find the session name (assignee) from the bead
-			if resp, err := daemonClient.Show(&rpc.ShowArgs{ID: a.AgentID}); err == nil {
-				var issue map[string]interface{}
-				if resp.Data != nil {
-					_ = json.Unmarshal(resp.Data, &issue)
-				}
-				if assignee, ok := issue["assignee"].(string); ok && assignee != "" {
-					rev.Assignee = assignee
-				}
-				if cb, ok := issue["created_by"].(string); ok && cb != "" {
-					rev.CreatedBy = cb
-				}
-				if t, ok := issue["title"].(string); ok {
-					rev.Title = t
-				}
-			}
+			rev.BeadID = ab.id
+			rev.Status = ab.status
+			rev.Title = ab.title
+			rev.Assignee = ab.assignee
+			rev.CreatedBy = ab.createdBy
 			break
 		}
 	}
@@ -525,5 +540,110 @@ func reverseFromSessionKey(result *whoisResult, key string) {
 			})
 			return
 		}
+	}
+}
+
+// --- Agent bead search helpers (bd-iaush) ---
+
+// agentBead is a lightweight representation of a gt:agent labeled bead.
+type agentBead struct {
+	id        string
+	title     string
+	status    string
+	rig       string
+	roleType  string
+	assignee  string
+	createdBy string
+}
+
+// listAgentBeads returns all beads with the gt:agent label.
+// This includes both active and stopped/closed agents.
+func listAgentBeads() []agentBead {
+	if daemonClient == nil {
+		return nil
+	}
+
+	resp, err := daemonClient.List(&rpc.ListArgs{
+		Labels: []string{"gt:agent"},
+		Limit:  500,
+	})
+	if err != nil {
+		return nil
+	}
+
+	var issues []map[string]interface{}
+	if resp.Data != nil {
+		_ = json.Unmarshal(resp.Data, &issues)
+	}
+
+	beads := make([]agentBead, 0, len(issues))
+	for _, iss := range issues {
+		ab := agentBead{}
+		if id, ok := iss["id"].(string); ok {
+			ab.id = id
+		}
+		if t, ok := iss["title"].(string); ok {
+			ab.title = t
+		}
+		if s, ok := iss["status"].(string); ok {
+			ab.status = s
+		}
+		if r, ok := iss["rig"].(string); ok {
+			ab.rig = r
+		}
+		if rt, ok := iss["role_type"].(string); ok {
+			ab.roleType = rt
+		}
+		if a, ok := iss["assignee"].(string); ok {
+			ab.assignee = a
+		}
+		if cb, ok := iss["created_by"].(string); ok {
+			ab.createdBy = cb
+		}
+		beads = append(beads, ab)
+	}
+	return beads
+}
+
+// matchesAgentBead checks if an agent bead matches the query name.
+// Matches on agent ID suffix or bare name (same logic as matchesAgent for pods).
+func matchesAgentBead(ab agentBead, name string) bool {
+	n := strings.ToLower(name)
+	id := strings.ToLower(ab.id)
+	// Exact match
+	if id == n {
+		return true
+	}
+	// Suffix match (e.g., "nux" matches "gt-gastown-polecat-nux")
+	if strings.HasSuffix(id, "-"+n) {
+		return true
+	}
+	return false
+}
+
+// populateReverseFromBead fills in reverse lookup fields from a bead's issue data.
+func populateReverseFromBead(rev *whoisReverse, beadID string) {
+	if daemonClient == nil {
+		return
+	}
+	resp, err := daemonClient.Show(&rpc.ShowArgs{ID: beadID})
+	if err != nil {
+		return
+	}
+	var issue map[string]interface{}
+	if resp.Data != nil {
+		_ = json.Unmarshal(resp.Data, &issue)
+	}
+	if issue == nil {
+		return
+	}
+	if assignee, ok := issue["assignee"].(string); ok && assignee != "" {
+		rev.Assignee = assignee
+	}
+	if cb, ok := issue["created_by"].(string); ok && cb != "" {
+		rev.CreatedBy = cb
+	}
+	if t, ok := issue["title"].(string); ok {
+		rev.Title = t
 	}
 }
