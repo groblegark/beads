@@ -270,6 +270,14 @@ func runDecisionCreate(cmd *cobra.Command, args []string) {
 
 	// Block until human responds, then output the response.
 	// This is the primary mechanism for human-in-the-loop decisions.
+	//
+	// Write a "decision-waiting" marker so the Stop hook gate knows an agent
+	// is actively blocked on a decision response and won't re-fire the prompt.
+	if sid := getSessionID(); sid != "" {
+		gate.MarkGate(getWorkDir(), sid, "decision-waiting")
+		defer gate.ClearGate(getWorkDir(), sid, "decision-waiting")
+	}
+
 	fmt.Fprintf(os.Stderr, "\nWaiting for response on %s (timeout: %s)...\n", decisionID, waitTimeout)
 	selected, responseText, err := pollDecisionResponse(ctx, decisionID, waitTimeout, waitPollInterval)
 	if err != nil {
@@ -289,11 +297,6 @@ func runDecisionCreate(cmd *cobra.Command, args []string) {
 		}
 		return
 	}
-	// Auto-mark the decision gate so the Stop hook won't block. (bd-dwqmb)
-	if sid := getSessionID(); sid != "" {
-		_ = gate.MarkGate(getWorkDir(), sid, "decision")
-	}
-
 	// Map selected option ID to its label
 	selectedLabel := selected
 	for _, opt := range options {

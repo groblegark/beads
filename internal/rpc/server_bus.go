@@ -274,7 +274,8 @@ type AdviceEventPayload struct {
 // emitDecisionEvent dispatches a decision event to the event bus (and NATS
 // JetStream) so that the Slack bot and other consumers are notified of
 // decision lifecycle events.  No-op if the bus is nil.
-func (s *Server) emitDecisionEvent(eventType eventbus.EventType, payload eventbus.DecisionEventPayload) {
+// Actor identifies which agent emitted the event (for JetStream routing). (bd-3d2o7)
+func (s *Server) emitDecisionEvent(eventType eventbus.EventType, payload eventbus.DecisionEventPayload, actor ...string) {
 	s.mu.RLock()
 	bus := s.bus
 	s.mu.RUnlock()
@@ -292,6 +293,9 @@ func (s *Server) emitDecisionEvent(eventType eventbus.EventType, payload eventbu
 	event := &eventbus.Event{
 		Type: eventType,
 		Raw:  raw,
+	}
+	if len(actor) > 0 && actor[0] != "" {
+		event.Actor = actor[0]
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), s.requestTimeout)

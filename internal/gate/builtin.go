@@ -15,14 +15,24 @@ func RegisterBuiltinGates(reg *Registry) {
 
 // DecisionGate returns the "decision" gate definition.
 // Satisfied when a decision point was offered during the session.
+// Auto-satisfied if an agent is actively blocked waiting for a decision response
+// (indicated by the "decision-waiting" marker file).
 func DecisionGate() *Gate {
 	return &Gate{
 		ID:          "decision",
 		Hook:        HookStop,
 		Description: "decision point offered before session end",
 		Mode:        GateModeStrict,
+		AutoCheck:   checkDecisionWaiting,
 		Hint:        "offer a decision point before ending the session",
 	}
+}
+
+// checkDecisionWaiting returns true if an agent is actively blocking on
+// a bd decision create call (waiting for a human response). This prevents
+// the Stop hook from firing repeatedly while the decision is pending.
+func checkDecisionWaiting(ctx GateContext) bool {
+	return IsGateSatisfied(ctx.WorkDir, ctx.SessionID, "decision-waiting")
 }
 
 // CommitPushGate returns the "commit-push" gate definition.

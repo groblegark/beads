@@ -304,6 +304,27 @@ func (s *Server) emitMutationFor(eventType string, issue *types.Issue) {
 	s.emitRichMutation(evt)
 }
 
+// emitMutationForActor is like emitMutationFor but also sets the Actor field
+// so JetStream consumers can see who performed the action. (bd-3d2o7)
+func (s *Server) emitMutationForActor(eventType string, issue *types.Issue, actor string) {
+	if issue == nil {
+		s.emitRichMutation(MutationEvent{
+			Type:  eventType,
+			Actor: actor,
+		})
+		return
+	}
+	evt := MutationEvent{
+		Type:     eventType,
+		IssueID:  issue.ID,
+		Title:    issue.Title,
+		Assignee: issue.Assignee,
+		Actor:    actor,
+	}
+	enrichEvent(&evt, issue)
+	s.emitRichMutation(evt)
+}
+
 // emitRichMutation sends a pre-built mutation event with optional metadata.
 // Use this for events that include additional context (status changes, bonded events, etc.)
 // Non-blocking: drops event if channel is full (sync will happen eventually).

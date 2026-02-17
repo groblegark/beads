@@ -18,8 +18,8 @@ func TestDecisionGate(t *testing.T) {
 	if g.Mode != GateModeStrict {
 		t.Errorf("expected strict mode, got %q", g.Mode)
 	}
-	if g.AutoCheck != nil {
-		t.Error("decision gate should not have auto-check")
+	if g.AutoCheck == nil {
+		t.Error("decision gate should have auto-check for decision-waiting marker")
 	}
 }
 
@@ -151,6 +151,78 @@ func TestCheckNoBeadHooked_ContextOverride(t *testing.T) {
 	ctx := GateContext{HookBead: "gt-xyz"}
 	if checkNoBeadHooked(ctx) {
 		t.Error("HookBead in context should prevent auto-satisfy")
+	}
+}
+
+func TestDecisionGate_AutoSatisfiedWhenWaiting(t *testing.T) {
+	workDir := t.TempDir()
+	sessionID := "decision-waiting-test"
+
+	g := DecisionGate()
+	ctx := GateContext{WorkDir: workDir, SessionID: sessionID}
+
+	// Without decision-waiting marker, auto-check should return false
+	if g.AutoCheck(ctx) {
+		t.Error("decision gate should not auto-satisfy without decision-waiting marker")
+	}
+
+	// Write the decision-waiting marker (simulating bd decision create blocking)
+	if err := MarkGate(workDir, sessionID, "decision-waiting"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Now auto-check should return true
+	if !g.AutoCheck(ctx) {
+		t.Error("decision gate should auto-satisfy when decision-waiting marker exists")
+	}
+
+	// Clean up the marker (simulating decision response received)
+	ClearGate(workDir, sessionID, "decision-waiting")
+
+	// Should go back to unsatisfied
+	if g.AutoCheck(ctx) {
+		t.Error("decision gate should not auto-satisfy after decision-waiting marker cleared")
+	}
+}
+
+func TestDecisionGate_IntegrationWithEvaluateHook(t *testing.T) {
+	workDir := t.TempDir()
+	sessionID := "decision-eval-test"
+
+	// Set up clean git repo and no hooked bead for other gates
+	runGit(t, workDir, "init")
+	runGit(t, workDir, "config", "user.email", "test@test.com")
+	runGit(t, workDir, "config", "user.name", "Test")
+	if err := os.WriteFile(filepath.Join(workDir, "f.txt"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, workDir, "add", "f.txt")
+	runGit(t, workDir, "commit", "-m", "init")
+	t.Setenv("GT_HOOK_BEAD", "")
+
+	reg := NewRegistry()
+	RegisterBuiltinGates(reg)
+
+	// Without decision-waiting marker, should block
+	resp, err := EvaluateHook(workDir, sessionID, HookStop, reg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.Decision != "block" {
+		t.Errorf("expected block without decision-waiting marker, got %q", resp.Decision)
+	}
+
+	// Write decision-waiting marker — should now allow (agent is blocked on decision)
+	if err := MarkGate(workDir, sessionID, "decision-waiting"); err != nil {
+		t.Fatal(err)
+	}
+
+	resp, err = EvaluateHook(workDir, sessionID, HookStop, reg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.Decision != "allow" {
+		t.Errorf("expected allow with decision-waiting marker, got %q (reason: %s)", resp.Decision, resp.Reason)
 	}
 }
 

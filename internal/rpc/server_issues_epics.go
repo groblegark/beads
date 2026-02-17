@@ -3787,7 +3787,7 @@ func (s *Server) handleDecisionCreate(req *Request) Response {
 	}
 
 	// Emit mutation event so the daemon event-driven sync picks it up.
-	s.emitMutationFor(MutationCreate, issue)
+	s.emitMutationForActor(MutationCreate, issue, actor)
 
 	// Emit decision event to NATS JetStream so the Slack bot (and other
 	// consumers) are notified immediately.  Previously the CLI client was
@@ -3799,7 +3799,7 @@ func (s *Server) handleDecisionCreate(req *Request) Response {
 		Urgency:     urgency,
 		RequestedBy: args.RequestedBy,
 		Options:     len(args.Options),
-	})
+	}, actor)
 
 	// Emit OjAgentEscalated when a decision is created by an agent (bd-2iae)
 	if args.RequestedBy != "" {
@@ -3937,19 +3937,19 @@ func (s *Server) handleDecisionResolve(req *Request) Response {
 	issue, _ := store.GetIssue(ctx, args.IssueID)
 
 	// Emit mutation + decision event for resolve
-	s.emitMutationFor(MutationUpdate, issue)
+	s.emitMutationForActor(MutationUpdate, issue, req.Actor)
 	s.emitDecisionEvent(eventbus.EventDecisionResponded, eventbus.DecisionEventPayload{
 		DecisionID:  args.IssueID,
 		RequestedBy: dp.RequestedBy,
 		ChosenLabel: args.SelectedOption,
 		ResolvedBy:  args.RespondedBy,
 		Rationale:   args.Guidance,
-	})
+	}, req.Actor)
 
 	// Push decision response to requesting agent's inbox (bd-eo9xt).
 	// This enables push-based delivery of decision responses instead of
 	// relying solely on polling or NATS event subscription.
-	if dp.RequestedBy != "" && dp.RequestedBy != "stop-hook" {
+	if dp.RequestedBy != "" {
 		s.pushDecisionResponseToInbox(ctx, dp, args)
 	}
 
@@ -4290,7 +4290,7 @@ func (s *Server) handleDecisionRemind(req *Request) Response {
 			Question:    dp.Prompt,
 			Urgency:     dp.Urgency,
 			RequestedBy: dp.RequestedBy,
-		})
+		}, req.Actor)
 	}
 
 	result := DecisionRemindResult{
