@@ -355,20 +355,36 @@ func (s *Server) enrichRosterWithTasks(req *Request, entries []AgentRosterEntry)
 		entries[i].TaskID = info.id
 		entries[i].TaskTitle = info.title
 
-		// Walk parent-child deps to find the epic.
-		deps, err := store.GetDependencyRecords(ctx, info.id)
-		if err != nil {
-			continue
-		}
-		for _, dep := range deps {
-			if dep.Type == types.DepParentChild && dep.DependsOnID != info.id {
-				// This bead depends on dep.DependsOnID via parent-child → that's the parent/epic.
-				parent, err := store.GetIssue(ctx, dep.DependsOnID)
-				if err == nil && parent != nil {
-					entries[i].EpicID = parent.ID
-					entries[i].EpicTitle = parent.Title
+		// Find epic via dependency walk. Check two directions:
+		// 1. Forward deps (parent-child): child depends_on parent
+		// 2. Reverse deps (blocks): epic blocks child → epic.issue_id, child.depends_on_id
+		epicFound := false
+
+		// Check forward: parent-child deps where this bead depends on the parent.
+		if deps, err := store.GetDependencyRecords(ctx, info.id); err == nil {
+			for _, dep := range deps {
+				if dep.Type == types.DepParentChild {
+					if parent, err := store.GetIssue(ctx, dep.DependsOnID); err == nil && parent != nil {
+						entries[i].EpicID = parent.ID
+						entries[i].EpicTitle = parent.Title
+						epicFound = true
+					}
+					break
 				}
-				break // Use first parent-child parent found.
+			}
+		}
+
+		// Check reverse: blocks deps where an epic blocks this bead. (bd-qdhxw)
+		// GetDependentsWithMetadata(childID) returns records where depends_on_id = childID.
+		if !epicFound {
+			if depMeta, err := store.GetDependentsWithMetadata(ctx, info.id); err == nil {
+				for _, dm := range depMeta {
+					if dm.DependencyType == types.DepBlocks || dm.DependencyType == types.DepParentChild {
+						entries[i].EpicID = dm.Issue.ID
+						entries[i].EpicTitle = dm.Issue.Title
+						break
+					}
+				}
 			}
 		}
 	}
