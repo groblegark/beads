@@ -187,6 +187,7 @@ dolt:
     replicas: 1              # Set to 3 for HA
     remotesapiPort: 50051    # Port for inter-node replication
     bootstrapEpoch: 1        # Increment on manual failover
+    peerProbeTimeout: 3      # Seconds to wait for peer remotesapi probe at startup
     # doltclusterctl label controller
     clusterctl:
       enabled: true          # Deploy CronJob to apply primary/standby labels

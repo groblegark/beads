@@ -66,8 +66,34 @@ spec:
             - |
               set -e
               ORDINAL=$(echo "$HOSTNAME" | rev | cut -d'-' -f1 | rev)
+              PROBE_TIMEOUT={{ .Values.dolt.cluster.peerProbeTimeout | default 3 }}
               echo "Pod ordinal: $ORDINAL — copying config-${ORDINAL}.yaml"
               cp "/etc/dolt-configs/config-${ORDINAL}.yaml" /etc/dolt/config.yaml
+
+              # Probe each standby peer's remotesapi port and remove unreachable
+              # peers from config. This prevents Dolt from spamming 1/s replication
+              # retries against pods that aren't running yet (or ever).
+              PEERS=$(grep 'remote_url_template:' /etc/dolt/config.yaml \
+                | sed 's|.*http://||; s|:{{ $.Values.dolt.cluster.remotesapiPort | default 50051 }}/.*||' || true)
+
+              for PEER in $PEERS; do
+                PEER_NAME=$(echo "$PEER" | cut -d. -f1)
+                if curl -sf --connect-timeout "$PROBE_TIMEOUT" "http://${PEER}:{{ $.Values.dolt.cluster.remotesapiPort | default 50051 }}/" >/dev/null 2>&1; then
+                  echo "  peer $PEER_NAME: reachable"
+                else
+                  echo "  peer $PEER_NAME: UNREACHABLE — removing from standby_remotes"
+                  # Remove the 2-line YAML entry (- name: + remote_url_template:)
+                  sed -i "/$PEER_NAME/,+1d" /etc/dolt/config.yaml
+                fi
+              done
+
+              # If all peers removed, strip the empty standby_remotes key
+              if ! grep -q 'remote_url_template:' /etc/dolt/config.yaml; then
+                echo "  WARNING: no reachable peers — starting without standby_remotes"
+                sed -i '/standby_remotes:/d' /etc/dolt/config.yaml
+              fi
+
+              echo "--- final config ---"
               cat /etc/dolt/config.yaml
           volumeMounts:
             - name: config-all
