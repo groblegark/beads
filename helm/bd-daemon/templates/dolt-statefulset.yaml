@@ -30,6 +30,19 @@ spec:
       securityContext:
         {{- toYaml .Values.dolt.podSecurityContext | nindent 8 }}
       terminationGracePeriodSeconds: {{ .Values.dolt.terminationGracePeriodSeconds | default 120 }}
+      {{- if $clusterEnabled }}
+      {{- /* Dolt cluster pods use EBS PVCs (single-attach). Spot interruptions cause
+             Multi-Attach errors because the old node hasn't released the volume yet.
+             Force dolt pods onto on-demand nodes to prevent involuntary disruption. */}}
+      nodeSelector:
+        {{- with .Values.dolt.nodeSelector }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+        karpenter.sh/capacity-type: on-demand
+      {{- else if .Values.dolt.nodeSelector }}
+      nodeSelector:
+        {{- toYaml .Values.dolt.nodeSelector | nindent 8 }}
+      {{- end }}
       {{- if and $clusterEnabled (not .Values.dolt.affinity) }}
       affinity:
         podAntiAffinity:
