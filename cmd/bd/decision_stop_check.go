@@ -145,6 +145,8 @@ func runDecisionStopCheck(cmd *cobra.Command, args []string) {
 		// This means all sessions from the same user share a decision pool,
 		// which is the correct behavior for stop-check gating.
 		actorTag := getActorWithGit()
+		fmt.Fprintf(os.Stderr, "stop-check: actor=%q (BD_ACTOR=%q session=%q)\n",
+			actorTag, os.Getenv("BD_ACTOR"), sessionAssignedName)
 		agentDecision, err := findPendingAgentDecision(ctx, actorTag)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: error finding agent decision: %v\n", err)
@@ -591,6 +593,7 @@ func findPendingAgentDecision(ctx context.Context, actorTag string) (*types.Deci
 	// This prevents one user's agents from picking up another's decisions,
 	// and prevents dead sessions' leftover decisions from bypassing the guard.
 	now := time.Now()
+	fmt.Fprintf(os.Stderr, "stop-check: scanning %d decisions for actor=%q\n", len(decisions), actorTag)
 	var best *types.DecisionPoint
 	for _, dp := range decisions {
 		if dp.RequestedBy == "stop-hook" || dp.RequestedBy == "" {
@@ -598,10 +601,14 @@ func findPendingAgentDecision(ctx context.Context, actorTag string) (*types.Deci
 		}
 		// Actor scoping: if we have an actor tag, only match decisions from this actor
 		if actorTag != "" && dp.RequestedBy != actorTag {
+			fmt.Fprintf(os.Stderr, "stop-check: skip %s (actor mismatch: requested_by=%q want=%q)\n",
+				dp.IssueID, dp.RequestedBy, actorTag)
 			continue
 		}
 		// Staleness guard: skip decisions older than the threshold.
 		if now.Sub(dp.CreatedAt) > staleDecisionAge {
+			fmt.Fprintf(os.Stderr, "stop-check: skip %s (stale: age=%s)\n",
+				dp.IssueID, now.Sub(dp.CreatedAt).Truncate(time.Second))
 			continue
 		}
 
