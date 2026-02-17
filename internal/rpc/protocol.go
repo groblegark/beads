@@ -155,6 +155,7 @@ const (
 	OpAgentStop    = "agent_stop"
 	OpAgentRestart = "agent_restart"
 	OpAgentSignal  = "agent_signal"
+	OpAgentRoster  = "agent_roster" // bd-3d5m2
 
 	// VCS operations (bd-ma0s.2)
 	OpVcsCommit        = "vcs_commit"
@@ -1916,6 +1917,31 @@ type AgentPodInfo struct {
 // AgentPodListResult is returned from pod list queries.
 type AgentPodListResult struct {
 	Agents []AgentPodInfo `json:"agents"`
+}
+
+// ===== Agent Roster (bd-3d5m2) =====
+
+// AgentRosterArgs requests a live presence roster from the NATS event bus.
+type AgentRosterArgs struct {
+	StaleThresholdSecs int `json:"stale_threshold_secs,omitempty"` // Exclude actors idle longer than this (0 = show all)
+}
+
+// AgentRosterEntry represents a single actor's live presence.
+type AgentRosterEntry struct {
+	Actor      string  `json:"actor"`
+	LastSeen   string  `json:"last_seen"`
+	LastEvent  string  `json:"last_event"`
+	ToolName   string  `json:"tool_name,omitempty"`
+	SessionID  string  `json:"session_id,omitempty"`
+	IdleSecs   float64 `json:"idle_secs"`
+	EventCount int64   `json:"event_count"`
+}
+
+// AgentRosterResult is the response from agent_roster.
+type AgentRosterResult struct {
+	Actors  []AgentRosterEntry `json:"actors"`
+	Uptime  string             `json:"uptime"`  // Tracker uptime
+	Tracked int                `json:"tracked"` // Total actors tracked (including stale)
 }
 
 // ===== Agent Lifecycle Operations (beads-2qz5) =====

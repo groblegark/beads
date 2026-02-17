@@ -136,7 +136,7 @@ var captainSweepCmd = &cobra.Command{
 	Short: "Auto-resolve stale decisions from dead sessions",
 	Long: `Sweep finds pending decisions older than a threshold and resolves them
 with "stop" (or the first available stop-like option). This prevents stale
-decisions from dead sessions from bypassing the stop-check guard for other sessions.
+decisions from dead sessions from blocking other sessions.
 
 The captain should run sweep periodically to keep the decision queue clean.
 

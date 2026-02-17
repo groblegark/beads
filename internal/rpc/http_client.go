@@ -390,6 +390,7 @@ func operationToHTTPMethod(operation string) string {
 		OpAgentStop:    "AgentStop",
 		OpAgentRestart: "AgentRestart",
 		OpAgentSignal:  "AgentSignal",
+		OpAgentRoster:  "AgentRoster",
 
 		// VCS operations (bd-ma0s.2)
 		OpVcsCommit:        "VcsCommit",

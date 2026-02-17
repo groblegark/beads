@@ -1427,6 +1427,21 @@ func (c *Client) AgentPodList(args *AgentPodListArgs) (*AgentPodListResult, erro
 	return &result, nil
 }
 
+// AgentRoster returns the live presence roster from the NATS event bus (bd-3d5m2).
+func (c *Client) AgentRoster(args *AgentRosterArgs) (*AgentRosterResult, error) {
+	resp, err := c.Execute(OpAgentRoster, args)
+	if err != nil {
+		return nil, err
+	}
+
+	var result AgentRosterResult
+	if err := json.Unmarshal(resp.Data, &result); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal agent_roster response: %w", err)
+	}
+
+	return &result, nil
+}
+
 // Agent lifecycle operations (beads-2qz5)
 
 // AgentStop requests a graceful stop of an agent.

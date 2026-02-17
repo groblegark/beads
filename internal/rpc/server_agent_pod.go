@@ -254,3 +254,47 @@ func (s *Server) handleAgentPodList(req *Request) Response {
 	data, _ := json.Marshal(result)
 	return Response{Success: true, Data: data}
 }
+
+// handleAgentRoster returns a live presence roster from the NATS event bus (bd-3d5m2).
+func (s *Server) handleAgentRoster(req *Request) Response {
+	if s.bus == nil {
+		return Response{Error: "event bus not configured"}
+	}
+
+	pt := s.bus.Presence()
+	if pt == nil {
+		return Response{Error: "presence tracker not running (NATS may not be enabled)"}
+	}
+
+	var args AgentRosterArgs
+	if req.Args != nil {
+		_ = json.Unmarshal(req.Args, &args)
+	}
+
+	staleThreshold := time.Duration(0)
+	if args.StaleThresholdSecs > 0 {
+		staleThreshold = time.Duration(args.StaleThresholdSecs) * time.Second
+	}
+
+	entries := pt.Roster(staleThreshold)
+	rosterEntries := make([]AgentRosterEntry, len(entries))
+	for i, e := range entries {
+		rosterEntries[i] = AgentRosterEntry{
+			Actor:      e.Actor,
+			LastSeen:   e.LastSeen.Format(time.RFC3339),
+			LastEvent:  e.LastEvent,
+			ToolName:   e.ToolName,
+			SessionID:  e.SessionID,
+			IdleSecs:   e.IdleSecs,
+			EventCount: e.EventCount,
+		}
+	}
+
+	result := AgentRosterResult{
+		Actors:  rosterEntries,
+		Uptime:  pt.Uptime().Round(time.Second).String(),
+		Tracked: len(pt.Roster(0)),
+	}
+	data, _ := json.Marshal(result)
+	return Response{Success: true, Data: data}
+}

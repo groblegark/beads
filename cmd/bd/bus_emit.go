@@ -79,8 +79,8 @@ func runBusEmit(cmd *cobra.Command, args []string) error {
 		eventMeta.SessionID = os.Getenv("TERM_SESSION_ID")
 	}
 
-	// Inject caller's session tag into the event JSON so the daemon-side
-	// stop-check subprocess can scope decisions to this terminal session.
+	// Inject caller's session tag into the event JSON so handlers can
+	// scope decisions to this terminal session.
 	if sessionTag := os.Getenv("TERM_SESSION_ID"); sessionTag != "" {
 		var raw map[string]interface{}
 		if len(eventData) > 0 {

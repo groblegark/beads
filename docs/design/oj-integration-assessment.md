@@ -33,7 +33,7 @@
 |-------|----------|--------|
 | No handler persistence or registration CLI | `Bus.Register()` is in-memory only; `OpBusRegister` only in design doc | Build od-k3o.2 + k3o.4 first |
 | No latency benchmark for `bd bus emit` | Deep research line 549: "currently unknown"; Go startup alone is 15-30ms | Promote k3o.9 to Phase 0 |
-| No handler timeout enforcement | `Bus.Dispatch` runs handlers sequentially with no per-handler timeout; StopDecisionHandler blocks 1hr | Add `context.WithTimeout` per handler + `Unregister()` kill switch |
+| No handler timeout enforcement | `Bus.Dispatch` runs handlers sequentially with no per-handler timeout | Add `context.WithTimeout` per handler + `Unregister()` kill switch |
 | Phase 4 scope unrealistic | OJ WAL has timers, inflight HashSets, step history, session reconnect state; beads has flat Issues | Reclassify: OJ WAL authoritative, beads = projection |
 
 ## High Priority Issues (P1)

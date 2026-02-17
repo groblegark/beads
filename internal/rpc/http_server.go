@@ -487,6 +487,7 @@ func httpMethodToOperation(method string) string {
 		"AgentStop":    OpAgentStop,
 		"AgentRestart": OpAgentRestart,
 		"AgentSignal":  OpAgentSignal,
+		"AgentRoster":  OpAgentRoster,
 
 		// VCS operations (bd-ma0s.2)
 		"VcsCommit":        OpVcsCommit,

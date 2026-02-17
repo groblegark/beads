@@ -18,6 +18,7 @@ import (
 type Bus struct {
 	handlers []Handler
 	js       nats.JetStreamContext
+	presence *PresenceTracker // live actor roster from NATS events (bd-3d5m2)
 	mu       sync.RWMutex
 }
 
@@ -34,6 +35,14 @@ func (b *Bus) SetJetStream(js nats.JetStreamContext) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.js = js
+
+	// Start presence tracker for live roster (bd-3d5m2).
+	pt := NewPresenceTracker()
+	if err := pt.Start(js); err != nil {
+		log.Printf("eventbus: presence tracker failed to start: %v", err)
+	} else {
+		b.presence = pt
+	}
 }
 
 // JetStreamEnabled returns true if JetStream publishing is configured.
@@ -48,6 +57,13 @@ func (b *Bus) JetStream() nats.JetStreamContext {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 	return b.js
+}
+
+// Presence returns the live presence tracker, or nil if not running (bd-3d5m2).
+func (b *Bus) Presence() *PresenceTracker {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.presence
 }
 
 // Register adds a handler to the bus. Handlers are sorted by priority on

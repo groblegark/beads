@@ -185,6 +185,27 @@ Examples:
 	RunE: runAgentPodList,
 }
 
+var agentRosterCmd = &cobra.Command{
+	Use:   "roster",
+	Short: "Show live presence roster from NATS event bus",
+	Long: `Show which actors are currently active based on real-time NATS events.
+
+The roster is built from hook events (tool calls, prompts) and agent lifecycle
+events (started, stopped, heartbeat). Actors are sorted by most recent activity.
+
+Use --stale to control the idle threshold (default: 1 hour). Actors with no
+events in that window are excluded. Use --all to show every actor ever seen.
+
+Examples:
+  bd agent roster                # Active actors (idle < 1h)
+  bd agent roster --all          # All actors ever seen
+  bd agent roster --stale=300    # Active in last 5 minutes`,
+	RunE: runAgentRoster,
+}
+
+var rosterStaleThreshold int
+var rosterShowAll bool
+
 var podRegisterName string
 var podRegisterIP string
 var podRegisterNode string
@@ -226,6 +247,9 @@ func init() {
 
 	agentPodListCmd.Flags().StringVar(&podListRig, "rig", "", "Filter by rig name")
 
+	agentRosterCmd.Flags().IntVar(&rosterStaleThreshold, "stale", 3600, "Exclude actors idle longer than N seconds (0 = no limit)")
+	agentRosterCmd.Flags().BoolVar(&rosterShowAll, "all", false, "Show all actors (no stale filtering)")
+
 	agentCmd.AddCommand(agentStateCmd)
 	agentCmd.AddCommand(agentHeartbeatCmd)
 	agentCmd.AddCommand(agentShowCmd)
@@ -235,6 +259,7 @@ func init() {
 	agentCmd.AddCommand(agentPodDeregisterCmd)
 	agentCmd.AddCommand(agentPodStatusCmd)
 	agentCmd.AddCommand(agentPodListCmd)
+	agentCmd.AddCommand(agentRosterCmd)
 	rootCmd.AddCommand(agentCmd)
 }
 
@@ -781,6 +806,58 @@ func runAgentPodList(cmd *cobra.Command, args []string) error {
 	}
 
 	return nil
+}
+
+func runAgentRoster(cmd *cobra.Command, args []string) error {
+	if daemonClient == nil {
+		return fmt.Errorf("agent roster requires the daemon (set BD_DAEMON_HOST)")
+	}
+
+	stale := rosterStaleThreshold
+	if rosterShowAll {
+		stale = 0
+	}
+
+	result, err := daemonClient.AgentRoster(&rpc.AgentRosterArgs{
+		StaleThresholdSecs: stale,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to get roster: %w", err)
+	}
+
+	if jsonOutput {
+		encoder := json.NewEncoder(os.Stdout)
+		encoder.SetIndent("", "  ")
+		return encoder.Encode(result)
+	}
+
+	if len(result.Actors) == 0 {
+		fmt.Printf("No active actors (tracker uptime: %s, %d total tracked)\n", result.Uptime, result.Tracked)
+		return nil
+	}
+
+	fmt.Printf("Live Roster (%d active, %d total tracked, uptime: %s)\n\n", len(result.Actors), result.Tracked, result.Uptime)
+	for _, a := range result.Actors {
+		idle := formatIdleDuration(a.IdleSecs)
+		line := fmt.Sprintf("  %-20s  idle=%-8s  events=%-5d  last=%s", a.Actor, idle, a.EventCount, a.LastEvent)
+		if a.ToolName != "" {
+			line += fmt.Sprintf("  tool=%s", a.ToolName)
+		}
+		fmt.Println(line)
+	}
+
+	return nil
+}
+
+func formatIdleDuration(secs float64) string {
+	d := time.Duration(secs * float64(time.Second))
+	if d < time.Minute {
+		return fmt.Sprintf("%ds", int(d.Seconds()))
+	}
+	if d < time.Hour {
+		return fmt.Sprintf("%dm%ds", int(d.Minutes()), int(d.Seconds())%60)
+	}
+	return fmt.Sprintf("%dh%dm", int(d.Hours()), int(d.Minutes())%60)
 }
 
 // runAgentBackfillLabels scans all agent beads and adds role_type/rig labels

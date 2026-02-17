@@ -442,6 +442,8 @@ func (s *Server) executeOperation(req *Request) Response {
 		resp = s.handleAgentRestart(req)
 	case OpAgentSignal:
 		resp = s.handleAgentSignal(req)
+	case OpAgentRoster:
+		resp = s.handleAgentRoster(req)
 	// VCS operations (bd-ma0s.2)
 	case OpVcsCommit:
 		resp = s.handleVcsCommit(req)
