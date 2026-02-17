@@ -343,9 +343,13 @@ func (c *Client) SetToken(token string) {
 
 // SetRequestTimeout sets a per-request timeout in milliseconds.
 // This is sent to the server in the Request and also extends the client socket deadline.
+// For HTTP clients, this sets a per-request context deadline for long-polling support.
 // Use 0 to revert to the server/client default.
 func (c *Client) SetRequestTimeout(ms int) {
 	c.requestTimeoutMs = ms
+	if c.httpClient != nil {
+		c.httpClient.SetRequestTimeout(ms)
+	}
 }
 
 // IsRemote returns true if this client is connected to a remote daemon via HTTP

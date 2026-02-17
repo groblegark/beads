@@ -4,6 +4,7 @@ package rpc
 
 import (
 	"bytes"
+	"context"
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
@@ -18,12 +19,13 @@ import (
 
 // HTTPClient represents an HTTP client that connects to the daemon via HTTP/Connect-RPC
 type HTTPClient struct {
-	baseURL    string
-	token      string
-	httpClient *http.Client
-	timeout    time.Duration
-	dbPath     string
-	actor      string
+	baseURL          string
+	token            string
+	httpClient       *http.Client
+	timeout          time.Duration
+	dbPath           string
+	actor            string
+	requestTimeoutMs int // Per-request timeout override (0 = use default)
 }
 
 // GetDaemonHTTPURL returns the BD_DAEMON_HTTP_URL environment variable if set.
@@ -125,6 +127,15 @@ func (c *HTTPClient) SetToken(token string) {
 	c.token = token
 }
 
+// SetRequestTimeout sets a per-request timeout in milliseconds.
+// When set, overrides the default http.Client.Timeout for individual requests
+// using a per-request context deadline. This is critical for long-polling
+// operations like DoneWait that need to block for up to 1 hour.
+// Use 0 to revert to the default timeout.
+func (c *HTTPClient) SetRequestTimeout(ms int) {
+	c.requestTimeoutMs = ms
+}
+
 // IsRemote returns true (HTTP is always remote)
 func (c *HTTPClient) IsRemote() bool {
 	return true
@@ -158,8 +169,17 @@ func (c *HTTPClient) ExecuteWithCwd(operation string, args interface{}, cwd stri
 	// Build URL
 	url := fmt.Sprintf("%s/bd.v1.BeadsService/%s", c.baseURL, methodName)
 
-	// Create request
-	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(body))
+	// Create request with optional per-request timeout.
+	// When requestTimeoutMs is set (e.g., for long-polling like DoneWait),
+	// use a context deadline instead of the global http.Client.Timeout.
+	var req *http.Request
+	if c.requestTimeoutMs > 0 {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(c.requestTimeoutMs)*time.Millisecond)
+		defer cancel()
+		req, err = http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	} else {
+		req, err = http.NewRequest(http.MethodPost, url, bytes.NewReader(body))
+	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
@@ -186,9 +206,20 @@ func (c *HTTPClient) ExecuteWithCwd(operation string, args interface{}, cwd stri
 	if c.dbPath != "" {
 		req.Header.Set("X-BD-Expected-DB", c.dbPath)
 	}
+	if c.requestTimeoutMs > 0 {
+		req.Header.Set("X-BD-Request-Timeout-Ms", fmt.Sprintf("%d", c.requestTimeoutMs))
+	}
 
-	// Execute request
-	rpcDebugLog("HTTP request: %s %s", req.Method, url)
+	// Execute request.
+	// When using a per-request context timeout (e.g., DoneWait long-poll),
+	// temporarily disable http.Client.Timeout so it doesn't race with the
+	// context deadline. Safe because CLI commands are sequential.
+	rpcDebugLog("HTTP request: %s %s (requestTimeoutMs=%d)", req.Method, url, c.requestTimeoutMs)
+	if c.requestTimeoutMs > 0 {
+		origTimeout := c.httpClient.Timeout
+		c.httpClient.Timeout = 0
+		defer func() { c.httpClient.Timeout = origTimeout }()
+	}
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("HTTP request failed: %w", err)

@@ -255,10 +255,21 @@ func (s *Server) doneWaitViaPoll(ctx context.Context, agentName string, timeout 
 	}
 
 	deadline := time.Now().Add(timeout)
-	ticker := time.NewTicker(2 * time.Second)
-	defer ticker.Stop()
 
 	fmt.Fprintf(os.Stderr, "done_wait: polling inbox for %s (timeout=%s)\n", agentName, timeout)
+
+	// Check immediately for pre-existing items before entering the poll loop.
+	items, err := store.InboxList(ctx, agentName, false)
+	if err == nil && len(items) > 0 {
+		return &DoneWaitResult{
+			EventType: "inbox",
+			Content:   formatInboxItems(items),
+			Source:    items[0].Source,
+		}
+	}
+
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
 
 	for {
 		select {
