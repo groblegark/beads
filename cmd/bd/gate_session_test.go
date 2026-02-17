@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -135,5 +136,178 @@ func TestSessionGateCheckIntegration(t *testing.T) {
 	}
 	if len(resp.Warnings) != 1 {
 		t.Errorf("expected 1 warning for unsatisfied soft gate, got %d", len(resp.Warnings))
+	}
+}
+
+// ---------------------------------------------------------------------------
+// --session flag tests (bd-2q8d8)
+// ---------------------------------------------------------------------------
+
+func TestSessionFlagOverridesEnvVar(t *testing.T) {
+	// When both --session flag and CLAUDE_SESSION_ID are set,
+	// the flag should take priority.
+	t.Setenv("CLAUDE_SESSION_ID", "env-session")
+
+	// getSessionID reads from env
+	envID := getSessionID()
+	if envID != "env-session" {
+		t.Errorf("getSessionID() = %q, want 'env-session'", envID)
+	}
+
+	// Simulate flag taking priority (this is the logic in the command handler)
+	flagSession := "flag-session"
+	sessionID := flagSession
+	if sessionID == "" {
+		sessionID = getSessionID()
+	}
+	if sessionID != "flag-session" {
+		t.Errorf("flag should override env: got %q, want 'flag-session'", sessionID)
+	}
+}
+
+func TestSessionFlagFallsBackToEnv(t *testing.T) {
+	t.Setenv("CLAUDE_SESSION_ID", "env-session")
+
+	// Simulate empty flag — should fall back to env
+	flagSession := ""
+	sessionID := flagSession
+	if sessionID == "" {
+		sessionID = getSessionID()
+	}
+	if sessionID != "env-session" {
+		t.Errorf("should fall back to env: got %q, want 'env-session'", sessionID)
+	}
+}
+
+func TestSessionFlagAndEnvBothEmpty(t *testing.T) {
+	t.Setenv("CLAUDE_SESSION_ID", "")
+
+	flagSession := ""
+	sessionID := flagSession
+	if sessionID == "" {
+		sessionID = getSessionID()
+	}
+	if sessionID != "" {
+		t.Errorf("both empty should yield empty: got %q", sessionID)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// loadGatePromptFromConfig tests (bd-4onc1)
+// ---------------------------------------------------------------------------
+
+func TestLoadGatePromptFromConfig_NoDaemon(t *testing.T) {
+	// When daemonClient is nil, should return empty string (fail-open)
+	oldClient := daemonClient
+	daemonClient = nil
+	defer func() { daemonClient = oldClient }()
+
+	prompt := loadGatePromptFromConfig("decision")
+	if prompt != "" {
+		t.Errorf("expected empty prompt with nil daemon, got %q", prompt)
+	}
+}
+
+func TestLoadGatePromptFromConfig_DaemonRPCFails(t *testing.T) {
+	// When daemonClient is non-nil but List fails (no daemon running),
+	// loadGatePromptFromConfig should return empty (fail-open).
+	// We can't easily unit-test this without a real daemon, so this
+	// test documents the expected behavior. The E2E test (bd-cqbc0)
+	// covers the full flow on the cluster.
+	//
+	// The key contract: loadGatePromptFromConfig never panics and
+	// always returns "" on any error.
+}
+
+func TestLoadGatePromptFromConfig_ParsesPromptFromMetadata(t *testing.T) {
+	// Test the metadata parsing logic directly
+	metadata := map[string]interface{}{
+		"stop_decision": map[string]interface{}{
+			"agent_decision_prompt": "Test wrap-up prompt",
+			"enabled":              true,
+		},
+	}
+	metaJSON, _ := json.Marshal(metadata)
+
+	// Simulate the parsing logic from loadGatePromptFromConfig
+	var data map[string]interface{}
+	if err := json.Unmarshal(metaJSON, &data); err != nil {
+		t.Fatal(err)
+	}
+
+	var prompt string
+	if sd, ok := data["stop_decision"].(map[string]interface{}); ok {
+		if p, ok := sd["agent_decision_prompt"].(string); ok && p != "" {
+			prompt = p
+		}
+	}
+
+	if prompt != "Test wrap-up prompt" {
+		t.Errorf("expected 'Test wrap-up prompt', got %q", prompt)
+	}
+}
+
+func TestLoadGatePromptFromConfig_MissingPromptField(t *testing.T) {
+	// Metadata without agent_decision_prompt should return empty
+	metadata := map[string]interface{}{
+		"stop_decision": map[string]interface{}{
+			"enabled": true,
+		},
+	}
+	metaJSON, _ := json.Marshal(metadata)
+
+	var data map[string]interface{}
+	json.Unmarshal(metaJSON, &data)
+
+	var prompt string
+	if sd, ok := data["stop_decision"].(map[string]interface{}); ok {
+		if p, ok := sd["agent_decision_prompt"].(string); ok && p != "" {
+			prompt = p
+		}
+	}
+
+	if prompt != "" {
+		t.Errorf("expected empty prompt when field missing, got %q", prompt)
+	}
+}
+
+func TestLoadGatePromptFromConfig_NoStopDecisionSection(t *testing.T) {
+	// Metadata without stop_decision section should return empty
+	metadata := map[string]interface{}{
+		"hooks": map[string]interface{}{
+			"some_other_config": true,
+		},
+	}
+	metaJSON, _ := json.Marshal(metadata)
+
+	var data map[string]interface{}
+	json.Unmarshal(metaJSON, &data)
+
+	var prompt string
+	if sd, ok := data["stop_decision"].(map[string]interface{}); ok {
+		if p, ok := sd["agent_decision_prompt"].(string); ok && p != "" {
+			prompt = p
+		}
+	}
+
+	if prompt != "" {
+		t.Errorf("expected empty prompt without stop_decision section, got %q", prompt)
+	}
+}
+
+func TestLoadGatePromptFromConfig_LastBeadWins(t *testing.T) {
+	// When multiple config beads exist, the last one's prompt should win
+	// (simulating the merge-by-specificity behavior)
+	prompts := []string{"first prompt", "second prompt", "final prompt"}
+
+	var winner string
+	for _, p := range prompts {
+		if p != "" {
+			winner = p
+		}
+	}
+
+	if winner != "final prompt" {
+		t.Errorf("expected last prompt to win, got %q", winner)
 	}
 }

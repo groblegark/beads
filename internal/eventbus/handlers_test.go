@@ -2,6 +2,7 @@ package eventbus
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"slices"
@@ -552,6 +553,122 @@ exit 1
 	}
 }
 
+
+// ---------------------------------------------------------------------------
+// envFromEvent / SubprocessEnv tests (bd-3tvyj)
+// ---------------------------------------------------------------------------
+
+func TestEnvFromEvent_PopulatesClaudeSessionID(t *testing.T) {
+	event := &Event{
+		Actor:     "test-actor",
+		SessionID: "claude-session-abc123",
+		Raw:       json.RawMessage(`{"caller_session_tag":"term-xyz"}`),
+	}
+
+	env := envFromEvent(event)
+
+	if env.Actor != "test-actor" {
+		t.Errorf("expected Actor 'test-actor', got %q", env.Actor)
+	}
+	if env.ClaudeSessionID != "claude-session-abc123" {
+		t.Errorf("expected ClaudeSessionID 'claude-session-abc123', got %q", env.ClaudeSessionID)
+	}
+	if env.CallerSessionTag != "term-xyz" {
+		t.Errorf("expected CallerSessionTag 'term-xyz', got %q", env.CallerSessionTag)
+	}
+}
+
+func TestEnvFromEvent_EmptySessionID(t *testing.T) {
+	event := &Event{
+		Actor:     "test-actor",
+		SessionID: "",
+	}
+
+	env := envFromEvent(event)
+
+	if env.ClaudeSessionID != "" {
+		t.Errorf("expected empty ClaudeSessionID, got %q", env.ClaudeSessionID)
+	}
+}
+
+func TestGateHandler_PassesSessionFlag(t *testing.T) {
+	// Mock bd that echoes back the --session flag value
+	cleanup := setupMockBD(t, `
+# Capture the --session flag value
+SESSION=""
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --session) SESSION="$2"; shift 2;;
+    *) shift;;
+  esac
+done
+if [ -n "$SESSION" ]; then
+  printf '{"decision":"allow","warnings":["session=%s"]}' "$SESSION"
+else
+  printf '{"decision":"allow","warnings":["no-session"]}'
+fi
+exit 0
+`)
+	defer cleanup()
+
+	h := &GateHandler{}
+	event := &Event{
+		Type:      EventStop,
+		SessionID: "test-session-42",
+		CWD:       t.TempDir(),
+	}
+	result := &Result{}
+
+	err := h.Handle(context.Background(), event, result)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// The mock bd should have received --session test-session-42
+	if len(result.Warnings) != 1 {
+		t.Fatalf("expected 1 warning, got %d: %v", len(result.Warnings), result.Warnings)
+	}
+	if result.Warnings[0] != "session=test-session-42" {
+		t.Errorf("expected mock to receive session ID, got warning: %q", result.Warnings[0])
+	}
+}
+
+func TestGateHandler_NoSessionFlag_WhenEmpty(t *testing.T) {
+	// When SessionID is empty, --session should NOT be passed
+	cleanup := setupMockBD(t, `
+SESSION=""
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --session) SESSION="$2"; shift 2;;
+    *) shift;;
+  esac
+done
+if [ -n "$SESSION" ]; then
+  printf '{"decision":"allow","warnings":["session=%s"]}' "$SESSION"
+else
+  printf '{"decision":"allow","warnings":["no-session"]}'
+fi
+exit 0
+`)
+	defer cleanup()
+
+	h := &GateHandler{}
+	event := &Event{
+		Type:      EventStop,
+		SessionID: "",
+		CWD:       t.TempDir(),
+	}
+	result := &Result{}
+
+	err := h.Handle(context.Background(), event, result)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(result.Warnings) != 1 || result.Warnings[0] != "no-session" {
+		t.Errorf("expected 'no-session' warning when SessionID is empty, got: %v", result.Warnings)
+	}
+}
 
 // ---------------------------------------------------------------------------
 // HealthCheckHandler tests
