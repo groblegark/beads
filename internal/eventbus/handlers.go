@@ -326,6 +326,7 @@ func DefaultHandlers() []Handler {
 		&GateHandler{},             // 20
 		&InboxDrainHandler{},       // 30 — sole delivery path (Phase 5)
 		&PostToolUseInboxHandler{}, // 30 — urgent inbox drain between tool calls (bd-qufo5)
+		&BeadNudgeHandler{},        // 40 — nudge unassigned agents to claim/create beads (bd-0ttt3)
 	}
 	handlers = append(handlers, DefaultOjHandlers()...)
 	handlers = append(handlers, DefaultMailHandlers()...)

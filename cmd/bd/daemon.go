@@ -759,6 +759,8 @@ func runDaemonLoop(interval time.Duration, autoCommit, autoPush, autoPull, local
 			handler.SetNudgeStore(store)
 		case *eventbus.MailNudgeHandler:
 			handler.SetNudgeStore(store)
+		case *eventbus.BeadNudgeHandler:
+			handler.SetBeadAssignmentStore(store)
 		}
 	}
 
