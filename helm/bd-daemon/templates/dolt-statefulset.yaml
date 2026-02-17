@@ -70,9 +70,13 @@ spec:
               echo "Pod ordinal: $ORDINAL — copying config-${ORDINAL}.yaml"
               cp "/etc/dolt-configs/config-${ORDINAL}.yaml" /etc/dolt/config.yaml
 
-              # Probe each standby peer's remotesapi port and remove unreachable
-              # peers from config. This prevents Dolt from spamming 1/s replication
-              # retries against pods that aren't running yet (or ever).
+              # Log peer reachability (informational only).
+              # We no longer remove unreachable peers from the config because:
+              # 1. During rolling restarts, peers are temporarily unavailable
+              # 2. Stripping all peers strips the cluster block entirely
+              # 3. Without cluster config, dolt_cluster DB is never created
+              # 4. doltclusterctl can't elect a primary → service has no endpoints
+              # Dolt handles unreachable peers gracefully at runtime (retries).
               PEERS=$(grep 'remote_url_template:' /etc/dolt/config.yaml \
                 | sed 's|.*http://||; s|:{{ $.Values.dolt.cluster.remotesapiPort | default 50051 }}/.*||' || true)
 
@@ -81,19 +85,9 @@ spec:
                 if curl -sf --connect-timeout "$PROBE_TIMEOUT" "http://${PEER}:{{ $.Values.dolt.cluster.remotesapiPort | default 50051 }}/" >/dev/null 2>&1; then
                   echo "  peer $PEER_NAME: reachable"
                 else
-                  echo "  peer $PEER_NAME: UNREACHABLE — removing from standby_remotes"
-                  # Remove the 2-line YAML entry (- name: + remote_url_template:)
-                  sed -i "/$PEER_NAME/,+1d" /etc/dolt/config.yaml
+                  echo "  peer $PEER_NAME: not yet reachable (Dolt will retry at runtime)"
                 fi
               done
-
-              # If all peers removed, strip the entire cluster block.
-              # Dolt requires standby_remotes when cluster config is present,
-              # so we can't just remove the key — remove the whole section.
-              if ! grep -q 'remote_url_template:' /etc/dolt/config.yaml; then
-                echo "  WARNING: no reachable peers — removing cluster config (standalone mode)"
-                sed -i '/^cluster:/,/^[^ ]/{/^cluster:/d; /^  /d;}' /etc/dolt/config.yaml
-              fi
 
               echo "--- final config ---"
               cat /etc/dolt/config.yaml
