@@ -41,77 +41,6 @@ func (h *PrimeHandler) Handle(ctx context.Context, event *Event, result *Result)
 	return nil
 }
 
-// StopDecisionHandler creates a decision point when Claude tries to stop,
-// blocking until the human responds. Priority 15 (after prime, before gate).
-type StopDecisionHandler struct{}
-
-func (h *StopDecisionHandler) ID() string          { return "stop-decision" }
-func (h *StopDecisionHandler) Handles() []EventType { return []EventType{EventStop} }
-func (h *StopDecisionHandler) Priority() int        { return 15 }
-
-func (h *StopDecisionHandler) Handle(ctx context.Context, event *Event, result *Result) error {
-	// If StopLoopDetector (priority 14) detected a loop, skip blocking entirely.
-	// The detector sets stop_loop_break=true in event.Raw to signal this.
-	if stopLoopBreakSet(event) {
-		log.Printf("stop-decision: skipping — stop loop break active")
-		return nil
-	}
-
-	// Loop breaking is handled by StopLoopDetector (priority 14) which sets
-	// stop_loop_break=true in event.Raw when the threshold is reached. That
-	// check is above (stopLoopBreakSet). The --reentry flag is no longer
-	// passed because Claude Code doesn't reliably send stop_hook_active in
-	// the event payload. (beads-ulf5)
-	args := []string{"decision", "stop-check", "--json"}
-
-	stdout, _, err := runBDCommandWithEnv(ctx, event.CWD, envFromEvent(event), args...)
-	if err != nil {
-		// Exit code 1 means block (human said "continue").
-		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 {
-			var resp stopCheckResponse
-			if jsonErr := json.Unmarshal([]byte(stdout), &resp); jsonErr == nil {
-				if resp.Decision == "block" {
-					result.Block = true
-					result.Reason = resp.Reason
-					return nil
-				}
-			}
-			// Couldn't parse — treat as block with raw reason.
-			result.Block = true
-			result.Reason = strings.TrimSpace(stdout)
-			return nil
-		}
-		// Other errors — log and allow stop (fail-open).
-		return fmt.Errorf("stop-decision: %w", err)
-	}
-
-	// Exit 0 = allow stop.
-	return nil
-}
-
-// stopCheckResponse mirrors the JSON output from `bd decision stop-check`.
-type stopCheckResponse struct {
-	Decision string `json:"decision"`
-	Reason   string `json:"reason,omitempty"`
-}
-
-// stopLoopBreakSet checks if StopLoopDetector set the loop-break flag.
-func stopLoopBreakSet(event *Event) bool {
-	if len(event.Raw) == 0 {
-		return false
-	}
-	var raw map[string]interface{}
-	if err := json.Unmarshal(event.Raw, &raw); err != nil {
-		return false
-	}
-	v, ok := raw["stop_loop_break"]
-	if !ok {
-		return false
-	}
-	b, ok := v.(bool)
-	return ok && b
-}
-
 // GateHandler evaluates session gates on Stop and PreToolUse hooks.
 // Priority 20 (runs after context injection).
 type GateHandler struct{}
@@ -385,8 +314,6 @@ func DefaultHandlers() []Handler {
 	handlers := []Handler{
 		&HealthCheckHandler{},      // 5 — early stuck detection for agents (bd-4mpv3)
 		&PrimeHandler{},            // 10
-		&StopLoopDetector{},        // 14 — must run before StopDecisionHandler to break loops
-		&StopDecisionHandler{},     // 15
 		&GateHandler{},             // 20
 		&InboxDrainHandler{},       // 30 — sole delivery path (Phase 5)
 		&PostToolUseInboxHandler{}, // 30 — urgent inbox drain between tool calls (bd-qufo5)

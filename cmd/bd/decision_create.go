@@ -106,20 +106,6 @@ func runDecisionCreate(cmd *cobra.Command, args []string) {
 		os.Exit(1)
 	}
 
-	// Validate context requirement from stop_decision config.
-	// This catches missing context at creation time so bad decisions
-	// never reach Slack (avoids spam from create-close-recreate cycles).
-	if decisionContext == "" {
-		cfg := loadStopDecisionConfig(ctx)
-		if cfg != nil && cfg.Enabled && cfg.RequireContext {
-			fmt.Fprintf(os.Stderr, "Error: --context is required by stop_decision config (require_context=true)\n")
-			if cfg.AgentContextPrompt != "" {
-				fmt.Fprintf(os.Stderr, "%s\n", cfg.AgentContextPrompt)
-			}
-			os.Exit(1)
-		}
-	}
-
 	// Validate options JSON - at least one option is required
 	if optionsJSON == "" {
 		fmt.Fprintf(os.Stderr, "Error: --options is required (at least one option must be provided)\n")
@@ -304,7 +290,7 @@ func runDecisionCreate(cmd *cobra.Command, args []string) {
 	// The stop hook is just a guard that forces the agent to call this.
 	if waitForResponse {
 		fmt.Fprintf(os.Stderr, "\nWaiting for response on %s (timeout: %s)...\n", decisionID, waitTimeout)
-		selected, responseText, err := pollStopDecision(ctx, decisionID, waitTimeout, waitPollInterval)
+		selected, responseText, err := pollDecisionResponse(ctx, decisionID, waitTimeout, waitPollInterval)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error waiting for response: %v\n", err)
 			os.Exit(1)

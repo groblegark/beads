@@ -51,7 +51,6 @@ const (
 	EventAgentCrashed      EventType = "AgentCrashed"
 	EventAgentIdle         EventType = "AgentIdle"
 	EventAgentHeartbeat    EventType = "AgentHeartbeat"
-	EventStopLoopDetected  EventType = "StopLoopDetected" // bd-5r1cw
 
 	// Mail events (bd-h59f).
 	EventMailSent EventType = "MailSent"
@@ -132,7 +131,7 @@ func (t EventType) IsAgentEvent() bool {
 	switch t {
 	case EventAgentStarted, EventAgentStopped,
 		EventAgentCrashed, EventAgentIdle,
-		EventAgentHeartbeat, EventStopLoopDetected:
+		EventAgentHeartbeat:
 		return true
 	}
 	return false
@@ -217,16 +216,6 @@ type AgentEventPayload struct {
 	SessionID string `json:"session_id,omitempty"`
 	Reason    string `json:"reason,omitempty"`     // for stopped/crashed
 	Uptime    int64  `json:"uptime_sec,omitempty"` // for heartbeat
-}
-
-// StopLoopPayload carries data for StopLoopDetected events (bd-5r1cw).
-// Published when an agent is detected in a rapid stop→block cycle.
-type StopLoopPayload struct {
-	SessionID    string `json:"session_id"`
-	AttemptCount int    `json:"attempt_count"`
-	WindowSecs   int    `json:"window_secs"`
-	Reason       string `json:"reason"`
-	DetectedAt   string `json:"detected_at"`
 }
 
 // MailEventPayload carries data for mail events (bd-h59f).

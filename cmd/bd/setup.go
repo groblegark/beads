@@ -388,7 +388,10 @@ func seedClaudeHooksConfigBead() {
 	}
 
 	// Seed the config bead with defaults.
-	seedData := DefaultStopDecisionConfig()
+	seedData := map[string]interface{}{}
+	if schema := SchemaForCategory("claude-hooks"); schema != nil {
+		seedData["_schema"] = schema
+	}
 	metaBytes, err := json.Marshal(seedData)
 	if err != nil {
 		return
