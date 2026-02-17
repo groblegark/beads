@@ -207,7 +207,13 @@ func (h *HTTPServer) handleReadiness(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	if health.Status != "healthy" {
+	// Accept both "healthy" and "degraded" for readiness. During Dolt HA
+	// failover the primary DB is unreachable but the daemon can still serve
+	// reads via the standby replica, cached queries, and Redis wisps.
+	// Returning 503 here would remove the pod from the Service, causing 502s
+	// for all clients — even those making read-only requests that don't need
+	// the primary. Only return 503 for truly "unhealthy" states.
+	if health.Status == "unhealthy" {
 		w.WriteHeader(http.StatusServiceUnavailable)
 		_ = json.NewEncoder(w).Encode(map[string]string{
 			"status": "not ready",
@@ -216,9 +222,12 @@ func (h *HTTPServer) handleReadiness(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_ = json.NewEncoder(w).Encode(map[string]string{
-		"status": "ready",
-	})
+	result := map[string]string{"status": "ready"}
+	if health.Status == "degraded" {
+		result["status"] = "degraded-ready"
+		result["note"] = health.Error
+	}
+	_ = json.NewEncoder(w).Encode(result)
 }
 
 // handleMetrics handles GET /metrics
