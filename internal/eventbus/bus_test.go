@@ -412,8 +412,9 @@ func TestDispatchPublishesToJetStream(t *testing.T) {
 		t.Fatalf("expected JetStream message, got error: %v", err)
 	}
 
-	// Verify the subject.
-	expectedSubject := SubjectForEvent(EventSessionStart)
+	// Verify the subject — hook events use agent-scoped subjects (bd-fwylb).
+	// Empty actor → _global scope.
+	expectedSubject := SubjectForHookEvent(EventSessionStart, "")
 	if msg.Subject != expectedSubject {
 		t.Errorf("expected subject %q, got %q", expectedSubject, msg.Subject)
 	}
@@ -919,20 +920,20 @@ func TestDecisionEventPublishesToJetStream(t *testing.T) {
 	bus := New()
 	bus.SetJetStream(js)
 
-	// Subscribe to specific event type subjects.
-	subStart, err := js.SubscribeSync(SubjectForEvent(EventSessionStart), nats.DeliverAll())
+	// Subscribe to agent-scoped subjects (bd-fwylb). Empty actor → _global scope.
+	subStart, err := js.SubscribeSync(SubjectForHookEvent(EventSessionStart, ""), nats.DeliverAll())
 	if err != nil {
 		t.Fatalf("subscribe SessionStart: %v", err)
 	}
 	defer subStart.Unsubscribe()
 
-	subStop, err := js.SubscribeSync(SubjectForEvent(EventStop), nats.DeliverAll())
+	subStop, err := js.SubscribeSync(SubjectForHookEvent(EventStop, ""), nats.DeliverAll())
 	if err != nil {
 		t.Fatalf("subscribe Stop: %v", err)
 	}
 	defer subStop.Unsubscribe()
 
-	subTool, err := js.SubscribeSync(SubjectForEvent(EventPreToolUse), nats.DeliverAll())
+	subTool, err := js.SubscribeSync(SubjectForHookEvent(EventPreToolUse, ""), nats.DeliverAll())
 	if err != nil {
 		t.Fatalf("subscribe PreToolUse: %v", err)
 	}
@@ -1225,7 +1226,7 @@ func TestJetStreamHandlersAndPublishBothWork(t *testing.T) {
 		},
 	})
 
-	sub, err := js.SubscribeSync(SubjectForEvent(EventPreToolUse), nats.DeliverAll())
+	sub, err := js.SubscribeSync(SubjectForHookEvent(EventPreToolUse, ""), nats.DeliverAll())
 	if err != nil {
 		t.Fatalf("subscribe: %v", err)
 	}
@@ -1352,7 +1353,7 @@ func TestJetStreamSubjectRouting(t *testing.T) {
 	subs := make(map[EventType]*nats.Subscription)
 
 	for _, et := range eventTypes {
-		sub, err := js.SubscribeSync(SubjectForEvent(et), nats.DeliverAll())
+		sub, err := js.SubscribeSync(SubjectForHookEvent(et, ""), nats.DeliverAll())
 		if err != nil {
 			t.Fatalf("subscribe %s: %v", et, err)
 		}
@@ -1400,9 +1401,9 @@ func TestJetStreamSubjectRouting(t *testing.T) {
 				t.Errorf("%s: expected message %d, got error: %v", et, i+1, err)
 				continue
 			}
-			// Verify the message subject matches.
-			if msg.Subject != SubjectForEvent(et) {
-				t.Errorf("%s: expected subject %q, got %q", et, SubjectForEvent(et), msg.Subject)
+			// Verify the message subject matches (agent-scoped, bd-fwylb).
+			if msg.Subject != SubjectForHookEvent(et, "") {
+				t.Errorf("%s: expected subject %q, got %q", et, SubjectForHookEvent(et, ""), msg.Subject)
 			}
 		}
 
