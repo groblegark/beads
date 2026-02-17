@@ -193,20 +193,3 @@ func getMultiRepoJSONLPaths() []string {
 	return paths
 }
 
-// applyDeletionsFromMerge applies deletions discovered during 3-way merge
-// This is the main entry point for deletion tracking during sync
-func applyDeletionsFromMerge(ctx context.Context, store storage.Storage, jsonlPath string) error {
-	merged, err := merge3WayAndPruneDeletions(ctx, store, jsonlPath)
-	if err != nil {
-		return err
-	}
-
-	if !merged {
-		// No merge performed (no base snapshot), initialize for next time
-		if err := initializeSnapshotsIfNeeded(jsonlPath); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to initialize snapshots: %v\n", err)
-		}
-	}
-
-	return nil
-}

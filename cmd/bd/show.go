@@ -740,16 +740,6 @@ func showIssueChildren(_ context.Context, args []string, resolvedIDs []string, r
 	}
 }
 
-// containsStr checks if a string slice contains a value
-func containsStr(slice []string, val string) bool {
-	for _, s := range slice {
-		if s == val {
-			return true
-		}
-	}
-	return false
-}
-
 // showIssueAsOf displays issues as they existed at a specific commit or branch ref.
 // This requires a versioned storage backend (e.g., Dolt).
 func showIssueAsOf(ctx context.Context, args []string, ref string, shortMode bool) {

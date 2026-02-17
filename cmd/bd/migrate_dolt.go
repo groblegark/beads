@@ -9,11 +9,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/steveyegge/beads/internal/beads"
 	"github.com/steveyegge/beads/internal/configfile"
-	"github.com/steveyegge/beads/internal/storage"
 	"github.com/steveyegge/beads/internal/storage/dolt"
 	"github.com/steveyegge/beads/internal/types"
 	"github.com/steveyegge/beads/internal/ui"
@@ -37,9 +35,7 @@ type migrationData struct {
 // 3. Copies all config values
 // 4. Updates `metadata.json` to use Dolt
 // 5. Keeps JSONL export enabled by default
-func handleToDoltMigration(dryRun bool, autoYes bool) {
-	ctx := context.Background()
-
+func handleToDoltMigration(_ bool, _ bool) {
 	// Find .beads directory
 	beadsDir := beads.FindBeadsDir()
 	if beadsDir == "" {
@@ -65,97 +61,6 @@ func handleToDoltMigration(dryRun bool, autoYes bool) {
 	// SQLite backend has been removed - migration from SQLite is no longer supported
 	exitWithError("sqlite_removed", "SQLite backend has been removed. --to-dolt migration from SQLite is no longer supported.",
 		"use 'bd init' to create a new Dolt database, then import from JSONL")
-
-	// Unreachable code below kept for reference; exitWithError calls os.Exit.
-	sqlitePath := cfg.DatabasePath(beadsDir)
-
-	// Dolt path
-	doltPath := filepath.Join(beadsDir, "dolt")
-
-	// Check if Dolt directory already exists
-	if _, err := os.Stat(doltPath); err == nil {
-		exitWithError("dolt_exists", fmt.Sprintf("Dolt directory already exists at %s", doltPath),
-			"remove it first if you want to re-migrate")
-	}
-
-	// Extract all data from SQLite
-	data, err := extractFromSQLite(ctx, sqlitePath)
-	if err != nil {
-		exitWithError("extraction_failed", err.Error(), "")
-	}
-
-	// Show migration plan
-	printMigrationPlan("SQLite to Dolt", sqlitePath, doltPath, data)
-
-	// Dry run mode
-	if dryRun {
-		printDryRun(sqlitePath, doltPath, data, true)
-		return
-	}
-
-	// Prompt for confirmation
-	if !autoYes && !jsonOutput {
-		if !confirmBackendMigration("SQLite", "Dolt", true) {
-			fmt.Println("Migration canceled")
-			return
-		}
-	}
-
-	// Create backup
-	backupPath := strings.TrimSuffix(sqlitePath, ".db") + ".backup-pre-dolt-" + time.Now().Format("20060102-150405") + ".db"
-	if err := copyFile(sqlitePath, backupPath); err != nil {
-		exitWithError("backup_failed", err.Error(), "")
-	}
-	printSuccess(fmt.Sprintf("Created backup: %s", filepath.Base(backupPath)))
-
-	// Create Dolt database
-	printProgress("Creating Dolt database...")
-
-	doltStore, err := dolt.New(ctx, &dolt.Config{Path: doltPath})
-	if err != nil {
-		exitWithError("dolt_create_failed", err.Error(), "")
-	}
-
-	// Import data with cleanup on failure
-	imported, skipped, importErr := importToDolt(ctx, doltStore, data)
-	if importErr != nil {
-		_ = doltStore.Close()
-		// Cleanup partial Dolt directory
-		_ = os.RemoveAll(doltPath)
-		exitWithError("import_failed", importErr.Error(), "partial Dolt directory has been cleaned up")
-	}
-
-	// Commit the migration
-	commitMsg := fmt.Sprintf("Migrate from SQLite: %d issues imported", imported)
-	if err := doltStore.Commit(ctx, commitMsg); err != nil {
-		printWarning(fmt.Sprintf("failed to create Dolt commit: %v", err))
-	}
-
-	_ = doltStore.Close()
-
-	printSuccess(fmt.Sprintf("Imported %d issues (%d skipped)", imported, skipped))
-
-	// Update metadata.json
-	cfg.Backend = configfile.BackendDolt
-	cfg.Database = "dolt"
-	if err := cfg.Save(beadsDir); err != nil {
-		exitWithError("config_save_failed", err.Error(),
-			"data was imported but metadata.json was not updated - manually set backend to 'dolt'")
-	}
-
-	printSuccess("Updated metadata.json to use Dolt backend")
-
-	// Check if git hooks need updating for Dolt compatibility
-	if hooksNeedDoltUpdate(beadsDir) {
-		printWarning("Git hooks need updating for Dolt backend")
-		if !jsonOutput {
-			fmt.Println("  The pre-commit and post-merge hooks use JSONL sync which doesn't apply to Dolt.")
-			fmt.Println("  Run 'bd hooks install --force' to update them.")
-		}
-	}
-
-	// Final status
-	printFinalStatus("dolt", imported, skipped, backupPath, doltPath, sqlitePath, true)
 }
 
 // hooksNeedDoltUpdate checks if installed git hooks lack the Dolt backend skip logic.
@@ -193,103 +98,8 @@ func hooksNeedDoltUpdate(beadsDir string) bool {
 }
 
 // handleToSQLiteMigration is no longer supported - SQLite backend has been removed.
-func handleToSQLiteMigration(dryRun bool, autoYes bool) {
+func handleToSQLiteMigration(_ bool, _ bool) {
 	exitWithError("sqlite_removed", "SQLite backend has been removed. --to-sqlite migration is no longer supported.", "")
-	// Unreachable code below kept for compilation. exitWithError calls os.Exit.
-	_ = dryRun
-	_ = autoYes
-
-	ctx := context.Background()
-
-	// Find .beads directory
-	beadsDir := beads.FindBeadsDir()
-	if beadsDir == "" {
-		exitWithError("no_beads_directory", "No .beads directory found. Run 'bd init' first.",
-			"run 'bd init' to initialize bd")
-	}
-
-	// Load config
-	cfg, err := configfile.Load(beadsDir)
-	if err != nil {
-		exitWithError("config_load_failed", err.Error(), "")
-	}
-	if cfg == nil {
-		cfg = configfile.DefaultConfig()
-	}
-
-	// Check if already using SQLite
-	if cfg.GetBackend() == configfile.BackendSQLite {
-		printNoop("Already using SQLite backend")
-		return
-	}
-
-	// Find Dolt database
-	doltPath := cfg.DatabasePath(beadsDir)
-	if _, err := os.Stat(doltPath); os.IsNotExist(err) {
-		exitWithError("no_dolt_database", "No Dolt database found to migrate",
-			fmt.Sprintf("expected at: %s", doltPath))
-	}
-
-	// SQLite path
-	sqlitePath := filepath.Join(beadsDir, "beads.db")
-
-	// Check if SQLite database already exists
-	if _, err := os.Stat(sqlitePath); err == nil {
-		exitWithError("sqlite_exists", fmt.Sprintf("SQLite database already exists at %s", sqlitePath),
-			"remove it first if you want to re-migrate")
-	}
-
-	// Extract all data from Dolt
-	data, err := extractFromDolt(ctx, doltPath)
-	if err != nil {
-		exitWithError("extraction_failed", err.Error(), "")
-	}
-
-	// Show migration plan
-	printMigrationPlan("Dolt to SQLite", doltPath, sqlitePath, data)
-
-	// Dry run mode
-	if dryRun {
-		printDryRun(doltPath, sqlitePath, data, false)
-		return
-	}
-
-	// Prompt for confirmation
-	if !autoYes && !jsonOutput {
-		if !confirmBackendMigration("Dolt", "SQLite", false) {
-			fmt.Println("Migration canceled")
-			return
-		}
-	}
-
-	// Create SQLite database
-	printProgress("Creating SQLite database...")
-
-	// SQLite creation removed - this path is unreachable
-	exitWithError("sqlite_removed", "SQLite backend has been removed", "")
-	var imported, skipped int
-	_ = sqlitePath
-	_ = data
-
-	printSuccess(fmt.Sprintf("Imported %d issues (%d skipped)", imported, skipped))
-
-	// Update metadata.json
-	cfg.Backend = configfile.BackendSQLite
-	cfg.Database = "beads.db"
-	if err := cfg.Save(beadsDir); err != nil {
-		exitWithError("config_save_failed", err.Error(),
-			"data was imported but metadata.json was not updated - manually set backend to 'sqlite'")
-	}
-
-	printSuccess("Updated metadata.json to use SQLite backend")
-
-	// Final status
-	printFinalStatus("sqlite", imported, skipped, "", sqlitePath, doltPath, false)
-}
-
-// extractFromSQLite is no longer supported - SQLite backend has been removed.
-func extractFromSQLite(ctx context.Context, dbPath string) (*migrationData, error) {
-	return nil, fmt.Errorf("SQLite backend has been removed; cannot extract from SQLite database")
 }
 
 // extractFromDolt extracts all data from a Dolt database
@@ -516,102 +326,6 @@ func importToDolt(ctx context.Context, store *dolt.DoltStore, data *migrationDat
 
 	if err := tx.Commit(); err != nil {
 		return imported, skipped, fmt.Errorf("failed to commit: %w", err)
-	}
-
-	return imported, skipped, nil
-}
-
-// importToSQLite is no longer supported - SQLite backend has been removed.
-func importToSQLite(ctx context.Context, store storage.Storage, data *migrationData) (int, int, error) {
-	// Set all config values first
-	for key, value := range data.config {
-		if err := store.SetConfig(ctx, key, value); err != nil {
-			return 0, 0, fmt.Errorf("failed to set config %s: %w", key, err)
-		}
-	}
-
-	imported := 0
-	skipped := 0
-
-	err := store.RunInTransaction(ctx, func(tx storage.Transaction) error {
-		seenIDs := make(map[string]bool)
-		total := len(data.issues)
-
-		for i, issue := range data.issues {
-			// Progress indicator
-			if !jsonOutput && total > 100 && (i+1)%100 == 0 {
-				fmt.Printf("  Importing issues: %d/%d\r", i+1, total)
-			}
-
-			if seenIDs[issue.ID] {
-				skipped++
-				continue
-			}
-			seenIDs[issue.ID] = true
-
-			savedLabels := issue.Labels
-			savedDeps := issue.Dependencies
-			issue.Labels = nil
-			issue.Dependencies = nil
-
-			if err := tx.CreateIssue(ctx, issue, "migration"); err != nil {
-				if strings.Contains(err.Error(), "UNIQUE constraint") ||
-					strings.Contains(err.Error(), "already exists") {
-					skipped++
-					issue.Labels = savedLabels
-					issue.Dependencies = savedDeps
-					continue
-				}
-				return fmt.Errorf("failed to insert issue %s: %w", issue.ID, err)
-			}
-
-			for _, label := range savedLabels {
-				_ = tx.AddLabel(ctx, issue.ID, label, "migration")
-			}
-
-			issue.Labels = savedLabels
-			issue.Dependencies = savedDeps
-			imported++
-		}
-
-		if !jsonOutput && total > 100 {
-			fmt.Printf("  Importing issues: %d/%d\n", total, total)
-		}
-
-		// Import dependencies
-		printProgress("Importing dependencies...")
-		for _, issue := range data.issues {
-			for _, dep := range issue.Dependencies {
-				_ = tx.AddDependency(ctx, dep, "migration")
-			}
-		}
-
-		return nil
-	})
-
-	if err != nil {
-		return imported, skipped, err
-	}
-
-	// Import events outside transaction (SQLite events table may have different structure)
-	printProgress("Importing events...")
-	eventCount := 0
-	db := store.UnderlyingDB()
-	for issueID, events := range data.eventsMap {
-		for _, event := range events {
-			_, err := db.ExecContext(ctx, `
-				INSERT INTO events (issue_id, event_type, actor, old_value, new_value, comment, created_at)
-				VALUES (?, ?, ?, ?, ?, ?, ?)
-			`, issueID, event.EventType, event.Actor,
-				nullableStringPtr(event.OldValue), nullableStringPtr(event.NewValue),
-				nullableStringPtr(event.Comment), event.CreatedAt)
-			if err == nil {
-				eventCount++
-			}
-		}
-	}
-	if !jsonOutput {
-		fmt.Printf("  Imported %d events\n", eventCount)
 	}
 
 	return imported, skipped, nil

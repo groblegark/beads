@@ -16,36 +16,6 @@ var labelCmd = &cobra.Command{
 	GroupID: "issues",
 	Short:   "Manage issue labels",
 }
-// addLabelsToIssue adds multiple labels to a single issue atomically.
-// When using the daemon, it uses BatchAddLabels for atomic multi-label add.
-// When using direct store access, it adds labels individually.
-func addLabelsToIssue(issueID string, labels []string, jsonOut bool) error {
-	if len(labels) == 0 {
-		return nil
-	}
-
-	requireDaemon("label add")
-	// Use BatchAddLabels for atomic multi-label add
-	result, err := daemonClient.BatchAddLabels(&rpc.BatchAddLabelsArgs{
-		IssueID: issueID,
-		Labels:  labels,
-	})
-	if err != nil {
-		return err
-	}
-	if jsonOut {
-		outputJSON(map[string]interface{}{
-			"status":       "added",
-			"issue_id":     issueID,
-			"labels":       labels,
-			"labels_added": result.LabelsAdded,
-		})
-	} else if result.LabelsAdded > 0 {
-		fmt.Printf("%s Added %d labels to %s\n", ui.RenderPass("✓"), result.LabelsAdded, issueID)
-	}
-	return nil
-}
-
 // Helper function to process label operations for multiple issues
 func processBatchLabelOperation(issueIDs []string, label string, operation string, jsonOut bool,
 	daemonFunc func(string, string) error) {

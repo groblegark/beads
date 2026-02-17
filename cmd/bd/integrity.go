@@ -187,60 +187,6 @@ func validatePreExport(ctx context.Context, store storage.Storage, jsonlPath str
 	return nil
 }
 
-// checkDuplicateIDs detects duplicate issue IDs in the database.
-// Returns error if duplicates are found (indicates database corruption).
-func checkDuplicateIDs(ctx context.Context, store storage.Storage) error {
-	// Get access to underlying database
-	// This is a hack - we need to add a proper interface method for this
-	// For now, we'll use a type assertion to access the underlying *sql.DB
-	type dbGetter interface {
-		GetDB() interface{}
-	}
-
-	getter, ok := store.(dbGetter)
-	if !ok {
-		// If store doesn't expose GetDB, skip this check
-		// This is acceptable since duplicate IDs are prevented by UNIQUE constraint
-		return nil
-	}
-
-	db, ok := getter.GetDB().(*sql.DB)
-	if !ok || db == nil {
-		return nil
-	}
-
-	rows, err := db.QueryContext(ctx, `
-		SELECT id, COUNT(*) as cnt 
-		FROM issues 
-		GROUP BY id 
-		HAVING cnt > 1
-	`)
-	if err != nil {
-		return fmt.Errorf("failed to check for duplicate IDs: %w", err)
-	}
-	defer rows.Close()
-
-	var duplicates []string
-	for rows.Next() {
-		var id string
-		var count int
-		if err := rows.Scan(&id, &count); err != nil {
-			return fmt.Errorf("failed to scan duplicate ID row: %w", err)
-		}
-		duplicates = append(duplicates, fmt.Sprintf("%s (x%d)", id, count))
-	}
-
-	if err := rows.Err(); err != nil {
-		return fmt.Errorf("error iterating duplicate IDs: %w", err)
-	}
-
-	if len(duplicates) > 0 {
-		return fmt.Errorf("database corruption: duplicate IDs: %v", duplicates)
-	}
-
-	return nil
-}
-
 // checkOrphanedDeps finds dependencies pointing to or from non-existent issues.
 // Returns list of orphaned dependency IDs and any error encountered.
 func checkOrphanedDeps(ctx context.Context, store storage.Storage) ([]string, error) {

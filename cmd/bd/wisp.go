@@ -247,16 +247,6 @@ func runWispCreate(cmd *cobra.Command, args []string) {
 	fmt.Printf("  bd mol burn %s           # Discard without creating digest\n", result.NewEpicID)
 }
 
-// isProtoIssue checks if an issue is a proto (has the template label)
-func isProtoIssue(issue *types.Issue) bool {
-	for _, label := range issue.Labels {
-		if label == MoleculeLabel {
-			return true
-		}
-	}
-	return false
-}
-
 var wispListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List all wisps in current context",
