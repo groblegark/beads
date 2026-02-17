@@ -57,13 +57,6 @@ Subcommands:
 			return
 		}
 
-		// Handle --to-dolt flag (legacy, now a no-op since Dolt is the only backend)
-		toDolt, _ := cmd.Flags().GetBool("to-dolt")
-		if toDolt {
-			fmt.Fprintln(os.Stderr, "Dolt is already the only backend. --to-dolt is no longer needed.")
-			return
-		}
-
 		// Find .beads directory
 		beadsDir := beads.FindBeadsDir()
 		if beadsDir == "" {
@@ -247,9 +240,6 @@ Subcommands:
 				os.Exit(1)
 			}
 
-			// Clean up orphaned WAL files from old database
-			cleanupWALFiles(oldDB.path)
-
 			// Update current DB reference
 			currentDB = oldDB
 			currentDB.path = targetPath
@@ -265,9 +255,6 @@ Subcommands:
 			if !jsonOutput {
 				fmt.Printf("Updating schema version: %s → %s\n", currentDB.version, Version)
 			}
-
-			// Clean up WAL files before opening to avoid "disk I/O error"
-			cleanupWALFiles(currentDB.path)
 
 			store, err := factory.NewFromConfig(rootCtx, filepath.Dir(currentDB.path))
 			if err != nil {
@@ -438,7 +425,6 @@ func detectDatabases(beadsDir string) ([]*dbInfo, error) {
 }
 
 func getDBVersion(dbPath string) string {
-	// SQLite-specific version detection removed; use storage interface
 	store, err := factory.NewFromConfig(rootCtx, filepath.Dir(dbPath))
 	if err != nil {
 		return "unknown"
@@ -503,7 +489,6 @@ func handleUpdateRepoID(dryRun bool, autoYes bool) {
 		os.Exit(1)
 	}
 
-	// Open database using factory (supports both SQLite and Dolt backends)
 	store, err := factory.NewFromConfig(rootCtx, beadsDir)
 	if err != nil {
 		if jsonOutput {
@@ -607,16 +592,6 @@ func loadOrCreateConfig(beadsDir string) (*configfile.Config, error) {
 	}
 	
 	return cfg, nil
-}
-
-// cleanupWALFiles removes orphaned WAL and SHM files for a given database path
-func cleanupWALFiles(dbPath string) {
-	walPath := dbPath + "-wal"
-	shmPath := dbPath + "-shm"
-	
-	// Best effort cleanup - don't fail if these don't exist
-	_ = os.Remove(walPath) // WAL may not exist
-	_ = os.Remove(shmPath) // SHM may not exist
 }
 
 // handleInspect shows migration plan and database state for AI agent analysis
@@ -808,8 +783,6 @@ func init() {
 	migrateCmd.Flags().Bool("dry-run", false, "Show what would be done without making changes")
 	migrateCmd.Flags().Bool("update-repo-id", false, "Update repository ID (use after changing git remote)")
 	migrateCmd.Flags().Bool("inspect", false, "Show migration plan and database state for AI agent analysis")
-	migrateCmd.Flags().Bool("to-dolt", false, "No-op (Dolt is the only backend)")
-	// --to-sqlite removed: SQLite backend no longer exists
 	migrateCmd.Flags().BoolVar(&jsonOutput, "json", false, "Output migration statistics in JSON format")
 	rootCmd.AddCommand(migrateCmd)
 }
