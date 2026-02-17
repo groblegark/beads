@@ -360,10 +360,10 @@ func (s *Server) enrichRosterWithTasks(req *Request, entries []AgentRosterEntry)
 		// 2. Reverse deps (blocks): epic blocks child → epic.issue_id, child.depends_on_id
 		epicFound := false
 
-		// Check forward: parent-child deps where this bead depends on the parent.
+		// Check forward: deps where this bead depends on a parent (parent-child or blocks).
 		if deps, err := store.GetDependencyRecords(ctx, info.id); err == nil {
 			for _, dep := range deps {
-				if dep.Type == types.DepParentChild {
+				if dep.Type == types.DepParentChild || dep.Type == types.DepBlocks {
 					if parent, err := store.GetIssue(ctx, dep.DependsOnID); err == nil && parent != nil {
 						entries[i].EpicID = parent.ID
 						entries[i].EpicTitle = parent.Title
