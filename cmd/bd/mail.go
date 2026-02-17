@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -74,6 +75,14 @@ Examples:
 		execCmd.Stdout = os.Stdout
 		execCmd.Stderr = os.Stderr
 
+		// If GT_TOWN_ROOT is not set and we can find a gastown workspace,
+		// pass it to the delegate so gt mail can resolve the workspace.
+		if os.Getenv("GT_TOWN_ROOT") == "" {
+			if townRoot := findGastownWorkspace(); townRoot != "" {
+				execCmd.Env = append(os.Environ(), "GT_TOWN_ROOT="+townRoot)
+			}
+		}
+
 		if err := execCmd.Run(); err != nil {
 			// Try to preserve the exit code
 			if exitErr, ok := err.(*exec.ExitError); ok {
@@ -102,6 +111,48 @@ func findMailDelegate() string {
 		if delegate, err := store.GetConfig(rootCtx, "mail.delegate"); err == nil && delegate != "" {
 			return delegate
 		}
+	}
+
+	return ""
+}
+
+// findGastownWorkspace tries to find a Gas Town workspace for mail delegation.
+// It checks common locations and parent directories for the workspace marker
+// (mayor/town.json). Returns "" if not found.
+func findGastownWorkspace() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+
+	// Check common gastown workspace locations
+	candidates := []string{
+		filepath.Join(home, "gt"),
+		filepath.Join(home, "gastown"),
+		filepath.Join(home, "gastown3"),
+	}
+
+	for _, dir := range candidates {
+		if _, err := os.Stat(filepath.Join(dir, "mayor", "town.json")); err == nil {
+			return dir
+		}
+	}
+
+	// Walk up from cwd looking for mayor/town.json (may find it in parent repo)
+	cwd, err := os.Getwd()
+	if err != nil {
+		return ""
+	}
+	path := cwd
+	for {
+		if _, err := os.Stat(filepath.Join(path, "mayor", "town.json")); err == nil {
+			return path
+		}
+		parent := filepath.Dir(path)
+		if parent == path {
+			break
+		}
+		path = parent
 	}
 
 	return ""
