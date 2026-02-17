@@ -177,6 +177,7 @@ Examples:
 	Run: func(cmd *cobra.Command, _ []string) {
 		hookFlag, _ := cmd.Flags().GetString("hook")
 		softMode, _ := cmd.Flags().GetBool("soft")
+		sessionFlag, _ := cmd.Flags().GetString("session")
 
 		if hookFlag == "" {
 			fmt.Fprintln(os.Stderr, "Error: --hook flag is required")
@@ -189,7 +190,11 @@ Examples:
 			os.Exit(1)
 		}
 
-		sessionID := getSessionID()
+		// --session flag takes priority over CLAUDE_SESSION_ID env var.
+		sessionID := sessionFlag
+		if sessionID == "" {
+			sessionID = getSessionID()
+		}
 		if sessionID == "" {
 			// No session — allow by default
 			if jsonOutput {
@@ -506,6 +511,7 @@ func init() {
 
 	// gate session-check flags
 	gateSessionCheckCmd.Flags().String("hook", "", "Hook type to check (required)")
+	gateSessionCheckCmd.Flags().String("session", "", "Session ID (default: CLAUDE_SESSION_ID env var)")
 	gateSessionCheckCmd.Flags().Bool("soft", false, "Treat all gates as soft (warn only)")
 
 	// gate status flags

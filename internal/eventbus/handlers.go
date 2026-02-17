@@ -51,7 +51,11 @@ func (h *GateHandler) Priority() int            { return 20 }
 
 func (h *GateHandler) Handle(ctx context.Context, event *Event, result *Result) error {
 	hookName := string(event.Type)
-	stdout, _, err := runBDCommandWithEnv(ctx, event.CWD, envFromEvent(event), "gate", "session-check", "--hook", hookName, "--json")
+	args := []string{"gate", "session-check", "--hook", hookName, "--json"}
+	if event.SessionID != "" {
+		args = append(args, "--session", event.SessionID)
+	}
+	stdout, _, err := runBDCommandWithEnv(ctx, event.CWD, envFromEvent(event), args...)
 	if err != nil {
 		// Exit code 1 means blocked. Parse the JSON to get the reason.
 		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 {
