@@ -348,6 +348,7 @@ CREATE TABLE IF NOT EXISTS session_registry (
     assigned_name VARCHAR(255) NOT NULL,
     base_name VARCHAR(255) NOT NULL,
     last_seen DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    project_root VARCHAR(1024) DEFAULT '',
     INDEX idx_session_registry_name (assigned_name)
 );
 `

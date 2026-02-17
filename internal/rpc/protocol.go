@@ -1055,8 +1055,9 @@ type InboxListResponse struct {
 
 // SessionRegisterArgs represents arguments for registering a session identity (bd-zp6v9).
 type SessionRegisterArgs struct {
-	SessionKey string `json:"session_key"`          // Hash identifying this session
-	BaseName   string `json:"base_name"`            // Base name (e.g., "matthewbaker")
+	SessionKey  string `json:"session_key"`           // Hash identifying this session
+	BaseName    string `json:"base_name"`             // Base name (e.g., "matthewbaker")
+	ProjectRoot string `json:"project_root,omitempty"` // Project root directory (bd-djohp)
 }
 
 // SessionRegisterResponse represents the result of session registration.
@@ -1073,10 +1074,11 @@ type SessionListArgs struct {
 
 // SessionListEntry represents a single registered session in the list response.
 type SessionListEntry struct {
-	AssignedName string    `json:"assigned_name"` // Unique name (e.g., "swift-fox")
-	BaseName     string    `json:"base_name"`     // Base name before suffix
-	SessionKey   string    `json:"session_key"`   // Hash identifying this session
-	LastSeen     time.Time `json:"last_seen"`     // Last activity timestamp
+	AssignedName string    `json:"assigned_name"`            // Unique name (e.g., "swift-fox")
+	BaseName     string    `json:"base_name"`                // Base name before suffix
+	SessionKey   string    `json:"session_key"`              // Hash identifying this session
+	LastSeen     time.Time `json:"last_seen"`                // Last activity timestamp
+	ProjectRoot  string    `json:"project_root,omitempty"`   // Project directory (bd-djohp)
 }
 
 // SessionListResponse represents the result of listing sessions.

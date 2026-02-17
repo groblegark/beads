@@ -53,6 +53,7 @@ type whoisSession struct {
 	SessionKey   string    `json:"session_key"`
 	LastSeen     time.Time `json:"last_seen"`
 	Active       bool      `json:"active"`
+	ProjectRoot  string    `json:"project_root,omitempty"`
 }
 
 type whoisIssues struct {
@@ -92,6 +93,7 @@ func runWhois(cmd *cobra.Command, args []string) {
 					SessionKey:   s.SessionKey,
 					LastSeen:     s.LastSeen,
 					Active:       s.LastSeen.After(cutoff),
+					ProjectRoot:  s.ProjectRoot,
 				})
 			}
 		}
@@ -170,7 +172,11 @@ func runWhois(cmd *cobra.Command, args []string) {
 				status = "active"
 			}
 			ago := time.Since(s.LastSeen).Truncate(time.Second)
-			fmt.Printf("  %s (base: %s) — %s, last seen %s ago\n", s.AssignedName, s.BaseName, status, ago)
+			if s.ProjectRoot != "" {
+				fmt.Printf("  %s (base: %s) — %s, last seen %s ago, project: %s\n", s.AssignedName, s.BaseName, status, ago, s.ProjectRoot)
+			} else {
+				fmt.Printf("  %s (base: %s) — %s, last seen %s ago\n", s.AssignedName, s.BaseName, status, ago)
+			}
 		}
 	}
 

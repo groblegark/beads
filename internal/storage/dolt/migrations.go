@@ -28,6 +28,7 @@ var migrations = []Migration{
 	{"session_registry_table", migrateSessionRegistryTable},
 	{"inbox_dedup_unique", migrateInboxDedupUnique},
 	{"inbox_broadcast_ack", migrateInboxBroadcastAck},
+	{"session_registry_project_root", migrateSessionRegistryProjectRoot},
 }
 
 // RunMigrations executes all registered migrations in order.
@@ -357,6 +358,43 @@ func migrateInboxBroadcastAck(ctx context.Context, db *sql.DB) error {
 			return nil
 		}
 		return fmt.Errorf("failed to create inbox_broadcast_ack table: %w", err)
+	}
+
+	return nil
+}
+
+// migrateSessionRegistryProjectRoot adds project_root column to session_registry
+// for tracking which project directory a session is working in (bd-djohp).
+func migrateSessionRegistryProjectRoot(ctx context.Context, db *sql.DB) error {
+	// Check if session_registry table exists.
+	var count int
+	err := db.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM information_schema.tables
+		WHERE table_schema = DATABASE()
+		  AND table_name = 'session_registry'
+	`).Scan(&count)
+	if err != nil || count == 0 {
+		return nil // Table doesn't exist yet; schema.go will create it with the column.
+	}
+
+	// Check if column already exists.
+	var colCount int
+	err = db.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM information_schema.columns
+		WHERE table_schema = DATABASE()
+		  AND table_name = 'session_registry'
+		  AND column_name = 'project_root'
+	`).Scan(&colCount)
+	if err != nil || colCount > 0 {
+		return nil // Column already exists.
+	}
+
+	_, err = db.ExecContext(ctx, `ALTER TABLE session_registry ADD COLUMN project_root VARCHAR(1024) DEFAULT ''`)
+	if err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "duplicate column") {
+			return nil
+		}
+		return fmt.Errorf("failed to add project_root column: %w", err)
 	}
 
 	return nil

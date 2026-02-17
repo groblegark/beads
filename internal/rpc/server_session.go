@@ -17,6 +17,7 @@ type sessionEntry struct {
 	AssignedName string    // Unique name assigned (e.g., "matthewbaker-2")
 	BaseName     string    // Base name before suffix (e.g., "matthewbaker")
 	LastSeen     time.Time // Last activity timestamp (for stale cleanup)
+	ProjectRoot  string    // Project directory this session is working in (bd-djohp)
 }
 
 // sessionRegistry is the daemon's session→name mapping.
@@ -51,7 +52,7 @@ func (r *sessionRegistry) loadFromDB(ctx context.Context, db *sql.DB, maxAge tim
 	_, _ = db.ExecContext(ctx, `DELETE FROM session_registry WHERE last_seen < ?`, cutoff)
 
 	rows, err := db.QueryContext(ctx, `
-		SELECT session_key, assigned_name, base_name, last_seen
+		SELECT session_key, assigned_name, base_name, last_seen, project_root
 		FROM session_registry
 	`)
 	if err != nil {
@@ -64,7 +65,7 @@ func (r *sessionRegistry) loadFromDB(ctx context.Context, db *sql.DB, maxAge tim
 	loaded := 0
 	for rows.Next() {
 		var entry sessionEntry
-		if err := rows.Scan(&entry.SessionKey, &entry.AssignedName, &entry.BaseName, &entry.LastSeen); err != nil {
+		if err := rows.Scan(&entry.SessionKey, &entry.AssignedName, &entry.BaseName, &entry.LastSeen, &entry.ProjectRoot); err != nil {
 			debug.Logf("session registry: scan error: %v", err)
 			continue
 		}
@@ -91,12 +92,13 @@ func (r *sessionRegistry) persistEntry(entry *sessionEntry) {
 	defer cancel()
 
 	_, err := r.db.ExecContext(ctx, `
-		INSERT INTO session_registry (session_key, assigned_name, base_name, last_seen)
-		VALUES (?, ?, ?, ?)
+		INSERT INTO session_registry (session_key, assigned_name, base_name, last_seen, project_root)
+		VALUES (?, ?, ?, ?, ?)
 		ON DUPLICATE KEY UPDATE assigned_name = VALUES(assigned_name),
 		                        base_name = VALUES(base_name),
-		                        last_seen = VALUES(last_seen)
-	`, entry.SessionKey, entry.AssignedName, entry.BaseName, entry.LastSeen)
+		                        last_seen = VALUES(last_seen),
+		                        project_root = VALUES(project_root)
+	`, entry.SessionKey, entry.AssignedName, entry.BaseName, entry.LastSeen, entry.ProjectRoot)
 	if err != nil {
 		debug.Logf("session registry: persist failed for %s: %v", entry.SessionKey, err)
 	}
@@ -106,13 +108,16 @@ func (r *sessionRegistry) persistEntry(entry *sessionEntry) {
 // Name generation: if baseName is the only session, it keeps baseName as-is.
 // If multiple sessions share the same baseName, they get baseName-1, baseName-2, etc.
 // New and updated entries are persisted to the database.
-func (r *sessionRegistry) register(sessionKey, baseName string) (assignedName string, isNew bool) {
+func (r *sessionRegistry) register(sessionKey, baseName, projectRoot string) (assignedName string, isNew bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	// Check if already registered
 	if entry, ok := r.sessions[sessionKey]; ok {
 		entry.LastSeen = time.Now()
+		if projectRoot != "" {
+			entry.ProjectRoot = projectRoot
+		}
 		// Persist updated last_seen (fire-and-forget in background)
 		go r.persistEntry(entry)
 		return entry.AssignedName, false
@@ -126,6 +131,7 @@ func (r *sessionRegistry) register(sessionKey, baseName string) (assignedName st
 		AssignedName: assignedName,
 		BaseName:     baseName,
 		LastSeen:     time.Now(),
+		ProjectRoot:  projectRoot,
 	}
 	r.sessions[sessionKey] = entry
 
@@ -235,7 +241,7 @@ func (s *Server) handleSessionRegister(req *Request) Response {
 		})
 	}
 
-	assignedName, isNew := s.sessionReg.register(args.SessionKey, args.BaseName)
+	assignedName, isNew := s.sessionReg.register(args.SessionKey, args.BaseName, args.ProjectRoot)
 
 	resp := SessionRegisterResponse{
 		AssignedName: assignedName,
@@ -280,6 +286,7 @@ func (s *Server) handleSessionList(req *Request) Response {
 			BaseName:     e.BaseName,
 			SessionKey:   e.SessionKey,
 			LastSeen:     e.LastSeen,
+			ProjectRoot:  e.ProjectRoot,
 		})
 	}
 

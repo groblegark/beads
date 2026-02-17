@@ -64,10 +64,11 @@ func registerSession(client *rpc.Client, projectRoot string) string {
 	sessionKey := deriveSessionKey(projectRoot)
 	baseName := getBaseActorName(sessionKey)
 
-	debug.Logf("registerSession: sessionKey=%q baseName=%q", sessionKey, baseName)
+	debug.Logf("registerSession: sessionKey=%q baseName=%q projectRoot=%q", sessionKey, baseName, projectRoot)
 	result, err := client.SessionRegister(&rpc.SessionRegisterArgs{
-		SessionKey: sessionKey,
-		BaseName:   baseName,
+		SessionKey:  sessionKey,
+		BaseName:    baseName,
+		ProjectRoot: projectRoot,
 	})
 	if err != nil {
 		// Registration failed — fall through to normal actor resolution.

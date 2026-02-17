@@ -110,6 +110,9 @@ func (s *Server) Start(_ context.Context) error {
 	// Start background inbox item cleanup (bd-xtahx.6)
 	s.startInboxReaper()
 
+	// Start background session registry pruning (bd-ycqks)
+	s.startSessionPruner()
+
 	// Ensure cleanup is signaled when this function returns
 	defer close(s.doneChan)
 

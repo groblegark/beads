@@ -9,31 +9,31 @@ func TestSessionRegistry_BasicRegister(t *testing.T) {
 	reg := newSessionRegistry()
 
 	// First registration gets bare name
-	name, isNew := reg.register("key1", "alice")
+	name, isNew := reg.register("key1", "alice", "")
 	if name != "alice" || !isNew {
 		t.Errorf("first register: got (%q, %v), want (alice, true)", name, isNew)
 	}
 
 	// Same key returns same name (not new)
-	name, isNew = reg.register("key1", "alice")
+	name, isNew = reg.register("key1", "alice", "")
 	if name != "alice" || isNew {
 		t.Errorf("re-register: got (%q, %v), want (alice, false)", name, isNew)
 	}
 
 	// Different key with same baseName gets suffix
-	name, isNew = reg.register("key2", "alice")
+	name, isNew = reg.register("key2", "alice", "")
 	if name != "alice-1" || !isNew {
 		t.Errorf("second alice: got (%q, %v), want (alice-1, true)", name, isNew)
 	}
 
 	// Third gets alice-2
-	name, isNew = reg.register("key3", "alice")
+	name, isNew = reg.register("key3", "alice", "")
 	if name != "alice-2" || !isNew {
 		t.Errorf("third alice: got (%q, %v), want (alice-2, true)", name, isNew)
 	}
 
 	// Different baseName gets bare name
-	name, isNew = reg.register("key4", "bob")
+	name, isNew = reg.register("key4", "bob", "")
 	if name != "bob" || !isNew {
 		t.Errorf("first bob: got (%q, %v), want (bob, true)", name, isNew)
 	}
@@ -43,8 +43,8 @@ func TestSessionRegistry_PruneStale(t *testing.T) {
 	reg := newSessionRegistry()
 
 	// Register two sessions
-	reg.register("key1", "alice")
-	reg.register("key2", "bob")
+	reg.register("key1", "alice", "")
+	reg.register("key2", "bob", "")
 
 	// Manually backdate key1
 	reg.mu.Lock()
@@ -71,13 +71,13 @@ func TestSessionRegistry_PruneFreesName(t *testing.T) {
 	reg := newSessionRegistry()
 
 	// Register alice (gets bare name)
-	name1, _ := reg.register("key1", "alice")
+	name1, _ := reg.register("key1", "alice", "")
 	if name1 != "alice" {
 		t.Fatalf("first alice: got %q, want alice", name1)
 	}
 
 	// Register second alice (gets alice-1)
-	name2, _ := reg.register("key2", "alice")
+	name2, _ := reg.register("key2", "alice", "")
 	if name2 != "alice-1" {
 		t.Fatalf("second alice: got %q, want alice-1", name2)
 	}
@@ -90,7 +90,7 @@ func TestSessionRegistry_PruneFreesName(t *testing.T) {
 
 	// New registration with same baseName should get alice-2 (not alice,
 	// because alice-1 is still active with that baseName)
-	name3, _ := reg.register("key3", "alice")
+	name3, _ := reg.register("key3", "alice", "")
 	if name3 != "alice-2" {
 		t.Errorf("after prune new alice: got %q, want alice-2", name3)
 	}
@@ -99,8 +99,8 @@ func TestSessionRegistry_PruneFreesName(t *testing.T) {
 func TestSessionRegistry_List(t *testing.T) {
 	reg := newSessionRegistry()
 
-	reg.register("key1", "alice")
-	reg.register("key2", "bob")
+	reg.register("key1", "alice", "")
+	reg.register("key2", "bob", "")
 
 	entries := reg.list()
 	if len(entries) != 2 {
@@ -120,7 +120,7 @@ func TestSessionRegistry_List(t *testing.T) {
 func TestSessionRegistry_ReRegisterUpdatesLastSeen(t *testing.T) {
 	reg := newSessionRegistry()
 
-	reg.register("key1", "alice")
+	reg.register("key1", "alice", "")
 
 	// Backdate
 	reg.mu.Lock()
@@ -129,7 +129,7 @@ func TestSessionRegistry_ReRegisterUpdatesLastSeen(t *testing.T) {
 	reg.mu.Unlock()
 
 	// Re-register updates LastSeen
-	reg.register("key1", "alice")
+	reg.register("key1", "alice", "")
 
 	reg.mu.RLock()
 	updated := reg.sessions["key1"].LastSeen
@@ -201,6 +201,71 @@ func TestSessionList_ViaRPC(t *testing.T) {
 	}
 	if !found["alice"] || !found["bob"] {
 		t.Errorf("Expected alice and bob, got %v", found)
+	}
+}
+
+// TestSessionRegistry_ProjectRoot verifies project_root is stored and updated (bd-djohp).
+func TestSessionRegistry_ProjectRoot(t *testing.T) {
+	reg := newSessionRegistry()
+
+	// Register with project root
+	name, isNew := reg.register("key1", "alice", "/home/alice/myproject")
+	if name != "alice" || !isNew {
+		t.Errorf("register: got (%q, %v), want (alice, true)", name, isNew)
+	}
+
+	// Verify project root stored
+	reg.mu.RLock()
+	entry := reg.sessions["key1"]
+	reg.mu.RUnlock()
+	if entry.ProjectRoot != "/home/alice/myproject" {
+		t.Errorf("ProjectRoot: got %q, want /home/alice/myproject", entry.ProjectRoot)
+	}
+
+	// Re-register with new project root updates it
+	reg.register("key1", "alice", "/home/alice/other-project")
+	reg.mu.RLock()
+	entry = reg.sessions["key1"]
+	reg.mu.RUnlock()
+	if entry.ProjectRoot != "/home/alice/other-project" {
+		t.Errorf("updated ProjectRoot: got %q, want /home/alice/other-project", entry.ProjectRoot)
+	}
+
+	// Re-register with empty project root preserves existing
+	reg.register("key1", "alice", "")
+	reg.mu.RLock()
+	entry = reg.sessions["key1"]
+	reg.mu.RUnlock()
+	if entry.ProjectRoot != "/home/alice/other-project" {
+		t.Errorf("preserved ProjectRoot: got %q, want /home/alice/other-project", entry.ProjectRoot)
+	}
+}
+
+// TestSessionList_ViaRPC_ProjectRoot verifies project_root roundtrips through RPC (bd-djohp).
+func TestSessionList_ViaRPC_ProjectRoot(t *testing.T) {
+	_, client, _, cleanup := setupTestServerWithStore(t)
+	defer cleanup()
+
+	// Register with project root
+	_, err := client.SessionRegister(&SessionRegisterArgs{
+		SessionKey:  "key-proj",
+		BaseName:    "alice",
+		ProjectRoot: "/home/alice/beads",
+	})
+	if err != nil {
+		t.Fatalf("SessionRegister: %v", err)
+	}
+
+	// List and verify project_root returned
+	result, err := client.SessionList(&SessionListArgs{})
+	if err != nil {
+		t.Fatalf("SessionList: %v", err)
+	}
+	if result.Count != 1 {
+		t.Fatalf("Expected 1 session, got %d", result.Count)
+	}
+	if result.Sessions[0].ProjectRoot != "/home/alice/beads" {
+		t.Errorf("ProjectRoot: got %q, want /home/alice/beads", result.Sessions[0].ProjectRoot)
 	}
 }
 
