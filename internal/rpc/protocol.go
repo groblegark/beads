@@ -1935,6 +1935,10 @@ type AgentRosterEntry struct {
 	SessionID  string  `json:"session_id,omitempty"`
 	IdleSecs   float64 `json:"idle_secs"`
 	EventCount int64   `json:"event_count"`
+	TaskID     string  `json:"task_id,omitempty"`    // in_progress bead ID (bd-qdhxw)
+	TaskTitle  string  `json:"task_title,omitempty"` // in_progress bead title
+	EpicID     string  `json:"epic_id,omitempty"`    // parent epic bead ID
+	EpicTitle  string  `json:"epic_title,omitempty"` // parent epic bead title
 }
 
 // AgentRosterResult is the response from agent_roster.

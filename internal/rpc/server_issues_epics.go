@@ -939,6 +939,16 @@ func (s *Server) handleUpdate(req *Request) Response {
 		}
 	}
 
+	// Auto-assign: when transitioning to in_progress and assignee is empty,
+	// set assignee from the request actor. (bd-qdhxw)
+	if actor != "" && issue.Assignee == "" {
+		if statusVal, ok := updates["status"]; ok {
+			if statusStr, ok := statusVal.(string); ok && statusStr == string(types.StatusInProgress) {
+				updates["assignee"] = actor
+			}
+		}
+	}
+
 	// Validate sidecar metadata if present (bd-pkvvi.1)
 	if updateArgs.Metadata != nil {
 		if err := ValidateSidecarMetadataJSON(*updateArgs.Metadata); err != nil {

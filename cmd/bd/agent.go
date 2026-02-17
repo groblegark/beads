@@ -843,6 +843,20 @@ func runAgentRoster(cmd *cobra.Command, args []string) error {
 		if a.ToolName != "" {
 			line += fmt.Sprintf("  tool=%s", a.ToolName)
 		}
+		if a.TaskID != "" {
+			title := a.TaskTitle
+			if len(title) > 40 {
+				title = title[:37] + "..."
+			}
+			line += fmt.Sprintf("\n  %20s  task=%s %s", "", a.TaskID, title)
+			if a.EpicID != "" {
+				epicTitle := a.EpicTitle
+				if len(epicTitle) > 40 {
+					epicTitle = epicTitle[:37] + "..."
+				}
+				line += fmt.Sprintf("\n  %20s  epic=%s %s", "", a.EpicID, epicTitle)
+			}
+		}
 		fmt.Println(line)
 	}
 

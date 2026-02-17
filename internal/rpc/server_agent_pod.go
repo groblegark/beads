@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/steveyegge/beads/internal/eventbus"
+	"github.com/steveyegge/beads/internal/types"
 )
 
 // handleAgentPodRegister sets pod fields on an agent bead.
@@ -256,6 +257,7 @@ func (s *Server) handleAgentPodList(req *Request) Response {
 }
 
 // handleAgentRoster returns a live presence roster from the NATS event bus (bd-3d5m2).
+// Enriched with in_progress task and parent epic context (bd-qdhxw).
 func (s *Server) handleAgentRoster(req *Request) Response {
 	if s.bus == nil {
 		return Response{Error: "event bus not configured"}
@@ -290,6 +292,9 @@ func (s *Server) handleAgentRoster(req *Request) Response {
 		}
 	}
 
+	// Enrich with in_progress task and epic context (bd-qdhxw).
+	s.enrichRosterWithTasks(req, rosterEntries)
+
 	result := AgentRosterResult{
 		Actors:  rosterEntries,
 		Uptime:  pt.Uptime().Round(time.Second).String(),
@@ -297,4 +302,74 @@ func (s *Server) handleAgentRoster(req *Request) Response {
 	}
 	data, _ := json.Marshal(result)
 	return Response{Success: true, Data: data}
+}
+
+// enrichRosterWithTasks looks up in_progress beads and matches them to roster
+// actors via created_by or assignee. Also walks parent-child deps to find epics.
+func (s *Server) enrichRosterWithTasks(req *Request, entries []AgentRosterEntry) {
+	store := s.storage
+	if store == nil || len(entries) == 0 {
+		return
+	}
+
+	ctx, cancel := s.reqCtx(req)
+	defer cancel()
+
+	// Query all in_progress beads.
+	inProgress := types.StatusInProgress
+	issues, err := store.SearchIssues(ctx, "", types.IssueFilter{Status: &inProgress})
+	if err != nil {
+		return
+	}
+
+	// Build actor → issue mapping. Prefer assignee, fall back to created_by.
+	// If an actor has multiple in_progress beads, use the most recently updated.
+	type taskInfo struct {
+		id    string
+		title string
+	}
+	actorTask := make(map[string]taskInfo)
+
+	for _, issue := range issues {
+		actor := issue.Assignee
+		if actor == "" {
+			actor = issue.CreatedBy
+		}
+		if actor == "" {
+			continue
+		}
+		// If we already have one for this actor, keep the most recently updated.
+		if existing, ok := actorTask[actor]; ok {
+			_ = existing // keep first match (issues come sorted by updated_at desc)
+			continue
+		}
+		actorTask[actor] = taskInfo{id: issue.ID, title: issue.Title}
+	}
+
+	// Enrich each roster entry with task info.
+	for i := range entries {
+		info, ok := actorTask[entries[i].Actor]
+		if !ok {
+			continue
+		}
+		entries[i].TaskID = info.id
+		entries[i].TaskTitle = info.title
+
+		// Walk parent-child deps to find the epic.
+		deps, err := store.GetDependencyRecords(ctx, info.id)
+		if err != nil {
+			continue
+		}
+		for _, dep := range deps {
+			if dep.Type == types.DepParentChild && dep.DependsOnID != info.id {
+				// This bead depends on dep.DependsOnID via parent-child → that's the parent/epic.
+				parent, err := store.GetIssue(ctx, dep.DependsOnID)
+				if err == nil && parent != nil {
+					entries[i].EpicID = parent.ID
+					entries[i].EpicTitle = parent.Title
+				}
+				break // Use first parent-child parent found.
+			}
+		}
+	}
 }
