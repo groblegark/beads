@@ -667,6 +667,7 @@ func labelPrefix(label string) string {
 
 // deepMergeConfig merges source into target using the config bead merge strategy:
 // - Hook arrays (under "hooks" key): APPEND
+// - _schema key: OVERRIDE (not merged field-by-field)
 // - Top-level keys: OVERRIDE
 // - Explicit null: SUPPRESS
 func deepMergeConfig(target, source map[string]interface{}) {
@@ -674,6 +675,12 @@ func deepMergeConfig(target, source map[string]interface{}) {
 		// Explicit null suppresses
 		if srcVal == nil {
 			target[key] = nil
+			continue
+		}
+
+		// _schema: always override wholesale (most specific bead wins)
+		if key == "_schema" {
+			target[key] = srcVal
 			continue
 		}
 

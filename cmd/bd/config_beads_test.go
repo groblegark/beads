@@ -583,6 +583,110 @@ func TestConfigBeadsMergeIntegration(t *testing.T) {
 	}
 }
 
+func TestSchemaForCategory(t *testing.T) {
+	t.Run("known category returns schema", func(t *testing.T) {
+		schema := SchemaForCategory("claude-hooks")
+		if schema == nil {
+			t.Fatal("Expected schema for claude-hooks, got nil")
+		}
+		if schema["_category"] != "claude-hooks" {
+			t.Errorf("Expected _category=claude-hooks, got %v", schema["_category"])
+		}
+		if schema["_description"] == nil || schema["_description"] == "" {
+			t.Error("Expected non-empty _description")
+		}
+		fields, ok := schema["fields"].(map[string]interface{})
+		if !ok {
+			t.Fatal("Expected fields to be a map")
+		}
+		// claude-hooks has 8 fields in categoryDocs
+		if len(fields) == 0 {
+			t.Error("Expected at least one field in schema")
+		}
+		// Check a specific field has type and description
+		stopEnabled, ok := fields["stop_decision.enabled"].(map[string]interface{})
+		if !ok {
+			t.Fatal("Expected stop_decision.enabled field")
+		}
+		if stopEnabled["type"] != "bool" {
+			t.Errorf("Expected type=bool, got %v", stopEnabled["type"])
+		}
+	})
+
+	t.Run("unknown category returns nil", func(t *testing.T) {
+		schema := SchemaForCategory("nonexistent")
+		if schema != nil {
+			t.Errorf("Expected nil for unknown category, got %v", schema)
+		}
+	})
+}
+
+func TestDeepMergeConfig_SchemaOverride(t *testing.T) {
+	t.Run("_schema is overridden not merged", func(t *testing.T) {
+		target := map[string]interface{}{
+			"editorMode": "normal",
+			"_schema": map[string]interface{}{
+				"_category": "old-cat",
+				"fields": map[string]interface{}{
+					"field_a": "old",
+				},
+			},
+		}
+		source := map[string]interface{}{
+			"_schema": map[string]interface{}{
+				"_category": "new-cat",
+				"fields": map[string]interface{}{
+					"field_b": "new",
+				},
+			},
+		}
+		deepMergeConfig(target, source)
+
+		schema, ok := target["_schema"].(map[string]interface{})
+		if !ok {
+			t.Fatal("Expected _schema to be a map")
+		}
+		if schema["_category"] != "new-cat" {
+			t.Errorf("Expected _category=new-cat (override), got %v", schema["_category"])
+		}
+		fields, ok := schema["fields"].(map[string]interface{})
+		if !ok {
+			t.Fatal("Expected fields in schema")
+		}
+		// Should have ONLY field_b (override), NOT field_a (no merge)
+		if _, has := fields["field_a"]; has {
+			t.Error("Expected field_a to be gone (override, not merge)")
+		}
+		if fields["field_b"] != "new" {
+			t.Errorf("Expected field_b=new, got %v", fields["field_b"])
+		}
+	})
+
+	t.Run("_schema preserved when not in source", func(t *testing.T) {
+		target := map[string]interface{}{
+			"editorMode": "normal",
+			"_schema": map[string]interface{}{
+				"_category": "hooks",
+			},
+		}
+		source := map[string]interface{}{
+			"editorMode": "vim",
+		}
+		deepMergeConfig(target, source)
+
+		if target["editorMode"] != "vim" {
+			t.Errorf("Expected editorMode=vim, got %v", target["editorMode"])
+		}
+		schema, ok := target["_schema"].(map[string]interface{})
+		if !ok {
+			t.Fatal("Expected _schema preserved")
+		}
+		if schema["_category"] != "hooks" {
+			t.Errorf("Expected _category=hooks preserved, got %v", schema["_category"])
+		}
+	})
+}
+
 func TestTruncateConfigMeta(t *testing.T) {
 	tests := []struct {
 		input    string

@@ -110,6 +110,30 @@ func printCategoryDoc(doc categoryDoc) {
 	fmt.Printf("  Update:       bd config set-bead --category %s --scope global --data '{...}'\n", doc.Name)
 }
 
+// SchemaForCategory returns a _schema map for a config category, suitable for
+// embedding in a config bead's metadata. This makes config beads self-documenting
+// — agents can read the _schema key to understand fields without needing the binary.
+func SchemaForCategory(category string) map[string]interface{} {
+	doc, ok := categoryDocs[category]
+	if !ok {
+		return nil
+	}
+
+	fields := make(map[string]interface{})
+	for _, f := range doc.Fields {
+		fields[f.Key] = map[string]interface{}{
+			"type":        f.Type,
+			"description": f.Description,
+		}
+	}
+
+	return map[string]interface{}{
+		"_category":    doc.Name,
+		"_description": doc.Description,
+		"fields":       fields,
+	}
+}
+
 // categoryDocs contains embedded documentation for all config bead categories.
 var categoryDocs = map[string]categoryDoc{
 	"claude-hooks": {

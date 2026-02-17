@@ -46,13 +46,20 @@ The human picks what's next, or gives custom instructions.`
 // config bead's stop_decision section. Used by `bd setup claude` to ensure
 // the config bead exists on first install.
 func DefaultStopDecisionConfig() map[string]interface{} {
-	return map[string]interface{}{
+	cfg := map[string]interface{}{
 		"stop_decision": map[string]interface{}{
 			"enabled":                true,
 			"require_agent_decision": true,
 			"agent_decision_prompt":  DefaultStopDecisionPrompt,
 		},
 	}
+
+	// Include _schema for self-documentation (bd-7letb.3).
+	if schema := SchemaForCategory("claude-hooks"); schema != nil {
+		cfg["_schema"] = schema
+	}
+
+	return cfg
 }
 
 // decisionStopCheckCmd checks whether Claude should be allowed to stop.
