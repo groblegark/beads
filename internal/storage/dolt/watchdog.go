@@ -164,13 +164,34 @@ func (s *DoltStore) queryContextOnDB(ctx context.Context, db *sql.DB, query stri
 //
 // Note: execContext does NOT fall back to standby — writes must always go
 // to the primary. If the primary is down, the error is returned as-is.
+//
+// Read-only auto-reconnect: if the primary returns "database is read only"
+// (indicating a Dolt cluster failover moved primary to a different pod),
+// the connection pool is reconnected to pick up the new primary endpoint
+// from the K8s service, and the operation is retried once.
 func (s *DoltStore) execContext(ctx context.Context, query string, args ...interface{}) (sql.Result, error) {
+	result, err := s.execContextOnDB(ctx, s.db, query, args...)
+	if err != nil && s.serverMode && s.connStr != "" && isReadOnlyError(err) {
+		fmt.Fprintf(os.Stderr, "primary: write failed (read-only) — reconnecting to pick up new primary\n")
+		if reconnErr := s.reconnectPrimary(ctx); reconnErr != nil {
+			fmt.Fprintf(os.Stderr, "primary: reconnect failed: %v\n", reconnErr)
+			return result, err // Return original error
+		}
+		fmt.Fprintf(os.Stderr, "primary: reconnected successfully, retrying write\n")
+		return s.execContextOnDB(ctx, s.db, query, args...)
+	}
+	return result, err
+}
+
+// execContextOnDB executes a statement against a specific *sql.DB pool with
+// KILL QUERY watchdog support.
+func (s *DoltStore) execContextOnDB(ctx context.Context, db *sql.DB, query string, args ...interface{}) (sql.Result, error) {
 	if !s.serverMode || s.queryTimeout <= 0 {
-		return s.db.ExecContext(ctx, query, args...)
+		return db.ExecContext(ctx, query, args...)
 	}
 
 	// Acquire a dedicated connection
-	conn, err := s.db.Conn(ctx)
+	conn, err := db.Conn(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -195,7 +216,7 @@ func (s *DoltStore) execContext(ctx context.Context, query string, args ...inter
 			if queryCtx.Err() == context.DeadlineExceeded {
 				killCtx, killCancel := context.WithTimeout(context.Background(), killQueryTimeout)
 				defer killCancel()
-				if _, killErr := s.db.ExecContext(killCtx, fmt.Sprintf("KILL QUERY %d", connID)); killErr != nil {
+				if _, killErr := db.ExecContext(killCtx, fmt.Sprintf("KILL QUERY %d", connID)); killErr != nil {
 					fmt.Fprintf(os.Stderr, "watchdog: KILL QUERY %d failed: %v\n", connID, killErr)
 				} else {
 					fmt.Fprintf(os.Stderr, "watchdog: KILL QUERY %d fired (exec timeout %v exceeded)\n", connID, s.queryTimeout)
@@ -207,6 +228,49 @@ func (s *DoltStore) execContext(ctx context.Context, query string, args ...inter
 	result, err := conn.ExecContext(queryCtx, query, args...)
 	close(done)
 	return result, err
+}
+
+// reconnectPrimary closes the existing primary connection pool and opens
+// a new one using the stored connection string. This is used when the Dolt
+// cluster primary has failed over to a different pod — the K8s ClusterIP
+// service now points to the new primary, but existing connections in the
+// pool still go to the old (now read-only) pod.
+func (s *DoltStore) reconnectPrimary(ctx context.Context) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.connStr == "" {
+		return fmt.Errorf("no connection string stored for reconnect")
+	}
+
+	// Close existing pool (drains all connections)
+	oldDB := s.db
+	if oldDB != nil {
+		_ = oldDB.Close()
+	}
+
+	// Open new pool with the same DSN — K8s service will resolve to new primary
+	newDB, err := sql.Open("mysql", s.connStr)
+	if err != nil {
+		return fmt.Errorf("reconnect: failed to open new connection: %w", err)
+	}
+
+	// Apply same pool settings as openServerConnection
+	newDB.SetMaxOpenConns(1000)
+	newDB.SetMaxIdleConns(100)
+	newDB.SetConnMaxLifetime(5 * time.Minute)
+	newDB.SetConnMaxIdleTime(20 * time.Minute)
+
+	// Verify new connection works
+	pingCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	if err := newDB.PingContext(pingCtx); err != nil {
+		_ = newDB.Close()
+		return fmt.Errorf("reconnect: ping failed: %w", err)
+	}
+
+	s.db = newDB
+	return nil
 }
 
 // isConnectionError returns true if the error indicates a connection-level
@@ -227,6 +291,18 @@ func isConnectionError(err error) bool {
 		strings.Contains(msg, "bad connection") ||
 		strings.Contains(msg, "invalid connection") ||
 		strings.Contains(msg, "driver: bad connection")
+}
+
+// isReadOnlyError returns true if the error indicates the database is read-only.
+// This happens when a Dolt primary failover moves the primary role to a different
+// pod, and the daemon is still connected to the old primary (now a standby).
+func isReadOnlyError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "database is read only") ||
+		strings.Contains(msg, "read only") && strings.Contains(msg, "error 1105")
 }
 
 // parseQueryTimeout reads the query timeout from the environment, falling back
