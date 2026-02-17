@@ -761,6 +761,9 @@ func runDaemonLoop(interval time.Duration, autoCommit, autoPush, autoPull, local
 			handler.SetNudgeStore(store)
 		case *eventbus.BeadNudgeHandler:
 			handler.SetBeadAssignmentStore(store)
+			if pt := bus.Presence(); pt != nil {
+				handler.SetPresenceTracker(pt)
+			}
 		}
 	}
 

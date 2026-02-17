@@ -18,10 +18,14 @@ type BeadAssignmentStore interface {
 // any in_progress bead assigned to them. Fires on PostToolUse events.
 // Priority 40 (runs after inbox drain — low priority, informational only).
 //
+// Uses PresenceTracker for O(1) in-memory task checks when available (bd-tlckc).
+// Falls back to store query or subprocess when presence tracking isn't wired.
+//
 // Rate-limited: at most one nudge per cooldown period (default 10 minutes)
 // per actor, to avoid spamming agents with repeated reminders. (bd-0ttt3)
 type BeadNudgeHandler struct {
 	store    BeadAssignmentStore
+	presence *PresenceTracker
 	cooldown time.Duration
 
 	mu        sync.Mutex
@@ -34,6 +38,9 @@ func (h *BeadNudgeHandler) Priority() int        { return 40 }
 
 // SetBeadAssignmentStore wires in direct storage access for in-process bead lookups.
 func (h *BeadNudgeHandler) SetBeadAssignmentStore(store BeadAssignmentStore) { h.store = store }
+
+// SetPresenceTracker wires in the PresenceTracker for O(1) task checks. (bd-tlckc)
+func (h *BeadNudgeHandler) SetPresenceTracker(pt *PresenceTracker) { h.presence = pt }
 
 func (h *BeadNudgeHandler) Handle(ctx context.Context, event *Event, result *Result) error {
 	// Only nudge known agents (actor must be set by daemon).
@@ -101,11 +108,17 @@ func (h *BeadNudgeHandler) recordNudge(actor string) {
 }
 
 // actorHasTask checks whether the actor has any in_progress beads.
-// Uses in-process store when available, falls back to subprocess.
+// Priority: PresenceTracker (O(1) in-memory) > store query > subprocess. (bd-tlckc)
 func (h *BeadNudgeHandler) actorHasTask(ctx context.Context, event *Event) (bool, error) {
+	// Fast path: PresenceTracker has in-memory task state from mutation events.
+	if h.presence != nil {
+		return h.presence.HasTask(event.Actor), nil
+	}
+	// Slow path: query the database directly.
 	if h.store != nil {
 		return h.checkInProcess(ctx, event.Actor)
 	}
+	// Fallback: subprocess.
 	return h.checkSubprocess(ctx, event)
 }
 
@@ -147,7 +160,5 @@ func (h *BeadNudgeHandler) checkSubprocess(ctx context.Context, event *Event) (b
 		return false, err
 	}
 	// If there's any output with issues, the agent likely has work.
-	// The subprocess runs as the actor (BD_ACTOR is set), so the list
-	// will show all in_progress beads. We check if any are assigned to this actor.
 	return stdout != "" && stdout != "[]" && stdout != "null", nil
 }

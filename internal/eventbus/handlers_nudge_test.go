@@ -2,9 +2,11 @@ package eventbus
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
+	"github.com/nats-io/nats.go"
 	"github.com/steveyegge/beads/internal/types"
 )
 
@@ -160,5 +162,169 @@ func TestBeadNudgeHandler_SkipsEmptyActor(t *testing.T) {
 
 	if len(result.Warnings) != 0 {
 		t.Fatalf("expected no warnings for empty actor, got %d", len(result.Warnings))
+	}
+}
+
+// PresenceTracker-based tests (bd-tlckc)
+
+func TestBeadNudgeHandler_PresenceTracker_NoTask(t *testing.T) {
+	pt := NewPresenceTracker()
+	// Actor is in presence but has no tasks.
+	pt.mu.Lock()
+	pt.actors["test-agent"] = &actorState{
+		lastSeen: time.Now(),
+		taskIDs:  map[string]bool{},
+	}
+	pt.mu.Unlock()
+
+	h := &BeadNudgeHandler{cooldown: time.Millisecond}
+	h.SetPresenceTracker(pt)
+
+	event := &Event{
+		Type:  EventPostToolUse,
+		Actor: "test-agent",
+	}
+	result := &Result{}
+
+	if err := h.Handle(context.Background(), event, result); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(result.Warnings) != 1 {
+		t.Fatalf("expected 1 nudge warning via PresenceTracker, got %d", len(result.Warnings))
+	}
+}
+
+func TestBeadNudgeHandler_PresenceTracker_HasTask(t *testing.T) {
+	pt := NewPresenceTracker()
+	// Actor has an in_progress task.
+	pt.mu.Lock()
+	pt.actors["test-agent"] = &actorState{
+		lastSeen: time.Now(),
+		taskIDs:  map[string]bool{"bd-abc": true},
+	}
+	pt.mu.Unlock()
+
+	h := &BeadNudgeHandler{cooldown: time.Millisecond}
+	h.SetPresenceTracker(pt)
+
+	event := &Event{
+		Type:  EventPostToolUse,
+		Actor: "test-agent",
+	}
+	result := &Result{}
+
+	if err := h.Handle(context.Background(), event, result); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(result.Warnings) != 0 {
+		t.Fatalf("expected no warnings when PresenceTracker shows task, got %d", len(result.Warnings))
+	}
+}
+
+func TestBeadNudgeHandler_PresenceTracker_UnknownActor(t *testing.T) {
+	pt := NewPresenceTracker()
+	// Actor not in presence tracker at all.
+
+	h := &BeadNudgeHandler{cooldown: time.Millisecond}
+	h.SetPresenceTracker(pt)
+
+	event := &Event{
+		Type:  EventPostToolUse,
+		Actor: "unknown-agent",
+	}
+	result := &Result{}
+
+	if err := h.Handle(context.Background(), event, result); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Unknown actor has no tasks → should nudge.
+	if len(result.Warnings) != 1 {
+		t.Fatalf("expected 1 nudge for unknown actor, got %d", len(result.Warnings))
+	}
+}
+
+func TestPresenceTracker_HasTask(t *testing.T) {
+	pt := NewPresenceTracker()
+
+	// No actor → false.
+	if pt.HasTask("nobody") {
+		t.Error("expected HasTask=false for unknown actor")
+	}
+
+	// Actor with no tasks → false.
+	pt.mu.Lock()
+	pt.actors["alice"] = &actorState{taskIDs: map[string]bool{}}
+	pt.mu.Unlock()
+	if pt.HasTask("alice") {
+		t.Error("expected HasTask=false for actor with empty taskIDs")
+	}
+
+	// Actor with tasks → true.
+	pt.mu.Lock()
+	pt.actors["bob"] = &actorState{taskIDs: map[string]bool{"bd-1": true}}
+	pt.mu.Unlock()
+	if !pt.HasTask("bob") {
+		t.Error("expected HasTask=true for actor with taskIDs")
+	}
+}
+
+func TestPresenceTracker_HandleMutationEvent(t *testing.T) {
+	pt := NewPresenceTracker()
+
+	// Simulate a status change to in_progress.
+	pt.handleMutationEvent(makeMutationMsg(t, MutationEventPayload{
+		Type:      "status",
+		IssueID:   "bd-100",
+		Actor:     "agent-x",
+		OldStatus: "open",
+		NewStatus: "in_progress",
+	}))
+
+	if !pt.HasTask("agent-x") {
+		t.Error("expected agent-x to have task after in_progress mutation")
+	}
+
+	// Simulate closing the bead.
+	pt.handleMutationEvent(makeMutationMsg(t, MutationEventPayload{
+		Type:      "status",
+		IssueID:   "bd-100",
+		Actor:     "agent-x",
+		OldStatus: "in_progress",
+		NewStatus: "closed",
+	}))
+
+	if pt.HasTask("agent-x") {
+		t.Error("expected agent-x to have no task after closing")
+	}
+}
+
+func TestPresenceTracker_HandleMutationEvent_IgnoresNonStatus(t *testing.T) {
+	pt := NewPresenceTracker()
+
+	// Non-status mutation should be ignored.
+	pt.handleMutationEvent(makeMutationMsg(t, MutationEventPayload{
+		Type:    "comment",
+		IssueID: "bd-200",
+		Actor:   "agent-y",
+	}))
+
+	if pt.HasTask("agent-y") {
+		t.Error("expected no task tracking for non-status mutations")
+	}
+}
+
+// makeMutationMsg creates a nats.Msg with a MutationEventPayload for testing.
+func makeMutationMsg(t *testing.T, payload MutationEventPayload) *nats.Msg {
+	t.Helper()
+	data, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("failed to marshal payload: %v", err)
+	}
+	return &nats.Msg{
+		Subject: SubjectMutationPrefix + string(EventMutationStatus),
+		Data:    data,
 	}
 }

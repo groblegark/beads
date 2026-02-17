@@ -35,6 +35,7 @@ type actorState struct {
 	toolName   string
 	sessionID  string
 	eventCount int64
+	taskIDs    map[string]bool // in_progress bead IDs for this actor (bd-tlckc)
 }
 
 // NewPresenceTracker creates a new tracker. Call Start() to begin subscribing.
@@ -68,8 +69,21 @@ func (pt *PresenceTracker) Start(js nats.JetStreamContext) error {
 		return err
 	}
 
+	// Subscribe to mutation status events (mutations.MutationStatus) for task tracking. (bd-tlckc)
+	mutSub, err := js.Subscribe(SubjectMutationPrefix+string(EventMutationStatus), pt.handleMutationEvent,
+		nats.DeliverNew(),
+		nats.AckNone(),
+	)
+	if err != nil {
+		// Non-fatal: presence works without task tracking, just log it.
+		log.Printf("presence: mutation subscription failed (task tracking disabled): %v", err)
+	}
+
 	pt.subs = append(pt.subs, hookSub, agentSub)
-	log.Printf("presence: tracker started — subscribing to hooks.> and agents.>")
+	if mutSub != nil {
+		pt.subs = append(pt.subs, mutSub)
+	}
+	log.Printf("presence: tracker started — subscribing to hooks.>, agents.>, mutations.MutationStatus")
 	return nil
 }
 
@@ -155,6 +169,58 @@ func (pt *PresenceTracker) handleHookEvent(msg *nats.Msg) {
 	}
 	if event.SessionID != "" {
 		state.sessionID = event.SessionID
+	}
+}
+
+// HasTask returns true if the given actor has at least one in_progress bead
+// tracked via mutation events. This is an O(1) in-memory check. (bd-tlckc)
+func (pt *PresenceTracker) HasTask(actor string) bool {
+	pt.mu.RLock()
+	defer pt.mu.RUnlock()
+
+	state, ok := pt.actors[actor]
+	if !ok {
+		return false
+	}
+	return len(state.taskIDs) > 0
+}
+
+func (pt *PresenceTracker) handleMutationEvent(msg *nats.Msg) {
+	var payload MutationEventPayload
+	if err := json.Unmarshal(msg.Data, &payload); err != nil {
+		return
+	}
+
+	// We only care about status changes.
+	if payload.Type != "status" {
+		return
+	}
+
+	actor := payload.Actor
+	if actor == "" {
+		actor = payload.Assignee
+	}
+	if actor == "" {
+		return
+	}
+
+	pt.mu.Lock()
+	defer pt.mu.Unlock()
+
+	state, ok := pt.actors[actor]
+	if !ok {
+		state = &actorState{taskIDs: make(map[string]bool)}
+		pt.actors[actor] = state
+	}
+	if state.taskIDs == nil {
+		state.taskIDs = make(map[string]bool)
+	}
+
+	// Track transitions into and out of in_progress.
+	if payload.NewStatus == "in_progress" {
+		state.taskIDs[payload.IssueID] = true
+	} else if payload.OldStatus == "in_progress" {
+		delete(state.taskIDs, payload.IssueID)
 	}
 }
 
