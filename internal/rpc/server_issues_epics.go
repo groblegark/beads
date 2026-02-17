@@ -3813,6 +3813,76 @@ func (s *Server) handleDecisionCreate(req *Request) Response {
 	}
 }
 
+// CreateFallbackStopDecision implements eventbus.FallbackDecisionCreator.
+// Creates a daemon-generated decision when an agent fails to create one
+// within the stop fallback timeout. The decision flows through the normal
+// NATS pipeline → Slack notification. (bd-csxrl)
+func (s *Server) CreateFallbackStopDecision(ctx context.Context, actor string, sessionContext string) (string, error) {
+	store := s.storage
+	if store == nil {
+		return "", fmt.Errorf("storage not available")
+	}
+
+	options := []types.DecisionOption{
+		{ID: "continue", Short: "continue", Label: "Continue working on current task"},
+		{ID: "ready", Short: "ready-queue", Label: "Pick next task from ready queue"},
+		{ID: "stop", Short: "stop", Label: "Done for now"},
+	}
+	optionsJSON, err := json.Marshal(options)
+	if err != nil {
+		return "", fmt.Errorf("marshal options: %w", err)
+	}
+
+	now := time.Now()
+	dp := &types.DecisionPoint{
+		Prompt:        "Agent session ending — what next?",
+		Context:       sessionContext,
+		Options:       string(optionsJSON),
+		DefaultOption: "stop",
+		MaxIterations: 1,
+		Iteration:     1,
+		RequestedBy:   actor,
+		Urgency:       "medium",
+		CreatedAt:     now,
+	}
+
+	gateIssue := &types.Issue{
+		Title:       fmt.Sprintf("[DECISION] Fallback stop decision for %s", actor),
+		Description: fmt.Sprintf("Daemon-generated fallback: agent %s did not create a decision within timeout.", actor),
+		Status:      "open",
+		Priority:    2,
+		IssueType:   "gate",
+		AwaitType:   "decision",
+		CreatedBy:   "daemon",
+		Labels:      []string{"gt:decision", "decision:pending", "urgency:medium", "decision:fallback"},
+	}
+
+	if err := store.RunInTransaction(ctx, func(tx storage.Transaction) error {
+		if err := tx.CreateIssue(ctx, gateIssue, "daemon"); err != nil {
+			return fmt.Errorf("create gate issue: %w", err)
+		}
+		dp.IssueID = gateIssue.ID
+		if err := tx.CreateDecisionPoint(ctx, dp); err != nil {
+			return fmt.Errorf("create decision point: %w", err)
+		}
+		return nil
+	}); err != nil {
+		return "", fmt.Errorf("fallback decision create: %w", err)
+	}
+
+	// Emit events so Slack bot and other consumers are notified.
+	s.emitMutationFor(MutationCreate, gateIssue)
+	s.emitDecisionEvent(eventbus.EventDecisionCreated, eventbus.DecisionEventPayload{
+		DecisionID:  gateIssue.ID,
+		Question:    dp.Prompt,
+		Urgency:     dp.Urgency,
+		RequestedBy: actor,
+		Options:     len(options),
+	})
+
+	return gateIssue.ID, nil
+}
+
 func (s *Server) handleDecisionGet(req *Request) Response {
 	var args DecisionGetArgs
 	if err := json.Unmarshal(req.Args, &args); err != nil {
