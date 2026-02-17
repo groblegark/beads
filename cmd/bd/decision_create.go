@@ -297,6 +297,13 @@ func runDecisionCreate(cmd *cobra.Command, args []string) {
 		}
 		return
 	}
+
+	// Mark the permanent "decision" gate as satisfied now that a response was received.
+	// This prevents the Stop hook from re-firing after bd decision create exits
+	// (which clears the temporary "decision-waiting" marker via defer).
+	if sid := getSessionID(); sid != "" {
+		_ = gate.MarkGate(getWorkDir(), sid, "decision")
+	}
 	// Map selected option ID to its label
 	selectedLabel := selected
 	for _, opt := range options {

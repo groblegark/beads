@@ -274,6 +274,56 @@ func TestBuiltinGatesIntegration(t *testing.T) {
 	}
 }
 
+func TestDecisionGate_PermanentMarkerSurvivesClear(t *testing.T) {
+	// Verifies the fix for the stop hook infinite loop:
+	// After bd decision create receives a response, it marks the permanent
+	// "decision" gate, then the defer clears "decision-waiting". The Stop
+	// hook should still be satisfied because the permanent marker exists.
+	workDir := t.TempDir()
+	sessionID := "decision-permanent-test"
+
+	// Set up clean git repo and no hooked bead
+	runGit(t, workDir, "init")
+	runGit(t, workDir, "config", "user.email", "test@test.com")
+	runGit(t, workDir, "config", "user.name", "Test")
+	if err := os.WriteFile(filepath.Join(workDir, "f.txt"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, workDir, "add", "f.txt")
+	runGit(t, workDir, "commit", "-m", "init")
+	t.Setenv("GT_HOOK_BEAD", "")
+
+	reg := NewRegistry()
+	RegisterBuiltinGates(reg)
+
+	// Phase 1: decision-waiting set (agent blocked on bd decision create)
+	if err := MarkGate(workDir, sessionID, "decision-waiting"); err != nil {
+		t.Fatal(err)
+	}
+	resp, err := EvaluateHook(workDir, sessionID, HookStop, reg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.Decision != "allow" {
+		t.Errorf("phase 1: expected allow with decision-waiting, got %q", resp.Decision)
+	}
+
+	// Phase 2: response received — mark permanent "decision", then clear "decision-waiting"
+	if err := MarkGate(workDir, sessionID, "decision"); err != nil {
+		t.Fatal(err)
+	}
+	ClearGate(workDir, sessionID, "decision-waiting")
+
+	// Phase 3: Stop hook fires after bd decision create exits — should still allow
+	resp, err = EvaluateHook(workDir, sessionID, HookStop, reg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.Decision != "allow" {
+		t.Errorf("phase 3: expected allow with permanent decision marker, got %q (reason: %s)", resp.Decision, resp.Reason)
+	}
+}
+
 // runGit runs a git command in the given directory.
 func runGit(t *testing.T, dir string, args ...string) {
 	t.Helper()
