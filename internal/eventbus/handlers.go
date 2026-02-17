@@ -241,12 +241,14 @@ func runBDCommand(ctx context.Context, cwd string, args ...string) (string, stri
 type SubprocessEnv struct {
 	Actor             string // BD_ACTOR — the beads agent name (e.g., "bright-hog")
 	CallerSessionTag  string // TERM_SESSION_ID — scopes decisions to the caller's terminal
+	ClaudeSessionID   string // CLAUDE_SESSION_ID — Claude Code session ID for gate checks
 }
 
 // envFromEvent builds a SubprocessEnv from an Event's fields.
 func envFromEvent(event *Event) *SubprocessEnv {
 	env := &SubprocessEnv{
-		Actor: event.Actor,
+		Actor:           event.Actor,
+		ClaudeSessionID: event.SessionID,
 	}
 	// Extract caller_session_tag from Raw if present.
 	if len(event.Raw) > 0 {
@@ -293,6 +295,9 @@ func runBDCommandWithEnv(ctx context.Context, cwd string, env *SubprocessEnv, ar
 		}
 		if env.CallerSessionTag != "" {
 			cmd.Env = append(cmd.Env, "TERM_SESSION_ID="+env.CallerSessionTag)
+		}
+		if env.ClaudeSessionID != "" {
+			cmd.Env = append(cmd.Env, "CLAUDE_SESSION_ID="+env.ClaudeSessionID)
 		}
 	}
 
