@@ -196,7 +196,7 @@ spec:
           livenessProbe:
             {{- if .Values.daemon.http.enabled }}
             httpGet:
-              path: /healthz
+              path: {{ .Values.daemon.livenessProbe.path | default "/livez" }}
               port: {{ .Values.daemon.http.port | default 9080 }}
             {{- else }}
             tcpSocket:
