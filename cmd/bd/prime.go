@@ -14,6 +14,7 @@ import (
 	internalbeads "github.com/steveyegge/beads/internal/beads"
 	"github.com/steveyegge/beads/internal/config"
 	"github.com/steveyegge/beads/internal/rpc"
+	"github.com/steveyegge/beads/internal/types"
 )
 
 // isDaemonAutoSyncing checks if daemon is running with auto-commit and auto-push enabled.
@@ -47,6 +48,8 @@ var (
 	primeStealthMode bool
 	primeExportMode  bool
 	primeCaptainMode bool
+	primeForAgent    string
+	primeNoAdvice    bool
 )
 
 var primeCmd = &cobra.Command{
@@ -129,6 +132,19 @@ Workflow customization:
 			// Never write to stderr (breaks Windows compatibility)
 			os.Exit(0)
 		}
+
+		// Append matching advice if not suppressed and not in export mode. (beads-it2j)
+		if !primeNoAdvice && !primeExportMode {
+			agentID := resolvePrimeAgentID(primeForAgent)
+			if agentID != "" {
+				outputAdviceSection(os.Stdout, agentID)
+			}
+		}
+
+		// Append active agent roster to prevent work duplication. (bd-rzec3)
+		if !primeExportMode {
+			outputRosterSection(os.Stdout)
+		}
 	},
 }
 
@@ -138,6 +154,8 @@ func init() {
 	primeCmd.Flags().BoolVar(&primeStealthMode, "stealth", false, "Stealth mode (no git operations, flush only)")
 	primeCmd.Flags().BoolVar(&primeExportMode, "export", false, "Output default content (ignores PRIME.md override)")
 	primeCmd.Flags().BoolVar(&primeCaptainMode, "captain", false, "Captain mode (supervisor workflow for AI captain agents)")
+	primeCmd.Flags().StringVar(&primeForAgent, "for", "", "Agent ID to inject matching advice for")
+	primeCmd.Flags().BoolVar(&primeNoAdvice, "no-advice", false, "Suppress advice injection")
 	rootCmd.AddCommand(primeCmd)
 }
 
@@ -530,3 +548,146 @@ bd decision create --prompt="Deploy to production?" \
 	_, _ = fmt.Fprint(w, context)
 	return nil
 }
+
+// resolvePrimeAgentID resolves the agent identity for advice injection.
+// Checks --for flag first, then BD_ACTOR / BEADS_ACTOR env vars.
+func resolvePrimeAgentID(flagValue string) string {
+	if flagValue != "" {
+		return flagValue
+	}
+	if actor := os.Getenv("BD_ACTOR"); actor != "" {
+		return actor
+	}
+	if actor := os.Getenv("BEADS_ACTOR"); actor != "" {
+		return actor
+	}
+	return ""
+}
+
+// outputAdviceSection fetches matching advice beads for the given agent and
+// appends them to the prime output. Creates its own daemon connection because
+// prime is in noDbCommands (no daemon init). (beads-it2j)
+func outputAdviceSection(w io.Writer, agentID string) {
+	beadsDir := beads.FindBeadsDir()
+	if beadsDir == "" {
+		return
+	}
+
+	socketPath := filepath.Join(beadsDir, "bd.sock")
+	client, err := rpc.TryConnectAuto(socketPath)
+	if err != nil || client == nil {
+		return
+	}
+	defer func() { _ = client.Close() }()
+
+	// Build subscriptions for this agent (no store needed — derives from ID structure).
+	subscriptions := buildAgentSubscriptionsWithoutStore(agentID, nil)
+
+	// Fetch all open advice via daemon RPC.
+	listArgs := &rpc.ListArgs{
+		IssueType: "advice",
+		Status:    "open",
+	}
+	resp, err := client.List(listArgs)
+	if err != nil || !resp.Success {
+		return
+	}
+
+	var issuesWithCounts []*types.IssueWithCounts
+	if err := json.Unmarshal(resp.Data, &issuesWithCounts); err != nil {
+		return
+	}
+
+	// Build labels map and filter by subscriptions.
+	labelsMap := make(map[string][]string)
+	issues := make([]*types.Issue, len(issuesWithCounts))
+	for i, iwc := range issuesWithCounts {
+		issues[i] = iwc.Issue
+		if iwc.Issue != nil && len(iwc.Issue.Labels) > 0 {
+			labelsMap[iwc.Issue.ID] = iwc.Issue.Labels
+		}
+	}
+
+	var matched []*advicePreviewItem
+	for _, issue := range issues {
+		issueLabels := labelsMap[issue.ID]
+		if matchesSubscriptions(issue, issueLabels, subscriptions) {
+			matchedLabels := findMatchedLabels(issueLabels, subscriptions)
+			matched = append(matched, &advicePreviewItem{
+				Issue:         issue,
+				MatchedLabels: matchedLabels,
+			})
+		}
+	}
+
+	if len(matched) == 0 {
+		return
+	}
+
+	// Group by scope and render in raw format.
+	groups := groupByScope(matched)
+
+	fmt.Fprintf(w, "\n## Advice (%d items)\n\n", len(matched))
+	for _, group := range groups {
+		for _, item := range group.Items {
+			fmt.Fprintf(w, "**[%s]** %s\n", group.Header, item.Issue.Title)
+			if item.Issue.Description != "" && item.Issue.Description != item.Issue.Title {
+				lines := strings.Split(item.Issue.Description, "\n")
+				for _, line := range lines {
+					fmt.Fprintf(w, "  %s\n", line)
+				}
+			}
+			fmt.Fprintln(w)
+		}
+	}
+}
+
+// outputRosterSection appends a live agent roster to the prime output.
+// Shows active agents, their current task/epic, and idle time so the
+// receiving agent can avoid picking up work already in progress. (bd-rzec3)
+//
+// Connects to the daemon RPC (same pattern as outputAdviceSection).
+// Fails silently if daemon is unavailable or no agents are active.
+func outputRosterSection(w io.Writer) {
+	beadsDir := beads.FindBeadsDir()
+	if beadsDir == "" {
+		return
+	}
+
+	socketPath := filepath.Join(beadsDir, "bd.sock")
+	client, err := rpc.TryConnectAuto(socketPath)
+	if err != nil || client == nil {
+		return
+	}
+	defer func() { _ = client.Close() }()
+
+	result, err := client.AgentRoster(&rpc.AgentRosterArgs{
+		StaleThresholdSecs: 1800, // 30 minutes — show recently active agents
+	})
+	if err != nil || result == nil || len(result.Actors) == 0 {
+		return
+	}
+
+	fmt.Fprintf(w, "\n## Active Agents (%d)\n\n", len(result.Actors))
+	fmt.Fprintln(w, "Other agents are currently working. **Do not pick up their tasks.**")
+	fmt.Fprintln(w, "")
+
+	for _, a := range result.Actors {
+		idleStr := formatIdleDuration(a.IdleSecs)
+
+		if a.TaskID != "" {
+			epicStr := ""
+			if a.EpicTitle != "" {
+				epicStr = fmt.Sprintf(" (epic: %s)", a.EpicTitle)
+			}
+			fmt.Fprintf(w, "- **%s** — working on %s: %s%s (idle %s)\n",
+				a.Actor, a.TaskID, a.TaskTitle, epicStr, idleStr)
+		} else {
+			fmt.Fprintf(w, "- **%s** — active, no claimed task (idle %s)\n",
+				a.Actor, idleStr)
+		}
+	}
+	fmt.Fprintln(w, "")
+}
+
+// formatIdleDuration is defined in agent.go (same package).

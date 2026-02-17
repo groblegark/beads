@@ -323,8 +323,8 @@ func TestPresenceTracker_BackfillTasks(t *testing.T) {
 		{IssueID: "bd-1", Actor: "agent-a"},
 		{IssueID: "bd-2", Actor: "agent-a"},
 		{IssueID: "bd-3", Actor: "agent-b"},
-		{IssueID: "", Actor: "agent-c"},     // empty issue ID — skip
-		{IssueID: "bd-4", Actor: ""},         // empty actor — skip
+		{IssueID: "", Actor: "agent-c"},       // empty issue ID — skip
+		{IssueID: "bd-4", Actor: ""},           // empty actor — skip
 	}
 
 	n := pt.BackfillTasks(seeds)
