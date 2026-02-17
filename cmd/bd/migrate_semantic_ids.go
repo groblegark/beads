@@ -107,7 +107,7 @@ func runMigrateSemanticIDs(cmd *cobra.Command, _ []string) {
 		}
 	}
 
-	// Open database using factory (supports both SQLite and Dolt backends)
+	// Open database using factory
 	store, err := factory.NewFromConfig(ctx, beadsDir)
 	if err != nil {
 		if jsonOut {

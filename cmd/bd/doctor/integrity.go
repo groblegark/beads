@@ -47,7 +47,7 @@ func CheckIDFormat(path string) DoctorCheck {
 	}
 
 	// Open the configured backend in read-only mode.
-	// This must work for both SQLite and Dolt.
+	// Open the Dolt backend in read-only mode.
 	ctx := context.Background()
 	store, err := storagefactory.NewFromConfigWithOptions(ctx, beadsDir, storagefactory.Options{ReadOnly: true, AllowWithRemoteDaemon: true})
 	if err != nil {
@@ -401,108 +401,10 @@ func CheckDeletionsManifest(path string) DoctorCheck {
 // This detects when a .beads directory was copied from another repo or when
 // the git remote URL changed. A mismatch can cause data loss during sync.
 func CheckRepoFingerprint(path string) DoctorCheck {
-	backend, beadsDir := getBackendAndBeadsDir(path)
+	_, beadsDir := getBackendAndBeadsDir(path)
 
-	// Backend-aware existence check
-	switch backend {
-	case configfile.BackendDolt:
-		if info, err := os.Stat(filepath.Join(beadsDir, "dolt")); err != nil || !info.IsDir() {
-			return DoctorCheck{
-				Name:    "Repo Fingerprint",
-				Status:  StatusOK,
-				Message: "N/A (no database)",
-			}
-		}
-	default:
-		// SQLite backend: needs a .db file
-		var dbPath string
-		if cfg, err := configfile.Load(beadsDir); err == nil && cfg != nil && cfg.Database != "" {
-			dbPath = cfg.DatabasePath(beadsDir)
-		} else {
-			dbPath = filepath.Join(beadsDir, beads.CanonicalDatabaseName)
-		}
-		if _, err := os.Stat(dbPath); os.IsNotExist(err) {
-			return DoctorCheck{
-				Name:    "Repo Fingerprint",
-				Status:  StatusOK,
-				Message: "N/A (no database)",
-			}
-		}
-	}
-
-	// For Dolt, read fingerprint from storage metadata (no sqlite assumptions).
-	if backend == configfile.BackendDolt {
-		ctx := context.Background()
-		store, err := storagefactory.NewFromConfigWithOptions(ctx, beadsDir, storagefactory.Options{ReadOnly: true, AllowWithRemoteDaemon: true})
-		if err != nil {
-			return DoctorCheck{
-				Name:    "Repo Fingerprint",
-				Status:  StatusWarning,
-				Message: "Unable to open database",
-				Detail:  err.Error(),
-			}
-		}
-		defer func() { _ = store.Close() }()
-
-		storedRepoID, err := store.GetMetadata(ctx, "repo_id")
-		if err != nil {
-			return DoctorCheck{
-				Name:    "Repo Fingerprint",
-				Status:  StatusWarning,
-				Message: "Unable to read repo fingerprint",
-				Detail:  err.Error(),
-			}
-		}
-
-		// If missing, warn (not the legacy sqlite messaging).
-		if storedRepoID == "" {
-			return DoctorCheck{
-				Name:    "Repo Fingerprint",
-				Status:  StatusWarning,
-				Message: "Missing repo fingerprint metadata",
-				Detail:  "Storage: Dolt",
-				Fix:     "Run 'bd migrate --update-repo-id' to add fingerprint metadata",
-			}
-		}
-
-		currentRepoID, err := beads.ComputeRepoID()
-		if err != nil {
-			return DoctorCheck{
-				Name:    "Repo Fingerprint",
-				Status:  StatusWarning,
-				Message: "Unable to compute current repo ID",
-				Detail:  err.Error(),
-			}
-		}
-
-		if storedRepoID != currentRepoID {
-			return DoctorCheck{
-				Name:    "Repo Fingerprint",
-				Status:  StatusError,
-				Message: "Database belongs to different repository",
-				Detail:  fmt.Sprintf("stored: %s (full: %s), current: %s (full: %s)", storedRepoID[:8], storedRepoID, currentRepoID[:8], currentRepoID),
-				Fix:     "Run 'bd migrate --update-repo-id' if URL changed, or 'rm -rf .beads && bd init --backend dolt' if wrong database",
-			}
-		}
-
-		return DoctorCheck{
-			Name:    "Repo Fingerprint",
-			Status:  StatusOK,
-			Message: fmt.Sprintf("Verified (%s)", currentRepoID[:8]),
-		}
-	}
-
-	// SQLite path (existing behavior)
-	// Get database path
-	var dbPath string
-	if cfg, err := configfile.Load(beadsDir); err == nil && cfg != nil && cfg.Database != "" {
-		dbPath = cfg.DatabasePath(beadsDir)
-	} else {
-		dbPath = filepath.Join(beadsDir, beads.CanonicalDatabaseName)
-	}
-
-	// Skip if database doesn't exist
-	if _, err := os.Stat(dbPath); os.IsNotExist(err) {
+	// Check Dolt database exists
+	if info, err := os.Stat(filepath.Join(beadsDir, "dolt")); err != nil || !info.IsDir() {
 		return DoctorCheck{
 			Name:    "Repo Fingerprint",
 			Status:  StatusOK,
@@ -510,8 +412,9 @@ func CheckRepoFingerprint(path string) DoctorCheck {
 		}
 	}
 
-	// Open database
-	db, closeDB, err := openDoctorDB(beadsDir)
+	// Read fingerprint from storage metadata.
+	ctx := context.Background()
+	store, err := storagefactory.NewFromConfigWithOptions(ctx, beadsDir, storagefactory.Options{ReadOnly: true, AllowWithRemoteDaemon: true})
 	if err != nil {
 		return DoctorCheck{
 			Name:    "Repo Fingerprint",
@@ -520,22 +423,10 @@ func CheckRepoFingerprint(path string) DoctorCheck {
 			Detail:  err.Error(),
 		}
 	}
-	defer closeDB()
+	defer func() { _ = store.Close() }()
 
-	// Get stored repo ID
-	var storedRepoID string
-	err = db.QueryRow("SELECT value FROM metadata WHERE key = 'repo_id'").Scan(&storedRepoID)
+	storedRepoID, err := store.GetMetadata(ctx, "repo_id")
 	if err != nil {
-		if err == sql.ErrNoRows || strings.Contains(err.Error(), "no such table") {
-			// Legacy database without repo_id - this is an error because daemon won't start
-			return DoctorCheck{
-				Name:    "Repo Fingerprint",
-				Status:  StatusError,
-				Message: "Legacy database (no fingerprint)",
-				Detail:  "Database was created before version 0.17.5. Daemon will fail to start.",
-				Fix:     "Run 'bd migrate --update-repo-id' to add fingerprint",
-			}
-		}
 		return DoctorCheck{
 			Name:    "Repo Fingerprint",
 			Status:  StatusWarning,
@@ -544,18 +435,15 @@ func CheckRepoFingerprint(path string) DoctorCheck {
 		}
 	}
 
-	// If repo_id is empty, treat as legacy - this is an error because daemon won't start
 	if storedRepoID == "" {
 		return DoctorCheck{
 			Name:    "Repo Fingerprint",
-			Status:  StatusError,
-			Message: "Legacy database (empty fingerprint)",
-			Detail:  "Database was created before version 0.17.5. Daemon will fail to start.",
-			Fix:     "Run 'bd migrate --update-repo-id' to add fingerprint",
+			Status:  StatusWarning,
+			Message: "Missing repo fingerprint metadata",
+			Fix:     "Run 'bd migrate --update-repo-id' to add fingerprint metadata",
 		}
 	}
 
-	// Compute current repo ID
 	currentRepoID, err := beads.ComputeRepoID()
 	if err != nil {
 		return DoctorCheck{
@@ -566,7 +454,6 @@ func CheckRepoFingerprint(path string) DoctorCheck {
 		}
 	}
 
-	// Compare
 	if storedRepoID != currentRepoID {
 		return DoctorCheck{
 			Name:    "Repo Fingerprint",

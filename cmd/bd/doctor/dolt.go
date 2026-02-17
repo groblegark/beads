@@ -34,7 +34,7 @@ func CheckDoltConnection(path string) DoctorCheck {
 		return DoctorCheck{
 			Name:     "Dolt Connection",
 			Status:   StatusOK,
-			Message:  "N/A (SQLite backend)",
+			Message:  "N/A (non-Dolt backend)",
 			Category: CategoryCore,
 		}
 	}
@@ -108,7 +108,7 @@ func CheckDoltSchema(path string) DoctorCheck {
 		return DoctorCheck{
 			Name:     "Dolt Schema",
 			Status:   StatusOK,
-			Message:  "N/A (SQLite backend)",
+			Message:  "N/A (non-Dolt backend)",
 			Category: CategoryCore,
 		}
 	}
@@ -178,7 +178,7 @@ func CheckDoltIssueCount(path string) DoctorCheck {
 		return DoctorCheck{
 			Name:     "Dolt-JSONL Sync",
 			Status:   StatusOK,
-			Message:  "N/A (SQLite backend)",
+			Message:  "N/A (non-Dolt backend)",
 			Category: CategoryData,
 		}
 	}
@@ -267,7 +267,7 @@ func CheckDoltStatus(path string) DoctorCheck {
 		return DoctorCheck{
 			Name:     "Dolt Status",
 			Status:   StatusOK,
-			Message:  "N/A (SQLite backend)",
+			Message:  "N/A (non-Dolt backend)",
 			Category: CategoryData,
 		}
 	}

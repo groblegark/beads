@@ -372,7 +372,7 @@ func hookPostMerge(args []string) int {
 		return exitCode
 	}
 
-	// SQLite backend: Import from JSONL
+	// Import from JSONL
 	cmd := exec.Command("bd", "import")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -584,7 +584,7 @@ func hookPostCheckout(args []string) int {
 		return exitCode
 	}
 
-	// SQLite backend: Import from JSONL
+	// Import from JSONL
 	cmd := exec.Command("bd", "import")
 	output, err := cmd.CombinedOutput()
 	if err != nil {

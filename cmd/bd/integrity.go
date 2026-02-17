@@ -326,7 +326,7 @@ func countDBIssuesFast(ctx context.Context, store storage.Storage) (int, error) 
 // Returns true if export is needed, false if DB and JSONL are already in sync.
 func dbNeedsExport(ctx context.Context, store storage.Storage, jsonlPath string) (bool, error) {
 	// Check if JSONL exists
-	jsonlInfo, err := os.Stat(jsonlPath)
+	_, err := os.Stat(jsonlPath)
 	if os.IsNotExist(err) {
 		// JSONL doesn't exist - always need to export
 		return true, nil
@@ -335,23 +335,7 @@ func dbNeedsExport(ctx context.Context, store storage.Storage, jsonlPath string)
 		return false, fmt.Errorf("failed to stat JSONL: %w", err)
 	}
 
-	// Check database modification time using store.Path() (supports both SQLite and Dolt).
-	// For SQLite, Path() returns the .db file; for Dolt, it returns a directory.
-	// If the path is a regular file, use mtime comparison as a fast check.
-	// If it's a directory (Dolt) or doesn't exist, skip mtime and fall through to count comparison.
-	dbPath := store.Path()
-	if dbPath != "" {
-		dbInfo, err := os.Stat(dbPath)
-		if err == nil && !dbInfo.IsDir() {
-			// Regular file (SQLite) - use mtime comparison
-			if dbInfo.ModTime().After(jsonlInfo.ModTime()) {
-				return true, nil
-			}
-		}
-		// If path is a directory (Dolt) or doesn't exist, skip mtime check
-	}
-
-	// Verify counts match (works for both SQLite and Dolt backends)
+	// Verify counts match
 	dbCount, err := countDBIssuesFast(ctx, store)
 	if err != nil {
 		return false, fmt.Errorf("failed to count database issues: %w", err)

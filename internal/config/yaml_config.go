@@ -11,12 +11,12 @@ import (
 )
 
 // YamlOnlyKeys are configuration keys that must be stored in config.yaml
-// rather than the SQLite database. These are "startup" settings that are
+// rather than the database. These are "startup" settings that are
 // read before the database is opened.
 //
 // This fixes GH#536: users were confused when `bd config set no-db true`
 // appeared to succeed but had no effect (because no-db is read from yaml
-// at startup, not from SQLite).
+// at startup, not from the database).
 //
 // Legend:
 //   [local]  — only meaningful for local CLI (no effect in remote/K8s mode)
@@ -73,7 +73,7 @@ var YamlOnlyKeys = map[string]bool{
 }
 
 // IsYamlOnlyKey returns true if the given key should be stored in config.yaml
-// rather than the SQLite database.
+// rather than the database.
 func IsYamlOnlyKey(key string) bool {
 	// Check exact match
 	if YamlOnlyKeys[key] {

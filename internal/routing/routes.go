@@ -653,8 +653,7 @@ func GetRoutedStorageWithOpener(ctx context.Context, id, currentBeadsDir string,
 		return nil, nil // Same directory, caller should use existing storage
 	}
 
-	// Open storage for the routed directory using the factory to respect backend type
-	// This supports both SQLite and Dolt backends based on metadata.json
+	// Open storage for the routed directory using the factory
 	var store storage.Storage
 	if opener != nil {
 		store, err = opener(ctx, beadsDir)

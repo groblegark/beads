@@ -4,11 +4,11 @@
 // and federation via Dolt remotes. This backend eliminates the need for JSONL sync layers
 // by making the database itself version-controlled.
 //
-// Key differences from SQLite backend:
+// Key features:
 //   - Uses github.com/dolthub/driver for embedded Dolt access
 //   - Supports version control operations (commit, push, pull, branch, merge)
 //   - History queries via AS OF and dolt_history_* tables
-//   - Cell-level merge instead of line-level JSONL merge
+//   - Cell-level merge
 //
 // Connection modes:
 //   - Embedded: No server required, database/sql interface via dolthub/driver

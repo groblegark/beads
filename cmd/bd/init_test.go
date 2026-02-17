@@ -18,8 +18,7 @@ import (
 )
 
 // skipInitTests skips tests that call `rootCmd.Execute()` with the init command.
-// Dolt database initialization in temp directories is too slow for unit tests
-// (~10-30s per init vs instant for the removed SQLite backend).
+// Dolt database initialization in temp directories is too slow for unit tests (~10-30s per init).
 func skipInitTests(t *testing.T) {
 	t.Helper()
 	t.Skip("Dolt init too slow for unit tests; init command tested via integration tests")

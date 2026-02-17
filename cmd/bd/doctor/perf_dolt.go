@@ -395,7 +395,7 @@ func CheckDoltPerformance(path string) DoctorCheck {
 		return DoctorCheck{
 			Name:     "Dolt Performance",
 			Status:   StatusOK,
-			Message:  "N/A (SQLite backend)",
+			Message:  "N/A (non-Dolt backend)",
 			Category: CategoryPerformance,
 		}
 	}

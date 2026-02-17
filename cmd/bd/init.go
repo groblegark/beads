@@ -797,7 +797,7 @@ func checkExistingBeadsDataAt(beadsDir string, prefix string) error {
 		return nil // No .beads directory, safe to init
 	}
 
-	// Check for existing database (SQLite or Dolt)
+	// Check for existing Dolt database
 	if cfg, err := configfile.Load(beadsDir); err == nil && cfg != nil && cfg.GetBackend() == configfile.BackendDolt {
 		doltPath := filepath.Join(beadsDir, "dolt")
 		if info, err := os.Stat(doltPath); err == nil && info.IsDir() {

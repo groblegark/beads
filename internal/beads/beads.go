@@ -243,10 +243,7 @@ func findLocalBeadsDir() string {
 
 // findDatabaseInBeadsDir searches for a database file within a .beads directory.
 // It implements the standard search order:
-// 1. Check metadata.json first (single source of truth)
-//   - For SQLite backend: returns path to .db file
-//   - For Dolt backend: returns path to dolt/ directory
-//
+// 1. Check metadata.json first (single source of truth) — returns path to dolt/ directory
 // 2. Fall back to canonical beads.db
 // 3. Search for *.db files, filtering out backups and vc.db
 //
