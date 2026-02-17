@@ -63,7 +63,7 @@ func init() {
 	decisionCreateCmd.Flags().StringP("urgency", "u", "medium", "Urgency level: high, medium, low")
 	decisionCreateCmd.Flags().String("predecessor", "", "Previous decision in chain (for decision chaining)")
 	decisionCreateCmd.Flags().StringP("context", "c", "", "Background/analysis context for the decision (JSON or text)")
-	decisionCreateCmd.Flags().Bool("wait", true, "Block until human responds (default: true). Use --wait=false for fire-and-forget.")
+	// --wait is always true; decisions always block until responded to.
 	decisionCreateCmd.Flags().Duration("wait-timeout", 60*time.Minute, "Timeout when waiting for response")
 	decisionCreateCmd.Flags().Duration("wait-poll-interval", 2*time.Second, "Poll interval when waiting for response")
 
@@ -87,7 +87,6 @@ func runDecisionCreate(cmd *cobra.Command, args []string) {
 	if requestedBy == "" && actor != "" {
 		requestedBy = actor // Default to resolved actor identity for readable Slack display
 	}
-	waitForResponse, _ := cmd.Flags().GetBool("wait")
 	waitTimeout, _ := cmd.Flags().GetDuration("wait-timeout")
 	waitPollInterval, _ := cmd.Flags().GetDuration("wait-poll-interval")
 	urgency, _ := cmd.Flags().GetString("urgency")
@@ -208,25 +207,8 @@ func runDecisionCreate(cmd *cobra.Command, args []string) {
 		Options:     len(options),
 	})
 
-	// Output — if waiting, defer JSON output until after response arrives.
-	if jsonOutput && !waitForResponse {
-		result := map[string]interface{}{
-			"id":             decisionID,
-			"prompt":         prompt,
-			"context":        decisionContext,
-			"options":        options,
-			"default_option": defaultOption,
-			"timeout":        timeout.String(),
-			"parent":         parent,
-			"blocks":         blocks,
-			"predecessor":    predecessor,
-		}
-		outputJSON(result)
-		return
-	}
+	// JSON output deferred until after response arrives.
 	if jsonOutput {
-		// When waiting, print creation info to stderr so stdout is reserved
-		// for the final response JSON.
 		fmt.Fprintf(os.Stderr, "Created decision: %s\n", decisionID)
 	}
 
@@ -285,52 +267,49 @@ func runDecisionCreate(cmd *cobra.Command, args []string) {
 		}
 	}
 
-	// --wait: block until human responds, then output the response.
+	// Block until human responds, then output the response.
 	// This is the primary mechanism for human-in-the-loop decisions.
-	// The stop hook is just a guard that forces the agent to call this.
-	if waitForResponse {
-		fmt.Fprintf(os.Stderr, "\nWaiting for response on %s (timeout: %s)...\n", decisionID, waitTimeout)
-		selected, responseText, err := pollDecisionResponse(ctx, decisionID, waitTimeout, waitPollInterval)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error waiting for response: %v\n", err)
-			os.Exit(1)
-		}
-		if selected == "" && responseText == "" {
-			fmt.Fprintf(os.Stderr, "Timeout waiting for response on %s\n", decisionID)
-			if jsonOutput {
-				outputJSON(map[string]string{
-					"id":       decisionID,
-					"status":   "timeout",
-					"selected": "",
-				})
-			} else {
-				fmt.Printf("\n  Timed out waiting for response.\n")
-			}
-			return
-		}
-		// Map selected option ID to its label
-		selectedLabel := selected
-		for _, opt := range options {
-			if opt.ID == selected {
-				selectedLabel = opt.Label
-				break
-			}
-		}
-
-		// Output the response
+	fmt.Fprintf(os.Stderr, "\nWaiting for response on %s (timeout: %s)...\n", decisionID, waitTimeout)
+	selected, responseText, err := pollDecisionResponse(ctx, decisionID, waitTimeout, waitPollInterval)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error waiting for response: %v\n", err)
+		os.Exit(1)
+	}
+	if selected == "" && responseText == "" {
+		fmt.Fprintf(os.Stderr, "Timeout waiting for response on %s\n", decisionID)
 		if jsonOutput {
-			outputJSON(map[string]interface{}{
-				"id":             decisionID,
-				"status":         "responded",
-				"selected":       selected,
-				"selected_label": selectedLabel,
-				"response_text":  responseText,
+			outputJSON(map[string]string{
+				"id":       decisionID,
+				"status":   "timeout",
+				"selected": "",
 			})
 		} else {
-			fmt.Printf("\n  Response received: %s\n", selectedLabel)
-			if responseText != "" {
-				fmt.Printf("  %s\n", responseText)
-			}
+			fmt.Printf("\n  Timed out waiting for response.\n")
+		}
+		return
+	}
+	// Map selected option ID to its label
+	selectedLabel := selected
+	for _, opt := range options {
+		if opt.ID == selected {
+			selectedLabel = opt.Label
+			break
+		}
+	}
+
+	// Output the response
+	if jsonOutput {
+		outputJSON(map[string]interface{}{
+			"id":             decisionID,
+			"status":         "responded",
+			"selected":       selected,
+			"selected_label": selectedLabel,
+			"response_text":  responseText,
+		})
+	} else {
+		fmt.Printf("\n  Response received: %s\n", selectedLabel)
+		if responseText != "" {
+			fmt.Printf("  %s\n", responseText)
 		}
 	}
 }
