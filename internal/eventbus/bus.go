@@ -36,6 +36,11 @@ func (b *Bus) SetJetStream(js nats.JetStreamContext) {
 	defer b.mu.Unlock()
 	b.js = js
 
+	if js == nil {
+		b.presence = nil
+		return
+	}
+
 	// Start presence tracker for live roster (bd-3d5m2).
 	pt := NewPresenceTracker()
 	if err := pt.Start(js); err != nil {
