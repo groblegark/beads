@@ -668,23 +668,33 @@ func outputRosterSection(w io.Writer) {
 		return
 	}
 
+	// Resolve the current agent's name so we can label their entry. (bd-snjni)
+	self := resolvePrimeAgentID("")
+
 	fmt.Fprintf(w, "\n## Active Agents (%d)\n\n", len(result.Actors))
-	fmt.Fprintln(w, "Other agents are currently working. **Do not pick up their tasks.**")
-	fmt.Fprintln(w, "")
+	if self != "" {
+		fmt.Fprintf(w, "You are **%s**. Do not pick up other agents' in-progress tasks.\n\n", self)
+	} else {
+		fmt.Fprintln(w, "Do not pick up other agents' in-progress tasks.\n")
+	}
 
 	for _, a := range result.Actors {
 		idleStr := formatIdleDuration(a.IdleSecs)
+		youTag := ""
+		if self != "" && a.Actor == self {
+			youTag = " ← you"
+		}
 
 		if a.TaskID != "" {
 			epicStr := ""
 			if a.EpicTitle != "" {
 				epicStr = fmt.Sprintf(" (epic: %s)", a.EpicTitle)
 			}
-			fmt.Fprintf(w, "- **%s** — working on %s: %s%s (idle %s)\n",
-				a.Actor, a.TaskID, a.TaskTitle, epicStr, idleStr)
+			fmt.Fprintf(w, "- **%s**%s — working on %s: %s%s (idle %s)\n",
+				a.Actor, youTag, a.TaskID, a.TaskTitle, epicStr, idleStr)
 		} else {
-			fmt.Fprintf(w, "- **%s** — active, no claimed task (idle %s)\n",
-				a.Actor, idleStr)
+			fmt.Fprintf(w, "- **%s**%s — active, no claimed task (idle %s)\n",
+				a.Actor, youTag, idleStr)
 		}
 	}
 	fmt.Fprintln(w, "")
