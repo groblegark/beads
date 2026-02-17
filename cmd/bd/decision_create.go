@@ -274,7 +274,7 @@ func runDecisionCreate(cmd *cobra.Command, args []string) {
 	// Write a "decision-waiting" marker so the Stop hook gate knows an agent
 	// is actively blocked on a decision response and won't re-fire the prompt.
 	if sid := getSessionID(); sid != "" {
-		gate.MarkGate(getWorkDir(), sid, "decision-waiting")
+		_ = gate.MarkGate(getWorkDir(), sid, "decision-waiting")
 		defer gate.ClearGate(getWorkDir(), sid, "decision-waiting")
 	}
 
