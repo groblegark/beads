@@ -505,7 +505,9 @@ func (s *DoltStore) initSchema(ctx context.Context) error {
 	return initSchemaOnDB(ctx, s.db)
 }
 
-// splitStatements splits a SQL script into individual statements
+// splitStatements splits a SQL script into individual statements.
+// It handles quoted strings (', ", `) and skips SQL line comments (--)
+// so that apostrophes in comments don't break statement splitting.
 func splitStatements(script string) []string {
 	var statements []string
 	var current strings.Builder
@@ -519,6 +521,18 @@ func splitStatements(script string) []string {
 			current.WriteByte(c)
 			if c == stringChar && (i == 0 || script[i-1] != '\\') {
 				inString = false
+			}
+			continue
+		}
+
+		// Skip SQL line comments (--) to avoid parsing quotes inside them.
+		if c == '-' && i+1 < len(script) && script[i+1] == '-' {
+			for i < len(script) && script[i] != '\n' {
+				current.WriteByte(script[i])
+				i++
+			}
+			if i < len(script) {
+				current.WriteByte(script[i]) // write the \n
 			}
 			continue
 		}
