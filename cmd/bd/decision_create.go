@@ -10,6 +10,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/steveyegge/beads/internal/eventbus"
+	"github.com/steveyegge/beads/internal/gate"
 	"github.com/steveyegge/beads/internal/hooks"
 	"github.com/steveyegge/beads/internal/notification"
 	"github.com/steveyegge/beads/internal/rpc"
@@ -288,6 +289,11 @@ func runDecisionCreate(cmd *cobra.Command, args []string) {
 		}
 		return
 	}
+	// Auto-mark the decision gate so the Stop hook won't block. (bd-dwqmb)
+	if sid := getSessionID(); sid != "" {
+		_ = gate.MarkGate(getWorkDir(), sid, "decision")
+	}
+
 	// Map selected option ID to its label
 	selectedLabel := selected
 	for _, opt := range options {
