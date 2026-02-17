@@ -637,10 +637,10 @@ func findPendingAgentDecision(ctx context.Context, actorTag string) (*types.Deci
 
 // recentStopWindow is how long after a "stop" decision response it remains
 // visible to findPendingAgentDecision. Must be long enough for the agent to
-// receive the response and attempt to stop, but short enough to not cause
-// stale false positives. 60 seconds is generous — the agent typically tries
-// to stop within a few seconds of getting the response.
-const recentStopWindow = 60 * time.Second
+// complete its stop cycle (which can take minutes due to hook latency,
+// context processing, and multiple stop attempts). 5 minutes prevents the
+// infinite stop loop where the 60s window expires between attempts.
+const recentStopWindow = 5 * time.Minute
 
 // isStopChoice returns true if the selected option indicates the human
 // approved stopping. Matches common "stop" option IDs and labels.
