@@ -335,6 +335,30 @@ externalSecrets:
     botTokenProperty: "bot-token"
     appTokenProperty: "app-token"
 
+  # Container registry credentials (creates kubernetes.io/dockerconfigjson secrets)
+  # Use this to auto-manage imagePullSecrets via ExternalSecrets instead of
+  # manually creating registry secrets that can expire.
+  registryCredentials:
+    enabled: false
+    refreshInterval: "1h"
+    registries: []
+    # Example: GitLab Container Registry + Docker Hub
+    # registries:
+    #   - name: gitlab-registry
+    #     secretName: gitlab-registry
+    #     host: registry.gitlab.com
+    #     remoteRef: "arn:aws:secretsmanager:us-east-1:...:secret:gitlab-registry-XXXXX"
+    #     usernameProperty: username
+    #     passwordProperty: password
+    #   - name: docker-hub
+    #     secretName: docker-hub-registry
+    #     hosts:    # Use 'hosts' for multiple entries, or 'host' for a single one
+    #       - docker.io
+    #       - https://index.docker.io/v1/
+    #     remoteRef: "arn:aws:secretsmanager:us-east-1:...:secret:docker-hub-XXXXX"
+    #     usernameProperty: username
+    #     passwordProperty: password
+
 # --- Ingress (Traefik IngressRoute) ---
 ingress:
   enabled: false
