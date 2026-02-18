@@ -158,8 +158,14 @@ func (s *Server) doneWaitViaNATS(ctx context.Context, js nats.JetStreamContext, 
 		store := s.storage
 		s.mu.RUnlock()
 		if store != nil {
-			items, err := store.InboxList(ctx, agentName, false)
+			items, err := store.InboxDrain(ctx, agentName)
 			if err == nil && len(items) > 0 {
+				// Mark as delivered so they don't re-appear on the next bd done call.
+				ids := make([]string, len(items))
+				for i, item := range items {
+					ids[i] = item.ID
+				}
+				_ = store.InboxMarkDelivered(ctx, agentName, ids)
 				return &DoneWaitResult{
 					EventType: "inbox",
 					Content:   formatInboxItems(items),
@@ -206,6 +212,15 @@ func (s *Server) doneWaitViaNATS(ctx context.Context, js nats.JetStreamContext, 
 			case "inbox":
 				var item types.InboxItem
 				if err := json.Unmarshal(msg.Data, &item); err == nil {
+					// Mark as delivered so it doesn't re-appear on next bd done call.
+					if item.ID != "" {
+						s.mu.RLock()
+						st := s.storage
+						s.mu.RUnlock()
+						if st != nil {
+							_ = st.InboxMarkDelivered(ctx, agentName, []string{item.ID})
+						}
+					}
 					return &DoneWaitResult{
 						EventType: "inbox",
 						Content:   item.Content,
@@ -259,8 +274,13 @@ func (s *Server) doneWaitViaPoll(ctx context.Context, agentName string, timeout 
 	fmt.Fprintf(os.Stderr, "done_wait: polling inbox for %s (timeout=%s)\n", agentName, timeout)
 
 	// Check immediately for pre-existing items before entering the poll loop.
-	items, err := store.InboxList(ctx, agentName, false)
+	items, err := store.InboxDrain(ctx, agentName)
 	if err == nil && len(items) > 0 {
+		ids := make([]string, len(items))
+		for i, item := range items {
+			ids[i] = item.ID
+		}
+		_ = store.InboxMarkDelivered(ctx, agentName, ids)
 		return &DoneWaitResult{
 			EventType: "inbox",
 			Content:   formatInboxItems(items),
@@ -280,11 +300,16 @@ func (s *Server) doneWaitViaPoll(ctx context.Context, agentName string, timeout 
 				return &DoneWaitResult{EventType: "timeout", TimedOut: true}
 			}
 
-			items, err := store.InboxList(ctx, agentName, false)
+			items, err := store.InboxDrain(ctx, agentName)
 			if err != nil {
 				continue
 			}
 			if len(items) > 0 {
+				ids := make([]string, len(items))
+				for i, item := range items {
+					ids[i] = item.ID
+				}
+				_ = store.InboxMarkDelivered(ctx, agentName, ids)
 				return &DoneWaitResult{
 					EventType: "inbox",
 					Content:   formatInboxItems(items),

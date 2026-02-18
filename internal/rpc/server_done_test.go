@@ -213,6 +213,78 @@ func TestDoneWaitInboxPollWake(t *testing.T) {
 	}
 }
 
+// TestDoneWaitMarksDelivered verifies that after DoneWait returns an inbox item,
+// a second DoneWait call blocks (times out) because the item was marked as delivered.
+// This is the regression test for bd-072x5.
+func TestDoneWaitMarksDelivered(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test.db")
+	socketPath := newTestSocketPath(t)
+	store := teststore.New(t)
+
+	server := NewServer(socketPath, store, tmpDir, dbPath)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go func() {
+		_ = server.Start(ctx)
+	}()
+	<-server.WaitReady()
+	defer server.Stop()
+
+	client, err := TryConnect(socketPath)
+	if err != nil {
+		t.Fatalf("failed to connect: %v", err)
+	}
+	defer client.Close()
+
+	// Push an inbox item.
+	now := time.Now().UTC()
+	item := &types.InboxItem{
+		ID:        uuid.New().String(),
+		AgentName: "delivered-agent",
+		Source:    "test-sender",
+		Type:      "agent",
+		Content:   "first message",
+		Priority:  2,
+		CreatedAt: now,
+		DedupKey:  fmt.Sprintf("delivered-test:%d", now.UnixMilli()),
+	}
+	if err := store.InboxPush(ctx, item); err != nil {
+		t.Fatalf("InboxPush failed: %v", err)
+	}
+
+	// First DoneWait should return the item immediately.
+	result, err := client.DoneWait(&DoneWaitArgs{
+		AgentName:  "delivered-agent",
+		TimeoutSec: 5,
+		On:         "inbox",
+	})
+	if err != nil {
+		t.Fatalf("first DoneWait error: %v", err)
+	}
+	if result.TimedOut {
+		t.Fatal("first DoneWait should have returned the item, got timeout")
+	}
+	if result.Content != "first message" {
+		t.Errorf("expected 'first message', got %q", result.Content)
+	}
+
+	// Second DoneWait should timeout because the item is now marked as delivered.
+	result2, err := client.DoneWait(&DoneWaitArgs{
+		AgentName:  "delivered-agent",
+		TimeoutSec: 2,
+		On:         "inbox",
+	})
+	if err != nil {
+		t.Fatalf("second DoneWait error: %v", err)
+	}
+	if !result2.TimedOut {
+		t.Errorf("second DoneWait should have timed out (item already delivered), got event=%s content=%q", result2.EventType, result2.Content)
+	}
+}
+
 // TestDoneWaitEventFilter verifies that the --on flag correctly filters events.
 func TestDoneWaitEventFilter(t *testing.T) {
 	tmpDir := t.TempDir()
