@@ -5,18 +5,21 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/steveyegge/beads/internal/gate"
 	"github.com/steveyegge/beads/internal/rpc"
 	"github.com/steveyegge/beads/internal/types"
 )
 
 var (
-	doneTimeout int
-	doneOn      string
-	doneAgent   string
+	doneTimeout        int
+	doneOn             string
+	doneAgent          string
+	doneRequireDecison bool
 )
 
 func init() {
@@ -24,6 +27,7 @@ func init() {
 	doneCmd.Flags().IntVar(&doneTimeout, "timeout", 1800, "Timeout in seconds (default 30m, max 1h)")
 	doneCmd.Flags().StringVar(&doneOn, "on", "", "Event types to wait for (comma-separated: inbox,decision; default: all)")
 	doneCmd.Flags().StringVar(&doneAgent, "agent", "", "Agent name (default: BD_ACTOR)")
+	doneCmd.Flags().BoolVar(&doneRequireDecison, "require-decision", false, "Fail immediately if no pending decision exists for this agent")
 }
 
 // doneCmd is the "bd done" command — blocks until a notification arrives.
@@ -55,13 +59,84 @@ Examples:
 	RunE:    runDone,
 }
 
-// donePreflightCheck warns if the agent has no pending decision points,
-// and shows what decisions we're waiting for. (bd-r4ni3, bd-oowwa)
-func donePreflightCheck(agent string) {
+// donePreflightCheck validates agent state before blocking. Returns true if
+// blocking is safe, false if the agent should not wait. Integrates gate checks
+// and decision validation. (bd-r4ni3, bd-oowwa, bd-2r20u, bd-ihpb0)
+func donePreflightCheck(agent string, requireDecision bool) bool {
+	ok := true
+
+	// Gate check: evaluate Stop gates to catch unsatisfied conditions.
+	// Uses the same gate infrastructure as the Stop hook itself. (bd-2r20u)
+	gateCheck := doneGateCheck()
+	if gateCheck != "" {
+		fmt.Fprintf(os.Stderr, "%s\n", gateCheck)
+	}
+
+	// Decision check: warn or fail if no pending decision exists.
+	pending := donePendingDecisions(agent)
+	if len(pending) == 0 {
+		if requireDecision {
+			fmt.Fprintf(os.Stderr, "Error: --require-decision set but no pending decision found for agent %q.\n", agent)
+			fmt.Fprintf(os.Stderr, "  Create one first: bd decision create --no-wait --requested-by=%s ...?\n", agent)
+			ok = false
+		} else {
+			fmt.Fprintf(os.Stderr, "⚠ Warning: no pending decision found for agent %q — bd done may block indefinitely.\n", agent)
+			fmt.Fprintf(os.Stderr, "  Did you forget to run: bd decision create --no-wait --requested-by=%s ...?\n", agent)
+		}
+	} else {
+		// Show what we're waiting for. (bd-oowwa)
+		for _, dp := range pending {
+			prompt := dp.Prompt
+			if len(prompt) > 60 {
+				prompt = prompt[:57] + "..."
+			}
+			optCount := countDecisionOptions(dp.Options)
+			age := time.Since(dp.CreatedAt).Truncate(time.Second)
+			fmt.Fprintf(os.Stderr, "  Pending: %s %q (%d options, created %s ago)\n",
+				dp.IssueID, prompt, optCount, age)
+		}
+	}
+
+	return ok
+}
+
+// doneGateCheck evaluates Stop gates and returns warning text for unsatisfied
+// gates, or empty string if all gates are satisfied (or no session available).
+// This uses the same gate infrastructure as the Stop hook. (bd-2r20u)
+func doneGateCheck() string {
+	sessionID := getSessionID()
+	if sessionID == "" {
+		return "" // No session — can't check gates
+	}
+
+	workDir := getWorkDir()
+	results, err := gate.CheckGatesForHook(workDir, sessionID, gate.HookStop, sessionGateRegistry)
+	if err != nil || len(results) == 0 {
+		return ""
+	}
+
+	var warnings []string
+	for _, r := range results {
+		if !r.Satisfied {
+			hint := ""
+			if r.Hint != "" {
+				hint = " → " + r.Hint
+			}
+			warnings = append(warnings, fmt.Sprintf("  ⚠ Gate %s: %s%s", r.GateID, r.Message, hint))
+		}
+	}
+
+	if len(warnings) == 0 {
+		return ""
+	}
+	return strings.Join(warnings, "\n")
+}
+
+// donePendingDecisions returns pending (unresolved) decisions for the agent.
+func donePendingDecisions(agent string) []*types.DecisionPoint {
 	resp, err := daemonClient.DecisionList(&rpc.DecisionListArgs{})
 	if err != nil {
-		// Can't check — daemon may not support this yet. Skip silently.
-		return
+		return nil
 	}
 
 	var pending []*types.DecisionPoint
@@ -70,29 +145,11 @@ func donePreflightCheck(agent string) {
 			continue
 		}
 		dp := d.Decision
-		// Pending = requested by this agent and not yet resolved.
 		if dp.RequestedBy == agent && dp.SelectedOption == "" && dp.ResponseText == "" {
 			pending = append(pending, dp)
 		}
 	}
-
-	if len(pending) == 0 {
-		fmt.Fprintf(os.Stderr, "⚠ Warning: no pending decision found for agent %q — bd done may block indefinitely.\n", agent)
-		fmt.Fprintf(os.Stderr, "  Did you forget to run: bd decision create --no-wait --requested-by=%s ...?\n", agent)
-		return
-	}
-
-	// Show what we're waiting for.
-	for _, dp := range pending {
-		prompt := dp.Prompt
-		if len(prompt) > 60 {
-			prompt = prompt[:57] + "..."
-		}
-		optCount := countDecisionOptions(dp.Options)
-		age := time.Since(dp.CreatedAt).Truncate(time.Second)
-		fmt.Fprintf(os.Stderr, "  Pending: %s %q (%d options, created %s ago)\n",
-			dp.IssueID, prompt, optCount, age)
-	}
+	return pending
 }
 
 // countDecisionOptions parses the JSON options array and returns the count.
@@ -123,11 +180,18 @@ func runDone(cmd *cobra.Command, args []string) error {
 		os.Exit(0)
 	}()
 
-	// Pre-flight check: warn if no pending decision exists for this agent.
-	// This catches the common mistake of calling "bd done" without first
-	// creating a decision point, which would block indefinitely. (bd-r4ni3)
+	// Pre-flight checks: gate validation, decision check, waiting summary.
+	// Catches common mistakes before entering the blocking wait. (bd-r4ni3, bd-2r20u, bd-ihpb0)
 	if !quietFlag {
-		donePreflightCheck(agent)
+		if !donePreflightCheck(agent, doneRequireDecison) {
+			return fmt.Errorf("pre-flight check failed (see above)")
+		}
+	} else if doneRequireDecison {
+		// Even in quiet mode, --require-decision must be enforced.
+		pending := donePendingDecisions(agent)
+		if len(pending) == 0 {
+			return fmt.Errorf("--require-decision: no pending decision for agent %q", agent)
+		}
 	}
 
 	if !quietFlag {
