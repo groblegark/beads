@@ -3,6 +3,7 @@ package rpc
 import (
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/steveyegge/beads/internal/types"
@@ -692,7 +693,13 @@ func TestResolveGitInfo_CurrentDir(t *testing.T) {
 		t.Skip("can't get cwd")
 	}
 
+	// Skip if no .git directory (CI shallow clones may not preserve it).
+	if _, err := os.Stat(filepath.Join(cwd, ".git")); os.IsNotExist(err) {
+		t.Skip("no .git directory — CI clone without preserve-git-dir")
+	}
+
 	info := resolveGitInfo(cwd)
+	// In detached HEAD (CI), branch is "HEAD" — that's fine, just not empty.
 	if info.branch == "" {
 		t.Error("expected non-empty branch in current repo")
 	}
@@ -719,6 +726,11 @@ func TestEnrichRosterWithGitContext(t *testing.T) {
 	cwd, err := os.Getwd()
 	if err != nil {
 		t.Skip("can't get cwd")
+	}
+
+	// Skip if no .git directory (CI shallow clones may not preserve it).
+	if _, err := os.Stat(filepath.Join(cwd, ".git")); os.IsNotExist(err) {
+		t.Skip("no .git directory — CI clone without preserve-git-dir")
 	}
 
 	entries := []AgentRosterEntry{
