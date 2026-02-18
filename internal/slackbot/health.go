@@ -39,10 +39,17 @@ func (h *HealthServer) Start(ctx context.Context) error {
 		}
 	})
 
-	// /readyz - readiness probe: checks if the bot is ready to receive traffic
+	// /readyz - readiness probe: checks if the bot is ready to receive traffic.
+	// Fails when Slack reports num_connections > 1, indicating another instance
+	// shares the same app token — Slack will round-robin events, causing ~50%
+	// event loss. (bd-4yp0j)
 	mux.HandleFunc("/readyz", func(w http.ResponseWriter, r *http.Request) {
-		// Bot is ready once it has been created and started
-		// Even if temporarily disconnected, it can still queue events
+		n := NumConnections()
+		if n > 1 {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			fmt.Fprintf(w, "not ready: %d Socket Mode connections (expected 1)", n)
+			return
+		}
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("ready"))
 	})
@@ -75,6 +82,21 @@ func (h *HealthServer) Start(ctx context.Context) error {
 // botConnected tracks whether the bot is connected to Slack.
 // This is updated by the Bot's event handler. Using atomic for thread safety.
 var botConnected int32
+
+// numSocketConnections tracks the number of Socket Mode connections reported
+// by Slack's hello event. >1 means another instance shares this app token
+// and events will be round-robined, causing missed deliveries. (bd-4yp0j)
+var numSocketConnections int32
+
+// SetNumConnections records the number of active Socket Mode connections.
+func SetNumConnections(n int) {
+	atomic.StoreInt32(&numSocketConnections, int32(n))
+}
+
+// NumConnections returns the last-reported Socket Mode connection count.
+func NumConnections() int {
+	return int(atomic.LoadInt32(&numSocketConnections))
+}
 
 // SetConnected updates the bot's connection state.
 func SetConnected(connected bool) {

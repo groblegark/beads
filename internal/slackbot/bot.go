@@ -295,6 +295,7 @@ func (b *Bot) handleEvent(evt socketmode.Event) {
 	case socketmode.EventTypeHello:
 		if evt.Request != nil {
 			log.Printf("slackbot: hello: num_connections=%d app_id=%s", evt.Request.NumConnections, evt.Request.ConnectionInfo.AppID)
+			SetNumConnections(evt.Request.NumConnections)
 			if evt.Request.NumConnections > 1 {
 				log.Printf("slackbot: WARNING: %d active Socket Mode connections detected! Slack will round-robin events across connections, causing missed events. Ensure only ONE instance uses this app token.", evt.Request.NumConnections)
 			}
