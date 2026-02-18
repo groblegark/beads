@@ -1063,6 +1063,7 @@ type DoneWaitArgs struct {
 	AgentName  string `json:"agent_name"`            // Agent to wait for events (defaults to request actor)
 	TimeoutSec int    `json:"timeout_sec,omitempty"` // Timeout in seconds (default 1800 = 30m)
 	On         string `json:"on,omitempty"`          // Comma-separated event filter: "inbox,decision" (default: "inbox,decision")
+	MaxPollSec int    `json:"max_poll_sec,omitempty"` // Max seconds per server poll (default 50, for proxy timeout compat) (bd-wccdf)
 }
 
 // DoneWaitResult is returned when bd done unblocks.

@@ -51,6 +51,13 @@ func (s *Server) handleDoneWait(req *Request) Response {
 	}
 	timeout := time.Duration(timeoutSec) * time.Second
 
+	// MaxPollSec caps each server-side poll to stay under proxy timeouts.
+	// The client retries until the overall timeout expires. (bd-wccdf)
+	maxPoll := args.MaxPollSec
+	if maxPoll > 0 && time.Duration(maxPoll)*time.Second < timeout {
+		timeout = time.Duration(maxPoll) * time.Second
+	}
+
 	// Parse event filter.
 	listenInbox := true
 	listenDecision := true

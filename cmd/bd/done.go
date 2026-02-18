@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/steveyegge/beads/internal/rpc"
@@ -60,11 +61,6 @@ func runDone(cmd *cobra.Command, args []string) error {
 		agent = getActor()
 	}
 
-	// Set a long request timeout — this is a blocking call.
-	// Add 30s buffer beyond the done timeout for RPC overhead.
-	daemonClient.SetRequestTimeout((doneTimeout + 30) * 1000)
-	defer daemonClient.SetRequestTimeout(0)
-
 	// Handle Ctrl+C gracefully — agent should exit cleanly.
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
@@ -82,27 +78,61 @@ func runDone(cmd *cobra.Command, args []string) error {
 			agent, doneTimeout, onDesc)
 	}
 
-	result, err := daemonClient.DoneWait(&rpc.DoneWaitArgs{
-		AgentName:  agent,
-		TimeoutSec: doneTimeout,
-		On:         doneOn,
-	})
-	if err != nil {
-		return fmt.Errorf("done_wait: %w", err)
-	}
+	// Retry loop: each server poll is capped at maxPollSec to stay under
+	// proxy timeouts (typically 60s). The client retries until the overall
+	// doneTimeout expires or an event arrives. (bd-wccdf)
+	const maxPollSec = 50
+	deadline := time.Now().Add(time.Duration(doneTimeout) * time.Second)
 
-	if result.TimedOut {
-		fmt.Fprintf(os.Stderr, "Timed out after %ds waiting for events\n", doneTimeout)
-		os.Exit(1)
-	}
+	for {
+		remaining := int(time.Until(deadline).Seconds())
+		if remaining <= 0 {
+			fmt.Fprintf(os.Stderr, "Timed out after %ds waiting for events\n", doneTimeout)
+			os.Exit(1)
+		}
 
-	// Print the event content to stdout — this is what the agent sees.
-	if result.Content != "" {
-		fmt.Println(result.Content)
-	}
-	if result.Source != "" {
-		fmt.Fprintf(os.Stderr, "event=%s source=%s\n", result.EventType, result.Source)
-	}
+		pollSec := maxPollSec
+		if remaining < pollSec {
+			pollSec = remaining
+		}
 
-	return nil
+		// Set request timeout with buffer for this poll iteration.
+		daemonClient.SetRequestTimeout((pollSec + 15) * 1000)
+
+		result, err := daemonClient.DoneWait(&rpc.DoneWaitArgs{
+			AgentName:  agent,
+			TimeoutSec: remaining,
+			On:         doneOn,
+			MaxPollSec: pollSec,
+		})
+
+		daemonClient.SetRequestTimeout(0)
+
+		if err != nil {
+			// On HTTP errors (504, timeout), retry if we have time left.
+			if time.Now().Before(deadline) {
+				time.Sleep(2 * time.Second)
+				continue
+			}
+			return fmt.Errorf("done_wait: %w", err)
+		}
+
+		if result.TimedOut {
+			// Server poll expired — retry if overall deadline not reached.
+			if time.Now().Before(deadline) {
+				continue
+			}
+			fmt.Fprintf(os.Stderr, "Timed out after %ds waiting for events\n", doneTimeout)
+			os.Exit(1)
+		}
+
+		// Got a real event — print and exit.
+		if result.Content != "" {
+			fmt.Println(result.Content)
+		}
+		if result.Source != "" {
+			fmt.Fprintf(os.Stderr, "event=%s source=%s\n", result.EventType, result.Source)
+		}
+		return nil
+	}
 }
