@@ -766,6 +766,11 @@ func runDaemonLoop(interval time.Duration, autoCommit, autoPush, autoPull, local
 			if pt := bus.Presence(); pt != nil {
 				handler.SetPresenceTracker(pt)
 			}
+			// Enable auto-sling if configured. (bd-s9giy)
+			if autoSlingCfg, _ := store.GetConfig(context.Background(), "sling.auto"); autoSlingCfg == "true" {
+				handler.SetAutoSling(store)
+				log.Info("auto-sling enabled for bead nudge handler")
+			}
 		case *eventbus.DoneWaitHandler:
 			handler.SetInboxStore(store)
 			if jsCtx != nil {

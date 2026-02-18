@@ -17,6 +17,15 @@ type BeadAssignmentStore interface {
 	SearchIssues(ctx context.Context, query string, filter types.IssueFilter) ([]*types.Issue, error)
 }
 
+// AutoSlingStore is the storage interface for auto-sling operations.
+// When wired in with auto-sling enabled, the nudge handler will automatically
+// assign the highest-priority ready bead to freelancing agents. (bd-s9giy)
+type AutoSlingStore interface {
+	SearchIssues(ctx context.Context, query string, filter types.IssueFilter) ([]*types.Issue, error)
+	UpdateIssue(ctx context.Context, id string, updates map[string]interface{}, actor string) error
+	InboxPush(ctx context.Context, item *types.InboxItem) error
+}
+
 // BeadNudgeHandler nudges agents that are actively working but don't have
 // any in_progress bead assigned to them. Fires on PostToolUse events.
 // Priority 40 (runs after inbox drain — low priority, informational only).
@@ -24,15 +33,25 @@ type BeadAssignmentStore interface {
 // Uses PresenceTracker for O(1) in-memory task checks when available (bd-tlckc).
 // Falls back to store query or subprocess when presence tracking isn't wired.
 //
+// When auto-sling is enabled, automatically assigns the highest-priority ready
+// bead to freelancing agents instead of just warning them. (bd-s9giy)
+//
 // Rate-limited: at most one nudge per cooldown period (default 3 minutes)
 // per actor, to avoid spamming agents with repeated reminders. (bd-0ttt3, bd-bstid)
+// Auto-sling has a separate 5-minute cooldown per actor.
 type BeadNudgeHandler struct {
 	store    BeadAssignmentStore
 	presence *PresenceTracker
 	cooldown time.Duration
 
-	mu        sync.Mutex
-	lastNudge map[string]time.Time // actor → last nudge time
+	// Auto-sling: automatically assign ready beads to freelancing agents. (bd-s9giy)
+	autoSlingStore    AutoSlingStore
+	autoSlingEnabled  bool
+	autoSlingCooldown time.Duration
+
+	mu            sync.Mutex
+	lastNudge     map[string]time.Time // actor → last nudge time
+	lastAutoSling map[string]time.Time // actor → last auto-sling time
 }
 
 func (h *BeadNudgeHandler) ID() string          { return "bead-nudge" }
@@ -44,6 +63,12 @@ func (h *BeadNudgeHandler) SetBeadAssignmentStore(store BeadAssignmentStore) { h
 
 // SetPresenceTracker wires in the PresenceTracker for O(1) task checks. (bd-tlckc)
 func (h *BeadNudgeHandler) SetPresenceTracker(pt *PresenceTracker) { h.presence = pt }
+
+// SetAutoSling enables auto-sling mode with the given store. (bd-s9giy)
+func (h *BeadNudgeHandler) SetAutoSling(store AutoSlingStore) {
+	h.autoSlingStore = store
+	h.autoSlingEnabled = true
+}
 
 func (h *BeadNudgeHandler) Handle(ctx context.Context, event *Event, result *Result) error {
 	// Only nudge known agents (actor must be set by daemon).
@@ -65,6 +90,17 @@ func (h *BeadNudgeHandler) Handle(ctx context.Context, event *Event, result *Res
 
 	if hasTask {
 		return nil
+	}
+
+	// Auto-sling: if enabled, assign a ready bead instead of just nudging. (bd-s9giy)
+	if h.autoSlingEnabled && h.autoSlingStore != nil && h.shouldAutoSling(event.Actor) {
+		if msg := h.tryAutoSling(ctx, event); msg != "" {
+			h.recordNudge(event.Actor)
+			h.recordAutoSling(event.Actor)
+			result.Inject = append(result.Inject, msg)
+			return nil
+		}
+		// Auto-sling failed (no ready beads, etc.) — fall through to nudge.
 	}
 
 	// Nudge! Include ready task suggestions when possible. (bd-bstid)
@@ -153,6 +189,28 @@ func (h *BeadNudgeHandler) shouldNudge(actor string) bool {
 	return true
 }
 
+// shouldAutoSling returns true if enough time has passed since the last
+// auto-sling for this actor. Uses a separate 5-minute cooldown. (bd-s9giy)
+func (h *BeadNudgeHandler) shouldAutoSling(actor string) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	if h.lastAutoSling == nil {
+		h.lastAutoSling = make(map[string]time.Time)
+	}
+
+	cooldown := h.autoSlingCooldown
+	if cooldown == 0 {
+		cooldown = 5 * time.Minute
+	}
+
+	last, ok := h.lastAutoSling[actor]
+	if ok && time.Since(last) < cooldown {
+		return false
+	}
+	return true
+}
+
 // recordNudge marks the current time as the last nudge for an actor.
 func (h *BeadNudgeHandler) recordNudge(actor string) {
 	h.mu.Lock()
@@ -162,6 +220,63 @@ func (h *BeadNudgeHandler) recordNudge(actor string) {
 		h.lastNudge = make(map[string]time.Time)
 	}
 	h.lastNudge[actor] = time.Now()
+}
+
+// recordAutoSling marks the current time as the last auto-sling for an actor. (bd-s9giy)
+func (h *BeadNudgeHandler) recordAutoSling(actor string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	if h.lastAutoSling == nil {
+		h.lastAutoSling = make(map[string]time.Time)
+	}
+	h.lastAutoSling[actor] = time.Now()
+}
+
+// tryAutoSling attempts to find the highest-priority ready bead and assign it
+// to the freelancing agent. Returns an inject message on success, "" on failure. (bd-s9giy)
+func (h *BeadNudgeHandler) tryAutoSling(ctx context.Context, event *Event) string {
+	// Find a ready (unblocked, unassigned, open) bead via subprocess.
+	// Using subprocess because ready-bead queries involve dependency checks
+	// that aren't exposed via the simple store interface.
+	stdout, _, err := runBDCommandWithEnv(ctx, event.CWD, envFromEvent(event),
+		"ready", "--json", "--limit=1")
+	if err != nil || stdout == "" || stdout == "[]" || stdout == "null" {
+		return ""
+	}
+
+	var issues []struct {
+		ID       string `json:"id"`
+		Title    string `json:"title"`
+		Priority int    `json:"priority"`
+	}
+	if jsonErr := json.Unmarshal([]byte(stdout), &issues); jsonErr != nil || len(issues) == 0 {
+		return ""
+	}
+
+	bead := issues[0]
+
+	// Assign the bead to the agent: status → in_progress, assignee → actor.
+	updates := map[string]interface{}{
+		"status":   string(types.StatusInProgress),
+		"assignee": event.Actor,
+	}
+	if err := h.autoSlingStore.UpdateIssue(ctx, bead.ID, updates, "auto-sling"); err != nil {
+		return ""
+	}
+
+	// Push inbox notification so the agent knows about the assignment.
+	item := &types.InboxItem{
+		AgentName: event.Actor,
+		Type:      "agent",
+		Source:    "auto-sling",
+		Content:   fmt.Sprintf("AUTO-ASSIGNED: %s — %s\nRun 'bd show %s' for details, then start working.", bead.ID, bead.Title, bead.ID),
+		Priority:  1, // High priority
+		DedupKey:  fmt.Sprintf("auto-sling:%s:%s", event.Actor, bead.ID),
+	}
+	_ = h.autoSlingStore.InboxPush(ctx, item)
+
+	return fmt.Sprintf("Auto-assigned bead %s: %s\nYou had no in_progress bead, so the highest-priority ready task was assigned to you.\nRun `bd show %s` for full details.", bead.ID, bead.Title, bead.ID)
 }
 
 // actorHasTask checks whether the actor has any in_progress beads.
