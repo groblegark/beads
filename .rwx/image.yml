@@ -1,7 +1,8 @@
 # OCI image builds for beads — RWX native (no Dockerfiles).
 #
-# Uses $RWX_IMAGE for image metadata instead of inline Dockerfiles.
-# Images are pushed via `rwx image build --push-to` from the CLI.
+# Builds bd and oj binaries and creates RWX native images for testing.
+# Image PUBLISHING to GHCR is handled by gastown docker.yml with CalVer tags.
+# This workflow builds binaries and creates RWX images but does NOT push to GHCR.
 #
 # OPTIMIZATIONS:
 # - Filter directives on Go/Rust builds (cached by lockfiles)
@@ -204,72 +205,6 @@ tasks:
       echo "agent" > $RWX_IMAGE/user
       echo "/home/agent" > $RWX_IMAGE/workspace
 
-  # ── Push daemon image to GHCR ─────────────────────────────────────
-  - key: push-bd
-    use: [build-bd, build-oj]
-    if: ${{ init.ref-name != 'pr' }}
-    cache: false
-    run: |
-      # Install runtime deps (same as image-bd task) — the binary needs
-      # libicu74 at runtime because it's built with CGO_ENABLED=1.
-      sudo apt-get -y update
-      sudo apt-get -y install --no-install-recommends \
-        ca-certificates tzdata libicu74 netcat-openbsd
-      sudo rm -rf /var/lib/apt/lists/*
-
-      # Install crane
-      curl -fsSL "https://github.com/google/go-containerregistry/releases/download/v0.20.2/go-containerregistry_Linux_x86_64.tar.gz" \
-        | tar xz -C /tmp crane
-      sudo mv /tmp/crane /usr/local/bin/
-
-      # Login to GHCR
-      echo "$GHCR_TOKEN" | crane auth login ghcr.io -u "$GITHUB_USER" --password-stdin
-
-      TAG="${REF_NAME#refs/tags/}"
-      TAG="${TAG#refs/heads/}"
-
-      # Create layer with runtime deps + binaries
-      mkdir -p /tmp/layer/usr/local/bin /tmp/layer/home/beads
-      cp ${{ tasks.build-bd.artifacts.bd-binary }} /tmp/layer/usr/local/bin/bd
-      cp ${{ tasks.build-oj.artifacts.oj-binary }} /tmp/layer/usr/local/bin/oj
-      chmod 755 /tmp/layer/usr/local/bin/*
-
-      # Copy CA certificates into the layer.
-      # The base ubuntu:24.04 image doesn't include ca-certificates,
-      # which breaks TLS for any outbound HTTPS (e.g., slackbot → slack.com).
-      mkdir -p /tmp/layer/etc/ssl/certs
-      cp /etc/ssl/certs/ca-certificates.crt /tmp/layer/etc/ssl/certs/
-
-      # Copy libicu74 shared libraries into the layer.
-      # The bd binary is CGO-linked and needs libicu at runtime.
-      # Ubuntu 24.04 base has all other required libs, just not ICU.
-      ICU_LIBS=$(dpkg -L libicu74 | grep '\.so')
-      if [ -z "$ICU_LIBS" ]; then
-        echo "ERROR: no libicu74 shared libraries found"
-        exit 1
-      fi
-      echo "$ICU_LIBS" | while read -r lib; do
-        dir="/tmp/layer$(dirname "$lib")"
-        mkdir -p "$dir"
-        cp -a "$lib" "$dir/"
-      done
-
-      tar -cf /tmp/layer.tar -C /tmp/layer .
-
-      # Push with tag and latest
-      REPO="ghcr.io/groblegark/beads"
-      crane append --base ubuntu:24.04 --new_tag "${REPO}:${TAG}" --new_layer /tmp/layer.tar --platform linux/amd64
-
-      # Set OCI image config to match image-bd task
-      crane mutate "${REPO}:${TAG}" \
-        --entrypoint bd \
-        --cmd daemon --cmd start --cmd --foreground --cmd "--tcp-addr=:9876" --cmd "--http-addr=:9877" --cmd --log-json \
-        --user 1000 \
-        --workdir /home/beads \
-        -t "${REPO}:${TAG}"
-      crane tag "${REPO}:${TAG}" latest
-      echo "Pushed ${REPO}:${TAG} and ${REPO}:latest"
-    env:
-      GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
-      GITHUB_USER: ${{ secrets.GITHUB_USER }}
-      REF_NAME: ${{ init.ref-name }}
+  # NOTE: Daemon image push is handled by gastown docker.yml (push-bd task)
+  # with CalVer tags from platform-versions.env. The beads repo no longer
+  # pushes its own daemon images — all image versioning is CalVer.

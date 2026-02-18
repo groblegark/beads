@@ -1,4 +1,8 @@
-# Helm chart CI/CD — auto-publishes on v* tags, manual lint via CLI.
+# Helm chart lint — validates chart templates and dependencies.
+#
+# Chart publishing is handled by gastown docker.yml (helm-publish-charts task)
+# with CalVer versioning from platform-versions.env. This workflow is lint-only.
+#
 # Lint manually: rwx run .rwx/helm.yml --init commit-sha=$(git rev-parse HEAD) --wait
 on:
   github:
@@ -33,59 +37,32 @@ tasks:
       echo "Installing Helm (should be cached)..."
       curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
 
+  # ── GHCR login (needed to pull bd-daemon subchart dependencies) ─────
+  - key: helm-login
+    use: helm-setup
+    cache: false
+    run: |
+      echo "$GHCR_TOKEN" | helm registry login ghcr.io -u "$GITHUB_USER" --password-stdin
+    env:
+      GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+      GITHUB_USER: ${{ secrets.GITHUB_USER }}
+
   # ── Helm lint (only when charts change) ─────────────────────────────
   - key: helm-lint
-    use: [code, helm-setup]
+    use: [code, helm-login]
     filter:
       - "helm/**"
     run: |
       for chart in helm/*/; do
         if [ -f "$chart/Chart.yaml" ]; then
           echo "=== Linting $chart ==="
-          if [ -f "$chart/Chart.lock" ] || grep -q '^dependencies:' "$chart/Chart.yaml"; then
-            echo "Building dependencies for $chart..."
-            helm dependency build "$chart"
-          fi
+          # Build deps (bd-daemon chart depends on redis from Bitnami).
+          # Let real errors fail loudly; only suppress expected warnings on stderr.
+          helm dependency build "$chart" 2> >(grep -v '^Warning:' >&2)
           helm lint "$chart"
           helm template "$(basename $chart)" "$chart" > /dev/null
         fi
       done
 
-  # ── Helm publish (only when charts change & not PR) ─────────────────
-  - key: helm-publish
-    use: helm-lint
-    if: ${{ init.ref-name != 'pr' }}
-    filter:
-      - "helm/**"
-    run: |
-      echo "$GHCR_TOKEN" | helm registry login ghcr.io -u "$GITHUB_USER" --password-stdin
-
-      # Check if charts actually changed
-      CHANGED=false
-      for chart in helm/*/; do
-        if [ -f "$chart/Chart.yaml" ]; then
-          name=$(basename "$chart")
-          version=$(grep '^version:' "$chart/Chart.yaml" | awk '{print $2}')
-
-          # Check if this version already exists in registry
-          if helm pull "oci://ghcr.io/groblegark/charts/${name}" --version "${version}" 2>/dev/null; then
-            echo "Chart ${name} v${version} already exists, skipping..."
-          else
-            echo "Publishing ${name} v${version}..."
-            if [ -f "$chart/Chart.lock" ] || grep -q '^dependencies:' "$chart/Chart.yaml"; then
-              helm dependency build "$chart"
-            fi
-            helm package "$chart" --destination /tmp/helm-packages
-            helm push "/tmp/helm-packages/${name}-${version}.tgz" "oci://ghcr.io/groblegark/charts"
-            echo "Published: oci://ghcr.io/groblegark/charts/${name}:${version}"
-            CHANGED=true
-          fi
-        fi
-      done
-
-      if [ "$CHANGED" = "false" ]; then
-        echo "No chart changes to publish"
-      fi
-    env:
-      GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
-      GITHUB_USER: ${{ secrets.GITHUB_USER }}
+  # NOTE: Chart publishing is handled by gastown docker.yml (helm-publish-charts).
+  # All deployed charts use CalVer versioning from platform-versions.env.
