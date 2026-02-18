@@ -607,6 +607,7 @@ func loadGatePromptFromConfig() string {
 	// Merge config beads (lowest specificity first — global beads have score 0).
 	// For simplicity, just iterate and let later beads override earlier ones.
 	var prompt string
+	var enabled *bool
 	for _, iwc := range issues {
 		if iwc.Issue.Metadata == nil {
 			continue
@@ -616,18 +617,49 @@ func loadGatePromptFromConfig() string {
 			continue
 		}
 
-		// Look up stop_decision.agent_decision_prompt.
+		// Look up stop_decision fields: prompt, enabled, and agent_overrides.
 		if sd, ok := data["stop_decision"].(map[string]interface{}); ok {
 			if p, ok := sd["agent_decision_prompt"].(string); ok && p != "" {
 				prompt = p
 			}
+			if e, ok := sd["enabled"].(bool); ok {
+				enabled = &e
+			}
 		}
 	}
+
+	// Resolve effective enabled state: per-agent override > global.
+	resolvedActor := getActorWithGit()
+	effectiveEnabled := true
+	if enabled != nil {
+		effectiveEnabled = *enabled
+	}
+	// Check per-agent override in the last-seen config bead.
+	for _, iwc := range issues {
+		if iwc.Issue.Metadata == nil {
+			continue
+		}
+		var data map[string]interface{}
+		if err := json.Unmarshal(iwc.Issue.Metadata, &data); err != nil {
+			continue
+		}
+		if sd, ok := data["stop_decision"].(map[string]interface{}); ok {
+			if overrides, ok := sd["agent_overrides"].(map[string]interface{}); ok {
+				if agentEnabled, ok := overrides[resolvedActor].(bool); ok {
+					effectiveEnabled = agentEnabled
+				}
+			}
+		}
+	}
+
+	if !effectiveEnabled {
+		return ""
+	}
+
 	// Inject the resolved actor name so the LLM can pass it to
 	// bd decision create --requested-by, ensuring decisions are attributed
 	// to the real agent identity instead of a generic fallback. (bd-2rs8c)
 	if prompt != "" {
-		resolvedActor := getActorWithGit()
 		prompt = strings.ReplaceAll(prompt, "{{ACTOR}}", resolvedActor)
 	}
 
