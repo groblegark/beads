@@ -24,6 +24,13 @@ func TestCompareVersions(t *testing.T) {
 		{"v1 shorter but less", "1.0", "1.0.5", -1},
 		{"real version comparison", "0.29.0", "0.30.0", -1},
 		{"real version comparison 2", "0.30.1", "0.30.0", 1},
+		{"calver equal", "2026.02.18.0", "2026.02.18.0", 0},
+		{"calver newer day", "2026.02.19.0", "2026.02.18.0", 1},
+		{"calver older day", "2026.02.17.3", "2026.02.18.0", -1},
+		{"calver newer N", "2026.02.18.1", "2026.02.18.0", 1},
+		{"calver newer month", "2026.03.01.0", "2026.02.28.5", 1},
+		{"calver vs semver upgrade", "2026.02.18.0", "0.62.17", 1},
+		{"semver vs calver downgrade", "0.62.17", "2026.02.18.0", -1},
 	}
 
 	for _, tt := range tests {
@@ -47,6 +54,8 @@ func TestIsValidSemver(t *testing.T) {
 		{"valid 1 part", "1", true},
 		{"valid with zeros", "0.0.0", true},
 		{"valid large numbers", "100.200.300", true},
+		{"valid calver", "2026.02.18.0", true},
+		{"valid calver multi-digit N", "2026.02.18.15", true},
 		{"empty string", "", false},
 		{"invalid letters", "1.2.a", false},
 		{"invalid format", "v1.2.3", false},
@@ -76,6 +85,7 @@ func TestParseVersionParts(t *testing.T) {
 		{"1 part", "5", []int{5}},
 		{"large numbers", "100.200.300", []int{100, 200, 300}},
 		{"zeros", "0.0.0", []int{0, 0, 0}},
+		{"calver 4 parts", "2026.02.18.3", []int{2026, 2, 18, 3}},
 		{"invalid stops at letter", "1.2.a", []int{1, 2}},
 		{"empty returns empty", "", []int{}},
 	}

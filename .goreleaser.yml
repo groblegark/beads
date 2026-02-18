@@ -168,7 +168,7 @@ checksum:
   algorithm: sha256
 
 snapshot:
-  version_template: "{{ incpatch .Version }}-next"
+  version_template: "{{ .Version }}-next"
 
 changelog:
   sort: asc
@@ -195,9 +195,9 @@ release:
     name: beads
   draft: false
   prerelease: auto
-  name_template: "v{{.Version}}"
+  name_template: "{{.Version}}"
   header: |
-    ## beads v{{.Version}}
+    ## beads {{.Version}}
 
     Pre-compiled binaries for Linux, macOS (Intel & Apple Silicon), Windows (AMD64 & ARM64), Android/Termux (ARM64), and FreeBSD.
 

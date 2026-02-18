@@ -7,7 +7,7 @@
 on:
   github:
     push:
-      if: ${{ starts-with(event.git.tag, 'v') }}
+      if: ${{ starts-with(event.git.tag, '20') }}
       init:
         commit-sha: ${{ event.git.sha }}
         ref-name: ${{ event.git.ref }}

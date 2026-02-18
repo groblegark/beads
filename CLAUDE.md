@@ -119,7 +119,7 @@ All releasing goes through gastown's `platform-versions.env` — do NOT cut sepa
 - Push to gastown main → docker.yml auto-builds CalVer-tagged images
 - Update helm chart values to reference the CalVer tag (e.g., `2026.02.16.2`)
 - Deploy via `helm upgrade`
-- beads/coop tags are still used for version pinning but the REAL deployment uses gastown's unified images
+- beads tags use CalVer (e.g., `2026.02.18.0`) — binary version now matches deployed image tags
 
 ### Our Pipelines (.rwx/)
 
@@ -127,14 +127,14 @@ All releasing goes through gastown's `platform-versions.env` — do NOT cut sepa
 |------|---------|----------|-----------|
 | `ci.yml` | Main CI | **CLI only** (manual) | build, lint, test, version-check, beads-guard |
 | `image.yml` | OCI image builds | push(main/tags), PR(build only) | build-bd (Go), build-oj (Rust), image-bd, image-toolchain |
-| `release.yml` | GoReleaser releases | push(v* tags), CLI | release, dispatch-gastown |
-| `helm.yml` | Helm chart lint only | **v* tags + CLI** (manual) | helm-lint |
+| `release.yml` | GoReleaser releases | push(CalVer tags `20*`), CLI | release, dispatch-gastown |
+| `helm.yml` | Helm chart lint only | **CalVer tags `20*` + CLI** (manual) | helm-lint |
 
 **Versioning: CalVer (all-in)**
 - All deployed images and charts use CalVer: `YYYY.MM.DD.N` (e.g., `2026.02.17.18`)
 - CalVer is driven by gastown's `platform-versions.env` — single source of truth
 - Gastown `docker.yml` publishes CalVer images (push-bd, push-agent, push-controller) and CalVer charts (helm-publish-charts)
-- Beads `release.yml` still creates GitHub releases with semver tags (`v0.62.x`) for GoReleaser — these are the binary release, not the deployed image
+- Beads `release.yml` now creates GitHub releases with CalVer tags (`2026.02.18.0`) — binary versions match image tags
 - Beads repo does NOT publish images or charts to GHCR — gastown handles all of that
 - Chart version in beads `helm/bd-daemon/Chart.yaml` is the source template; gastown overrides version/appVersion to CalVer at publish time
 

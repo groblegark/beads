@@ -2,7 +2,7 @@
 on:
   github:
     push:
-      if: ${{ starts-with(event.git.tag, 'v') }}
+      if: ${{ starts-with(event.git.tag, '20') }}
       init:
         commit-sha: ${{ event.git.sha }}
         ref-name: ${{ event.git.ref }}
@@ -95,9 +95,9 @@ tasks:
       TAG="${REF_NAME#refs/tags/}"
       TAG="${TAG#refs/heads/}"
 
-      # Only dispatch if this is a version tag
-      if [[ "$TAG" == v* ]]; then
-        echo "Dispatching to gastown for rebuild..."
+      # Only dispatch if this is a CalVer tag (YYYY.MM.DD.N)
+      if [[ "$TAG" =~ ^20[0-9]{2}\.[0-9]{2}\.[0-9]{2}\.[0-9]+$ ]]; then
+        echo "Dispatching to gastown for rebuild (CalVer: $TAG)..."
         curl -fsSL -X POST https://api.rwx.com/v1/dispatches \
           -H "Authorization: Bearer $RWX_ACCESS_TOKEN" \
           -H "Content-Type: application/json" \
@@ -110,7 +110,7 @@ tasks:
             }
           }"
       else
-        echo "Not a version tag, skipping gastown dispatch"
+        echo "Not a CalVer tag ($TAG), skipping gastown dispatch"
       fi
     env:
       RWX_ACCESS_TOKEN: ${{ secrets.RWX_ACCESS_TOKEN }}
