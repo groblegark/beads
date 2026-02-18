@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 
 	"github.com/spf13/cobra"
 	"github.com/steveyegge/beads/internal/rpc"
@@ -77,6 +78,17 @@ func runBusEmit(cmd *cobra.Command, args []string) error {
 	}
 	if eventMeta.SessionID == "" {
 		eventMeta.SessionID = os.Getenv("TERM_SESSION_ID")
+	}
+
+	// Write a session alias so direct CLI commands (like bd decision create)
+	// can discover the Claude session_id from TERM_SESSION_ID. Without this,
+	// gate markers written by bd decision create use an empty session ID and
+	// the Stop hook gate never sees them → infinite re-fire loop. (bd-02qeb)
+	if termSID := os.Getenv("TERM_SESSION_ID"); termSID != "" && eventMeta.SessionID != "" && eventMeta.SessionID != termSID {
+		aliasDir := filepath.Join(".", ".runtime", "session-alias")
+		if err := os.MkdirAll(aliasDir, 0o755); err == nil {
+			_ = os.WriteFile(filepath.Join(aliasDir, termSID), []byte(eventMeta.SessionID), 0o644)
+		}
 	}
 
 	// Inject caller's session tag into the event JSON so handlers can

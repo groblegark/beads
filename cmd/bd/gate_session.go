@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -27,9 +28,27 @@ func newSessionGateRegistry() *gate.Registry {
 	return reg
 }
 
-// getSessionID returns the current Claude Code session ID from the environment.
+// getSessionID returns the current Claude Code session ID.
+// Checks CLAUDE_SESSION_ID first, then falls back to a session alias file
+// written by `bd bus emit` that maps TERM_SESSION_ID → Claude session_id.
+// This bridges the gap between Claude Code's hook JSON (which contains session_id)
+// and direct CLI commands (which only have TERM_SESSION_ID in their env). (bd-02qeb)
 func getSessionID() string {
-	return os.Getenv("CLAUDE_SESSION_ID")
+	if sid := os.Getenv("CLAUDE_SESSION_ID"); sid != "" {
+		return sid
+	}
+	// Fall back to session alias written by bus_emit.
+	termSID := os.Getenv("TERM_SESSION_ID")
+	if termSID == "" {
+		return ""
+	}
+	wd := getWorkDir()
+	aliasPath := filepath.Join(wd, ".runtime", "session-alias", termSID)
+	data, err := os.ReadFile(aliasPath)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(data))
 }
 
 // getWorkDir returns the working directory for gate marker storage.
