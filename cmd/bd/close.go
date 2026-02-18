@@ -49,10 +49,10 @@ create, update, show, or close operation).`,
 		noAuto, _ := cmd.Flags().GetBool("no-auto")
 		suggestNext, _ := cmd.Flags().GetBool("suggest-next")
 
-		// Get session ID from flag or environment variable
+		// Get session ID from flag, env var, or session alias
 		session, _ := cmd.Flags().GetString("session")
 		if session == "" {
-			session = os.Getenv("CLAUDE_SESSION_ID")
+			session = getSessionID()
 		}
 
 		ctx := rootCtx

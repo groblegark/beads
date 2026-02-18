@@ -48,7 +48,7 @@ create, update, show, or close operation).`,
 			if status == "closed" {
 				session, _ := cmd.Flags().GetString("session")
 				if session == "" {
-					session = os.Getenv("CLAUDE_SESSION_ID")
+					session = getSessionID()
 				}
 				if session != "" {
 					updates["closed_by_session"] = session
