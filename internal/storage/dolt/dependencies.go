@@ -779,6 +779,218 @@ func scanIssueRow(rows rowScanner) (*types.Issue, error) {
 	return &issue, nil
 }
 
+// scanIssueRowWithPrefix scans a row that has extra prefix columns before the
+// standard issue columns. The prefix destinations are scanned first, then the
+// issue is scanned. This avoids duplicating the large scanIssueRow function.
+func scanIssueRowWithPrefix(rows rowScanner, prefixDest ...*string) (*types.Issue, error) {
+	var issue types.Issue
+	var createdAtStr, updatedAtStr sql.NullString
+	var closedAt, compactedAt, deletedAt, lastActivity, dueAt, deferUntil sql.NullTime
+	var estimatedMinutes, originalSize, timeoutNs sql.NullInt64
+	var assignee, externalRef, compactedAtCommit, owner, createdBy sql.NullString
+	var contentHash, sourceRepo, closeReason, deletedBy, deleteReason, originalType sql.NullString
+	var workType, sourceSystem sql.NullString
+	var sender, molType, eventKind, actor, target, payload sql.NullString
+	var awaitType, awaitID, waiters sql.NullString
+	var hookBead, roleBead, agentState, roleType, rig sql.NullString
+	var podName, podIP, podNode, podStatus, screenSession sql.NullString
+	var ephemeral, pinned, isTemplate, crystallizes sql.NullInt64
+	var qualityScore sql.NullFloat64
+	var metadata sql.NullString
+	var adviceHookCommand, adviceHookTrigger, adviceHookOnFailure sql.NullString
+	var adviceHookTimeout sql.NullInt64
+
+	scanArgs := make([]interface{}, 0, len(prefixDest)+55)
+	for _, p := range prefixDest {
+		scanArgs = append(scanArgs, p)
+	}
+	scanArgs = append(scanArgs,
+		&issue.ID, &contentHash, &issue.Title, &issue.Description, &issue.Design,
+		&issue.AcceptanceCriteria, &issue.Notes, &issue.Status,
+		&issue.Priority, &issue.IssueType, &assignee, &estimatedMinutes,
+		&createdAtStr, &createdBy, &owner, &updatedAtStr, &closedAt, &externalRef,
+		&issue.CompactionLevel, &compactedAt, &compactedAtCommit, &originalSize, &sourceRepo, &closeReason,
+		&deletedAt, &deletedBy, &deleteReason, &originalType,
+		&sender, &ephemeral, &pinned, &isTemplate, &crystallizes,
+		&awaitType, &awaitID, &timeoutNs, &waiters,
+		&hookBead, &roleBead, &agentState, &lastActivity, &roleType, &rig,
+		&podName, &podIP, &podNode, &podStatus, &screenSession,
+		&molType,
+		&eventKind, &actor, &target, &payload,
+		&dueAt, &deferUntil,
+		&qualityScore, &workType, &sourceSystem, &metadata,
+		&adviceHookCommand, &adviceHookTrigger, &adviceHookTimeout, &adviceHookOnFailure,
+	)
+
+	if err := rows.Scan(scanArgs...); err != nil {
+		return nil, fmt.Errorf("failed to scan issue row with prefix: %w", err)
+	}
+
+	if createdAtStr.Valid {
+		issue.CreatedAt = parseTimeString(createdAtStr.String)
+	}
+	if updatedAtStr.Valid {
+		issue.UpdatedAt = parseTimeString(updatedAtStr.String)
+	}
+	if contentHash.Valid {
+		issue.ContentHash = contentHash.String
+	}
+	if closedAt.Valid {
+		issue.ClosedAt = &closedAt.Time
+	}
+	if estimatedMinutes.Valid {
+		mins := int(estimatedMinutes.Int64)
+		issue.EstimatedMinutes = &mins
+	}
+	if assignee.Valid {
+		issue.Assignee = assignee.String
+	}
+	if owner.Valid {
+		issue.Owner = owner.String
+	}
+	if createdBy.Valid {
+		issue.CreatedBy = createdBy.String
+	}
+	if externalRef.Valid {
+		issue.ExternalRef = &externalRef.String
+	}
+	if compactedAt.Valid {
+		issue.CompactedAt = &compactedAt.Time
+	}
+	if compactedAtCommit.Valid {
+		issue.CompactedAtCommit = &compactedAtCommit.String
+	}
+	if originalSize.Valid {
+		issue.OriginalSize = int(originalSize.Int64)
+	}
+	if sourceRepo.Valid {
+		issue.SourceRepo = sourceRepo.String
+	}
+	if closeReason.Valid {
+		issue.CloseReason = closeReason.String
+	}
+	if deletedAt.Valid {
+		issue.DeletedAt = &deletedAt.Time
+	}
+	if deletedBy.Valid {
+		issue.DeletedBy = deletedBy.String
+	}
+	if deleteReason.Valid {
+		issue.DeleteReason = deleteReason.String
+	}
+	if originalType.Valid {
+		issue.OriginalType = originalType.String
+	}
+	if sender.Valid {
+		issue.Sender = sender.String
+	}
+	if ephemeral.Valid && ephemeral.Int64 != 0 {
+		issue.Ephemeral = true
+	}
+	if pinned.Valid && pinned.Int64 != 0 {
+		issue.Pinned = true
+	}
+	if isTemplate.Valid && isTemplate.Int64 != 0 {
+		issue.IsTemplate = true
+	}
+	if crystallizes.Valid && crystallizes.Int64 != 0 {
+		issue.Crystallizes = true
+	}
+	if awaitType.Valid {
+		issue.AwaitType = awaitType.String
+	}
+	if awaitID.Valid {
+		issue.AwaitID = awaitID.String
+	}
+	if timeoutNs.Valid {
+		issue.Timeout = time.Duration(timeoutNs.Int64)
+	}
+	if waiters.Valid && waiters.String != "" {
+		issue.Waiters = parseJSONStringArray(waiters.String)
+	}
+	if hookBead.Valid {
+		issue.HookBead = hookBead.String
+	}
+	if roleBead.Valid {
+		issue.RoleBead = roleBead.String
+	}
+	if agentState.Valid {
+		issue.AgentState = types.AgentState(agentState.String)
+	}
+	if lastActivity.Valid {
+		issue.LastActivity = &lastActivity.Time
+	}
+	if roleType.Valid {
+		issue.RoleType = roleType.String
+	}
+	if rig.Valid {
+		issue.Rig = rig.String
+	}
+	if podName.Valid {
+		issue.PodName = podName.String
+	}
+	if podIP.Valid {
+		issue.PodIP = podIP.String
+	}
+	if podNode.Valid {
+		issue.PodNode = podNode.String
+	}
+	if podStatus.Valid {
+		issue.PodStatus = podStatus.String
+	}
+	if screenSession.Valid {
+		issue.ScreenSession = screenSession.String
+	}
+	if molType.Valid {
+		issue.MolType = types.MolType(molType.String)
+	}
+	if eventKind.Valid {
+		issue.EventKind = eventKind.String
+	}
+	if actor.Valid {
+		issue.Actor = actor.String
+	}
+	if target.Valid {
+		issue.Target = target.String
+	}
+	if payload.Valid {
+		issue.Payload = payload.String
+	}
+	if dueAt.Valid {
+		issue.DueAt = &dueAt.Time
+	}
+	if deferUntil.Valid {
+		issue.DeferUntil = &deferUntil.Time
+	}
+	if qualityScore.Valid {
+		qs := float32(qualityScore.Float64)
+		issue.QualityScore = &qs
+	}
+	if workType.Valid {
+		issue.WorkType = types.WorkType(workType.String)
+	}
+	if sourceSystem.Valid {
+		issue.SourceSystem = sourceSystem.String
+	}
+	if metadata.Valid && metadata.String != "" && metadata.String != "{}" {
+		issue.Metadata = []byte(metadata.String)
+	}
+	if adviceHookCommand.Valid {
+		issue.AdviceHookCommand = adviceHookCommand.String
+	}
+	if adviceHookTrigger.Valid {
+		issue.AdviceHookTrigger = adviceHookTrigger.String
+	}
+	if adviceHookTimeout.Valid {
+		issue.AdviceHookTimeout = int(adviceHookTimeout.Int64)
+	}
+	if adviceHookOnFailure.Valid {
+		issue.AdviceHookOnFailure = adviceHookOnFailure.String
+	}
+
+	return &issue, nil
+}
+
 func scanDependencyRows(rows rowIterator) ([]*types.Dependency, error) {
 	var deps []*types.Dependency
 	for rows.Next() {

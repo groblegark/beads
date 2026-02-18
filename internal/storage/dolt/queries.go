@@ -663,21 +663,19 @@ func (s *DoltStore) GetEpicProgress(ctx context.Context, epicIDs []string) (map[
 // Each epic includes a full list of child issues (via parent-child dependencies) with
 // any blocking dependency IDs for each child.
 func (s *DoltStore) GetEpicOverview(ctx context.Context) ([]*types.EpicOverview, error) {
-	// Step 1: Get all open epics that have children (reuse the existing query pattern)
+	// Step 1: Get open epics with child counts using JOIN+GROUP BY instead of
+	// correlated subqueries, which are very slow on large Dolt databases.
 	epicRows, err := s.queryContext(ctx, `
-		SELECT sub.id, sub.total_children, sub.closed_children
-		FROM (
-			SELECT e.id,
-			       (SELECT COUNT(*) FROM dependencies d JOIN issues c ON d.issue_id = c.id
-			        WHERE d.depends_on_id = e.id AND d.type = 'parent-child') as total_children,
-			       (SELECT COUNT(*) FROM dependencies d JOIN issues c ON d.issue_id = c.id
-			        WHERE d.depends_on_id = e.id AND d.type = 'parent-child' AND c.status = 'closed') as closed_children
-			FROM issues e
-			WHERE e.issue_type = 'epic'
-			  AND e.status != 'closed'
-			  AND e.status != 'tombstone'
-		) sub
-		WHERE sub.total_children > 0
+		SELECT e.id,
+		       COUNT(*) as total_children,
+		       SUM(CASE WHEN c.status = 'closed' THEN 1 ELSE 0 END) as closed_children
+		FROM issues e
+		JOIN dependencies d ON d.depends_on_id = e.id AND d.type = 'parent-child'
+		JOIN issues c ON d.issue_id = c.id
+		WHERE e.issue_type = 'epic'
+		  AND e.status NOT IN ('closed', 'tombstone')
+		GROUP BY e.id
+		HAVING COUNT(*) > 0
 	`)
 	if err != nil {
 		return nil, fmt.Errorf("GetEpicOverview: failed to query epics: %w", err)
@@ -689,6 +687,7 @@ func (s *DoltStore) GetEpicOverview(ctx context.Context) ([]*types.EpicOverview,
 		closed int
 	}
 	var epics []epicInfo
+	var epicIDs []string
 	for epicRows.Next() {
 		var e epicInfo
 		if err := epicRows.Scan(&e.id, &e.total, &e.closed); err != nil {
@@ -696,6 +695,7 @@ func (s *DoltStore) GetEpicOverview(ctx context.Context) ([]*types.EpicOverview,
 			return nil, err
 		}
 		epics = append(epics, e)
+		epicIDs = append(epicIDs, e.id)
 	}
 	epicRows.Close()
 	if err := epicRows.Err(); err != nil {
@@ -706,49 +706,86 @@ func (s *DoltStore) GetEpicOverview(ctx context.Context) ([]*types.EpicOverview,
 		return nil, nil
 	}
 
-	// Step 2: For each epic, fetch the epic issue and its children
+	// Step 2: Batch-fetch all epic issues at once instead of N individual GetIssue calls.
+	epicMap := make(map[string]*types.Issue, len(epicIDs))
+	placeholders := make([]string, len(epicIDs))
+	args := make([]interface{}, len(epicIDs))
+	for i, id := range epicIDs {
+		placeholders[i] = "?"
+		args[i] = id
+	}
+
+	//nolint:gosec // SQL uses ? placeholders; string concat is for placeholder count only
+	epicQuery := fmt.Sprintf(`SELECT %s FROM issues i WHERE i.id IN (%s)`,
+		prefixColumns("i.", issueColumns), strings.Join(placeholders, ","))
+	epicIssueRows, err := s.queryContext(ctx, epicQuery, args...)
+	if err != nil {
+		return nil, fmt.Errorf("GetEpicOverview: failed to batch-fetch epics: %w", err)
+	}
+	for epicIssueRows.Next() {
+		issue, err := scanIssueRow(epicIssueRows)
+		if err != nil {
+			epicIssueRows.Close()
+			return nil, err
+		}
+		epicMap[issue.ID] = issue
+	}
+	epicIssueRows.Close()
+	if err := epicIssueRows.Err(); err != nil {
+		return nil, err
+	}
+
+	// Step 3: Batch-fetch ALL children for all epics in one query, grouped by epic.
+	// Uses d.depends_on_id (the parent/epic ID) as a grouping key scanned via
+	// scanIssueRowWithPrefix which handles the extra leading column.
+	//nolint:gosec // SQL uses ? placeholders; string concat is for placeholder count only
+	childQuery := fmt.Sprintf(`
+		SELECT d.depends_on_id, %s FROM issues i
+		JOIN dependencies d ON i.id = d.issue_id
+		WHERE d.depends_on_id IN (%s) AND d.type = 'parent-child'
+		ORDER BY i.priority ASC, i.created_at DESC
+	`, prefixColumns("i.", issueColumns), strings.Join(placeholders, ","))
+	childRows, err := s.queryContext(ctx, childQuery, args...)
+	if err != nil {
+		return nil, fmt.Errorf("GetEpicOverview: failed to batch-fetch children: %w", err)
+	}
+
+	childrenByEpic := make(map[string][]types.EpicOverviewChild)
+	var allChildIDs []string
+	for childRows.Next() {
+		var epicID string
+		issue, err := scanIssueRowWithPrefix(childRows, &epicID)
+		if err != nil {
+			childRows.Close()
+			return nil, err
+		}
+		childrenByEpic[epicID] = append(childrenByEpic[epicID], types.EpicOverviewChild{Issue: *issue})
+		allChildIDs = append(allChildIDs, issue.ID)
+	}
+	childRows.Close()
+	if err := childRows.Err(); err != nil {
+		return nil, err
+	}
+
+	// Step 4: Single batch-fetch for all blockers across all children.
+	var blockerMap map[string][]string
+	if len(allChildIDs) > 0 {
+		blockerMap, err = s.getBlockersForIssues(ctx, allChildIDs)
+		if err != nil {
+			return nil, fmt.Errorf("GetEpicOverview: failed to get blockers: %w", err)
+		}
+	}
+
+	// Step 5: Assemble results.
 	var results []*types.EpicOverview
 	for _, e := range epics {
-		epicIssue, err := s.GetIssue(ctx, e.id)
-		if err != nil || epicIssue == nil {
+		epicIssue, ok := epicMap[e.id]
+		if !ok {
 			continue
 		}
 
-		// Get children via parent-child dependencies
-		childQuery := fmt.Sprintf(`
-			SELECT %s FROM issues i
-			JOIN dependencies d ON i.id = d.issue_id
-			WHERE d.depends_on_id = ? AND d.type = 'parent-child'
-			ORDER BY i.priority ASC, i.created_at DESC
-		`, prefixColumns("i.", issueColumns))
-
-		childRows, err := s.queryContext(ctx, childQuery, e.id)
-		if err != nil {
-			return nil, fmt.Errorf("GetEpicOverview: failed to query children for %s: %w", e.id, err)
-		}
-
-		var children []types.EpicOverviewChild
-		var childIDs []string
-		for childRows.Next() {
-			issue, err := scanIssueRow(childRows)
-			if err != nil {
-				childRows.Close()
-				return nil, err
-			}
-			children = append(children, types.EpicOverviewChild{Issue: *issue})
-			childIDs = append(childIDs, issue.ID)
-		}
-		childRows.Close()
-		if err := childRows.Err(); err != nil {
-			return nil, err
-		}
-
-		// Step 3: Batch-fetch blockers for all children
-		if len(childIDs) > 0 {
-			blockerMap, err := s.getBlockersForIssues(ctx, childIDs)
-			if err != nil {
-				return nil, fmt.Errorf("GetEpicOverview: failed to get blockers: %w", err)
-			}
+		children := childrenByEpic[e.id]
+		if blockerMap != nil {
 			for i := range children {
 				if blockers, ok := blockerMap[children[i].Issue.ID]; ok {
 					children[i].BlockedBy = blockers
