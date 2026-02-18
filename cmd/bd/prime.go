@@ -637,7 +637,7 @@ func outputAdviceSection(w io.Writer, agentID string) {
 					fmt.Fprintf(w, "  %s\n", line)
 				}
 			}
-			fmt.Fprintln(w)
+			_, _ = fmt.Fprintln(w)
 		}
 	}
 }
@@ -675,7 +675,7 @@ func outputRosterSection(w io.Writer) {
 	if self != "" {
 		fmt.Fprintf(w, "You are **%s**. Do not pick up other agents' in-progress tasks.\n\n", self)
 	} else {
-		fmt.Fprintln(w, "Do not pick up other agents' in-progress tasks.\n")
+		_, _ = fmt.Fprintln(w, "Do not pick up other agents' in-progress tasks.\n")
 	}
 
 	for _, a := range result.Actors {
@@ -697,7 +697,7 @@ func outputRosterSection(w io.Writer) {
 				a.Actor, youTag, idleStr)
 		}
 	}
-	fmt.Fprintln(w, "")
+	_, _ = fmt.Fprintln(w, "")
 }
 
 // formatIdleDuration is defined in agent.go (same package).

@@ -103,7 +103,7 @@ func (h *AdviceHookHandler) runHook(ctx context.Context, event *Event, advice *t
 	hookCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(hookCtx, "sh", "-c", advice.AdviceHookCommand)
+	cmd := exec.CommandContext(hookCtx, "sh", "-c", advice.AdviceHookCommand) //nolint:gosec // AdviceHookCommand is from trusted config, not user input
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
