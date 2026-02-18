@@ -161,11 +161,7 @@ func (h *DoneWaitHandler) waitViaNATS(ctx context.Context, agentName string, tim
 			}
 			_ = h.store.InboxMarkDelivered(ctx, agentName, ids)
 
-			return &doneWaitEvent{
-				eventType: "inbox",
-				content:   formatInboxItems(items),
-				source:    items[0].Source,
-			}, nil
+			return inboxItemsToEvent(items), nil
 		}
 	}
 
@@ -244,11 +240,7 @@ func (h *DoneWaitHandler) waitViaPoll(ctx context.Context, agentName string, tim
 		}
 		_ = h.store.InboxMarkDelivered(ctx, agentName, ids)
 
-		return &doneWaitEvent{
-			eventType: "inbox",
-			content:   formatInboxItems(items),
-			source:    items[0].Source,
-		}
+		return inboxItemsToEvent(items)
 	}
 
 	ticker := time.NewTicker(2 * time.Second)
@@ -274,20 +266,46 @@ func (h *DoneWaitHandler) waitViaPoll(ctx context.Context, agentName string, tim
 				}
 				_ = h.store.InboxMarkDelivered(ctx, agentName, ids)
 
-				return &doneWaitEvent{
-					eventType: "inbox",
-					content:   formatInboxItems(items),
-					source:    items[0].Source,
-				}
+				return inboxItemsToEvent(items)
 			}
 		}
 	}
 }
 
+// inboxItemsToEvent converts drained inbox items into a doneWaitEvent.
+// For sling assignments (single item with source="sling:*"), preserves the raw
+// content so formatSlingBlockReason can format it cleanly. For everything else,
+// uses the standard formatInboxItems formatting.
+func inboxItemsToEvent(items []*types.InboxItem) *doneWaitEvent {
+	// Single sling item: pass raw content for richer formatting.
+	if len(items) == 1 && strings.HasPrefix(items[0].Source, "sling:") {
+		return &doneWaitEvent{
+			eventType: "inbox",
+			content:   items[0].Content,
+			source:    items[0].Source,
+		}
+	}
+
+	return &doneWaitEvent{
+		eventType: "inbox",
+		content:   formatInboxItems(items),
+		source:    items[0].Source,
+	}
+}
+
 // formatBlockReason builds the block reason for Claude Code.
 // The reason is a JSON block decision that tells the agent what woke it up.
+//
+// Sling-aware: when the event comes from a sling dispatch (source="sling:*"),
+// formats a richer assignment context so the agent can start working immediately
+// without needing to run `bd show`. (bd-n3hja)
 func (h *DoneWaitHandler) formatBlockReason(evt *doneWaitEvent) string {
-	// Build a reason that the agent can act on.
+	// Sling assignments get special formatting with clear task instructions.
+	if isSlingEvent(evt) {
+		return formatSlingBlockReason(evt)
+	}
+
+	// Generic event formatting for non-sling wake-ups.
 	parts := []string{
 		fmt.Sprintf("An event arrived while you were idle (type: %s).", evt.eventType),
 	}
@@ -299,6 +317,27 @@ func (h *DoneWaitHandler) formatBlockReason(evt *doneWaitEvent) string {
 	}
 	parts = append(parts, "\nYou were about to exit, but new work arrived. Process this event and continue working.")
 	return strings.Join(parts, " ")
+}
+
+// isSlingEvent returns true if the event originated from a `bd sling` dispatch.
+func isSlingEvent(evt *doneWaitEvent) bool {
+	return strings.HasPrefix(evt.source, "sling:")
+}
+
+// formatSlingBlockReason formats a rich block reason for sling assignments.
+// The content from bd sling is already structured (WORK: title, Bead: id, etc.)
+// so we wrap it with clear actionable instructions.
+func formatSlingBlockReason(evt *doneWaitEvent) string {
+	dispatcher := strings.TrimPrefix(evt.source, "sling:")
+
+	var b strings.Builder
+	b.WriteString("## New Work Assignment\n\n")
+	fmt.Fprintf(&b, "Dispatched by: %s\n\n", dispatcher)
+	b.WriteString(evt.content)
+	b.WriteString("\n\nYou were idle and new work has been assigned to you. ")
+	b.WriteString("The bead is already set to in_progress with you as assignee. ")
+	b.WriteString("Start working on it now.")
+	return b.String()
 }
 
 // formatInboxItems is defined in handlers.go — reused here.
