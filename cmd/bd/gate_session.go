@@ -765,31 +765,10 @@ func buildRosterSummaryForHook(self string) string {
 		}
 	}
 
-	// Epic coverage — show which epics are crowded vs uncovered.
-	epicAgents := make(map[string][]string)
-	epicTitles := make(map[string]string)
-	for _, a := range active {
-		if a.EpicID != "" {
-			epicAgents[a.EpicID] = append(epicAgents[a.EpicID], a.Actor)
-			if a.EpicTitle != "" {
-				epicTitles[a.EpicID] = a.EpicTitle
-			}
-		}
-	}
-	if len(epicAgents) > 0 {
-		var crowded []string
-		for epicID, agents := range epicAgents {
-			title := epicTitles[epicID]
-			if title == "" {
-				title = epicID
-			}
-			if len(agents) >= 3 {
-				crowded = append(crowded, fmt.Sprintf("%s (%d agents)", title, len(agents)))
-			}
-		}
-		if len(crowded) > 0 {
-			sb.WriteString(fmt.Sprintf("Crowded epics: %s\n", strings.Join(crowded, ", ")))
-		}
+	// Epic analysis — crowding, completion detection, gap analysis. (bd-o39m9)
+	epicInsights := buildEpicInsights(self, active)
+	if epicInsights != "" {
+		sb.WriteString(epicInsights)
 	}
 
 	// Ready work — unclaimed tasks not being worked by any active agent.
@@ -815,6 +794,110 @@ func buildRosterSummaryForHook(self string) string {
 	}
 
 	return sb.String()
+}
+
+// buildEpicInsights generates epic-level insights for the Stop hook:
+// crowded epics (3+ agents), near-complete epics (for closing), and uncovered
+// epics (open children but no agents working on them). (bd-o39m9)
+func buildEpicInsights(self string, active []rpc.AgentRosterEntry) string {
+	if daemonClient == nil {
+		return ""
+	}
+
+	// Build agent→epic mapping from roster.
+	epicAgents := make(map[string][]string)
+	for _, a := range active {
+		if a.EpicID != "" {
+			epicAgents[a.EpicID] = append(epicAgents[a.EpicID], a.Actor)
+		}
+	}
+
+	// Fetch epic overview for completion data.
+	resp, err := daemonClient.EpicOverview(&rpc.EpicOverviewArgs{})
+	if err != nil || resp == nil || resp.Data == nil {
+		// Fall back to roster-only crowding check.
+		return buildCrowdingOnly(epicAgents)
+	}
+
+	var epics []*types.EpicOverview
+	if err := json.Unmarshal(resp.Data, &epics); err != nil {
+		return buildCrowdingOnly(epicAgents)
+	}
+
+	var sb strings.Builder
+	var crowded, nearComplete, uncovered []string
+
+	for _, eo := range epics {
+		if eo.Epic == nil || eo.TotalChildren == 0 {
+			continue
+		}
+		epicID := eo.Epic.ID
+		title := eo.Epic.Title
+		if len(title) > 60 {
+			title = title[:57] + "..."
+		}
+		agents := epicAgents[epicID]
+		remaining := eo.TotalChildren - eo.ClosedChildren
+
+		// Crowded: 3+ agents on one epic.
+		if len(agents) >= 3 {
+			crowded = append(crowded, fmt.Sprintf("%s (%d agents, %d/%d done)",
+				title, len(agents), eo.ClosedChildren, eo.TotalChildren))
+		}
+
+		// Near-complete: <=2 open children and this agent is working on it.
+		if remaining <= 2 && remaining > 0 {
+			for _, a := range agents {
+				if a == self {
+					nearComplete = append(nearComplete, fmt.Sprintf("%s (%d/%d done, %d remaining)",
+						epicID, eo.ClosedChildren, eo.TotalChildren, remaining))
+					break
+				}
+			}
+		}
+
+		// Uncovered: has open children but no agents working on it.
+		if len(agents) == 0 && remaining > 0 && eo.Epic.Priority <= 2 {
+			uncovered = append(uncovered, fmt.Sprintf("%s [P%d]: %s (%d/%d done)",
+				epicID, eo.Epic.Priority, title, eo.ClosedChildren, eo.TotalChildren))
+		}
+	}
+
+	if len(crowded) > 0 {
+		sb.WriteString(fmt.Sprintf("Crowded epics: %s\n", strings.Join(crowded, "; ")))
+	}
+	if len(nearComplete) > 0 {
+		sb.WriteString("Near-complete epics (you're on them — consider closing):\n")
+		for _, nc := range nearComplete {
+			sb.WriteString(fmt.Sprintf("  %s\n", nc))
+		}
+	}
+	if len(uncovered) > 0 {
+		limit := 5
+		if len(uncovered) < limit {
+			limit = len(uncovered)
+		}
+		sb.WriteString(fmt.Sprintf("Uncovered epics (no agents, P0-P2, open children): %d\n", len(uncovered)))
+		for _, uc := range uncovered[:limit] {
+			sb.WriteString(fmt.Sprintf("  %s\n", uc))
+		}
+	}
+
+	return sb.String()
+}
+
+// buildCrowdingOnly is a fallback when EpicOverview is unavailable.
+func buildCrowdingOnly(epicAgents map[string][]string) string {
+	var crowded []string
+	for epicID, agents := range epicAgents {
+		if len(agents) >= 3 {
+			crowded = append(crowded, fmt.Sprintf("%s (%d agents)", epicID, len(agents)))
+		}
+	}
+	if len(crowded) == 0 {
+		return ""
+	}
+	return fmt.Sprintf("Crowded epics: %s\n", strings.Join(crowded, ", "))
 }
 
 // readyWorkItem is a compact representation of a ready issue for hook summaries.
