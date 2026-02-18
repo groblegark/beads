@@ -83,6 +83,10 @@ func runDecisionCreate(cmd *cobra.Command, args []string) {
 	// and the gate never blocks again.
 	gate.ClearGateAllSessions(getWorkDir(), "decision")
 
+	// Clear Stop hook debounce marker so the next checkpoint cycle can
+	// fire normally after this new decision is created. (bd-ss2lc)
+	clearStopDebounceMarker()
+
 	prompt, _ := cmd.Flags().GetString("prompt")
 	optionsJSON, _ := cmd.Flags().GetString("options")
 	defaultOption, _ := cmd.Flags().GetString("default")

@@ -6,6 +6,8 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/steveyegge/beads/internal/gate"
@@ -112,6 +114,15 @@ func runBusEmit(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	// Stop hook debounce: if the Stop hook already fired and blocked recently
+	// (within 60s), mark the decision gate as satisfied so it won't re-fire.
+	// This prevents the re-fire loop where the Stop hook fires faster than the
+	// agent can process the checkpoint prompt and call bd decision create.
+	// The marker is written after a successful block (see below). (bd-ss2lc)
+	if resolvedType == "Stop" {
+		debounceStopHook(eventMeta.SessionID)
+	}
+
 	// Local gate pre-check: gate markers live on the local filesystem but the
 	// daemon may be remote (BD_DAEMON_HOST). Run the gate check locally first
 	// and inject the result into the event JSON so the remote GateHandler can
@@ -179,7 +190,72 @@ func runBusEmit(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	// Write debounce marker after a Stop hook blocks, so rapid re-fires
+	// don't create infinite checkpoint loops. (bd-ss2lc)
+	if resolvedType == "Stop" && emitResult.Block {
+		writeStopDebounceMarker(eventMeta.SessionID)
+	}
+
 	return outputEmitResult(&emitResult)
+}
+
+// debounceStopHook checks if the Stop hook fired and blocked recently (within
+// 60s) and marks the decision gate as satisfied to prevent re-fire loops.
+// This handles the race where the Stop hook fires faster than the agent can
+// process the checkpoint prompt and call bd decision create. (bd-ss2lc)
+func debounceStopHook(sessionID string) {
+	markerPath := stopDebounceMarkerPath(sessionID)
+	data, err := os.ReadFile(markerPath)
+	if err != nil {
+		return
+	}
+	ts, err := strconv.ParseInt(string(data), 10, 64)
+	if err != nil {
+		return
+	}
+	elapsed := time.Since(time.Unix(ts, 0))
+	if elapsed > 60*time.Second {
+		_ = os.Remove(markerPath)
+		return
+	}
+
+	// Recent Stop hook block — mark the decision gate as satisfied
+	// so the gate check won't re-fire the checkpoint prompt.
+	if sessionID != "" {
+		_ = gate.MarkGate(getWorkDir(), sessionID, "decision")
+	}
+}
+
+// writeStopDebounceMarker records that the Stop hook blocked at the current time.
+func writeStopDebounceMarker(sessionID string) {
+	markerPath := stopDebounceMarkerPath(sessionID)
+	dir := filepath.Dir(markerPath)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return
+	}
+	_ = os.WriteFile(markerPath, []byte(strconv.FormatInt(time.Now().Unix(), 10)), 0o644)
+}
+
+// clearStopDebounceMarker removes the Stop hook debounce marker for the
+// current session. Called when a new decision is created so the next
+// checkpoint cycle can fire normally. (bd-ss2lc)
+func clearStopDebounceMarker() {
+	sid := getSessionID()
+	if sid == "" {
+		sid = os.Getenv("TERM_SESSION_ID")
+	}
+	if sid == "" {
+		return
+	}
+	_ = os.Remove(stopDebounceMarkerPath(sid))
+}
+
+// stopDebounceMarkerPath returns the path for the Stop hook debounce marker.
+func stopDebounceMarkerPath(sessionID string) string {
+	if sessionID == "" {
+		sessionID = "_unknown"
+	}
+	return filepath.Join(getWorkDir(), ".runtime", "stop-debounce", sessionID)
 }
 
 // runLocalGateCheck runs the gate check locally (where markers live on the
