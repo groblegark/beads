@@ -432,6 +432,51 @@ func TestEvaluateHook_NoGates(t *testing.T) {
 	}
 }
 
+func TestClearGateAllSessions(t *testing.T) {
+	workDir := t.TempDir()
+
+	// Mark the same gate in multiple sessions
+	for _, sid := range []string{"session-a", "session-b", "session-c"} {
+		if err := MarkGate(workDir, sid, "decision"); err != nil {
+			t.Fatalf("MarkGate(%s) failed: %v", sid, err)
+		}
+		// Also mark a different gate to ensure it's not affected
+		if err := MarkGate(workDir, sid, "commit-push"); err != nil {
+			t.Fatalf("MarkGate(%s, commit-push) failed: %v", sid, err)
+		}
+	}
+
+	// Verify all decision markers exist
+	for _, sid := range []string{"session-a", "session-b", "session-c"} {
+		if !IsGateSatisfied(workDir, sid, "decision") {
+			t.Errorf("decision gate should be satisfied in %s", sid)
+		}
+	}
+
+	// Clear decision across all sessions
+	ClearGateAllSessions(workDir, "decision")
+
+	// All decision markers should be gone
+	for _, sid := range []string{"session-a", "session-b", "session-c"} {
+		if IsGateSatisfied(workDir, sid, "decision") {
+			t.Errorf("decision gate should NOT be satisfied in %s after ClearGateAllSessions", sid)
+		}
+	}
+
+	// commit-push markers should still exist
+	for _, sid := range []string{"session-a", "session-b", "session-c"} {
+		if !IsGateSatisfied(workDir, sid, "commit-push") {
+			t.Errorf("commit-push gate should still be satisfied in %s", sid)
+		}
+	}
+}
+
+func TestClearGateAllSessions_NoGatesDir(t *testing.T) {
+	workDir := t.TempDir()
+	// Should not panic when .runtime/gates doesn't exist
+	ClearGateAllSessions(workDir, "decision")
+}
+
 func TestEvaluateHook_OnlyChecksCorrectHook(t *testing.T) {
 	workDir := t.TempDir()
 	sessionID := "test-eval-hookfilter"

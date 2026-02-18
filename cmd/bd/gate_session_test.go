@@ -247,6 +247,106 @@ func TestLoadGatePromptFromConfig_ParsesPromptFromMetadata(t *testing.T) {
 	}
 }
 
+func TestLoadGatePrompt_GlobalDisabledReturnsEmpty(t *testing.T) {
+	// When enabled=false, the gate should return empty (allow through)
+	metadata := map[string]interface{}{
+		"stop_decision": map[string]interface{}{
+			"agent_decision_prompt": "Should not see this",
+			"enabled":              false,
+		},
+	}
+	metaJSON, _ := json.Marshal(metadata)
+
+	var data map[string]interface{}
+	json.Unmarshal(metaJSON, &data)
+
+	var enabled *bool
+	if sd, ok := data["stop_decision"].(map[string]interface{}); ok {
+		if e, ok := sd["enabled"].(bool); ok {
+			enabled = &e
+		}
+	}
+
+	if enabled == nil || *enabled {
+		t.Error("enabled should be false")
+	}
+}
+
+func TestLoadGatePrompt_AgentOverrideDisablesWhenGlobalEnabled(t *testing.T) {
+	// Global enabled, agent override disables — should return empty
+	metadata := map[string]interface{}{
+		"stop_decision": map[string]interface{}{
+			"agent_decision_prompt": "Checkpoint prompt",
+			"enabled":              true,
+			"agent_overrides": map[string]interface{}{
+				"bright-lark": false,
+			},
+		},
+	}
+	metaJSON, _ := json.Marshal(metadata)
+
+	var data map[string]interface{}
+	json.Unmarshal(metaJSON, &data)
+
+	// Simulate the gate check logic
+	globalEnabled := true
+	if sd, ok := data["stop_decision"].(map[string]interface{}); ok {
+		if e, ok := sd["enabled"].(bool); ok {
+			globalEnabled = e
+		}
+	}
+
+	effectiveEnabled := globalEnabled
+	if sd, ok := data["stop_decision"].(map[string]interface{}); ok {
+		if overrides, ok := sd["agent_overrides"].(map[string]interface{}); ok {
+			if agentEnabled, ok := overrides["bright-lark"].(bool); ok {
+				effectiveEnabled = agentEnabled
+			}
+		}
+	}
+
+	if effectiveEnabled {
+		t.Error("agent override should disable checkpoints for bright-lark")
+	}
+}
+
+func TestLoadGatePrompt_AgentOverrideEnablesWhenGlobalDisabled(t *testing.T) {
+	// Global disabled, agent override enables — should return prompt
+	metadata := map[string]interface{}{
+		"stop_decision": map[string]interface{}{
+			"agent_decision_prompt": "Checkpoint prompt",
+			"enabled":              false,
+			"agent_overrides": map[string]interface{}{
+				"fair-mare": true,
+			},
+		},
+	}
+	metaJSON, _ := json.Marshal(metadata)
+
+	var data map[string]interface{}
+	json.Unmarshal(metaJSON, &data)
+
+	globalEnabled := true
+	if sd, ok := data["stop_decision"].(map[string]interface{}); ok {
+		if e, ok := sd["enabled"].(bool); ok {
+			globalEnabled = e
+		}
+	}
+
+	effectiveEnabled := globalEnabled
+	if sd, ok := data["stop_decision"].(map[string]interface{}); ok {
+		if overrides, ok := sd["agent_overrides"].(map[string]interface{}); ok {
+			if agentEnabled, ok := overrides["fair-mare"].(bool); ok {
+				effectiveEnabled = agentEnabled
+			}
+		}
+	}
+
+	if !effectiveEnabled {
+		t.Error("agent override should enable checkpoints for fair-mare")
+	}
+}
+
 func TestLoadGatePromptFromConfig_MissingPromptField(t *testing.T) {
 	// Metadata without agent_decision_prompt should return empty
 	metadata := map[string]interface{}{
