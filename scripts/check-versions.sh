@@ -59,9 +59,10 @@ check_version "cmd/bd/templates/hooks/prepare-commit-msg" \
     "$(grep '# bd-hooks-version:' cmd/bd/templates/hooks/prepare-commit-msg 2>/dev/null | sed 's/.*: //')" \
     "Hook templates"
 
-check_version "helm/bd-daemon/Chart.yaml" \
-    "$(grep '^appVersion:' helm/bd-daemon/Chart.yaml 2>/dev/null | sed 's/.*"\(.*\)".*/\1/')" \
-    "Helm chart appVersion"
+# NOTE: Helm chart appVersion is no longer checked here.
+# All deployed charts use CalVer from gastown's platform-versions.env.
+# The appVersion in helm/bd-daemon/Chart.yaml is a template value that
+# gastown overrides at publish time.
 
 echo ""
 
