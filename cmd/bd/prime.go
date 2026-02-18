@@ -503,6 +503,7 @@ git push                    # Push to remote
 ### Project Health
 - ` + "`bd stats`" + ` - Project statistics (open/closed/blocked counts)
 - ` + "`bd doctor`" + ` - Check for issues (sync problems, missing hooks)
+- ` + "`bd gate status`" + ` - Show session gate status (decision, commit-push, etc.)
 
 ### Configuration
 - ` + "`bd config list-beads`" + ` - List config beads (hook prompts, MCP settings, etc.)
