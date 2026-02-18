@@ -799,3 +799,413 @@ func TestHandleListWatch(t *testing.T) {
 
 	_ = ctx // silence unused warning
 }
+
+// TestEpicOverview_WithChildren verifies that EpicOverview returns open epics
+// with their children, assignees, and blocker information via daemon RPC.
+func TestEpicOverview_WithChildren(t *testing.T) {
+	_, client, store, cleanup := setupTestServerWithStore(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	// Create an epic
+	epicResp, err := client.Create(&CreateArgs{
+		Title:     "Test Epic Overview",
+		IssueType: "epic",
+		Priority:  2,
+	})
+	if err != nil {
+		t.Fatalf("Create epic failed: %v", err)
+	}
+	var epic types.Issue
+	if err := json.Unmarshal(epicResp.Data, &epic); err != nil {
+		t.Fatalf("Unmarshal epic: %v", err)
+	}
+
+	// Create children with varying statuses
+	child1Resp, _ := client.Create(&CreateArgs{Title: "Open child", IssueType: "task", Priority: 2})
+	var child1 types.Issue
+	json.Unmarshal(child1Resp.Data, &child1)
+
+	child2Resp, _ := client.Create(&CreateArgs{Title: "In-progress child", IssueType: "task", Priority: 2})
+	var child2 types.Issue
+	json.Unmarshal(child2Resp.Data, &child2)
+
+	child3Resp, _ := client.Create(&CreateArgs{Title: "Closed child", IssueType: "task", Priority: 2})
+	var child3 types.Issue
+	json.Unmarshal(child3Resp.Data, &child3)
+
+	// Set child2 to in_progress
+	ipStatus := "in_progress"
+	client.Update(&UpdateArgs{ID: child2.ID, Status: &ipStatus})
+
+	// Set child2's assignee
+	assignee := "alice"
+	client.Update(&UpdateArgs{ID: child2.ID, Assignee: &assignee})
+
+	// Close child3
+	client.CloseIssue(&CloseArgs{ID: child3.ID, Reason: "done"})
+
+	// Link children to epic via parent-child dependencies
+	for _, childID := range []string{child1.ID, child2.ID, child3.ID} {
+		dep := &types.Dependency{
+			IssueID:     childID,
+			DependsOnID: epic.ID,
+			Type:        types.DepParentChild,
+		}
+		if err := store.AddDependency(ctx, dep, "test"); err != nil {
+			t.Fatalf("AddDependency failed for %s: %v", childID, err)
+		}
+	}
+
+	// Call EpicOverview
+	resp, err := client.EpicOverview(&EpicOverviewArgs{})
+	if err != nil {
+		t.Fatalf("EpicOverview failed: %v", err)
+	}
+	if !resp.Success {
+		t.Fatalf("EpicOverview returned error: %s", resp.Error)
+	}
+
+	var overviews []*types.EpicOverview
+	if err := json.Unmarshal(resp.Data, &overviews); err != nil {
+		t.Fatalf("Unmarshal overviews: %v", err)
+	}
+
+	// Find our epic in the results
+	var found *types.EpicOverview
+	for _, ov := range overviews {
+		if ov.Epic.ID == epic.ID {
+			found = ov
+			break
+		}
+	}
+	if found == nil {
+		t.Fatalf("Epic %s not found in overview results", epic.ID)
+	}
+
+	// Verify counts
+	if found.TotalChildren != 3 {
+		t.Errorf("Expected 3 total children, got %d", found.TotalChildren)
+	}
+	if found.ClosedChildren != 1 {
+		t.Errorf("Expected 1 closed child, got %d", found.ClosedChildren)
+	}
+
+	// Verify children are present
+	if len(found.Children) != 3 {
+		t.Errorf("Expected 3 children, got %d", len(found.Children))
+	}
+
+	// Find in-progress child and verify assignee
+	for _, child := range found.Children {
+		if child.Issue.ID == child2.ID {
+			if child.Issue.Assignee != "alice" {
+				t.Errorf("Expected assignee 'alice' on in-progress child, got %q", child.Issue.Assignee)
+			}
+			if child.Issue.Status != types.StatusInProgress {
+				t.Errorf("Expected in_progress status, got %s", child.Issue.Status)
+			}
+		}
+	}
+}
+
+// TestEpicOverview_Empty verifies that EpicOverview returns nil/empty when there are no open epics.
+func TestEpicOverview_Empty(t *testing.T) {
+	_, client, cleanup := setupTestServer(t)
+	defer cleanup()
+
+	resp, err := client.EpicOverview(&EpicOverviewArgs{})
+	if err != nil {
+		t.Fatalf("EpicOverview failed: %v", err)
+	}
+	if !resp.Success {
+		t.Fatalf("EpicOverview returned error: %s", resp.Error)
+	}
+
+	var overviews []*types.EpicOverview
+	if err := json.Unmarshal(resp.Data, &overviews); err != nil {
+		t.Fatalf("Unmarshal overviews: %v", err)
+	}
+
+	if len(overviews) != 0 {
+		t.Errorf("Expected 0 overviews for empty database, got %d", len(overviews))
+	}
+}
+
+// TestEpicOverview_ExcludesClosedEpics verifies that closed epics are not included.
+func TestEpicOverview_ExcludesClosedEpics(t *testing.T) {
+	_, client, store, cleanup := setupTestServerWithStore(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	// Create and close an epic
+	epicResp, _ := client.Create(&CreateArgs{Title: "Closed Epic", IssueType: "epic", Priority: 2})
+	var epic types.Issue
+	json.Unmarshal(epicResp.Data, &epic)
+
+	// Add a child so it has children (otherwise it won't show up even if open)
+	childResp, _ := client.Create(&CreateArgs{Title: "Child", IssueType: "task", Priority: 2})
+	var child types.Issue
+	json.Unmarshal(childResp.Data, &child)
+
+	store.AddDependency(ctx, &types.Dependency{
+		IssueID: child.ID, DependsOnID: epic.ID, Type: types.DepParentChild,
+	}, "test")
+
+	// Close the epic
+	client.CloseIssue(&CloseArgs{ID: epic.ID, Reason: "all done"})
+
+	// Verify overview does not include the closed epic
+	resp, err := client.EpicOverview(&EpicOverviewArgs{})
+	if err != nil {
+		t.Fatalf("EpicOverview failed: %v", err)
+	}
+
+	var overviews []*types.EpicOverview
+	json.Unmarshal(resp.Data, &overviews)
+
+	for _, ov := range overviews {
+		if ov.Epic.ID == epic.ID {
+			t.Errorf("Closed epic %s should not appear in overview", epic.ID)
+		}
+	}
+}
+
+// TestEpicOverview_WithBlockers verifies that blocker information is included for children.
+func TestEpicOverview_WithBlockers(t *testing.T) {
+	_, client, store, cleanup := setupTestServerWithStore(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	// Create epic
+	epicResp, _ := client.Create(&CreateArgs{Title: "Blocker Epic", IssueType: "epic", Priority: 2})
+	var epic types.Issue
+	json.Unmarshal(epicResp.Data, &epic)
+
+	// Create blocker and blocked child
+	blockerResp, _ := client.Create(&CreateArgs{Title: "Blocker task", IssueType: "task", Priority: 1})
+	var blocker types.Issue
+	json.Unmarshal(blockerResp.Data, &blocker)
+
+	blockedResp, _ := client.Create(&CreateArgs{Title: "Blocked child", IssueType: "task", Priority: 2})
+	var blocked types.Issue
+	json.Unmarshal(blockedResp.Data, &blocked)
+
+	// Link child to epic
+	store.AddDependency(ctx, &types.Dependency{
+		IssueID: blocked.ID, DependsOnID: epic.ID, Type: types.DepParentChild,
+	}, "test")
+
+	// Add blocking dependency: blocker blocks blocked
+	store.AddDependency(ctx, &types.Dependency{
+		IssueID: blocked.ID, DependsOnID: blocker.ID, Type: types.DepBlocks,
+	}, "test")
+
+	resp, err := client.EpicOverview(&EpicOverviewArgs{})
+	if err != nil {
+		t.Fatalf("EpicOverview failed: %v", err)
+	}
+
+	var overviews []*types.EpicOverview
+	json.Unmarshal(resp.Data, &overviews)
+
+	var found *types.EpicOverview
+	for _, ov := range overviews {
+		if ov.Epic.ID == epic.ID {
+			found = ov
+			break
+		}
+	}
+	if found == nil {
+		t.Fatalf("Epic %s not found", epic.ID)
+	}
+
+	// Verify the blocked child has blocker info
+	for _, child := range found.Children {
+		if child.Issue.ID == blocked.ID {
+			if len(child.BlockedBy) == 0 {
+				t.Errorf("Expected blocked child to have blockers, got none")
+			} else if child.BlockedBy[0] != blocker.ID {
+				t.Errorf("Expected blocker %s, got %v", blocker.ID, child.BlockedBy)
+			}
+			return
+		}
+	}
+	t.Errorf("Blocked child %s not found in overview children", blocked.ID)
+}
+
+// TestEpicOverview_ClosedBlockerNotShown verifies that closed blockers are NOT reported.
+func TestEpicOverview_ClosedBlockerNotShown(t *testing.T) {
+	_, client, store, cleanup := setupTestServerWithStore(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	epicResp, _ := client.Create(&CreateArgs{Title: "Epic", IssueType: "epic", Priority: 2})
+	var epic types.Issue
+	json.Unmarshal(epicResp.Data, &epic)
+
+	blockerResp, _ := client.Create(&CreateArgs{Title: "Resolved blocker", IssueType: "task", Priority: 1})
+	var blocker types.Issue
+	json.Unmarshal(blockerResp.Data, &blocker)
+
+	childResp, _ := client.Create(&CreateArgs{Title: "Was blocked child", IssueType: "task", Priority: 2})
+	var child types.Issue
+	json.Unmarshal(childResp.Data, &child)
+
+	store.AddDependency(ctx, &types.Dependency{
+		IssueID: child.ID, DependsOnID: epic.ID, Type: types.DepParentChild,
+	}, "test")
+	store.AddDependency(ctx, &types.Dependency{
+		IssueID: child.ID, DependsOnID: blocker.ID, Type: types.DepBlocks,
+	}, "test")
+
+	// Close the blocker — it should no longer appear in BlockedBy
+	client.CloseIssue(&CloseArgs{ID: blocker.ID, Reason: "resolved"})
+
+	resp, _ := client.EpicOverview(&EpicOverviewArgs{})
+	var overviews []*types.EpicOverview
+	json.Unmarshal(resp.Data, &overviews)
+
+	for _, ov := range overviews {
+		if ov.Epic.ID == epic.ID {
+			for _, c := range ov.Children {
+				if c.Issue.ID == child.ID {
+					if len(c.BlockedBy) > 0 {
+						t.Errorf("Expected no blockers after blocker was closed, got %v", c.BlockedBy)
+					}
+					return
+				}
+			}
+		}
+	}
+}
+
+// TestOrphanedChildren_ParentClosed finds children whose parent epic has been closed.
+func TestOrphanedChildren_ParentClosed(t *testing.T) {
+	_, client, store, cleanup := setupTestServerWithStore(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	// Create epic and child
+	epicResp, _ := client.Create(&CreateArgs{Title: "Epic to close", IssueType: "epic", Priority: 2})
+	var epic types.Issue
+	json.Unmarshal(epicResp.Data, &epic)
+
+	childResp, _ := client.Create(&CreateArgs{Title: "Orphaned child", IssueType: "task", Priority: 2})
+	var child types.Issue
+	json.Unmarshal(childResp.Data, &child)
+
+	store.AddDependency(ctx, &types.Dependency{
+		IssueID: child.ID, DependsOnID: epic.ID, Type: types.DepParentChild,
+	}, "test")
+
+	// Close the parent epic (leaving child open → orphan)
+	client.CloseIssue(&CloseArgs{ID: epic.ID, Reason: "done"})
+
+	resp, err := client.EpicOrphanedChildren(&EpicOrphanedChildrenArgs{})
+	if err != nil {
+		t.Fatalf("EpicOrphanedChildren failed: %v", err)
+	}
+	if !resp.Success {
+		t.Fatalf("EpicOrphanedChildren returned error: %s", resp.Error)
+	}
+
+	var orphans []*types.OrphanedChild
+	if err := json.Unmarshal(resp.Data, &orphans); err != nil {
+		t.Fatalf("Unmarshal orphans: %v", err)
+	}
+
+	// Find our orphan
+	var found *types.OrphanedChild
+	for _, o := range orphans {
+		if o.ID == child.ID {
+			found = o
+			break
+		}
+	}
+	if found == nil {
+		t.Fatalf("Orphaned child %s not found in results", child.ID)
+	}
+
+	if found.Reason != "parent_closed" {
+		t.Errorf("Expected reason 'parent_closed', got %q", found.Reason)
+	}
+	if found.ParentID != epic.ID {
+		t.Errorf("Expected parent ID %s, got %s", epic.ID, found.ParentID)
+	}
+	if found.Title != "Orphaned child" {
+		t.Errorf("Expected title 'Orphaned child', got %q", found.Title)
+	}
+	if found.Status != types.StatusOpen {
+		t.Errorf("Expected status 'open', got %s", found.Status)
+	}
+}
+
+// TestOrphanedChildren_NoOrphans verifies empty result when all parents are open.
+func TestOrphanedChildren_NoOrphans(t *testing.T) {
+	_, client, store, cleanup := setupTestServerWithStore(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	// Create open epic with open child
+	epicResp, _ := client.Create(&CreateArgs{Title: "Open Epic", IssueType: "epic", Priority: 2})
+	var epic types.Issue
+	json.Unmarshal(epicResp.Data, &epic)
+
+	childResp, _ := client.Create(&CreateArgs{Title: "Normal child", IssueType: "task", Priority: 2})
+	var child types.Issue
+	json.Unmarshal(childResp.Data, &child)
+
+	store.AddDependency(ctx, &types.Dependency{
+		IssueID: child.ID, DependsOnID: epic.ID, Type: types.DepParentChild,
+	}, "test")
+
+	resp, err := client.EpicOrphanedChildren(&EpicOrphanedChildrenArgs{})
+	if err != nil {
+		t.Fatalf("EpicOrphanedChildren failed: %v", err)
+	}
+
+	var orphans []*types.OrphanedChild
+	json.Unmarshal(resp.Data, &orphans)
+
+	// The child should NOT be orphaned since parent is still open
+	for _, o := range orphans {
+		if o.ID == child.ID {
+			t.Errorf("Child %s should not be orphaned — parent epic is still open", child.ID)
+		}
+	}
+}
+
+// TestOrphanedChildren_ClosedChildNotOrphan verifies that closed children
+// are not reported as orphans even if their parent is closed.
+func TestOrphanedChildren_ClosedChildNotOrphan(t *testing.T) {
+	_, client, store, cleanup := setupTestServerWithStore(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	epicResp, _ := client.Create(&CreateArgs{Title: "Closed Epic", IssueType: "epic", Priority: 2})
+	var epic types.Issue
+	json.Unmarshal(epicResp.Data, &epic)
+
+	childResp, _ := client.Create(&CreateArgs{Title: "Also closed child", IssueType: "task", Priority: 2})
+	var child types.Issue
+	json.Unmarshal(childResp.Data, &child)
+
+	store.AddDependency(ctx, &types.Dependency{
+		IssueID: child.ID, DependsOnID: epic.ID, Type: types.DepParentChild,
+	}, "test")
+
+	// Close both epic and child
+	client.CloseIssue(&CloseArgs{ID: child.ID, Reason: "done"})
+	client.CloseIssue(&CloseArgs{ID: epic.ID, Reason: "done"})
+
+	resp, _ := client.EpicOrphanedChildren(&EpicOrphanedChildrenArgs{})
+	var orphans []*types.OrphanedChild
+	json.Unmarshal(resp.Data, &orphans)
+
+	for _, o := range orphans {
+		if o.ID == child.ID {
+			t.Errorf("Closed child %s should not be reported as orphan", child.ID)
+		}
+	}
+}

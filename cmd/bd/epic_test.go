@@ -202,3 +202,124 @@ func TestEpicEligibleForClose(t *testing.T) {
 		t.Error("Epic should be eligible for close when all children are closed")
 	}
 }
+
+func TestChildSortOrder(t *testing.T) {
+	tests := []struct {
+		status types.Status
+		want   int
+	}{
+		{types.StatusInProgress, 0},
+		{types.StatusOpen, 1},
+		{types.StatusBlocked, 2},
+		{types.StatusClosed, 3},
+		{types.Status("unknown"), 1}, // defaults to open's order
+	}
+
+	for _, tt := range tests {
+		t.Run(string(tt.status), func(t *testing.T) {
+			got := childSortOrder(tt.status)
+			if got != tt.want {
+				t.Errorf("childSortOrder(%q) = %d, want %d", tt.status, got, tt.want)
+			}
+		})
+	}
+
+	// Verify ordering is correct: in_progress < open < blocked < closed
+	if childSortOrder(types.StatusInProgress) >= childSortOrder(types.StatusOpen) {
+		t.Error("in_progress should sort before open")
+	}
+	if childSortOrder(types.StatusOpen) >= childSortOrder(types.StatusBlocked) {
+		t.Error("open should sort before blocked")
+	}
+	if childSortOrder(types.StatusBlocked) >= childSortOrder(types.StatusClosed) {
+		t.Error("blocked should sort before closed")
+	}
+}
+
+func TestChildStatusIcon(t *testing.T) {
+	// Verify each status returns a non-empty icon
+	statuses := []types.Status{
+		types.StatusClosed,
+		types.StatusInProgress,
+		types.StatusBlocked,
+		types.StatusOpen,
+	}
+
+	for _, status := range statuses {
+		icon := childStatusIcon(status)
+		if icon == "" {
+			t.Errorf("childStatusIcon(%q) returned empty string", status)
+		}
+	}
+
+	// Verify the icons are distinct
+	icons := map[string]types.Status{}
+	for _, status := range statuses {
+		icon := childStatusIcon(status)
+		if prev, exists := icons[icon]; exists {
+			t.Errorf("childStatusIcon(%q) and childStatusIcon(%q) both return %q", status, prev, icon)
+		}
+		icons[icon] = status
+	}
+}
+
+func TestRepeatStr(t *testing.T) {
+	tests := []struct {
+		s    string
+		n    int
+		want string
+	}{
+		{"─", 3, "───"},
+		{"█", 0, ""},
+		{"░", -1, ""},
+		{"ab", 2, "abab"},
+		{"", 5, ""},
+	}
+
+	for _, tt := range tests {
+		got := repeatStr(tt.s, tt.n)
+		if got != tt.want {
+			t.Errorf("repeatStr(%q, %d) = %q, want %q", tt.s, tt.n, got, tt.want)
+		}
+	}
+}
+
+func TestEpicOverviewCommandInit(t *testing.T) {
+	// Verify the overview subcommand exists
+	var hasOverview bool
+	for _, cmd := range epicCmd.Commands() {
+		if cmd.Use == "overview" {
+			hasOverview = true
+			// Verify --hide-closed flag exists
+			flag := cmd.Flags().Lookup("hide-closed")
+			if flag == nil {
+				t.Error("overview command should have --hide-closed flag")
+			}
+		}
+	}
+	if !hasOverview {
+		t.Error("epic command should have overview subcommand")
+	}
+
+	// Verify dashboard subcommand exists
+	var hasDashboard bool
+	for _, cmd := range epicCmd.Commands() {
+		if cmd.Use == "dashboard <epic-id>" {
+			hasDashboard = true
+		}
+	}
+	if !hasDashboard {
+		t.Error("epic command should have dashboard subcommand")
+	}
+
+	// Verify orphaned-children subcommand exists
+	var hasOrphaned bool
+	for _, cmd := range epicCmd.Commands() {
+		if cmd.Use == "orphaned-children" {
+			hasOrphaned = true
+		}
+	}
+	if !hasOrphaned {
+		t.Error("epic command should have orphaned-children subcommand")
+	}
+}
