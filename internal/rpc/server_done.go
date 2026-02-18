@@ -242,9 +242,13 @@ func (s *Server) doneWaitViaNATS(ctx context.Context, js nats.JetStreamContext, 
 			case "decisions":
 				var payload eventbus.DecisionEventPayload
 				if err := json.Unmarshal(msg.Data, &payload); err == nil {
+					content := fmt.Sprintf("Decision %s resolved: %s", payload.DecisionID, payload.ChosenLabel)
+					if payload.Rationale != "" {
+						content += "\n" + payload.Rationale
+					}
 					return &DoneWaitResult{
 						EventType: "decision",
-						Content:   fmt.Sprintf("Decision %s resolved: %s", payload.DecisionID, payload.ChosenLabel),
+						Content:   content,
 						Source:    payload.ResolvedBy,
 					}, nil
 				}

@@ -53,6 +53,35 @@ Examples:
 	RunE:    runDone,
 }
 
+// donePreflightCheck warns if the agent has no pending decision points.
+// Called before entering the blocking wait loop to catch the common mistake
+// of "bd done" without a prior "bd decision create". (bd-r4ni3)
+func donePreflightCheck(agent string) {
+	resp, err := daemonClient.DecisionList(&rpc.DecisionListArgs{})
+	if err != nil {
+		// Can't check — daemon may not support this yet. Skip silently.
+		return
+	}
+
+	hasPending := false
+	for _, d := range resp.Decisions {
+		if d.Decision == nil {
+			continue
+		}
+		dp := d.Decision
+		// Check for pending (unresolved) decisions requested by this agent.
+		if dp.RequestedBy == agent && dp.SelectedOption == "" && dp.ResponseText == "" {
+			hasPending = true
+			break
+		}
+	}
+
+	if !hasPending {
+		fmt.Fprintf(os.Stderr, "⚠ Warning: no pending decision found for agent %q — bd done may block indefinitely.\n", agent)
+		fmt.Fprintf(os.Stderr, "  Did you forget to run: bd decision create --no-wait --requested-by=%s ...?\n", agent)
+	}
+}
+
 func runDone(cmd *cobra.Command, args []string) error {
 	requireDaemon("done")
 
@@ -68,6 +97,13 @@ func runDone(cmd *cobra.Command, args []string) error {
 		<-sigCh
 		os.Exit(0)
 	}()
+
+	// Pre-flight check: warn if no pending decision exists for this agent.
+	// This catches the common mistake of calling "bd done" without first
+	// creating a decision point, which would block indefinitely. (bd-r4ni3)
+	if !quietFlag {
+		donePreflightCheck(agent)
+	}
 
 	if !quietFlag {
 		onDesc := doneOn
