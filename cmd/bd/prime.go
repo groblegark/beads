@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/steveyegge/beads"
@@ -724,6 +725,9 @@ func outputRosterSection(w io.Writer) {
 		}
 	}
 
+	// Fetch ready task count for idle agent hints. (bd-oenjf)
+	readyCount := countReadyTasks(client)
+
 	for _, a := range active {
 		idleStr := formatIdleDuration(a.IdleSecs)
 		youTag := ""
@@ -739,8 +743,12 @@ func outputRosterSection(w io.Writer) {
 			fmt.Fprintf(w, "- **%s**%s — working on %s: %s%s (idle %s)\n",
 				a.Actor, youTag, a.TaskID, a.TaskTitle, epicStr, idleStr)
 		} else {
-			fmt.Fprintf(w, "- **%s**%s — active, no claimed task (idle %s)\n",
-				a.Actor, youTag, idleStr)
+			readyHint := ""
+			if readyCount > 0 {
+				readyHint = fmt.Sprintf(" — %d ready tasks available", readyCount)
+			}
+			fmt.Fprintf(w, "- **%s**%s — active, no claimed task%s (idle %s)\n",
+				a.Actor, youTag, readyHint, idleStr)
 		}
 	}
 
@@ -799,7 +807,76 @@ func outputRosterSection(w io.Writer) {
 		}
 	}
 
+	// Show unclaimed in_progress beads — assignment gaps visible to all agents. (bd-oenjf)
+	if len(result.UnclaimedTasks) > 0 {
+		fmt.Fprintf(w, "\n> **Unclaimed in-progress work** (no assignee — consider claiming):\n")
+		for _, t := range result.UnclaimedTasks {
+			fmt.Fprintf(w, ">   - %s [P%d]: %s\n", t.ID, t.Priority, t.Title)
+		}
+	}
+
 	_, _ = fmt.Fprintln(w, "")
+
+	// Save a roster snapshot so the Stop hook can compute a session activity
+	// diff (what changed since this agent started). (bd-3zsda)
+	saveRosterSnapshot(result.Actors)
+}
+
+// saveRosterSnapshot saves the current roster state to a session-scoped file
+// so the Stop hook can later compute a "session activity" diff. (bd-3zsda)
+func saveRosterSnapshot(actors []rpc.AgentRosterEntry) {
+	sessionID := getSessionID()
+	if sessionID == "" {
+		return
+	}
+	wd := getWorkDir()
+	dir := filepath.Join(wd, ".runtime", "roster-snapshot")
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return
+	}
+
+	type snapshotEntry struct {
+		Actor     string `json:"actor"`
+		TaskID    string `json:"task_id,omitempty"`
+		TaskTitle string `json:"task_title,omitempty"`
+	}
+	type snapshot struct {
+		Timestamp string          `json:"timestamp"`
+		Agents    []snapshotEntry `json:"agents"`
+	}
+
+	snap := snapshot{
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
+	}
+	for _, a := range actors {
+		snap.Agents = append(snap.Agents, snapshotEntry{
+			Actor:     a.Actor,
+			TaskID:    a.TaskID,
+			TaskTitle: a.TaskTitle,
+		})
+	}
+
+	data, err := json.Marshal(snap)
+	if err != nil {
+		return
+	}
+	_ = os.WriteFile(filepath.Join(dir, sessionID+".json"), data, 0644)
+}
+
+// countReadyTasks fetches the count of ready (unblocked, open) tasks. (bd-oenjf)
+func countReadyTasks(client *rpc.Client) int {
+	resp, err := client.Ready(&rpc.ReadyArgs{
+		Limit:      50,
+		SortPolicy: "priority",
+	})
+	if err != nil || resp == nil || resp.Data == nil {
+		return 0
+	}
+	var issues []*types.IssueWithCounts
+	if err := json.Unmarshal(resp.Data, &issues); err != nil {
+		return 0
+	}
+	return len(issues)
 }
 
 // formatIdleDuration is defined in agent.go (same package).

@@ -1982,12 +1982,20 @@ type AgentRosterEntry struct {
 
 // AgentRosterResult is the response from agent_roster.
 type AgentRosterResult struct {
-	Actors  []AgentRosterEntry `json:"actors"`
-	Uptime  string             `json:"uptime"`  // Tracker uptime
-	Tracked int                `json:"tracked"` // Total actors tracked (including stale)
-	Working int                `json:"working"` // Actors with an in_progress task (bd-4ul0v)
-	Idle    int                `json:"idle"`    // Actors active but no task (bd-4ul0v)
-	Dead    int                `json:"dead"`    // Actors marked dead by reaper (bd-khlpu)
+	Actors         []AgentRosterEntry `json:"actors"`
+	UnclaimedTasks []UnclaimedTask    `json:"unclaimed_tasks,omitempty"` // in_progress beads with no assignee (bd-oenjf)
+	Uptime         string             `json:"uptime"`                    // Tracker uptime
+	Tracked        int                `json:"tracked"`                   // Total actors tracked (including stale)
+	Working        int                `json:"working"`                   // Actors with an in_progress task (bd-4ul0v)
+	Idle           int                `json:"idle"`                      // Actors active but no task (bd-4ul0v)
+	Dead           int                `json:"dead"`                      // Actors marked dead by reaper (bd-khlpu)
+}
+
+// UnclaimedTask represents an in_progress bead with no assignee. (bd-oenjf)
+type UnclaimedTask struct {
+	ID       string `json:"id"`
+	Title    string `json:"title"`
+	Priority int    `json:"priority"`
 }
 
 // ===== Agent Lifecycle Operations (beads-2qz5) =====

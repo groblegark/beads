@@ -801,6 +801,19 @@ func buildRosterSummaryForHook(self string) string {
 		}
 	}
 
+	// Unclaimed in_progress beads — assignment gaps from roster. (bd-oenjf)
+	if len(result.UnclaimedTasks) > 0 {
+		sb.WriteString(fmt.Sprintf("Unclaimed in-progress beads: %d\n", len(result.UnclaimedTasks)))
+		for _, t := range result.UnclaimedTasks {
+			sb.WriteString(fmt.Sprintf("  %s [P%d]: %s\n", t.ID, t.Priority, t.Title))
+		}
+	}
+
+	// Session activity diff — what changed since this agent's session started. (bd-3zsda)
+	if activity := buildSessionActivityDiff(active, crashed); activity != "" {
+		sb.WriteString(activity)
+	}
+
 	return sb.String()
 }
 

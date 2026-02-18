@@ -316,7 +316,8 @@ func (s *Server) handleAgentRoster(req *Request) Response {
 	}
 
 	// Enrich with in_progress task and epic context (bd-qdhxw).
-	s.enrichRosterWithTasks(req, rosterEntries)
+	// Also collects unclaimed in_progress beads (no assignee). (bd-oenjf)
+	unclaimed := s.enrichRosterWithTasks(req, rosterEntries)
 
 	// Enrich with git branch/repo context from CWD (bd-z6958).
 	enrichRosterWithGitContext(rosterEntries)
@@ -334,12 +335,13 @@ func (s *Server) handleAgentRoster(req *Request) Response {
 	}
 
 	result := AgentRosterResult{
-		Actors:  rosterEntries,
-		Uptime:  pt.Uptime().Round(time.Second).String(),
-		Tracked: len(pt.Roster(0)),
-		Working: working,
-		Idle:    idle,
-		Dead:    dead,
+		Actors:         rosterEntries,
+		UnclaimedTasks: unclaimed,
+		Uptime:         pt.Uptime().Round(time.Second).String(),
+		Tracked:        len(pt.Roster(0)),
+		Working:        working,
+		Idle:           idle,
+		Dead:           dead,
 	}
 	data, _ := json.Marshal(result)
 	return Response{Success: true, Data: data}
@@ -347,10 +349,11 @@ func (s *Server) handleAgentRoster(req *Request) Response {
 
 // enrichRosterWithTasks looks up in_progress beads and matches them to roster
 // actors via created_by or assignee. Also walks parent-child deps to find epics.
-func (s *Server) enrichRosterWithTasks(req *Request, entries []AgentRosterEntry) {
+// Returns unclaimed in_progress beads (no assignee) for visibility. (bd-oenjf)
+func (s *Server) enrichRosterWithTasks(req *Request, entries []AgentRosterEntry) []UnclaimedTask {
 	store := s.storage
 	if store == nil || len(entries) == 0 {
-		return
+		return nil
 	}
 
 	ctx, cancel := s.reqCtx(req)
@@ -360,7 +363,7 @@ func (s *Server) enrichRosterWithTasks(req *Request, entries []AgentRosterEntry)
 	inProgress := types.StatusInProgress
 	issues, err := store.SearchIssues(ctx, "", types.IssueFilter{Status: &inProgress})
 	if err != nil {
-		return
+		return nil
 	}
 
 	// Build actor → issue mapping. Prefer assignee, fall back to created_by.
@@ -373,13 +376,31 @@ func (s *Server) enrichRosterWithTasks(req *Request, entries []AgentRosterEntry)
 	}
 	actorTask := make(map[string]taskInfo)
 
+	// Collect unclaimed beads — in_progress with no assignee. (bd-oenjf)
+	var unclaimed []UnclaimedTask
+
 	for _, issue := range issues {
 		actor := issue.Assignee
 		if actor == "" {
 			actor = issue.CreatedBy
 		}
 		if actor == "" {
+			// Truly unclaimed — no assignee and no creator attribution.
+			unclaimed = append(unclaimed, UnclaimedTask{
+				ID:       issue.ID,
+				Title:    issue.Title,
+				Priority: issue.Priority,
+			})
 			continue
+		}
+		// Also track beads with no assignee but attributed to a creator — these
+		// are assignment gaps where someone created work but didn't claim it.
+		if issue.Assignee == "" {
+			unclaimed = append(unclaimed, UnclaimedTask{
+				ID:       issue.ID,
+				Title:    issue.Title,
+				Priority: issue.Priority,
+			})
 		}
 		if existing, ok := actorTask[actor]; ok {
 			if !issue.UpdatedAt.After(existing.updatedAt) {
@@ -431,6 +452,8 @@ func (s *Server) enrichRosterWithTasks(req *Request, entries []AgentRosterEntry)
 			}
 		}
 	}
+
+	return unclaimed
 }
 
 // gitInfo holds cached git branch/repo for a directory.
