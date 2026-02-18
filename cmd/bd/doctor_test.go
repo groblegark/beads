@@ -956,8 +956,9 @@ func TestCheckMetadataVersionTracking(t *testing.T) {
 		{
 			name: "slightly outdated version",
 			setupVersion: func(beadsDir string) error {
-				// Use a version that's less than 10 minor versions behind current
-				return os.WriteFile(filepath.Join(beadsDir, ".local_version"), []byte("0.55.0\n"), 0644)
+				// Use a CalVer version that's less than 10 minor versions behind current.
+				// With CalVer (YYYY.MDD.N), "slightly outdated" means same year, close MDD.
+				return os.WriteFile(filepath.Join(beadsDir, ".local_version"), []byte("2026.215.0\n"), 0644)
 			},
 			expectedStatus: doctor.StatusOK,
 			expectWarning:  false,
@@ -965,8 +966,17 @@ func TestCheckMetadataVersionTracking(t *testing.T) {
 		{
 			name: "very old version",
 			setupVersion: func(beadsDir string) error {
-				// Use a version that's 10+ minor versions behind current (triggers warning)
+				// Pre-CalVer semver versions are genuinely very old — major diff triggers warning.
 				return os.WriteFile(filepath.Join(beadsDir, ".local_version"), []byte("0.29.0\n"), 0644)
+			},
+			expectedStatus: doctor.StatusWarning,
+			expectWarning:  true,
+		},
+		{
+			name: "pre-calver semver is very old",
+			setupVersion: func(beadsDir string) error {
+				// Any pre-CalVer version (0.x.y) should be flagged as very old
+				return os.WriteFile(filepath.Join(beadsDir, ".local_version"), []byte("0.62.24\n"), 0644)
 			},
 			expectedStatus: doctor.StatusWarning,
 			expectWarning:  true,
