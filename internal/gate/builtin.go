@@ -31,8 +31,12 @@ func DecisionGate() *Gate {
 // checkDecisionWaiting returns true if an agent is actively blocking on
 // a bd decision create call (waiting for a human response). This prevents
 // the Stop hook from firing repeatedly while the decision is pending.
+// Falls back to cross-session check for session_id rotation. (bd-02qeb)
 func checkDecisionWaiting(ctx GateContext) bool {
-	return IsGateSatisfied(ctx.WorkDir, ctx.SessionID, "decision-waiting")
+	if IsGateSatisfied(ctx.WorkDir, ctx.SessionID, "decision-waiting") {
+		return true
+	}
+	return IsGateSatisfiedAnySession(ctx.WorkDir, "decision-waiting")
 }
 
 // CommitPushGate returns the "commit-push" gate definition.

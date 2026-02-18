@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // HookType represents a Claude Code hook event type.
@@ -138,6 +139,36 @@ func IsGateSatisfied(workDir, sessionID, gateID string) bool {
 	return err == nil
 }
 
+// IsGateSatisfiedAnySession checks whether a gate marker exists in ANY session
+// directory under .runtime/gates/. This handles Claude Code session_id rotation
+// (which occurs on compaction, continuation, or context recovery) — the marker
+// may have been written with a previous session_id that's no longer current.
+//
+// Only considers markers younger than 12 hours to avoid stale markers from
+// old sessions incorrectly satisfying gates in new ones. (bd-02qeb)
+func IsGateSatisfiedAnySession(workDir, gateID string) bool {
+	gatesDir := filepath.Join(workDir, ".runtime", "gates")
+	entries, err := os.ReadDir(gatesDir)
+	if err != nil {
+		return false
+	}
+	cutoff := time.Now().Add(-12 * time.Hour)
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		marker := filepath.Join(gatesDir, entry.Name(), gateID)
+		info, err := os.Stat(marker)
+		if err != nil {
+			continue
+		}
+		if info.ModTime().After(cutoff) {
+			return true
+		}
+	}
+	return false
+}
+
 // CheckGatesForHook evaluates all registered gates for the specified hook type.
 // A gate is satisfied if:
 //  1. Its marker file exists, OR
@@ -160,10 +191,20 @@ func CheckGatesForHook(workDir, sessionID string, hookType HookType, reg *Regist
 			Hint:   g.Hint,
 		}
 
-		// Check marker first
+		// Check marker first — exact session match
 		if IsGateSatisfied(workDir, sessionID, g.ID) {
 			result.Satisfied = true
 			result.Message = "marked satisfied"
+			results = append(results, result)
+			continue
+		}
+
+		// Fallback: check if the marker exists in ANY session directory.
+		// Claude Code rotates session_id on compaction/continuation, so the
+		// marker may have been written under a previous session_id. (bd-02qeb)
+		if IsGateSatisfiedAnySession(workDir, g.ID) {
+			result.Satisfied = true
+			result.Message = "marked satisfied (cross-session)"
 			results = append(results, result)
 			continue
 		}
