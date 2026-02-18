@@ -710,6 +710,20 @@ func outputRosterSection(w io.Writer) {
 		_, _ = fmt.Fprintf(w, "Do not pick up other agents' in-progress tasks.\n\n")
 	}
 
+	// Session continuity: detect if this agent crashed and restarted. (bd-hqle6)
+	if self != "" {
+		for _, a := range stale {
+			if a.Actor == self && (a.Reaped || a.LastEvent == "AgentCrashed") {
+				if a.TaskID != "" {
+					fmt.Fprintf(w, "> **Session recovery**: You (%s) crashed while working on **%s**: %s. Consider resuming this task.\n\n", self, a.TaskID, a.TaskTitle)
+				} else {
+					fmt.Fprintf(w, "> **Session recovery**: You (%s) crashed previously. Check `bd list --status=in_progress --assignee=%s` for any orphaned work.\n\n", self, self)
+				}
+				break
+			}
+		}
+	}
+
 	for _, a := range active {
 		idleStr := formatIdleDuration(a.IdleSecs)
 		youTag := ""
@@ -730,18 +744,44 @@ func outputRosterSection(w io.Writer) {
 		}
 	}
 
+	// Epic coverage analysis: show which epics have agents vs orphaned. (bd-hqle6)
+	epicAgents := make(map[string][]string) // epicID → actor names
+	for _, a := range active {
+		if a.EpicID != "" {
+			epicAgents[a.EpicID] = append(epicAgents[a.EpicID], a.Actor)
+		}
+	}
+	if len(epicAgents) > 1 {
+		// Only show if there's meaningful distribution to report.
+		var crowded []string
+		for epicID, agents := range epicAgents {
+			if len(agents) >= 3 {
+				crowded = append(crowded, fmt.Sprintf("%s (%d agents)", epicID, len(agents)))
+			}
+		}
+		if len(crowded) > 0 {
+			fmt.Fprintf(w, "\n> **Workload note**: Crowded epics: %s. Consider picking up uncovered work instead.\n",
+				strings.Join(crowded, ", "))
+		}
+	}
+
 	// Show stale agents with their actual state so agents know whether they
 	// crashed, were reaped, or are just idle. (bd-bstid, bd-bs7u8)
 	if len(stale) > 0 {
 		// Partition stale into crashed vs merely idle.
 		var crashed, idle []string
+		var orphaned []string
 		for _, a := range stale {
 			idleStr := formatIdleDuration(a.IdleSecs)
-			entry := fmt.Sprintf("%s (idle %s)", a.Actor, idleStr)
 			if a.Reaped || a.LastEvent == "AgentCrashed" {
-				crashed = append(crashed, entry)
+				if a.TaskID != "" {
+					crashed = append(crashed, fmt.Sprintf("%s (had %s: %s)", a.Actor, a.TaskID, a.TaskTitle))
+					orphaned = append(orphaned, fmt.Sprintf("%s: %s (was %s's)", a.TaskID, a.TaskTitle, a.Actor))
+				} else {
+					crashed = append(crashed, fmt.Sprintf("%s (idle %s)", a.Actor, idleStr))
+				}
 			} else {
-				idle = append(idle, entry)
+				idle = append(idle, fmt.Sprintf("%s (idle %s)", a.Actor, idleStr))
 			}
 		}
 		if len(crashed) > 0 {
@@ -749,6 +789,13 @@ func outputRosterSection(w io.Writer) {
 		}
 		if len(idle) > 0 {
 			fmt.Fprintf(w, "\n_Stale (%d, likely disconnected): %s_\n", len(idle), strings.Join(idle, ", "))
+		}
+		// Highlight orphaned work for easy rescue. (bd-hqle6)
+		if len(orphaned) > 0 {
+			fmt.Fprintf(w, "\n> **Orphaned work** (available to pick up):\n")
+			for _, o := range orphaned {
+				fmt.Fprintf(w, ">   - %s\n", o)
+			}
 		}
 	}
 
