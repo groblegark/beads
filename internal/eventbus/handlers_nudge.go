@@ -210,12 +210,30 @@ func (h *BeadNudgeHandler) checkInProcess(ctx context.Context, actor string) (bo
 }
 
 // checkSubprocess falls back to running bd list as a subprocess.
+// Filters results by actor to avoid false negatives in multi-agent environments
+// where another agent's in_progress beads would suppress nudges. (bd-nqnyn)
 func (h *BeadNudgeHandler) checkSubprocess(ctx context.Context, event *Event) (bool, error) {
 	stdout, _, err := runBDCommandWithEnv(ctx, event.CWD, envFromEvent(event),
 		"list", "--status=in_progress", "--json")
 	if err != nil {
 		return false, err
 	}
-	// If there's any output with issues, the agent likely has work.
-	return stdout != "" && stdout != "[]" && stdout != "null", nil
+	if stdout == "" || stdout == "[]" || stdout == "null" {
+		return false, nil
+	}
+
+	// Parse and filter by actor — only count beads owned by this agent.
+	var issues []struct {
+		Assignee  string `json:"assignee"`
+		CreatedBy string `json:"created_by"`
+	}
+	if jsonErr := json.Unmarshal([]byte(stdout), &issues); jsonErr != nil {
+		return false, nil
+	}
+	for _, issue := range issues {
+		if issue.Assignee == event.Actor || issue.CreatedBy == event.Actor {
+			return true, nil
+		}
+	}
+	return false, nil
 }

@@ -303,6 +303,73 @@ func TestPresenceTracker_HandleMutationEvent(t *testing.T) {
 	}
 }
 
+// Test that when a captain sets status=in_progress with a different assignee,
+// both the actor (captain) and the assignee get the task tracked. (bd-nqnyn)
+func TestPresenceTracker_HandleMutationEvent_AssigneeAttribution(t *testing.T) {
+	pt := NewPresenceTracker()
+
+	// Captain assigns work to agent-x.
+	pt.handleMutationEvent(makeMutationMsg(t, MutationEventPayload{
+		Type:      "status",
+		IssueID:   "bd-300",
+		Actor:     "captain",
+		Assignee:  "agent-x",
+		OldStatus: "open",
+		NewStatus: "in_progress",
+	}))
+
+	if !pt.HasTask("agent-x") {
+		t.Error("expected agent-x (assignee) to have task after captain assigns work")
+	}
+	if !pt.HasTask("captain") {
+		t.Error("expected captain (actor) to also have task tracked")
+	}
+
+	// When captain closes it, both should lose the task.
+	pt.handleMutationEvent(makeMutationMsg(t, MutationEventPayload{
+		Type:      "status",
+		IssueID:   "bd-300",
+		Actor:     "captain",
+		Assignee:  "agent-x",
+		OldStatus: "in_progress",
+		NewStatus: "closed",
+	}))
+
+	if pt.HasTask("agent-x") {
+		t.Error("expected agent-x to lose task after close")
+	}
+	if pt.HasTask("captain") {
+		t.Error("expected captain to lose task after close")
+	}
+}
+
+// Test that self-assignment (actor == assignee) doesn't double-track. (bd-nqnyn)
+func TestPresenceTracker_HandleMutationEvent_SelfAssign(t *testing.T) {
+	pt := NewPresenceTracker()
+
+	pt.handleMutationEvent(makeMutationMsg(t, MutationEventPayload{
+		Type:      "status",
+		IssueID:   "bd-400",
+		Actor:     "agent-y",
+		Assignee:  "agent-y",
+		OldStatus: "open",
+		NewStatus: "in_progress",
+	}))
+
+	if !pt.HasTask("agent-y") {
+		t.Error("expected agent-y to have task after self-assign")
+	}
+
+	// Verify the task only appears once in taskIDs (not doubled).
+	pt.mu.RLock()
+	state := pt.actors["agent-y"]
+	count := len(state.taskIDs)
+	pt.mu.RUnlock()
+	if count != 1 {
+		t.Errorf("expected 1 taskID for self-assign, got %d", count)
+	}
+}
+
 func TestPresenceTracker_HandleMutationEvent_IgnoresNonStatus(t *testing.T) {
 	pt := NewPresenceTracker()
 

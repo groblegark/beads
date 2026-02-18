@@ -396,8 +396,28 @@ func (pt *PresenceTracker) handleMutationEvent(msg *nats.Msg) {
 	// Track transitions into and out of in_progress.
 	if payload.NewStatus == "in_progress" {
 		state.taskIDs[payload.IssueID] = true
+		// Also track for the assignee if different from the mutation actor.
+		// When a captain assigns work (captain is actor, agent is assignee),
+		// both should have the task in their taskIDs. (bd-nqnyn)
+		if payload.Assignee != "" && payload.Assignee != actor {
+			assigneeState, ok := pt.actors[payload.Assignee]
+			if !ok {
+				assigneeState = &actorState{taskIDs: make(map[string]bool)}
+				pt.actors[payload.Assignee] = assigneeState
+			}
+			if assigneeState.taskIDs == nil {
+				assigneeState.taskIDs = make(map[string]bool)
+			}
+			assigneeState.taskIDs[payload.IssueID] = true
+		}
 	} else if payload.OldStatus == "in_progress" {
 		delete(state.taskIDs, payload.IssueID)
+		// Also remove from assignee's tracking. (bd-nqnyn)
+		if payload.Assignee != "" && payload.Assignee != actor {
+			if assigneeState, ok := pt.actors[payload.Assignee]; ok {
+				delete(assigneeState.taskIDs, payload.IssueID)
+			}
+		}
 	}
 }
 

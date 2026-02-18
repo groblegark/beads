@@ -356,10 +356,12 @@ func (s *Server) enrichRosterWithTasks(req *Request, entries []AgentRosterEntry)
 	}
 
 	// Build actor → issue mapping. Prefer assignee, fall back to created_by.
-	// If an actor has multiple in_progress beads, use the most recently updated.
+	// If an actor has multiple in_progress beads, keep the most recently updated.
+	// Don't rely on storage sort order — explicitly compare UpdatedAt. (bd-nqnyn)
 	type taskInfo struct {
-		id    string
-		title string
+		id        string
+		title     string
+		updatedAt time.Time
 	}
 	actorTask := make(map[string]taskInfo)
 
@@ -371,12 +373,12 @@ func (s *Server) enrichRosterWithTasks(req *Request, entries []AgentRosterEntry)
 		if actor == "" {
 			continue
 		}
-		// If we already have one for this actor, keep the most recently updated.
 		if existing, ok := actorTask[actor]; ok {
-			_ = existing // keep first match (issues come sorted by updated_at desc)
-			continue
+			if !issue.UpdatedAt.After(existing.updatedAt) {
+				continue
+			}
 		}
-		actorTask[actor] = taskInfo{id: issue.ID, title: issue.Title}
+		actorTask[actor] = taskInfo{id: issue.ID, title: issue.Title, updatedAt: issue.UpdatedAt}
 	}
 
 	// Enrich each roster entry with task info.
