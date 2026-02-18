@@ -17,6 +17,7 @@ type PresenceEntry struct {
 	LastEvent           string    `json:"last_event"`              // e.g., "PreToolUse", "PostToolUse"
 	ToolName            string    `json:"tool_name,omitempty"`     // last tool used (if hook event)
 	SessionID           string    `json:"session_id,omitempty"`    // Claude Code session
+	CWD                 string    `json:"cwd,omitempty"`           // last known working directory (bd-z6958)
 	IdleSecs            float64   `json:"idle_secs"`               // seconds since last event
 	EventCount          int64     `json:"event_count"`             // total events seen
 	SessionDurationSecs float64   `json:"session_duration_secs"`   // seconds since first event (bd-4ul0v)
@@ -44,6 +45,7 @@ type actorState struct {
 	lastEvent  string
 	toolName   string
 	sessionID  string
+	cwd        string          // last known working directory from hook events (bd-z6958)
 	eventCount int64
 	taskIDs    map[string]bool // in_progress bead IDs for this actor (bd-tlckc)
 	reaped     bool            // true if reaper marked this actor dead (bd-khlpu)
@@ -241,6 +243,7 @@ func (pt *PresenceTracker) Roster(staleThreshold time.Duration) []PresenceEntry 
 			LastEvent:           state.lastEvent,
 			ToolName:            state.toolName,
 			SessionID:           state.sessionID,
+			CWD:                 state.cwd,       // (bd-z6958)
 			IdleSecs:            idle.Seconds(),
 			EventCount:          state.eventCount,
 			SessionDurationSecs: sessionDur,
@@ -315,6 +318,7 @@ func (pt *PresenceTracker) handleHookEvent(msg *nats.Msg) {
 		EventType string `json:"hook_event_name"`
 		ToolName  string `json:"tool_name"`
 		SessionID string `json:"session_id"`
+		CWD       string `json:"cwd"`
 	}
 	if err := json.Unmarshal(msg.Data, &event); err != nil {
 		return
@@ -346,6 +350,9 @@ func (pt *PresenceTracker) handleHookEvent(msg *nats.Msg) {
 	}
 	if event.SessionID != "" {
 		state.sessionID = event.SessionID
+	}
+	if event.CWD != "" {
+		state.cwd = event.CWD // (bd-z6958)
 	}
 }
 

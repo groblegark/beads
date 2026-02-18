@@ -2,6 +2,7 @@ package rpc
 
 import (
 	"encoding/json"
+	"os"
 	"testing"
 
 	"github.com/steveyegge/beads/internal/types"
@@ -636,5 +637,116 @@ func TestAgentPodRegister_NonExistentAgent(t *testing.T) {
 	})
 	if err == nil {
 		t.Error("expected error when registering pod for non-existent agent")
+	}
+}
+
+// === repoNameFromURL tests (bd-z6958) ===
+
+func TestRepoNameFromURL_HTTPS(t *testing.T) {
+	tests := []struct {
+		url  string
+		want string
+	}{
+		{"https://github.com/steveyegge/beads.git", "steveyegge/beads"},
+		{"https://github.com/steveyegge/beads", "steveyegge/beads"},
+		{"https://gitlab.com/org/project.git", "org/project"},
+	}
+	for _, tt := range tests {
+		got := repoNameFromURL(tt.url)
+		if got != tt.want {
+			t.Errorf("repoNameFromURL(%q) = %q, want %q", tt.url, got, tt.want)
+		}
+	}
+}
+
+func TestRepoNameFromURL_SSH(t *testing.T) {
+	tests := []struct {
+		url  string
+		want string
+	}{
+		{"git@github.com:steveyegge/beads.git", "steveyegge/beads"},
+		{"git@github.com:groblegark/beads.git", "groblegark/beads"},
+		{"git@gitlab.com:org/repo", "org/repo"},
+	}
+	for _, tt := range tests {
+		got := repoNameFromURL(tt.url)
+		if got != tt.want {
+			t.Errorf("repoNameFromURL(%q) = %q, want %q", tt.url, got, tt.want)
+		}
+	}
+}
+
+func TestRepoNameFromURL_Empty(t *testing.T) {
+	got := repoNameFromURL("")
+	if got != "" {
+		t.Errorf("repoNameFromURL(\"\") = %q, want empty", got)
+	}
+}
+
+// TestResolveGitInfo_CurrentDir verifies that resolveGitInfo works in the
+// current repo (the beads repo itself).
+func TestResolveGitInfo_CurrentDir(t *testing.T) {
+	// This test runs in the beads repo root.
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Skip("can't get cwd")
+	}
+
+	info := resolveGitInfo(cwd)
+	if info.branch == "" {
+		t.Error("expected non-empty branch in current repo")
+	}
+	if info.repo == "" {
+		t.Error("expected non-empty repo in current repo")
+	}
+}
+
+// TestResolveGitInfo_NonGitDir verifies graceful handling of non-git dirs.
+func TestResolveGitInfo_NonGitDir(t *testing.T) {
+	info := resolveGitInfo("/tmp")
+	// Should return empty strings, not error.
+	if info.branch != "" {
+		t.Errorf("expected empty branch for /tmp, got %q", info.branch)
+	}
+	// Repo should be "tmp" (directory basename fallback).
+	if info.repo != "tmp" {
+		t.Errorf("expected repo \"tmp\" for /tmp, got %q", info.repo)
+	}
+}
+
+// TestEnrichRosterWithGitContext verifies that entries with CWD get branch/repo.
+func TestEnrichRosterWithGitContext(t *testing.T) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Skip("can't get cwd")
+	}
+
+	entries := []AgentRosterEntry{
+		{Actor: "agent-1", ProjectRoot: cwd},
+		{Actor: "agent-2", ProjectRoot: ""},     // no CWD
+		{Actor: "agent-3", ProjectRoot: "/tmp"},  // non-git dir
+	}
+
+	enrichRosterWithGitContext(entries)
+
+	// agent-1 should have branch and repo from current git repo.
+	if entries[0].Branch == "" {
+		t.Error("agent-1: expected non-empty branch")
+	}
+	if entries[0].Repo == "" {
+		t.Error("agent-1: expected non-empty repo")
+	}
+
+	// agent-2 should have no enrichment (no CWD).
+	if entries[1].Branch != "" || entries[1].Repo != "" {
+		t.Error("agent-2: expected empty branch/repo for no CWD")
+	}
+
+	// agent-3 should have empty branch (not a git repo), but repo from basename.
+	if entries[2].Branch != "" {
+		t.Errorf("agent-3: expected empty branch for /tmp, got %q", entries[2].Branch)
+	}
+	if entries[2].Repo != "tmp" {
+		t.Errorf("agent-3: expected repo \"tmp\" for /tmp, got %q", entries[2].Repo)
 	}
 }

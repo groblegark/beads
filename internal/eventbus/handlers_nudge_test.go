@@ -632,6 +632,46 @@ func TestPresenceTracker_Reaper_Resurrection(t *testing.T) {
 	pt.Stop()
 }
 
+// TestPresenceTracker_CWD verifies that CWD from hook events is captured in the
+// roster and that it updates when the working directory changes. (bd-z6958)
+func TestPresenceTracker_CWD(t *testing.T) {
+	pt := NewPresenceTracker()
+	pt.started = time.Now()
+
+	// First event with CWD.
+	pt.handleHookEvent(&nats.Msg{
+		Data: []byte(`{"actor":"agent-1","hook_event_name":"PreToolUse","cwd":"/home/agent/beads"}`),
+	})
+
+	roster := pt.Roster(0)
+	if len(roster) != 1 {
+		t.Fatalf("expected 1 entry, got %d", len(roster))
+	}
+	if roster[0].CWD != "/home/agent/beads" {
+		t.Errorf("CWD = %q, want %q", roster[0].CWD, "/home/agent/beads")
+	}
+
+	// Update CWD via subsequent event.
+	pt.handleHookEvent(&nats.Msg{
+		Data: []byte(`{"actor":"agent-1","hook_event_name":"PostToolUse","cwd":"/home/agent/gastown"}`),
+	})
+
+	roster = pt.Roster(0)
+	if roster[0].CWD != "/home/agent/gastown" {
+		t.Errorf("CWD after update = %q, want %q", roster[0].CWD, "/home/agent/gastown")
+	}
+
+	// Event without CWD should preserve the existing value.
+	pt.handleHookEvent(&nats.Msg{
+		Data: []byte(`{"actor":"agent-1","hook_event_name":"PreToolUse"}`),
+	})
+
+	roster = pt.Roster(0)
+	if roster[0].CWD != "/home/agent/gastown" {
+		t.Errorf("CWD should be preserved when event has no cwd, got %q", roster[0].CWD)
+	}
+}
+
 // makeMutationMsg creates a nats.Msg with a MutationEventPayload for testing.
 func makeMutationMsg(t *testing.T, payload MutationEventPayload) *nats.Msg {
 	t.Helper()

@@ -869,7 +869,7 @@ func runAgentRoster(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// printRosterEntry prints a single roster entry line. (bd-khlpu)
+// printRosterEntry prints a single roster entry line. (bd-khlpu, bd-z6958)
 func printRosterEntry(a rpc.AgentRosterEntry) {
 	idle := formatIdleDuration(a.IdleSecs)
 	dur := formatIdleDuration(a.SessionDurationSecs)
@@ -877,6 +877,17 @@ func printRosterEntry(a rpc.AgentRosterEntry) {
 	line := fmt.Sprintf("  %-20s  idle=%-8s  dur=%-8s  rate=%-7s  events=%-5d  last=%s", a.Actor, idle, dur, rate, a.EventCount, a.LastEvent)
 	if a.ToolName != "" {
 		line += fmt.Sprintf("  tool=%s", a.ToolName)
+	}
+	// Show branch/repo context if available. (bd-z6958)
+	if a.Branch != "" || a.Repo != "" {
+		parts := []string{}
+		if a.Repo != "" {
+			parts = append(parts, a.Repo)
+		}
+		if a.Branch != "" {
+			parts = append(parts, a.Branch)
+		}
+		line += fmt.Sprintf("\n  %20s  repo=%s", "", strings.Join(parts, " @ "))
 	}
 	if a.TaskID != "" {
 		title := a.TaskTitle

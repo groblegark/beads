@@ -1,8 +1,12 @@
 package rpc
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"os/exec"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/steveyegge/beads/internal/eventbus"
@@ -298,6 +302,7 @@ func (s *Server) handleAgentRoster(req *Request) Response {
 			LastEvent:           e.LastEvent,
 			ToolName:            e.ToolName,
 			SessionID:           e.SessionID,
+			ProjectRoot:         e.CWD, // (bd-z6958)
 			IdleSecs:            e.IdleSecs,
 			EventCount:          e.EventCount,
 			SessionDurationSecs: e.SessionDurationSecs,
@@ -312,6 +317,9 @@ func (s *Server) handleAgentRoster(req *Request) Response {
 
 	// Enrich with in_progress task and epic context (bd-qdhxw).
 	s.enrichRosterWithTasks(req, rosterEntries)
+
+	// Enrich with git branch/repo context from CWD (bd-z6958).
+	enrichRosterWithGitContext(rosterEntries)
 
 	// Compute working/idle/dead summary counters (bd-4ul0v, bd-khlpu).
 	var working, idle, dead int
@@ -423,4 +431,86 @@ func (s *Server) enrichRosterWithTasks(req *Request, entries []AgentRosterEntry)
 			}
 		}
 	}
+}
+
+// gitInfo holds cached git branch/repo for a directory.
+type gitInfo struct {
+	branch string
+	repo   string
+}
+
+// enrichRosterWithGitContext derives git branch and repo name from each actor's
+// CWD (ProjectRoot). Uses a per-directory cache to avoid redundant git execs
+// when multiple agents share the same working directory. (bd-z6958)
+func enrichRosterWithGitContext(entries []AgentRosterEntry) {
+	cache := make(map[string]*gitInfo)
+
+	for i := range entries {
+		cwd := entries[i].ProjectRoot
+		if cwd == "" {
+			continue
+		}
+
+		info, ok := cache[cwd]
+		if !ok {
+			info = resolveGitInfo(cwd)
+			cache[cwd] = info
+		}
+
+		entries[i].Branch = info.branch
+		entries[i].Repo = info.repo
+	}
+}
+
+// resolveGitInfo runs git commands in dir to get the branch and repo name.
+// Returns empty strings on any error (not a git repo, git not installed, etc.).
+func resolveGitInfo(dir string) *gitInfo {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	info := &gitInfo{}
+
+	// Get current branch.
+	branchCmd := exec.CommandContext(ctx, "git", "rev-parse", "--abbrev-ref", "HEAD")
+	branchCmd.Dir = dir
+	if out, err := branchCmd.Output(); err == nil {
+		info.branch = strings.TrimSpace(string(out))
+	}
+
+	// Get repo name from remote URL or directory name.
+	remoteCmd := exec.CommandContext(ctx, "git", "config", "--get", "remote.origin.url")
+	remoteCmd.Dir = dir
+	if out, err := remoteCmd.Output(); err == nil {
+		info.repo = repoNameFromURL(strings.TrimSpace(string(out)))
+	} else {
+		// No remote — use directory basename as repo name.
+		info.repo = filepath.Base(dir)
+	}
+
+	return info
+}
+
+// repoNameFromURL extracts a short repo name from a git remote URL.
+// Handles HTTPS (https://github.com/org/repo.git) and SSH (git@github.com:org/repo.git).
+func repoNameFromURL(url string) string {
+	if url == "" {
+		return ""
+	}
+
+	// Strip trailing .git
+	url = strings.TrimSuffix(url, ".git")
+
+	// SSH format: git@github.com:org/repo — colon separator, no slashes before it
+	// (exclude URLs with :// scheme separator)
+	if idx := strings.LastIndex(url, ":"); idx > 0 && !strings.Contains(url, "://") {
+		return url[idx+1:]
+	}
+
+	// HTTPS format: https://github.com/org/repo — take last two path components
+	parts := strings.Split(url, "/")
+	if len(parts) >= 2 {
+		return parts[len(parts)-2] + "/" + parts[len(parts)-1]
+	}
+
+	return url
 }

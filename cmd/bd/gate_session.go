@@ -719,12 +719,21 @@ func buildRosterSummaryForHook(self string) string {
 		if a.Actor == self {
 			youTag = " (you)"
 		}
+		// Build repo/branch suffix if available. (bd-z6958)
+		repoTag := ""
+		if a.Repo != "" {
+			repoTag = " [" + a.Repo
+			if a.Branch != "" && a.Branch != "main" && a.Branch != "master" {
+				repoTag += "@" + a.Branch
+			}
+			repoTag += "]"
+		}
 		if a.TaskID != "" {
-			sb.WriteString(fmt.Sprintf("  %s%s → %s: %s (idle %s)\n",
-				a.Actor, youTag, a.TaskID, a.TaskTitle, formatIdleDuration(a.IdleSecs)))
+			sb.WriteString(fmt.Sprintf("  %s%s%s → %s: %s (idle %s)\n",
+				a.Actor, youTag, repoTag, a.TaskID, a.TaskTitle, formatIdleDuration(a.IdleSecs)))
 		} else {
-			sb.WriteString(fmt.Sprintf("  %s%s → no task (idle %s)\n",
-				a.Actor, youTag, formatIdleDuration(a.IdleSecs)))
+			sb.WriteString(fmt.Sprintf("  %s%s%s → no task (idle %s)\n",
+				a.Actor, youTag, repoTag, formatIdleDuration(a.IdleSecs)))
 		}
 	}
 
