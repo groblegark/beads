@@ -647,7 +647,8 @@ func outputAdviceSection(w io.Writer, agentID string) {
 // receiving agent can avoid picking up work already in progress. (bd-rzec3)
 //
 // Agents idle > 10 minutes without a last_event of Stop are shown as stale.
-// Agents whose last event was Stop are excluded entirely (cleanly stopped). (bd-bstid)
+// Crashed/reaped agents are labeled "Crashed"; others are labeled "Stale".
+// Agents whose last event was Stop are excluded entirely (cleanly stopped). (bd-bstid, bd-bs7u8)
 //
 // Connects to the daemon RPC (same pattern as outputAdviceSection).
 // Fails silently if daemon is unavailable or no agents are active.
@@ -674,14 +675,15 @@ func outputRosterSection(w io.Writer) {
 	// Resolve the current agent's name so we can label their entry. (bd-snjni)
 	self := resolvePrimeAgentID("")
 
-	// Partition into active vs stale/dead. (bd-bstid, bd-khlpu)
+	// Partition into active vs stale/dead. (bd-bstid, bd-khlpu, bd-bs7u8)
 	// - Reaped agents (marked by reaper) → stale
+	// - Agents whose last event was AgentCrashed → stale (crashed before reaper runs)
 	// - Agents whose last event was Stop and idle >60s → excluded (cleanly stopped)
 	// - Agents idle >10min → stale (fallback for pre-reaper detection)
 	const staleThresholdSecs = 600 // 10 minutes
 	var active, stale []rpc.AgentRosterEntry
 	for _, a := range result.Actors {
-		if a.Reaped {
+		if a.Reaped || a.LastEvent == "AgentCrashed" {
 			stale = append(stale, a)
 			continue
 		}
@@ -727,15 +729,26 @@ func outputRosterSection(w io.Writer) {
 		}
 	}
 
-	// Show stale agents as a compact summary so agents know they exist but
-	// don't treat them as active collaborators. (bd-bstid)
+	// Show stale agents with their actual state so agents know whether they
+	// crashed, were reaped, or are just idle. (bd-bstid, bd-bs7u8)
 	if len(stale) > 0 {
-		names := make([]string, len(stale))
-		for i, a := range stale {
-			names[i] = a.Actor
+		// Partition stale into crashed vs merely idle.
+		var crashed, idle []string
+		for _, a := range stale {
+			idleStr := formatIdleDuration(a.IdleSecs)
+			entry := fmt.Sprintf("%s (idle %s)", a.Actor, idleStr)
+			if a.Reaped || a.LastEvent == "AgentCrashed" {
+				crashed = append(crashed, entry)
+			} else {
+				idle = append(idle, entry)
+			}
 		}
-		fmt.Fprintf(w, "\n_Stale (%d, idle >10m — likely disconnected): %s_\n",
-			len(stale), strings.Join(names, ", "))
+		if len(crashed) > 0 {
+			fmt.Fprintf(w, "\n_Crashed (%d): %s_\n", len(crashed), strings.Join(crashed, ", "))
+		}
+		if len(idle) > 0 {
+			fmt.Fprintf(w, "\n_Stale (%d, likely disconnected): %s_\n", len(idle), strings.Join(idle, ", "))
+		}
 	}
 
 	_, _ = fmt.Fprintln(w, "")
