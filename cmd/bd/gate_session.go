@@ -874,6 +874,104 @@ func getReadyWorkForHook(active []rpc.AgentRosterEntry) []readyWorkItem {
 	return result
 }
 
+// buildSessionActivityDiff compares the current roster against the snapshot
+// saved at session start, producing a summary of what changed during this
+// agent's session (agents joined/left, task changes). (bd-3zsda)
+func buildSessionActivityDiff(active, crashed []rpc.AgentRosterEntry) string {
+	sessionID := getSessionID()
+	if sessionID == "" {
+		return ""
+	}
+
+	wd := getWorkDir()
+	snapPath := filepath.Join(wd, ".runtime", "roster-snapshot", sessionID+".json")
+	data, err := os.ReadFile(snapPath)
+	if err != nil {
+		return "" // no snapshot — first session or file missing
+	}
+
+	type snapshotEntry struct {
+		Actor     string `json:"actor"`
+		TaskID    string `json:"task_id,omitempty"`
+		TaskTitle string `json:"task_title,omitempty"`
+	}
+	type snapshot struct {
+		Timestamp string          `json:"timestamp"`
+		Agents    []snapshotEntry `json:"agents"`
+	}
+
+	var snap snapshot
+	if err := json.Unmarshal(data, &snap); err != nil {
+		return ""
+	}
+
+	// Build lookup of agents at session start.
+	startAgents := make(map[string]snapshotEntry)
+	for _, a := range snap.Agents {
+		startAgents[a.Actor] = a
+	}
+
+	// Build lookup of current agents (active + crashed).
+	currentAgents := make(map[string]bool)
+	for _, a := range active {
+		currentAgents[a.Actor] = true
+	}
+	for _, a := range crashed {
+		currentAgents[a.Actor] = true
+	}
+
+	// Compute diffs.
+	var joined, left, taskChanged []string
+
+	// Agents that are now present but weren't at session start.
+	for _, a := range active {
+		if _, existed := startAgents[a.Actor]; !existed {
+			joined = append(joined, a.Actor)
+		}
+	}
+
+	// Agents that were present at start but are now gone or crashed.
+	for actor, startEntry := range startAgents {
+		if !currentAgents[actor] {
+			left = append(left, actor)
+			continue
+		}
+		// Check if they switched tasks.
+		for _, a := range active {
+			if a.Actor == actor && a.TaskID != startEntry.TaskID {
+				if startEntry.TaskID != "" && a.TaskID != "" {
+					taskChanged = append(taskChanged, fmt.Sprintf("%s: %s → %s", actor, startEntry.TaskID, a.TaskID))
+				} else if startEntry.TaskID == "" && a.TaskID != "" {
+					taskChanged = append(taskChanged, fmt.Sprintf("%s: picked up %s", actor, a.TaskID))
+				} else if startEntry.TaskID != "" && a.TaskID == "" {
+					taskChanged = append(taskChanged, fmt.Sprintf("%s: finished %s", actor, startEntry.TaskID))
+				}
+				break
+			}
+		}
+	}
+
+	// Only show if something interesting happened.
+	if len(joined) == 0 && len(left) == 0 && len(taskChanged) == 0 {
+		return ""
+	}
+
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("Session activity (since %s):\n", snap.Timestamp[:16]))
+	if len(joined) > 0 {
+		sb.WriteString(fmt.Sprintf("  Joined: %s\n", strings.Join(joined, ", ")))
+	}
+	if len(left) > 0 {
+		sb.WriteString(fmt.Sprintf("  Left: %s\n", strings.Join(left, ", ")))
+	}
+	if len(taskChanged) > 0 {
+		for _, tc := range taskChanged {
+			sb.WriteString(fmt.Sprintf("  %s\n", tc))
+		}
+	}
+	return sb.String()
+}
+
 // formatGateResults formats gate results as a human-readable string.
 func formatGateResults(results []gate.GateResult) string {
 	var parts []string
