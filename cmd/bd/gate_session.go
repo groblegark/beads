@@ -674,8 +674,9 @@ func loadGatePromptFromConfig() string {
 }
 
 // buildRosterSummaryForHook generates a compact roster summary for injection
-// into hook prompts. Includes active agents with tasks, crashed agents with
-// orphaned work, and uncovered epics. (bd-b7b60)
+// into hook prompts. Includes active agents with tasks, idle agents available
+// for handoff, crashed agents with orphaned work, and unclaimed ready work.
+// (bd-b7b60, bd-mj1pu)
 func buildRosterSummaryForHook(self string) string {
 	if daemonClient == nil {
 		return "(roster unavailable)"
@@ -692,7 +693,8 @@ func buildRosterSummaryForHook(self string) string {
 
 	// Partition agents.
 	const staleThresholdSecs = 600
-	var active, crashed []rpc.AgentRosterEntry
+	const idleHandoffSecs = 300 // 5 min — idle enough to accept a handoff
+	var active, idle, crashed []rpc.AgentRosterEntry
 	for _, a := range result.Actors {
 		if a.Reaped || a.LastEvent == "AgentCrashed" {
 			crashed = append(crashed, a)
@@ -703,6 +705,8 @@ func buildRosterSummaryForHook(self string) string {
 		}
 		if a.IdleSecs > staleThresholdSecs {
 			crashed = append(crashed, a) // treat stale as crashed
+		} else if a.IdleSecs >= idleHandoffSecs && a.TaskID == "" {
+			idle = append(idle, a) // idle and available for handoff
 		} else {
 			active = append(active, a)
 		}
@@ -721,6 +725,15 @@ func buildRosterSummaryForHook(self string) string {
 		} else {
 			sb.WriteString(fmt.Sprintf("  %s%s → no task (idle %s)\n",
 				a.Actor, youTag, formatIdleDuration(a.IdleSecs)))
+		}
+	}
+
+	// Idle agents available for handoff.
+	if len(idle) > 0 {
+		sb.WriteString(fmt.Sprintf("Idle agents (available for handoff): %d\n", len(idle)))
+		for _, a := range idle {
+			sb.WriteString(fmt.Sprintf("  %s → idle %s, no task\n",
+				a.Actor, formatIdleDuration(a.IdleSecs)))
 		}
 	}
 
@@ -743,7 +756,73 @@ func buildRosterSummaryForHook(self string) string {
 		}
 	}
 
+	// Ready work — unclaimed tasks not being worked by any active agent.
+	readyWork := getReadyWorkForHook(active)
+	if len(readyWork) > 0 {
+		sb.WriteString(fmt.Sprintf("Unclaimed ready work: %d\n", len(readyWork)))
+		for _, rw := range readyWork {
+			sb.WriteString(fmt.Sprintf("  %s [P%d]: %s\n", rw.id, rw.priority, rw.title))
+		}
+	}
+
 	return sb.String()
+}
+
+// readyWorkItem is a compact representation of a ready issue for hook summaries.
+type readyWorkItem struct {
+	id       string
+	title    string
+	priority int
+}
+
+// getReadyWorkForHook fetches unclaimed ready work, filtering out tasks
+// already in progress by active agents. Returns at most 8 items.
+func getReadyWorkForHook(active []rpc.AgentRosterEntry) []readyWorkItem {
+	if daemonClient == nil {
+		return nil
+	}
+
+	// Build a set of task IDs currently being worked on.
+	claimed := make(map[string]bool)
+	for _, a := range active {
+		if a.TaskID != "" {
+			claimed[a.TaskID] = true
+		}
+	}
+
+	resp, err := daemonClient.Ready(&rpc.ReadyArgs{
+		Limit:      20, // fetch extra to filter out claimed
+		SortPolicy: "priority",
+	})
+	if err != nil || resp == nil || resp.Data == nil {
+		return nil
+	}
+
+	var issues []*types.IssueWithCounts
+	if err := json.Unmarshal(resp.Data, &issues); err != nil {
+		return nil
+	}
+
+	var result []readyWorkItem
+	for _, iwc := range issues {
+		if claimed[iwc.Issue.ID] {
+			continue
+		}
+		// Skip epics and internal types — focus on actionable work.
+		if iwc.Issue.IssueType == "epic" || iwc.Issue.IssueType == "config" ||
+			iwc.Issue.IssueType == "advice" || iwc.Issue.IssueType == "gate" {
+			continue
+		}
+		result = append(result, readyWorkItem{
+			id:       iwc.Issue.ID,
+			title:    iwc.Issue.Title,
+			priority: iwc.Issue.Priority,
+		})
+		if len(result) >= 8 {
+			break
+		}
+	}
+	return result
 }
 
 // formatGateResults formats gate results as a human-readable string.
