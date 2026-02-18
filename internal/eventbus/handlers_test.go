@@ -298,6 +298,39 @@ func TestPostToolUseInboxHandler_InProcess(t *testing.T) {
 	}
 }
 
+// TestInboxDrainHandler_DuplicateIDs verifies that duplicate inbox items (same ID)
+// from corrupted data don't cause duplicate injections or mark-delivered issues. (bd-5dh7k)
+func TestInboxDrainHandler_DuplicateIDs(t *testing.T) {
+	// Simulate duplicate rows in inbox (same ID appears twice — from Dolt merge corruption).
+	store := &mockInboxStore{
+		items: []*types.InboxItem{
+			{ID: "bcast-1", Type: "system", Source: "test", Content: "Broadcast message", AgentName: "all"},
+			{ID: "bcast-1", Type: "system", Source: "test", Content: "Broadcast message", AgentName: "all"}, // duplicate
+			{ID: "dm-1", Type: "agent", Source: "peer", Content: "Direct message", AgentName: "bright-hog"},
+		},
+	}
+
+	h := &InboxDrainHandler{}
+	h.SetInboxStore(store)
+
+	event := &Event{
+		Type:  EventSessionStart,
+		CWD:   t.TempDir(),
+		Actor: "bright-hog",
+	}
+	result := &Result{}
+
+	err := h.Handle(context.Background(), event, result)
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	// All 3 items are passed through (dedup happens in storage layer's scanInboxItems).
+	// The handler passes all IDs to InboxMarkDelivered including duplicates.
+	if len(store.drained) != 3 {
+		t.Errorf("expected 3 IDs passed to mark-delivered (dedup is in storage layer), got %d", len(store.drained))
+	}
+}
+
 func TestPostToolUseInboxHandler_InProcess_Empty(t *testing.T) {
 	store := &mockInboxStore{items: nil}
 

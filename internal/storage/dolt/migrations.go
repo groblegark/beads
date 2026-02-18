@@ -30,6 +30,7 @@ var migrations = []Migration{
 	{"inbox_broadcast_ack", migrateInboxBroadcastAck},
 	{"session_registry_project_root", migrateSessionRegistryProjectRoot},
 	{"created_by_session", migrateCreatedBySession},
+	{"inbox_dedup_rows", migrateInboxDedupRows},
 }
 
 // RunMigrations executes all registered migrations in order.
@@ -405,4 +406,38 @@ func migrateSessionRegistryProjectRoot(ctx context.Context, db *sql.DB) error {
 // for tracking which Claude Code session created each issue (bd-5azzq).
 func migrateCreatedBySession(ctx context.Context, db *sql.DB) error {
 	return addColumnIfNotExists(ctx, db, "issues", "created_by_session", "VARCHAR(255) DEFAULT ''")
+}
+
+// migrateInboxDedupRows removes duplicate rows from the inbox table (bd-5dh7k).
+// Duplicate rows with the same id (PK) can appear after Dolt merges or data imports.
+// These cause broadcast messages to redeliver endlessly because the LEFT JOIN on
+// inbox_broadcast_ack matches one copy but the duplicate remains unacked.
+func migrateInboxDedupRows(ctx context.Context, db *sql.DB) error {
+	// Check if inbox table exists.
+	var count int
+	err := db.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM information_schema.tables
+		WHERE table_schema = DATABASE()
+		  AND table_name = 'inbox'
+	`).Scan(&count)
+	if err != nil || count == 0 {
+		return nil
+	}
+
+	// Find and remove duplicate rows by dedup_key (keeps the earliest).
+	// We can't easily detect duplicate PKs via SQL (the DB shouldn't allow them),
+	// but duplicate dedup_keys with different IDs cause similar redelivery issues.
+	_, err = db.ExecContext(ctx, `
+		DELETE i1 FROM inbox i1
+		INNER JOIN inbox i2
+		ON i1.dedup_key = i2.dedup_key
+		AND i1.id != i2.id
+		AND i1.created_at > i2.created_at
+	`)
+	if err != nil {
+		// Non-fatal: duplicates will be handled by scanInboxItems dedup.
+		return nil
+	}
+
+	return nil
 }

@@ -109,6 +109,18 @@ func (s *DoltStore) InboxMarkDelivered(ctx context.Context, agentName string, id
 		return nil
 	}
 
+	// Deduplicate IDs to avoid redundant work when drain returns
+	// duplicate rows from corrupted inbox data. (bd-5dh7k)
+	seen := make(map[string]bool, len(ids))
+	unique := make([]string, 0, len(ids))
+	for _, id := range ids {
+		if !seen[id] {
+			seen[id] = true
+			unique = append(unique, id)
+		}
+	}
+	ids = unique
+
 	now := time.Now().UTC()
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -144,8 +156,11 @@ func (s *DoltStore) InboxMarkDelivered(ctx context.Context, agentName string, id
 }
 
 // scanInboxItems scans rows into InboxItem structs.
+// Deduplicates by ID to handle edge cases where the inbox table contains
+// duplicate rows (e.g., from data import or Dolt merge). (bd-5dh7k)
 func scanInboxItems(rows *sql.Rows) ([]*types.InboxItem, error) {
 	var items []*types.InboxItem
+	seen := make(map[string]bool)
 	for rows.Next() {
 		item := &types.InboxItem{}
 		var deliveredAt, expiresAt sql.NullTime
@@ -159,6 +174,14 @@ func scanInboxItems(rows *sql.Rows) ([]*types.InboxItem, error) {
 		if err != nil {
 			return nil, fmt.Errorf("scan inbox item: %w", err)
 		}
+
+		// Skip duplicate IDs — the inbox table may contain duplicates from
+		// data imports or Dolt merges. Without dedup, the same broadcast
+		// redelivers endlessly because the ack only matches one copy. (bd-5dh7k)
+		if seen[item.ID] {
+			continue
+		}
+		seen[item.ID] = true
 
 		if rig.Valid {
 			item.Rig = rig.String
