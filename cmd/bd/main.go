@@ -276,6 +276,9 @@ var rootCmd = &cobra.Command{
 		_ = cmd.Help()
 	},
 	PersistentPreRun: func(cmd *cobra.Command, args []string) {
+		// Sync client version so RPC requests include the correct version
+		rpc.ClientVersion = Version
+
 		// Initialize CommandContext to hold runtime state (replaces scattered globals)
 		initCommandContext()
 
@@ -618,14 +621,12 @@ var rootCmd = &cobra.Command{
 				// Perform health check
 				health, healthErr := client.Health()
 				if healthErr == nil && health.Status == statusHealthy {
-					// Check version compatibility
+					// Check version compatibility (advisory only — warn but don't block)
 					if !health.Compatible {
-						debug.Logf("daemon version mismatch (daemon: %s, client: %s), restarting daemon",
+						debug.Logf("daemon version advisory: daemon=%s, client=%s (proceeding anyway)",
 							health.Version, Version)
-						_ = client.Close()
-
-						// Kill old daemon and restart with new version
-						if restartDaemonForVersionMismatch() {
+						// Only attempt restart for LOCAL daemons with genuine version mismatch
+						if rpc.GetDaemonHost() == "" && health.Version != Version && restartDaemonForVersionMismatch() {
 							// Retry connection after restart
 							client, err = rpc.TryConnectAuto(socketPath)
 							if err == nil && client != nil {
@@ -657,11 +658,11 @@ var rootCmd = &cobra.Command{
 								}
 							}
 						}
-						// If restart failed, fall through to direct mode
-						daemonStatus.Detail = fmt.Sprintf("version mismatch (daemon: %s, client: %s) and restart failed",
-							health.Version, Version)
-					} else {
-						// Daemon is healthy and compatible - use it
+						// If restart didn't happen or failed, use daemon anyway (version check is advisory)
+						debug.Logf("using daemon despite version advisory (daemon=%s, client=%s)", health.Version, Version)
+					}
+					{
+						// Daemon is healthy - use it (version compatibility is advisory)
 						client.SetActor(actor)
 						daemonClient = client
 						daemonStatus.Mode = cmdDaemon

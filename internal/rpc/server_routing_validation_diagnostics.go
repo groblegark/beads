@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/steveyegge/beads/internal/debug"
 	"github.com/steveyegge/beads/internal/types"
 	"golang.org/x/mod/semver"
 )
@@ -147,14 +148,13 @@ func (s *Server) handleRequest(req *Request) Response {
 		}
 	}
 
-	// Check version compatibility (skip for ping/health to allow version checks)
+	// Check version compatibility (advisory only — log but don't block)
+	// Version gating was too aggressive and broke CalVer transitions. The daemon
+	// should serve requests from any client version; schema migrations handle compat.
 	if req.Operation != OpPing && req.Operation != OpHealth {
 		if err := s.checkVersionCompatibility(req.ClientVersion); err != nil {
-			s.metrics.RecordError(req.Operation)
-			return Response{
-				Success: false,
-				Error:   err.Error(),
-			}
+			debug.Logf("version-compat: advisory mismatch for %s: %v (client=%s, server=%s)",
+				req.Operation, err, req.ClientVersion, ServerVersion)
 		}
 	}
 
