@@ -4403,11 +4403,19 @@ func (s *Server) handleDecisionCancel(req *Request) Response {
 		}
 	}
 
-	// Check if already responded
+	// Already responded — no-op (idempotent cancel)
 	if dp.RespondedAt != nil {
+		result := DecisionCancelResult{
+			IssueID:    args.IssueID,
+			CanceledAt: dp.RespondedAt.Format(time.RFC3339),
+			Reason:     "already responded",
+			CanceledBy: args.CanceledBy,
+			Prompt:     dp.Prompt,
+		}
+		data, _ := json.Marshal(result)
 		return Response{
-			Success: false,
-			Error:   fmt.Sprintf("decision %s already responded", args.IssueID),
+			Success: true,
+			Data:    data,
 		}
 	}
 

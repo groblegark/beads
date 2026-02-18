@@ -14,8 +14,8 @@ import (
 
 func TestDefaultHandlers(t *testing.T) {
 	handlers := DefaultHandlers()
-	if len(handlers) != 14 {
-		t.Fatalf("expected 14 default handlers, got %d", len(handlers))
+	if len(handlers) != 15 {
+		t.Fatalf("expected 15 default handlers, got %d", len(handlers))
 	}
 
 	// Verify IDs
@@ -65,6 +65,9 @@ func TestDefaultHandlers(t *testing.T) {
 	}
 	if !ids["advice-hooks"] {
 		t.Error("missing advice-hooks handler")
+	}
+	if !ids["subagent-identity"] {
+		t.Error("missing subagent-identity handler")
 	}
 	if !ids["done-wait"] {
 		t.Error("missing done-wait handler")
@@ -257,7 +260,7 @@ func TestPostToolUseInboxHandler_InProcess(t *testing.T) {
 	store := &mockInboxStore{
 		items: []*types.InboxItem{
 			{ID: "1", Type: "alert", Priority: 0, Content: "Critical alert"},
-			{ID: "2", Type: "event", Priority: 2, Content: "Normal event"}, // P2 should be filtered
+			{ID: "2", Type: "event", Priority: 2, Content: "Normal event"},
 			{ID: "3", Type: "alert", Priority: 1, Content: "High priority"},
 		},
 	}
@@ -279,19 +282,19 @@ func TestPostToolUseInboxHandler_InProcess(t *testing.T) {
 	if len(result.Inject) != 1 {
 		t.Fatalf("expected 1 inject entry, got %d", len(result.Inject))
 	}
-	// Should only have P0 and P1 items (IDs 1 and 3).
+	// All priorities should be drained (bd-ut3r3).
 	if !strings.Contains(result.Inject[0], "Critical alert") {
 		t.Errorf("expected 'Critical alert' in inject, got: %q", result.Inject[0])
 	}
 	if !strings.Contains(result.Inject[0], "High priority") {
 		t.Errorf("expected 'High priority' in inject, got: %q", result.Inject[0])
 	}
-	if strings.Contains(result.Inject[0], "Normal event") {
-		t.Errorf("should NOT contain 'Normal event' (P2), but got: %q", result.Inject[0])
+	if !strings.Contains(result.Inject[0], "Normal event") {
+		t.Errorf("expected 'Normal event' (P2) in inject after bd-ut3r3, got: %q", result.Inject[0])
 	}
-	// Only P0+P1 items should be marked delivered.
-	if len(store.drained) != 2 {
-		t.Errorf("expected 2 items marked delivered, got %d", len(store.drained))
+	// All 3 items should be marked delivered.
+	if len(store.drained) != 3 {
+		t.Errorf("expected 3 items marked delivered, got %d", len(store.drained))
 	}
 }
 
@@ -353,8 +356,8 @@ func TestBusWithDefaultHandlers(t *testing.T) {
 		bus.Register(h)
 	}
 
-	if len(bus.Handlers()) != 14 {
-		t.Errorf("expected 14 handlers, got %d", len(bus.Handlers()))
+	if len(bus.Handlers()) != 15 {
+		t.Errorf("expected 15 handlers, got %d", len(bus.Handlers()))
 	}
 }
 
@@ -562,6 +565,99 @@ exit 1
 	}
 }
 
+// ---------------------------------------------------------------------------
+// GateHandler pre-checked gate tests (bd-tpkw9)
+// ---------------------------------------------------------------------------
+
+func TestGateHandler_PreCheckedAllow(t *testing.T) {
+	// When gate_pre_checked=true and decision=allow, handler should not block.
+	raw := map[string]any{
+		"gate_pre_checked": true,
+		"gate_pre_check_result": map[string]any{
+			"decision": "allow",
+			"warnings": []any{"soft: commit-push unsatisfied"},
+		},
+	}
+	eventData, _ := json.Marshal(raw)
+
+	h := &GateHandler{}
+	event := &Event{
+		Type: EventStop,
+		CWD:  t.TempDir(),
+		Raw:  eventData,
+	}
+	result := &Result{}
+
+	err := h.Handle(context.Background(), event, result)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Block {
+		t.Error("expected Block=false for pre-checked allow decision")
+	}
+	if len(result.Warnings) != 1 || result.Warnings[0] != "soft: commit-push unsatisfied" {
+		t.Errorf("expected 1 warning, got: %v", result.Warnings)
+	}
+}
+
+func TestGateHandler_PreCheckedBlock(t *testing.T) {
+	// When gate_pre_checked=true and decision=block, handler should block.
+	raw := map[string]any{
+		"gate_pre_checked": true,
+		"gate_pre_check_result": map[string]any{
+			"decision": "block",
+			"reason":   "decision gate unsatisfied",
+			"warnings": []any{"decision: pending human response"},
+		},
+	}
+	eventData, _ := json.Marshal(raw)
+
+	h := &GateHandler{}
+	event := &Event{
+		Type: EventStop,
+		CWD:  t.TempDir(),
+		Raw:  eventData,
+	}
+	result := &Result{}
+
+	err := h.Handle(context.Background(), event, result)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.Block {
+		t.Error("expected Block=true for pre-checked block decision")
+	}
+	if result.Reason != "decision gate unsatisfied" {
+		t.Errorf("expected reason 'decision gate unsatisfied', got %q", result.Reason)
+	}
+	if len(result.Warnings) != 1 {
+		t.Errorf("expected 1 warning, got: %v", result.Warnings)
+	}
+}
+
+func TestGateHandler_PreCheckedNoResult(t *testing.T) {
+	// When gate_pre_checked=true but no result data, handler should pass through.
+	raw := map[string]any{
+		"gate_pre_checked": true,
+	}
+	eventData, _ := json.Marshal(raw)
+
+	h := &GateHandler{}
+	event := &Event{
+		Type: EventStop,
+		CWD:  t.TempDir(),
+		Raw:  eventData,
+	}
+	result := &Result{}
+
+	err := h.Handle(context.Background(), event, result)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Block {
+		t.Error("expected Block=false when pre-check result is missing")
+	}
+}
 
 // ---------------------------------------------------------------------------
 // envFromEvent / SubprocessEnv tests (bd-3tvyj)

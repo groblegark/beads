@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 
 	"github.com/spf13/cobra"
+	"github.com/steveyegge/beads/internal/gate"
 	"github.com/steveyegge/beads/internal/rpc"
 )
 
@@ -107,6 +108,26 @@ func runBusEmit(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	// Local gate pre-check: gate markers live on the local filesystem but the
+	// daemon may be remote (BD_DAEMON_HOST). Run the gate check locally first
+	// and inject the result into the event JSON so the remote GateHandler can
+	// skip its (doomed-to-fail) subprocess check. (bd-tpkw9)
+	if hookType != "" {
+		localGateResult := runLocalGateCheck(resolvedType, eventMeta.SessionID)
+		if localGateResult != nil {
+			var raw map[string]interface{}
+			if len(eventData) > 0 {
+				_ = json.Unmarshal(eventData, &raw)
+			}
+			if raw == nil {
+				raw = map[string]interface{}{}
+			}
+			raw["gate_pre_checked"] = true
+			raw["gate_pre_check_result"] = localGateResult
+			eventData, _ = json.Marshal(raw)
+		}
+	}
+
 	// Dispatch via daemon RPC
 	requireDaemon("bus emit")
 
@@ -141,7 +162,67 @@ func runBusEmit(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("parse emit result: %w", err)
 	}
 
+	// If the daemon blocked but the local gate pre-check said "allow",
+	// override the block. Gate markers live locally — the remote daemon's
+	// gate check can't see them, so trust the local result. (bd-tpkw9)
+	if emitResult.Block && hookType != "" {
+		localResult := runLocalGateCheck(resolvedType, eventMeta.SessionID)
+		if localResult != nil {
+			if decision, ok := localResult["decision"].(string); ok && decision == "allow" {
+				emitResult.Block = false
+				emitResult.Reason = ""
+			}
+		}
+	}
+
 	return outputEmitResult(&emitResult)
+}
+
+// runLocalGateCheck runs the gate check locally (where markers live on the
+// local filesystem) and returns the result as a map suitable for JSON injection
+// into the event. Returns nil if no local check was needed or possible.
+// This bridges the local-markers / remote-daemon gap. (bd-tpkw9)
+func runLocalGateCheck(hookType, sessionID string) map[string]interface{} {
+	ht, err := gate.ParseHookType(hookType)
+	if err != nil {
+		return nil
+	}
+
+	workDir := getWorkDir()
+	results, err := gate.CheckGatesForHook(workDir, sessionID, ht, sessionGateRegistry)
+	if err != nil || len(results) == 0 {
+		return nil
+	}
+
+	// Convert to JSON-friendly format matching gateCheckResponse.
+	decision := "allow"
+	var resultList []map[string]interface{}
+	var warnings []string
+
+	for _, r := range results {
+		entry := map[string]interface{}{
+			"gate_id":   r.GateID,
+			"hook":      string(r.Hook),
+			"satisfied": r.Satisfied,
+			"mode":      string(r.Mode),
+			"message":   r.Message,
+			"hint":      r.Hint,
+		}
+		resultList = append(resultList, entry)
+
+		if !r.Satisfied && r.Mode == gate.GateModeStrict {
+			decision = "block"
+		}
+		if !r.Satisfied {
+			warnings = append(warnings, fmt.Sprintf("%s: %s (hint: %s)", r.GateID, r.Message, r.Hint))
+		}
+	}
+
+	return map[string]interface{}{
+		"decision": decision,
+		"results":  resultList,
+		"warnings": warnings,
+	}
 }
 
 // outputEmitResult writes the emit result according to the Claude Code hook

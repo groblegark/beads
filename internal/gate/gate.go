@@ -139,6 +139,23 @@ func IsGateSatisfied(workDir, sessionID, gateID string) bool {
 	return err == nil
 }
 
+// ClearGateAllSessions removes a gate marker from ALL session directories.
+// Used to clear stale markers that would otherwise satisfy the gate via
+// the cross-session fallback in CheckGatesForHook.
+func ClearGateAllSessions(workDir, gateID string) {
+	gatesDir := filepath.Join(workDir, ".runtime", "gates")
+	entries, err := os.ReadDir(gatesDir)
+	if err != nil {
+		return
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		_ = os.Remove(filepath.Join(gatesDir, entry.Name(), gateID))
+	}
+}
+
 // IsGateSatisfiedAnySession checks whether a gate marker exists in ANY session
 // directory under .runtime/gates/. This handles Claude Code session_id rotation
 // (which occurs on compaction, continuation, or context recovery) — the marker

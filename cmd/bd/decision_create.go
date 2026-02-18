@@ -77,6 +77,12 @@ func init() {
 func runDecisionCreate(cmd *cobra.Command, args []string) {
 	CheckReadonly("decision create")
 
+	// Clear old decision gate markers so the next stop hook will block again
+	// after this decision is responded to and the agent acts on it.
+	// Without this, the permanent marker from the previous decision persists
+	// and the gate never blocks again.
+	gate.ClearGateAllSessions(getWorkDir(), "decision")
+
 	prompt, _ := cmd.Flags().GetString("prompt")
 	optionsJSON, _ := cmd.Flags().GetString("options")
 	defaultOption, _ := cmd.Flags().GetString("default")
@@ -272,7 +278,12 @@ func runDecisionCreate(cmd *cobra.Command, args []string) {
 
 	// With --no-wait, return immediately after creation (gt-lquqdp).
 	// The caller handles awaiting/notification separately.
+	// Write the "decision" gate marker so the stop hook won't re-fire
+	// while the agent waits for a response via bd done.
 	if noWait {
+		if sid := getSessionID(); sid != "" {
+			_ = gate.MarkGate(getWorkDir(), sid, "decision")
+		}
 		if jsonOutput {
 			outputJSON(map[string]interface{}{
 				"id":     decisionID,

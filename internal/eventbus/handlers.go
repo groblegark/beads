@@ -50,6 +50,17 @@ func (h *GateHandler) Handles() []EventType { return []EventType{EventStop, Even
 func (h *GateHandler) Priority() int        { return 20 }
 
 func (h *GateHandler) Handle(ctx context.Context, event *Event, result *Result) error {
+	// If the CLI already ran the gate check locally (markers live on the CLI
+	// machine, not the daemon), use that result instead. (bd-tpkw9)
+	if len(event.Raw) > 0 {
+		var raw map[string]interface{}
+		if err := json.Unmarshal(event.Raw, &raw); err == nil {
+			if preChecked, ok := raw["gate_pre_checked"].(bool); ok && preChecked {
+				return h.handlePreCheckedGate(raw, result)
+			}
+		}
+	}
+
 	hookName := string(event.Type)
 	args := []string{"gate", "session-check", "--hook", hookName, "--json"}
 	if event.SessionID != "" {
@@ -86,6 +97,34 @@ func (h *GateHandler) Handle(ctx context.Context, event *Event, result *Result) 
 			result.Warnings = append(result.Warnings, w)
 		}
 	}
+	return nil
+}
+
+// handlePreCheckedGate processes gate results that were already evaluated by the
+// CLI on the local machine. This handles the case where gate markers live locally
+// but the daemon runs remotely. The CLI injects gate_pre_checked=true and
+// gate_pre_check_result={decision, results, warnings} into the event JSON. (bd-tpkw9)
+func (h *GateHandler) handlePreCheckedGate(raw map[string]interface{}, result *Result) error {
+	preResult, ok := raw["gate_pre_check_result"].(map[string]interface{})
+	if !ok {
+		return nil // No result data — pass through
+	}
+
+	if decision, ok := preResult["decision"].(string); ok && decision == "block" {
+		result.Block = true
+		if reason, ok := preResult["reason"].(string); ok {
+			result.Reason = reason
+		}
+	}
+
+	if warnings, ok := preResult["warnings"].([]interface{}); ok {
+		for _, w := range warnings {
+			if ws, ok := w.(string); ok {
+				result.Warnings = append(result.Warnings, ws)
+			}
+		}
+	}
+
 	return nil
 }
 
@@ -160,13 +199,13 @@ func (h *InboxDrainHandler) handleInProcess(ctx context.Context, event *Event, r
 	return nil
 }
 
-// PostToolUseInboxHandler drains urgent (P0/P1) inbox items after each tool use.
+// PostToolUseInboxHandler drains inbox items after each tool use.
 // Priority 30 (same level as InboxDrainHandler — runs on PostToolUse only).
 //
-// This enables near-real-time message injection: critical alerts and high-priority
-// notifications reach the agent between tool calls, not just at session boundaries.
-// The handler is intentionally lightweight — it only checks for urgent items to
-// minimize latency impact on the agent's tool execution loop.
+// This enables near-real-time message injection: notifications reach the agent
+// between tool calls, not just at session boundaries. Drains all priorities
+// so that inter-agent mail (typically P2) flows without waiting for
+// SessionStart/PreCompact/Stop. (bd-ut3r3)
 //
 // When store is set (via SetInboxStore), drains in-process — no subprocess.
 // Falls back to subprocess when store is nil (backward compat). (bd-f33nh)
@@ -185,8 +224,8 @@ func (h *PostToolUseInboxHandler) Handle(ctx context.Context, event *Event, resu
 	if h.store != nil && event.Actor != "" {
 		return h.handleInProcess(ctx, event, result)
 	}
-	// Fallback: subprocess.
-	stdout, _, err := runBDCommandWithEnv(ctx, event.CWD, envFromEvent(event), "inbox", "drain", "--urgent", "--json")
+	// Fallback: subprocess — drain all priorities (no --urgent flag). (bd-ut3r3)
+	stdout, _, err := runBDCommandWithEnv(ctx, event.CWD, envFromEvent(event), "inbox", "drain", "--json")
 	if err != nil {
 		return fmt.Errorf("post-tool-inbox: %w", err)
 	}
@@ -197,7 +236,7 @@ func (h *PostToolUseInboxHandler) Handle(ctx context.Context, event *Event, resu
 }
 
 func (h *PostToolUseInboxHandler) handleInProcess(ctx context.Context, event *Event, result *Result) error {
-	items, err := h.store.InboxDrain(ctx, event.Actor, 1) // maxPriority=1 → P0+P1 only
+	items, err := h.store.InboxDrain(ctx, event.Actor) // all priorities (bd-ut3r3)
 	if err != nil {
 		return fmt.Errorf("post-tool-inbox: %w", err)
 	}
