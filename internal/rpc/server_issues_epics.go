@@ -1177,6 +1177,38 @@ func (s *Server) handleUpdate(req *Request) Response {
 		})
 	}
 
+	// Emit agent lifecycle event when agent_state or last_activity is updated
+	// on an agent bead — makes gastown agents visible in the PresenceTracker roster.
+	if updatedIssue != nil && (updateArgs.AgentState != nil || (updateArgs.LastActivity != nil && *updateArgs.LastActivity)) {
+		labels, _ := store.GetLabels(ctx, updatedIssue.ID)
+		isAgent := false
+		for _, l := range labels {
+			if l == "gt:agent" {
+				isAgent = true
+				break
+			}
+		}
+		if isAgent {
+			agentEvt := eventbus.EventAgentHeartbeat
+			if updateArgs.AgentState != nil {
+				switch *updateArgs.AgentState {
+				case "stopped", "stopping":
+					agentEvt = eventbus.EventAgentStopped
+				case "dead":
+					agentEvt = eventbus.EventAgentCrashed
+				case "spawning":
+					agentEvt = eventbus.EventAgentStarted
+				}
+			}
+			s.emitAgentEvent(agentEvt, eventbus.AgentEventPayload{
+				AgentID:   updatedIssue.ID,
+				AgentName: updatedIssue.ID,
+				RigName:   updatedIssue.Rig,
+				Role:      updatedIssue.RoleType,
+			})
+		}
+	}
+
 	data, _ := json.Marshal(updatedIssue)
 	return Response{
 		Success: true,

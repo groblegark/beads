@@ -337,6 +337,37 @@ func (s *Server) emitOjEvent(eventType eventbus.EventType, payload interface{}) 
 	}
 }
 
+// emitAgentEvent dispatches an agent lifecycle event to the event bus (and NATS
+// JetStream) so the PresenceTracker picks up gastown agents and other agents
+// that update state via bd agent state/heartbeat. No-op if the bus is nil.
+func (s *Server) emitAgentEvent(eventType eventbus.EventType, payload eventbus.AgentEventPayload) {
+	s.mu.RLock()
+	bus := s.bus
+	s.mu.RUnlock()
+
+	if bus == nil {
+		return
+	}
+
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "emitAgentEvent: marshal failed: %v\n", err)
+		return
+	}
+
+	event := &eventbus.Event{
+		Type: eventType,
+		Raw:  raw,
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), s.requestTimeout)
+	defer cancel()
+
+	if _, err := bus.Dispatch(ctx, event); err != nil {
+		fmt.Fprintf(os.Stderr, "emitAgentEvent: dispatch %s failed: %v\n", eventType, err)
+	}
+}
+
 // emitMailEvent dispatches a mail event to the event bus (and NATS JetStream)
 // so that agents receive instant mail notifications. No-op if the bus is nil. (bd-h59f)
 func (s *Server) emitMailEvent(eventType eventbus.EventType, payload eventbus.MailEventPayload) {

@@ -70,6 +70,17 @@ func (s *Server) handleAgentPodRegister(req *Request) Response {
 		SessionID: args.ScreenSession,
 	})
 
+	// Emit agent lifecycle event so PresenceTracker roster picks up the agent.
+	if agentIssue, _ := store.GetIssue(ctx, args.AgentID); agentIssue != nil {
+		s.emitAgentEvent(eventbus.EventAgentStarted, eventbus.AgentEventPayload{
+			AgentID:   args.AgentID,
+			AgentName: args.AgentID,
+			RigName:   agentIssue.Rig,
+			Role:      agentIssue.RoleType,
+			SessionID: args.ScreenSession,
+		})
+	}
+
 	result := AgentPodRegisterResult{
 		AgentID:   args.AgentID,
 		PodName:   args.PodName,

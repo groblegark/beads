@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/steveyegge/beads/internal/coop"
+	"github.com/steveyegge/beads/internal/eventbus"
 	"github.com/steveyegge/beads/internal/types"
 )
 
@@ -64,6 +65,15 @@ func (s *Server) handleAgentStop(req *Request) Response {
 	} else {
 		s.emitRichMutation(MutationEvent{Type: MutationUpdate, IssueID: args.AgentID, Actor: req.Actor})
 	}
+
+	// Emit agent lifecycle event so PresenceTracker roster reflects the stop.
+	s.emitAgentEvent(eventbus.EventAgentStopped, eventbus.AgentEventPayload{
+		AgentID:   args.AgentID,
+		AgentName: args.AgentID,
+		RigName:   issue.Rig,
+		Role:      issue.RoleType,
+		Reason:    "agent stop requested",
+	})
 
 	// Optionally send SIGTERM to the coop sidecar.
 	coopSignaled := false
@@ -144,6 +154,15 @@ func (s *Server) handleAgentRestart(req *Request) Response {
 	} else {
 		s.emitRichMutation(MutationEvent{Type: MutationUpdate, IssueID: args.AgentID, Actor: req.Actor})
 	}
+
+	// Emit agent lifecycle event so PresenceTracker roster reflects the restart.
+	s.emitAgentEvent(eventbus.EventAgentStarted, eventbus.AgentEventPayload{
+		AgentID:   args.AgentID,
+		AgentName: args.AgentID,
+		RigName:   issue.Rig,
+		Role:      issue.RoleType,
+		Reason:    "agent restart requested",
+	})
 
 	result := AgentRestartResult{
 		AgentID:    args.AgentID,
