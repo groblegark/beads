@@ -114,6 +114,12 @@ func (m *mockStorage) GetEpicsEligibleForClosure(ctx context.Context) ([]*types.
 func (m *mockStorage) GetEpicProgress(ctx context.Context, epicIDs []string) (map[string]*types.EpicProgress, error) {
 	return nil, nil
 }
+func (m *mockStorage) GetEpicOverview(ctx context.Context) ([]*types.EpicOverview, error) {
+	return nil, nil
+}
+func (m *mockStorage) GetOrphanedChildren(ctx context.Context) ([]*types.OrphanedChild, error) {
+	return nil, nil
+}
 func (m *mockStorage) GetStaleIssues(ctx context.Context, filter types.StaleFilter) ([]*types.Issue, error) {
 	return nil, nil
 }

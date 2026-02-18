@@ -282,6 +282,10 @@ func (s *Server) executeOperation(req *Request) Response {
 		resp = s.handleImport(req)
 	case OpEpicStatus:
 		resp = s.handleEpicStatus(req)
+	case OpEpicOverview:
+		resp = s.handleEpicOverview(req)
+	case OpEpicOrphanedChildren:
+		resp = s.handleEpicOrphanedChildren(req)
 	case OpGetMutations:
 		resp = s.handleGetMutations(req)
 	case OpGetMoleculeProgress:

@@ -659,6 +659,195 @@ func (s *DoltStore) GetEpicProgress(ctx context.Context, epicIDs []string) (map[
 	return result, rows.Err()
 }
 
+// GetEpicOverview returns all open epics with their children, assignees, and blockers.
+// Each epic includes a full list of child issues (via parent-child dependencies) with
+// any blocking dependency IDs for each child.
+func (s *DoltStore) GetEpicOverview(ctx context.Context) ([]*types.EpicOverview, error) {
+	// Step 1: Get all open epics that have children (reuse the existing query pattern)
+	epicRows, err := s.queryContext(ctx, `
+		SELECT sub.id, sub.total_children, sub.closed_children
+		FROM (
+			SELECT e.id,
+			       (SELECT COUNT(*) FROM dependencies d JOIN issues c ON d.issue_id = c.id
+			        WHERE d.depends_on_id = e.id AND d.type = 'parent-child') as total_children,
+			       (SELECT COUNT(*) FROM dependencies d JOIN issues c ON d.issue_id = c.id
+			        WHERE d.depends_on_id = e.id AND d.type = 'parent-child' AND c.status = 'closed') as closed_children
+			FROM issues e
+			WHERE e.issue_type = 'epic'
+			  AND e.status != 'closed'
+			  AND e.status != 'tombstone'
+		) sub
+		WHERE sub.total_children > 0
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("GetEpicOverview: failed to query epics: %w", err)
+	}
+
+	type epicInfo struct {
+		id     string
+		total  int
+		closed int
+	}
+	var epics []epicInfo
+	for epicRows.Next() {
+		var e epicInfo
+		if err := epicRows.Scan(&e.id, &e.total, &e.closed); err != nil {
+			epicRows.Close()
+			return nil, err
+		}
+		epics = append(epics, e)
+	}
+	epicRows.Close()
+	if err := epicRows.Err(); err != nil {
+		return nil, err
+	}
+
+	if len(epics) == 0 {
+		return nil, nil
+	}
+
+	// Step 2: For each epic, fetch the epic issue and its children
+	var results []*types.EpicOverview
+	for _, e := range epics {
+		epicIssue, err := s.GetIssue(ctx, e.id)
+		if err != nil || epicIssue == nil {
+			continue
+		}
+
+		// Get children via parent-child dependencies
+		childQuery := fmt.Sprintf(`
+			SELECT %s FROM issues i
+			JOIN dependencies d ON i.id = d.issue_id
+			WHERE d.depends_on_id = ? AND d.type = 'parent-child'
+			ORDER BY i.priority ASC, i.created_at DESC
+		`, prefixColumns("i.", issueColumns))
+
+		childRows, err := s.queryContext(ctx, childQuery, e.id)
+		if err != nil {
+			return nil, fmt.Errorf("GetEpicOverview: failed to query children for %s: %w", e.id, err)
+		}
+
+		var children []types.EpicOverviewChild
+		var childIDs []string
+		for childRows.Next() {
+			issue, err := scanIssueRow(childRows)
+			if err != nil {
+				childRows.Close()
+				return nil, err
+			}
+			children = append(children, types.EpicOverviewChild{Issue: *issue})
+			childIDs = append(childIDs, issue.ID)
+		}
+		childRows.Close()
+		if err := childRows.Err(); err != nil {
+			return nil, err
+		}
+
+		// Step 3: Batch-fetch blockers for all children
+		if len(childIDs) > 0 {
+			blockerMap, err := s.getBlockersForIssues(ctx, childIDs)
+			if err != nil {
+				return nil, fmt.Errorf("GetEpicOverview: failed to get blockers: %w", err)
+			}
+			for i := range children {
+				if blockers, ok := blockerMap[children[i].Issue.ID]; ok {
+					children[i].BlockedBy = blockers
+				}
+			}
+		}
+
+		results = append(results, &types.EpicOverview{
+			Epic:           epicIssue,
+			TotalChildren:  e.total,
+			ClosedChildren: e.closed,
+			Children:       children,
+		})
+	}
+
+	return results, nil
+}
+
+// getBlockersForIssues returns a map of issue ID → slice of open blocker IDs.
+// Only returns blockers that are still open (not closed/tombstone).
+func (s *DoltStore) getBlockersForIssues(ctx context.Context, issueIDs []string) (map[string][]string, error) {
+	if len(issueIDs) == 0 {
+		return nil, nil
+	}
+
+	placeholders := make([]string, len(issueIDs))
+	args := make([]interface{}, len(issueIDs))
+	for i, id := range issueIDs {
+		placeholders[i] = "?"
+		args[i] = id
+	}
+
+	//nolint:gosec // SQL uses ? placeholders; string concat is for placeholder count only
+	query := `
+		SELECT d.issue_id, d.depends_on_id
+		FROM dependencies d
+		JOIN issues i ON d.depends_on_id = i.id
+		WHERE d.issue_id IN (` + strings.Join(placeholders, ",") + `)
+		  AND d.type = 'blocks'
+		  AND i.status IN ('open', 'in_progress', 'blocked', 'deferred', 'hooked')
+	`
+
+	rows, err := s.queryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("getBlockersForIssues: %w", err)
+	}
+	defer rows.Close()
+
+	result := make(map[string][]string)
+	for rows.Next() {
+		var issueID, blockerID string
+		if err := rows.Scan(&issueID, &blockerID); err != nil {
+			return nil, err
+		}
+		result[issueID] = append(result[issueID], blockerID)
+	}
+	return result, rows.Err()
+}
+
+// GetOrphanedChildren finds issues whose parent epic is closed or missing.
+func (s *DoltStore) GetOrphanedChildren(ctx context.Context) ([]*types.OrphanedChild, error) {
+	// Find all parent-child relationships where the child is not closed
+	rows, err := s.queryContext(ctx, `
+		SELECT d.issue_id, d.depends_on_id, c.title, c.status,
+		       COALESCE(p.status, 'not_found') as parent_status
+		FROM dependencies d
+		JOIN issues c ON d.issue_id = c.id
+		LEFT JOIN issues p ON d.depends_on_id = p.id
+		WHERE d.type = 'parent-child'
+		  AND c.status != 'closed'
+		  AND c.status != 'tombstone'
+		  AND (p.id IS NULL OR p.status = 'closed')
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("GetOrphanedChildren: %w", err)
+	}
+	defer rows.Close()
+
+	var orphans []*types.OrphanedChild
+	for rows.Next() {
+		var childID, parentID, title, statusStr, parentStatus string
+		if err := rows.Scan(&childID, &parentID, &title, &statusStr, &parentStatus); err != nil {
+			return nil, err
+		}
+		reason := "parent_closed"
+		if parentStatus == "not_found" {
+			reason = "parent_not_found"
+		}
+		orphans = append(orphans, &types.OrphanedChild{
+			ID:       childID,
+			Title:    title,
+			Status:   types.Status(statusStr),
+			ParentID: parentID,
+			Reason:   reason,
+		})
+	}
+	return orphans, rows.Err()
+}
+
 // GetStaleIssues returns issues that haven't been updated recently
 func (s *DoltStore) GetStaleIssues(ctx context.Context, filter types.StaleFilter) ([]*types.Issue, error) {
 	cutoff := time.Now().UTC().AddDate(0, 0, -filter.Days)

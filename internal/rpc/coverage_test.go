@@ -297,6 +297,44 @@ func TestEpicStatus(t *testing.T) {
 	}
 }
 
+func TestEpicOverview(t *testing.T) {
+	_, client, cleanup := setupTestServer(t)
+	defer cleanup()
+	defer client.Close()
+
+	resp, err := client.EpicOverview(&EpicOverviewArgs{})
+	if err != nil {
+		t.Fatalf("EpicOverview failed: %v", err)
+	}
+	if !resp.Success {
+		t.Errorf("EpicOverview failed: %s", resp.Error)
+	}
+
+	var overviews []*types.EpicOverview
+	if err := json.Unmarshal(resp.Data, &overviews); err != nil {
+		t.Fatalf("Failed to unmarshal overview: %v", err)
+	}
+}
+
+func TestEpicOrphanedChildren(t *testing.T) {
+	_, client, cleanup := setupTestServer(t)
+	defer cleanup()
+	defer client.Close()
+
+	resp, err := client.EpicOrphanedChildren(&EpicOrphanedChildrenArgs{})
+	if err != nil {
+		t.Fatalf("EpicOrphanedChildren failed: %v", err)
+	}
+	if !resp.Success {
+		t.Errorf("EpicOrphanedChildren failed: %s", resp.Error)
+	}
+
+	var orphans []*types.OrphanedChild
+	if err := json.Unmarshal(resp.Data, &orphans); err != nil {
+		t.Fatalf("Failed to unmarshal orphans: %v", err)
+	}
+}
+
 func TestGetConfig(t *testing.T) {
 	_, client, cleanup := setupTestServer(t)
 	defer cleanup()

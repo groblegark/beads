@@ -762,6 +762,16 @@ func (c *Client) EpicStatus(args *EpicStatusArgs) (*Response, error) {
 	return c.Execute(OpEpicStatus, args)
 }
 
+// EpicOverview gets all open epics with children, assignees, and blockers
+func (c *Client) EpicOverview(args *EpicOverviewArgs) (*Response, error) {
+	return c.Execute(OpEpicOverview, args)
+}
+
+// EpicOrphanedChildren finds children whose parent epic is closed or missing
+func (c *Client) EpicOrphanedChildren(args *EpicOrphanedChildrenArgs) (*Response, error) {
+	return c.Execute(OpEpicOrphanedChildren, args)
+}
+
 // Gate operations
 
 // GateCreate creates a gate via the daemon

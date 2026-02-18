@@ -1,18 +1,24 @@
 package main
+
 import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"sort"
+	"strings"
+
 	"github.com/spf13/cobra"
 	"github.com/steveyegge/beads/internal/rpc"
 	"github.com/steveyegge/beads/internal/types"
 	"github.com/steveyegge/beads/internal/ui"
 )
+
 var epicCmd = &cobra.Command{
 	Use:     "epic",
 	GroupID: "deps",
 	Short:   "Epic management commands",
 }
+
 var epicStatusCmd = &cobra.Command{
 	Use:   "status",
 	Short: "Show epic completion status",
@@ -74,6 +80,7 @@ To see only epics eligible for closure, use:
 		}
 	},
 }
+
 var closeEligibleEpicsCmd = &cobra.Command{
 	Use:   "close-eligible",
 	Short: "Close epics where all children are complete",
@@ -158,14 +165,265 @@ var closeEligibleEpicsCmd = &cobra.Command{
 		}
 	},
 }
-// OrphanedChild represents an issue whose parent is closed or missing
-type OrphanedChild struct {
-	ID       string `json:"id"`
-	Title    string `json:"title"`
-	ParentID string `json:"parent_id"`
-	Reason   string `json:"reason"` // "parent_closed" or "parent_not_found"
+
+// epicOverviewCmd shows all open epics with their children, assignees, and blockers
+var epicOverviewCmd = &cobra.Command{
+	Use:   "overview",
+	Short: "Show all open epics with children, assignees, and blockers",
+	Long: `Show a nested list of all open epics and their child issues.
+
+Each child shows its status, assignee (if any), and blockers (if blocked).
+Children are sorted by status: in_progress first, then open, blocked, closed.
+
+Examples:
+  bd epic overview                # Full overview
+  bd epic overview --hide-closed  # Hide completed children
+  bd epic overview --json         # Machine-readable output`,
+	Run: func(cmd *cobra.Command, args []string) {
+		requireDaemon("epic overview")
+		hideClosed, _ := cmd.Flags().GetBool("hide-closed")
+
+		var overviews []*types.EpicOverview
+		resp, err := daemonClient.EpicOverview(&rpc.EpicOverviewArgs{})
+		if err != nil {
+			FatalErrorRespectJSON("communicating with daemon: %v", err)
+		}
+		if !resp.Success {
+			FatalErrorRespectJSON("getting epic overview: %s", resp.Error)
+		}
+		if err := json.Unmarshal(resp.Data, &overviews); err != nil {
+			FatalErrorRespectJSON("parsing response: %v", err)
+		}
+
+		if jsonOutput {
+			enc := json.NewEncoder(os.Stdout)
+			enc.SetIndent("", "  ")
+			if err := enc.Encode(overviews); err != nil {
+				FatalErrorRespectJSON("encoding JSON: %v", err)
+			}
+			return
+		}
+
+		if len(overviews) == 0 {
+			fmt.Println("No open epics found")
+			return
+		}
+
+		for i, ov := range overviews {
+			if i > 0 {
+				fmt.Println()
+			}
+
+			// Epic header with progress
+			progress := fmt.Sprintf("[%d/%d done]", ov.ClosedChildren, ov.TotalChildren)
+			fmt.Printf("%s  %s  %s\n",
+				ui.RenderAccent(ov.Epic.ID),
+				ui.RenderBold(ov.Epic.Title),
+				ui.RenderMuted(progress))
+
+			// Sort children: in_progress, open, blocked, closed
+			children := make([]types.EpicOverviewChild, len(ov.Children))
+			copy(children, ov.Children)
+			sort.Slice(children, func(a, b int) bool {
+				return childSortOrder(children[a].Issue.Status) < childSortOrder(children[b].Issue.Status)
+			})
+
+			for _, child := range children {
+				if hideClosed && child.Issue.Status == types.StatusClosed {
+					continue
+				}
+
+				icon := childStatusIcon(child.Issue.Status)
+
+				// Build the suffix: assignee and/or blockers
+				var suffix string
+				if child.Issue.Assignee != "" {
+					suffix = fmt.Sprintf("(%s)", child.Issue.Assignee)
+				}
+				if len(child.BlockedBy) > 0 {
+					blockerStr := "blocked by: " + strings.Join(child.BlockedBy, ", ")
+					if suffix != "" {
+						suffix += "  " + blockerStr
+					} else {
+						suffix = blockerStr
+					}
+				}
+
+				if suffix != "" {
+					fmt.Printf("  %s %s  %-45s %s\n",
+						icon,
+						ui.RenderID(child.Issue.ID),
+						child.Issue.Title,
+						ui.RenderMuted(suffix))
+				} else {
+					fmt.Printf("  %s %s  %s\n",
+						icon,
+						ui.RenderID(child.Issue.ID),
+						child.Issue.Title)
+				}
+			}
+		}
+	},
 }
 
+// dashboardCmd shows a detailed dashboard for a single epic via daemon RPC
+var dashboardCmd = &cobra.Command{
+	Use:   "dashboard <epic-id>",
+	Short: "Show epic dashboard with progress visualization",
+	Long: `Display a visual dashboard for an epic showing progress, children status, and summary.
+
+Example:
+  bd epic dashboard bd-yb1az
+
+Shows:
+  - Progress bar with percentage
+  - List of children with status, assignee, and blockers
+  - Summary counts (blocked, ready, complete)`,
+	Args: cobra.ExactArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		requireDaemon("epic dashboard")
+		epicID := args[0]
+
+		// Get overview data for all epics, then find the one we want
+		var overviews []*types.EpicOverview
+		resp, err := daemonClient.EpicOverview(&rpc.EpicOverviewArgs{})
+		if err != nil {
+			FatalErrorRespectJSON("communicating with daemon: %v", err)
+		}
+		if !resp.Success {
+			FatalErrorRespectJSON("getting epic overview: %s", resp.Error)
+		}
+		if err := json.Unmarshal(resp.Data, &overviews); err != nil {
+			FatalErrorRespectJSON("parsing response: %v", err)
+		}
+
+		// Find matching epic (support partial ID)
+		var ov *types.EpicOverview
+		for _, o := range overviews {
+			if o.Epic.ID == epicID || strings.HasPrefix(o.Epic.ID, epicID) {
+				ov = o
+				break
+			}
+		}
+		if ov == nil {
+			FatalErrorRespectJSON("epic not found: %s", epicID)
+		}
+
+		epic := ov.Epic
+		total := ov.TotalChildren
+		complete := ov.ClosedChildren
+		percentage := 0
+		if total > 0 {
+			percentage = (complete * 100) / total
+		}
+
+		// Count statuses from children
+		var inProgress, blocked, open int
+		for _, child := range ov.Children {
+			switch child.Issue.Status {
+			case types.StatusInProgress:
+				inProgress++
+			case types.StatusBlocked:
+				blocked++
+			case types.StatusClosed:
+				// already counted
+			default:
+				open++
+			}
+		}
+
+		if jsonOutput {
+			outputJSON(map[string]interface{}{
+				"epic":        epic,
+				"children":    ov.Children,
+				"total":       total,
+				"complete":    complete,
+				"in_progress": inProgress,
+				"blocked":     blocked,
+				"open":        open,
+				"percentage":  percentage,
+			})
+			return
+		}
+
+		// Render dashboard
+		width := 60
+		titleLine := fmt.Sprintf("Epic: %s - %s", epic.ID, epic.Title)
+		if len(titleLine) > width-4 {
+			titleLine = titleLine[:width-7] + "..."
+		}
+
+		// Box top
+		fmt.Println("╭" + repeatStr("─", width) + "╮")
+		fmt.Printf("│ %-*s │\n", width-2, titleLine)
+		fmt.Println("├" + repeatStr("─", width) + "┤")
+
+		// Progress bar
+		barWidth := width - 20
+		filledWidth := (percentage * barWidth) / 100
+		emptyWidth := barWidth - filledWidth
+		progressBar := repeatStr("█", filledWidth) + repeatStr("░", emptyWidth)
+		fmt.Printf("│ Progress: %s %3d%% (%d/%d) │\n", progressBar, percentage, complete, total)
+
+		// Status
+		fmt.Printf("│ Status: %-*s │\n", width-11, epic.Status)
+
+		// Separator
+		fmt.Println("│" + repeatStr(" ", width) + "│")
+
+		// Children
+		if len(ov.Children) > 0 {
+			fmt.Printf("│ %-*s │\n", width-2, "Children:")
+
+			// Sort children
+			children := make([]types.EpicOverviewChild, len(ov.Children))
+			copy(children, ov.Children)
+			sort.Slice(children, func(a, b int) bool {
+				return childSortOrder(children[a].Issue.Status) < childSortOrder(children[b].Issue.Status)
+			})
+
+			for _, child := range children {
+				icon := childStatusIcon(child.Issue.Status)
+
+				// Build child line with assignee
+				childLine := fmt.Sprintf("  %s %s", icon, child.Issue.ID)
+				titlePart := child.Issue.Title
+				if child.Issue.Assignee != "" {
+					titlePart += fmt.Sprintf(" (%s)", child.Issue.Assignee)
+				}
+				maxTitleLen := width - len(childLine) - 5
+				if maxTitleLen > 0 && len(titlePart) > maxTitleLen {
+					titlePart = titlePart[:maxTitleLen-3] + "..."
+				}
+				fullLine := fmt.Sprintf("%s %s", childLine, titlePart)
+				fmt.Printf("│ %-*s │\n", width-2, fullLine)
+
+				// Show blockers on next line if any
+				if len(child.BlockedBy) > 0 {
+					blockerLine := fmt.Sprintf("       blocked by: %s", strings.Join(child.BlockedBy, ", "))
+					if len(blockerLine) > width-4 {
+						blockerLine = blockerLine[:width-7] + "..."
+					}
+					fmt.Printf("│ %-*s │\n", width-2, blockerLine)
+				}
+			}
+		} else {
+			fmt.Printf("│ %-*s │\n", width-2, "(no children)")
+		}
+
+		// Separator
+		fmt.Println("│" + repeatStr(" ", width) + "│")
+
+		// Summary
+		summary := fmt.Sprintf("Blocked: %d | In Progress: %d | Open: %d | Done: %d", blocked, inProgress, open, complete)
+		fmt.Printf("│ %-*s │\n", width-2, summary)
+
+		// Box bottom
+		fmt.Println("╰" + repeatStr("─", width) + "╯")
+	},
+}
+
+// orphanedChildrenCmd finds children whose parent epic is closed or missing (via daemon RPC)
 var orphanedChildrenCmd = &cobra.Command{
 	Use:   "orphaned-children",
 	Short: "Find children whose parent epic is closed or missing",
@@ -182,65 +440,26 @@ Examples:
   bd epic orphaned-children              # Find all orphaned children
   bd epic orphaned-children --json       # Machine-readable output`,
 	Run: func(cmd *cobra.Command, args []string) {
-		ctx := rootCtx
+		requireDaemon("epic orphaned-children")
 
-		if store == nil {
-			FatalErrorRespectJSON("no database connection")
-		}
-
-		// Get all dependency records
-		allDeps, err := store.GetAllDependencyRecords(ctx)
+		var orphans []*types.OrphanedChild
+		resp, err := daemonClient.EpicOrphanedChildren(&rpc.EpicOrphanedChildrenArgs{})
 		if err != nil {
-			FatalErrorRespectJSON("getting dependencies: %v", err)
+			FatalErrorRespectJSON("communicating with daemon: %v", err)
 		}
-
-		// Build map of child -> parent from parent-child dependencies
-		childToParent := make(map[string]string)
-		for issueID, deps := range allDeps {
-			for _, dep := range deps {
-				if dep.Type == types.DepParentChild {
-					// issueID depends on dep.DependsOnID with parent-child type
-					// meaning dep.DependsOnID is the parent of issueID
-					childToParent[issueID] = dep.DependsOnID
-				}
-			}
+		if !resp.Success {
+			FatalErrorRespectJSON("getting orphaned children: %s", resp.Error)
 		}
-
-		// Check each child's parent
-		var orphans []OrphanedChild
-		for childID, parentID := range childToParent {
-			// Get child issue to include title
-			child, err := store.GetIssue(ctx, childID)
-			if err != nil || child == nil {
-				continue // Skip if child doesn't exist
-			}
-
-			// Skip closed children - they're not really orphaned
-			if child.Status == types.StatusClosed {
-				continue
-			}
-
-			// Check parent status
-			parent, err := store.GetIssue(ctx, parentID)
-			if err != nil || parent == nil {
-				orphans = append(orphans, OrphanedChild{
-					ID:       childID,
-					Title:    child.Title,
-					ParentID: parentID,
-					Reason:   "parent_not_found",
-				})
-			} else if parent.Status == types.StatusClosed {
-				orphans = append(orphans, OrphanedChild{
-					ID:       childID,
-					Title:    child.Title,
-					ParentID: parentID,
-					Reason:   "parent_closed",
-				})
-			}
+		if err := json.Unmarshal(resp.Data, &orphans); err != nil {
+			FatalErrorRespectJSON("parsing response: %v", err)
 		}
 
 		if jsonOutput {
-			outputJSON(orphans)
+			enc := json.NewEncoder(os.Stdout)
+			enc.SetIndent("", "  ")
+			if err := enc.Encode(orphans); err != nil {
+				FatalErrorRespectJSON("encoding JSON: %v", err)
+			}
 			return
 		}
 
@@ -266,150 +485,35 @@ Examples:
 	},
 }
 
-var dashboardCmd = &cobra.Command{
-	Use:   "dashboard <epic-id>",
-	Short: "Show epic dashboard with progress visualization",
-	Long: `Display a visual dashboard for an epic showing progress, children status, and summary.
+// childStatusIcon returns the display icon for a child issue status
+func childStatusIcon(status types.Status) string {
+	switch status {
+	case types.StatusClosed:
+		return ui.RenderPass("✓")
+	case types.StatusInProgress:
+		return ui.RenderWarn("◐")
+	case types.StatusBlocked:
+		return ui.RenderFail("⊘")
+	default:
+		return "○"
+	}
+}
 
-Example:
-  bd epic dashboard hq-5881b3
-
-Shows:
-  - Progress bar with percentage
-  - List of children with status
-  - Summary counts (blocked, ready, complete)`,
-	Args: cobra.ExactArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
-		ctx := rootCtx
-		epicID := args[0]
-
-		if store == nil {
-			FatalErrorRespectJSON("no database connection")
-		}
-
-		// Get epic (store.GetIssue handles partial ID resolution)
-		epic, err := store.GetIssue(ctx, epicID)
-		if err != nil {
-			FatalErrorRespectJSON("getting epic: %v", err)
-		}
-		if epic == nil {
-			FatalErrorRespectJSON("epic not found: %s", epicID)
-		}
-		epicID = epic.ID // Use resolved ID
-
-		// Get children via dependents with metadata
-		dependents, err := store.GetDependentsWithMetadata(ctx, epicID)
-		if err != nil {
-			FatalErrorRespectJSON("getting children: %v", err)
-		}
-
-		// Filter for parent-child relationships (children of this epic)
-		var children []*types.IssueWithDependencyMetadata
-		for _, dep := range dependents {
-			if dep.DependencyType == types.DepParentChild {
-				children = append(children, dep)
-			}
-		}
-
-		// Count statuses
-		var complete, inProgress, blocked, open int
-		for _, child := range children {
-			switch child.Status {
-			case types.StatusClosed:
-				complete++
-			case types.StatusInProgress:
-				inProgress++
-			case types.StatusBlocked:
-				blocked++
-			default:
-				open++
-			}
-		}
-
-		total := len(children)
-		percentage := 0
-		if total > 0 {
-			percentage = (complete * 100) / total
-		}
-
-		if jsonOutput {
-			outputJSON(map[string]interface{}{
-				"epic":        epic,
-				"children":    children,
-				"total":       total,
-				"complete":    complete,
-				"in_progress": inProgress,
-				"blocked":     blocked,
-				"open":        open,
-				"percentage":  percentage,
-			})
-			return
-		}
-
-		// Render dashboard
-		width := 50
-		titleLine := fmt.Sprintf("Epic: %s - %s", epicID, epic.Title)
-		if len(titleLine) > width-4 {
-			titleLine = titleLine[:width-7] + "..."
-		}
-
-		// Box top
-		fmt.Println("╭" + repeatStr("─", width) + "╮")
-		fmt.Printf("│ %-*s │\n", width-2, titleLine)
-		fmt.Println("├" + repeatStr("─", width) + "┤")
-
-		// Progress bar
-		barWidth := width - 20
-		filledWidth := (percentage * barWidth) / 100
-		emptyWidth := barWidth - filledWidth
-		progressBar := repeatStr("█", filledWidth) + repeatStr("░", emptyWidth)
-		fmt.Printf("│ Progress: %s %3d%% (%d/%d) │\n", progressBar, percentage, complete, total)
-
-		// Status
-		fmt.Printf("│ Status: %-*s │\n", width-11, epic.Status)
-
-		// Created date
-		fmt.Printf("│ Created: %-*s │\n", width-12, epic.CreatedAt.Format("2006-01-02"))
-
-		// Separator
-		fmt.Println("│" + repeatStr(" ", width) + "│")
-
-		// Children header
-		if len(children) > 0 {
-			fmt.Printf("│ %-*s │\n", width-2, "Children:")
-			for _, child := range children {
-				icon := "○"
-				switch child.Status {
-				case types.StatusClosed:
-					icon = "✓"
-				case types.StatusInProgress:
-					icon = "◐"
-				case types.StatusBlocked:
-					icon = "✗"
-				}
-				childLine := fmt.Sprintf("  %s %s", icon, child.ID)
-				titlePart := child.Title
-				maxTitleLen := width - len(childLine) - 5
-				if len(titlePart) > maxTitleLen {
-					titlePart = titlePart[:maxTitleLen-3] + "..."
-				}
-				fullLine := fmt.Sprintf("%s %s", childLine, titlePart)
-				fmt.Printf("│ %-*s │\n", width-2, fullLine)
-			}
-		} else {
-			fmt.Printf("│ %-*s │\n", width-2, "(no children)")
-		}
-
-		// Separator
-		fmt.Println("│" + repeatStr(" ", width) + "│")
-
-		// Summary
-		summary := fmt.Sprintf("Blocked: %d | In Progress: %d | Open: %d | Done: %d", blocked, inProgress, open, complete)
-		fmt.Printf("│ %-*s │\n", width-2, summary)
-
-		// Box bottom
-		fmt.Println("╰" + repeatStr("─", width) + "╯")
-	},
+// childSortOrder returns a sort key for child status ordering:
+// in_progress=0, open=1, blocked=2, closed=3
+func childSortOrder(status types.Status) int {
+	switch status {
+	case types.StatusInProgress:
+		return 0
+	case types.StatusOpen:
+		return 1
+	case types.StatusBlocked:
+		return 2
+	case types.StatusClosed:
+		return 3
+	default:
+		return 1
+	}
 }
 
 // repeatStr repeats a string n times
@@ -429,6 +533,8 @@ func init() {
 	epicCmd.AddCommand(closeEligibleEpicsCmd)
 	epicCmd.AddCommand(orphanedChildrenCmd)
 	epicCmd.AddCommand(dashboardCmd)
+	epicCmd.AddCommand(epicOverviewCmd)
 	closeEligibleEpicsCmd.Flags().Bool("dry-run", false, "Preview what would be closed without making changes")
+	epicOverviewCmd.Flags().Bool("hide-closed", false, "Hide completed children")
 	rootCmd.AddCommand(epicCmd)
 }

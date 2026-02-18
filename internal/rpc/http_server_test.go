@@ -366,7 +366,7 @@ func TestHTTPMappingCompleteness(t *testing.T) {
 		OpCompact, OpCompactStats, OpExport, OpImport,
 		OpSyncExport, OpSyncStatus,
 		// Epic
-		OpEpicStatus,
+		OpEpicStatus, OpEpicOverview, OpEpicOrphanedChildren,
 		// Mutations/Status
 		OpGetMutations, OpGetMoleculeProgress, OpGetWorkerStatus, OpGetConfig,
 		// Gates

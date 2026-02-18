@@ -3161,6 +3161,80 @@ func (s *Server) handleEpicStatus(req *Request) Response {
 	}
 }
 
+func (s *Server) handleEpicOverview(req *Request) Response {
+	store := s.storage
+	if store == nil {
+		return Response{
+			Success: false,
+			Error:   "storage not available",
+		}
+	}
+
+	ctx, cancel := s.reqCtx(req)
+	defer cancel()
+	overviews, err := store.GetEpicOverview(ctx)
+	if err != nil {
+		return Response{
+			Success: false,
+			Error:   fmt.Sprintf("failed to get epic overview: %v", err),
+		}
+	}
+
+	if overviews == nil {
+		overviews = []*types.EpicOverview{}
+	}
+
+	data, err := json.Marshal(overviews)
+	if err != nil {
+		return Response{
+			Success: false,
+			Error:   fmt.Sprintf("failed to marshal overview: %v", err),
+		}
+	}
+
+	return Response{
+		Success: true,
+		Data:    data,
+	}
+}
+
+func (s *Server) handleEpicOrphanedChildren(req *Request) Response {
+	store := s.storage
+	if store == nil {
+		return Response{
+			Success: false,
+			Error:   "storage not available",
+		}
+	}
+
+	ctx, cancel := s.reqCtx(req)
+	defer cancel()
+	orphans, err := store.GetOrphanedChildren(ctx)
+	if err != nil {
+		return Response{
+			Success: false,
+			Error:   fmt.Sprintf("failed to get orphaned children: %v", err),
+		}
+	}
+
+	if orphans == nil {
+		orphans = []*types.OrphanedChild{}
+	}
+
+	data, err := json.Marshal(orphans)
+	if err != nil {
+		return Response{
+			Success: false,
+			Error:   fmt.Sprintf("failed to marshal orphans: %v", err),
+		}
+	}
+
+	return Response{
+		Success: true,
+		Data:    data,
+	}
+}
+
 // handleGetConfig retrieves a config value from the database
 func (s *Server) handleGetConfig(req *Request) Response {
 	var args GetConfigArgs

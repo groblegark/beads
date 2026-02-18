@@ -43,7 +43,9 @@ const (
 	OpCompactStats    = "compact_stats"
 	OpExport          = "export"
 	OpImport          = "import"
-	OpEpicStatus      = "epic_status"
+	OpEpicStatus           = "epic_status"
+	OpEpicOverview         = "epic_overview"
+	OpEpicOrphanedChildren = "epic_orphaned_children"
 	OpGetMutations        = "get_mutations"
 	OpGetMoleculeProgress = "get_molecule_progress"
 	OpShutdown            = "shutdown"
@@ -649,6 +651,16 @@ type CommentAddArgs struct {
 // EpicStatusArgs represents arguments for the epic status operation
 type EpicStatusArgs struct {
 	EligibleOnly bool `json:"eligible_only,omitempty"`
+}
+
+// EpicOverviewArgs represents arguments for the epic overview operation
+type EpicOverviewArgs struct {
+	// No args needed — returns all open epics with children
+}
+
+// EpicOrphanedChildrenArgs represents arguments for finding orphaned children
+type EpicOrphanedChildrenArgs struct {
+	// No args needed — scans all parent-child relationships
 }
 
 // PingResponse is the response for a ping operation

@@ -1270,6 +1270,30 @@ type EpicProgress struct {
 	ClosedChildren int `json:"closed_children"`
 }
 
+// EpicOverviewChild represents a child issue within an epic overview,
+// including its blocker IDs for display purposes.
+type EpicOverviewChild struct {
+	Issue     Issue    `json:"issue"`
+	BlockedBy []string `json:"blocked_by,omitempty"`
+}
+
+// EpicOverview represents an epic with its full children list for the overview command.
+type EpicOverview struct {
+	Epic           *Issue              `json:"epic"`
+	TotalChildren  int                 `json:"total_children"`
+	ClosedChildren int                 `json:"closed_children"`
+	Children       []EpicOverviewChild `json:"children"`
+}
+
+// OrphanedChild represents an issue whose parent epic is closed or missing.
+type OrphanedChild struct {
+	ID       string `json:"id"`
+	Title    string `json:"title"`
+	Status   Status `json:"status"`
+	ParentID string `json:"parent_id"`
+	Reason   string `json:"reason"` // "parent_closed" or "parent_not_found"
+}
+
 // BondRef tracks compound molecule lineage.
 // When protos or molecules are bonded together, BondRefs record
 // which sources were combined and how they were attached.

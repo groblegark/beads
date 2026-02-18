@@ -323,7 +323,9 @@ func operationToHTTPMethod(operation string) string {
 		OpCompactStats: "CompactStats",
 
 		// Epic
-		OpEpicStatus: "EpicStatus",
+		OpEpicStatus:           "EpicStatus",
+		OpEpicOverview:         "EpicOverview",
+		OpEpicOrphanedChildren: "EpicOrphanedChildren",
 
 		// Mutations
 		OpGetMutations:        "GetMutations",
