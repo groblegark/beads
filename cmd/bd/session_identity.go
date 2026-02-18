@@ -17,12 +17,34 @@ var sessionAssignedName string
 
 // deriveSessionKey computes a session key from available signals.
 // The key must be unique per Claude Code session and stable across commands
-// within the same session. Uses (PPID, TTY, project-root).
+// within the same session.
+//
+// Priority for key derivation:
+//  1. CLAUDE_SESSION_ID — set by Claude Code, stable across all CLI calls in a session
+//  2. TERM_SESSION_ID — macOS terminal tabs, stable within a tab
+//  3. BD_ACTOR / BEADS_ACTOR / GT_ROLE + project-root — managed agents without
+//     a terminal session; uses actor identity instead of PPID to avoid creating
+//     a new session for every CLI invocation (bd-ph9r1)
+//  4. PPID + TTY + project-root — fallback for interactive terminals
 func deriveSessionKey(projectRoot string) string {
+	// Best: Claude Code session ID — explicitly stable across CLI calls
+	if claudeSession := os.Getenv("CLAUDE_SESSION_ID"); claudeSession != "" {
+		raw := fmt.Sprintf("claude:%s:%s", claudeSession, projectRoot)
+		return shortHash(raw)
+	}
+
 	// Use TERM_SESSION_ID if available (macOS terminal tabs — most stable)
 	termSessionID := os.Getenv("TERM_SESSION_ID")
 	if termSessionID != "" {
 		raw := fmt.Sprintf("term:%s:%s", termSessionID, projectRoot)
+		return shortHash(raw)
+	}
+
+	// Managed agents: use actor identity instead of PPID.
+	// Without this, every `bd` CLI call from a K8s pod gets a unique PPID,
+	// creating hundreds of orphan sessions (e.g., mayor-1 through mayor-800+).
+	if actor := getStableActorIdentity(); actor != "" {
+		raw := fmt.Sprintf("actor:%s:%s", actor, projectRoot)
 		return shortHash(raw)
 	}
 
@@ -31,6 +53,22 @@ func deriveSessionKey(projectRoot string) string {
 	tty := getTTY()
 	raw := fmt.Sprintf("%d:%s:%s", ppid, tty, projectRoot)
 	return shortHash(raw)
+}
+
+// getStableActorIdentity returns a stable agent identity from env vars,
+// or empty string if none is set. Used to derive session keys for managed
+// agents that don't have a terminal session.
+func getStableActorIdentity() string {
+	if v := os.Getenv("BD_ACTOR"); v != "" {
+		return v
+	}
+	if v := os.Getenv("BEADS_ACTOR"); v != "" {
+		return v
+	}
+	if v := os.Getenv("GT_ROLE"); v != "" {
+		return v
+	}
+	return ""
 }
 
 // getTTY returns the terminal device path, or "notty" if unavailable.
