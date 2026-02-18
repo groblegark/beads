@@ -178,10 +178,10 @@ type VersionChange struct {
 // versionChanges contains agent-actionable changes for recent versions
 var versionChanges = []VersionChange{
 	{
-		Version: "2026.02.18.0",
+		Version: "2026.0218.0",
 		Date:    "2026-02-18",
 		Changes: []string{
-			"CHANGED: Switched to CalVer versioning (YYYY.MM.DD.N) — binary versions now match image tags",
+			"CHANGED: Switched to CalVer versioning (YYYY.MMDD.N) — binary versions now match image tags",
 			"NEW: /decision slash command — toggle decision checkpoints on/off, per-agent overrides",
 			"NEW: Agent lifecycle events emitted via event bus (agent-started, agent-stopped, agent-crashed)",
 		},

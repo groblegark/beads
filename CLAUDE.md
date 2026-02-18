@@ -117,9 +117,9 @@ curl -X POST https://api.rwx.com/v1/dispatches \
 All releasing goes through gastown's `platform-versions.env` — do NOT cut separate beads or coop releases for deployment.
 - Bump versions in `~/gastown3/platform-versions.env` (BEADS_VERSION, COOP_VERSION, PLATFORM_VERSION)
 - Push to gastown main → docker.yml auto-builds CalVer-tagged images
-- Update helm chart values to reference the CalVer tag (e.g., `2026.02.16.2`)
+- Update helm chart values to reference the CalVer tag (e.g., `2026.0218.0`)
 - Deploy via `helm upgrade`
-- beads tags use CalVer (e.g., `2026.02.18.0`) — binary version now matches deployed image tags
+- beads tags use CalVer (e.g., `2026.0218.0`) — binary version now matches deployed image tags
 
 ### Our Pipelines (.rwx/)
 
@@ -131,10 +131,10 @@ All releasing goes through gastown's `platform-versions.env` — do NOT cut sepa
 | `helm.yml` | Helm chart lint only | **CalVer tags `20*` + CLI** (manual) | helm-lint |
 
 **Versioning: CalVer (all-in)**
-- All deployed images and charts use CalVer: `YYYY.MM.DD.N` (e.g., `2026.02.17.18`)
+- All deployed images and charts use CalVer: `YYYY.MMDD.N` (e.g., `2026.0218.0`) — 3-part for semver/GoReleaser compatibility
 - CalVer is driven by gastown's `platform-versions.env` — single source of truth
 - Gastown `docker.yml` publishes CalVer images (push-bd, push-agent, push-controller) and CalVer charts (helm-publish-charts)
-- Beads `release.yml` now creates GitHub releases with CalVer tags (`2026.02.18.0`) — binary versions match image tags
+- Beads `release.yml` now creates GitHub releases with CalVer tags (`2026.0218.0`) — binary versions match image tags
 - Beads repo does NOT publish images or charts to GHCR — gastown handles all of that
 - Chart version in beads `helm/bd-daemon/Chart.yaml` is the source template; gastown overrides version/appVersion to CalVer at publish time
 
