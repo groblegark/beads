@@ -836,37 +836,63 @@ func runAgentRoster(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	fmt.Printf("Live Roster (%d active, %d total tracked, uptime: %s)\n", len(result.Actors), result.Tracked, result.Uptime)
-	if result.Working > 0 || result.Idle > 0 {
-		fmt.Printf("  Working: %d  Idle: %d\n", result.Working, result.Idle)
-	}
-	fmt.Println()
+	// Partition into live vs dead actors. (bd-khlpu)
+	var liveActors, deadActors []rpc.AgentRosterEntry
 	for _, a := range result.Actors {
-		idle := formatIdleDuration(a.IdleSecs)
-		dur := formatIdleDuration(a.SessionDurationSecs)
-		rate := fmt.Sprintf("%.1f/m", a.EventsPerMin)
-		line := fmt.Sprintf("  %-20s  idle=%-8s  dur=%-8s  rate=%-7s  events=%-5d  last=%s", a.Actor, idle, dur, rate, a.EventCount, a.LastEvent)
-		if a.ToolName != "" {
-			line += fmt.Sprintf("  tool=%s", a.ToolName)
+		if a.Reaped {
+			deadActors = append(deadActors, a)
+		} else {
+			liveActors = append(liveActors, a)
 		}
-		if a.TaskID != "" {
-			title := a.TaskTitle
-			if len(title) > 40 {
-				title = title[:37] + "..."
-			}
-			line += fmt.Sprintf("\n  %20s  task=%s %s", "", a.TaskID, title)
-			if a.EpicID != "" {
-				epicTitle := a.EpicTitle
-				if len(epicTitle) > 40 {
-					epicTitle = epicTitle[:37] + "..."
-				}
-				line += fmt.Sprintf("\n  %20s  epic=%s %s", "", a.EpicID, epicTitle)
-			}
+	}
+
+	fmt.Printf("Live Roster (%d active, %d total tracked, uptime: %s)\n", len(liveActors), result.Tracked, result.Uptime)
+	summary := fmt.Sprintf("  Working: %d  Idle: %d", result.Working, result.Idle)
+	if result.Dead > 0 {
+		summary += fmt.Sprintf("  Dead: %d", result.Dead)
+	}
+	fmt.Println(summary)
+	fmt.Println()
+
+	for _, a := range liveActors {
+		printRosterEntry(a)
+	}
+
+	// Show dead agents in a separate section. (bd-khlpu)
+	if len(deadActors) > 0 {
+		fmt.Printf("\nDead (%d — no activity for 15+ min, likely disconnected):\n", len(deadActors))
+		for _, a := range deadActors {
+			printRosterEntry(a)
 		}
-		fmt.Println(line)
 	}
 
 	return nil
+}
+
+// printRosterEntry prints a single roster entry line. (bd-khlpu)
+func printRosterEntry(a rpc.AgentRosterEntry) {
+	idle := formatIdleDuration(a.IdleSecs)
+	dur := formatIdleDuration(a.SessionDurationSecs)
+	rate := fmt.Sprintf("%.1f/m", a.EventsPerMin)
+	line := fmt.Sprintf("  %-20s  idle=%-8s  dur=%-8s  rate=%-7s  events=%-5d  last=%s", a.Actor, idle, dur, rate, a.EventCount, a.LastEvent)
+	if a.ToolName != "" {
+		line += fmt.Sprintf("  tool=%s", a.ToolName)
+	}
+	if a.TaskID != "" {
+		title := a.TaskTitle
+		if len(title) > 40 {
+			title = title[:37] + "..."
+		}
+		line += fmt.Sprintf("\n  %20s  task=%s %s", "", a.TaskID, title)
+		if a.EpicID != "" {
+			epicTitle := a.EpicTitle
+			if len(epicTitle) > 40 {
+				epicTitle = epicTitle[:37] + "..."
+			}
+			line += fmt.Sprintf("\n  %20s  epic=%s %s", "", a.EpicID, epicTitle)
+		}
+	}
+	fmt.Println(line)
 }
 
 func formatIdleDuration(secs float64) string {

@@ -21,6 +21,8 @@ type PresenceEntry struct {
 	EventCount          int64     `json:"event_count"`             // total events seen
 	SessionDurationSecs float64   `json:"session_duration_secs"`   // seconds since first event (bd-4ul0v)
 	EventsPerMin        float64   `json:"events_per_min"`          // rolling event rate (bd-4ul0v)
+	Reaped              bool      `json:"reaped,omitempty"`        // true if reaper marked this actor dead (bd-khlpu)
+	ReapedAt            time.Time `json:"reaped_at,omitzero"`     // when the reaper marked this actor dead (bd-khlpu)
 }
 
 // PresenceTracker subscribes to NATS JetStream and maintains a live roster
@@ -30,6 +32,10 @@ type PresenceTracker struct {
 	actors  map[string]*actorState
 	subs    []*nats.Subscription
 	started time.Time
+
+	// Reaper goroutine state (bd-khlpu).
+	reaperStop chan struct{}
+	reaperDone chan struct{}
 }
 
 type actorState struct {
@@ -40,6 +46,25 @@ type actorState struct {
 	sessionID  string
 	eventCount int64
 	taskIDs    map[string]bool // in_progress bead IDs for this actor (bd-tlckc)
+	reaped     bool            // true if reaper marked this actor dead (bd-khlpu)
+	reapedAt   time.Time       // when reaped (bd-khlpu)
+}
+
+// ReaperConfig configures the dead-agent reaper goroutine. (bd-khlpu)
+type ReaperConfig struct {
+	// DeadThreshold is how long an actor must be idle before being marked dead.
+	// Default: 15 minutes.
+	DeadThreshold time.Duration
+
+	// SweepInterval is how often the reaper scans for dead actors.
+	// Default: 60 seconds.
+	SweepInterval time.Duration
+
+	// OnDead is called for each actor newly marked as dead. The callback
+	// receives the actor name and session ID. Use this to emit NATS events,
+	// update agent_state in storage, etc. Called under NO lock — safe to
+	// make blocking calls. Errors from OnDead are logged but don't stop the reaper.
+	OnDead func(actor, sessionID string)
 }
 
 // NewPresenceTracker creates a new tracker. Call Start() to begin subscribing.
@@ -91,13 +116,97 @@ func (pt *PresenceTracker) Start(js nats.JetStreamContext) error {
 	return nil
 }
 
-// Stop unsubscribes from all streams.
+// Stop unsubscribes from all streams and stops the reaper goroutine.
 func (pt *PresenceTracker) Stop() {
+	// Stop reaper first (if running). (bd-khlpu)
+	if pt.reaperStop != nil {
+		close(pt.reaperStop)
+		<-pt.reaperDone
+		pt.reaperStop = nil
+		pt.reaperDone = nil
+	}
+
 	for _, sub := range pt.subs {
 		_ = sub.Unsubscribe()
 	}
 	pt.subs = nil
 	log.Printf("presence: tracker stopped")
+}
+
+// StartReaper launches a background goroutine that periodically scans for
+// actors idle longer than DeadThreshold and marks them as reaped. (bd-khlpu)
+//
+// Call after Start(). Safe to call with nil config (uses defaults, no callback).
+// Call Stop() to shut down the reaper.
+func (pt *PresenceTracker) StartReaper(cfg *ReaperConfig) {
+	if cfg == nil {
+		cfg = &ReaperConfig{}
+	}
+	if cfg.DeadThreshold == 0 {
+		cfg.DeadThreshold = 15 * time.Minute
+	}
+	if cfg.SweepInterval == 0 {
+		cfg.SweepInterval = 60 * time.Second
+	}
+
+	pt.reaperStop = make(chan struct{})
+	pt.reaperDone = make(chan struct{})
+
+	go pt.reapLoop(cfg)
+	log.Printf("presence: reaper started (dead threshold=%s, sweep interval=%s)",
+		cfg.DeadThreshold, cfg.SweepInterval)
+}
+
+// reapLoop is the reaper goroutine. Runs until reaperStop is closed.
+func (pt *PresenceTracker) reapLoop(cfg *ReaperConfig) {
+	defer close(pt.reaperDone)
+
+	ticker := time.NewTicker(cfg.SweepInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-pt.reaperStop:
+			return
+		case <-ticker.C:
+			pt.sweep(cfg)
+		}
+	}
+}
+
+// sweep scans all actors and marks those idle > DeadThreshold as reaped.
+// Newly reaped actors trigger the OnDead callback (outside the lock).
+func (pt *PresenceTracker) sweep(cfg *ReaperConfig) {
+	now := time.Now()
+
+	// Collect newly dead actors under the lock.
+	type deadActor struct {
+		name      string
+		sessionID string
+	}
+	var newlyDead []deadActor
+
+	pt.mu.Lock()
+	for actor, state := range pt.actors {
+		if state.reaped {
+			continue // already reaped
+		}
+		idle := now.Sub(state.lastSeen)
+		if idle > cfg.DeadThreshold {
+			state.reaped = true
+			state.reapedAt = now
+			newlyDead = append(newlyDead, deadActor{name: actor, sessionID: state.sessionID})
+		}
+	}
+	pt.mu.Unlock()
+
+	// Fire callbacks outside the lock.
+	for _, dead := range newlyDead {
+		log.Printf("presence: reaper marked %q as dead (idle > %s)", dead.name, cfg.DeadThreshold)
+		if cfg.OnDead != nil {
+			cfg.OnDead(dead.name, dead.sessionID)
+		}
+	}
 }
 
 // Roster returns a snapshot of all tracked actors, sorted by most recently active.
@@ -136,6 +245,8 @@ func (pt *PresenceTracker) Roster(staleThreshold time.Duration) []PresenceEntry 
 			EventCount:          state.eventCount,
 			SessionDurationSecs: sessionDur,
 			EventsPerMin:        eventsPerMin,
+			Reaped:              state.reaped,    // (bd-khlpu)
+			ReapedAt:            state.reapedAt,  // (bd-khlpu)
 		})
 	}
 
@@ -220,6 +331,12 @@ func (pt *PresenceTracker) handleHookEvent(msg *nats.Msg) {
 	if !ok {
 		state = &actorState{firstSeen: now}
 		pt.actors[event.Actor] = state
+	}
+	// Resurrect reaped actors that come back to life. (bd-khlpu)
+	if state.reaped {
+		log.Printf("presence: actor %q resurrected (was reaped at %s)", event.Actor, state.reapedAt.Format(time.RFC3339))
+		state.reaped = false
+		state.reapedAt = time.Time{}
 	}
 	state.lastSeen = now
 	state.lastEvent = event.EventType
@@ -308,6 +425,12 @@ func (pt *PresenceTracker) handleAgentEvent(msg *nats.Msg) {
 	if !ok {
 		state = &actorState{firstSeen: now}
 		pt.actors[actor] = state
+	}
+	// Resurrect reaped actors that come back to life. (bd-khlpu)
+	if state.reaped {
+		log.Printf("presence: actor %q resurrected via agent event (was reaped at %s)", actor, state.reapedAt.Format(time.RFC3339))
+		state.reaped = false
+		state.reapedAt = time.Time{}
 	}
 	state.lastSeen = now
 	state.lastEvent = eventType

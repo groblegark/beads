@@ -1960,6 +1960,8 @@ type AgentRosterEntry struct {
 	TaskTitle           string  `json:"task_title,omitempty"`            // in_progress bead title
 	EpicID              string  `json:"epic_id,omitempty"`               // parent epic bead ID
 	EpicTitle           string  `json:"epic_title,omitempty"`            // parent epic bead title
+	Reaped              bool    `json:"reaped,omitempty"`                // true if dead-agent reaper marked this actor dead (bd-khlpu)
+	ReapedAt            string  `json:"reaped_at,omitempty"`             // when reaped (bd-khlpu)
 }
 
 // AgentRosterResult is the response from agent_roster.
@@ -1969,6 +1971,7 @@ type AgentRosterResult struct {
 	Tracked int                `json:"tracked"` // Total actors tracked (including stale)
 	Working int                `json:"working"` // Actors with an in_progress task (bd-4ul0v)
 	Idle    int                `json:"idle"`    // Actors active but no task (bd-4ul0v)
+	Dead    int                `json:"dead"`    // Actors marked dead by reaper (bd-khlpu)
 }
 
 // ===== Agent Lifecycle Operations (beads-2qz5) =====

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/signal"
@@ -803,6 +804,34 @@ func runDaemonLoop(interval time.Duration, autoCommit, autoPush, autoPull, local
 				log.Info("presence backfill: loaded in_progress tasks", "count", n)
 			}
 		}()
+	}
+
+	// Start the dead-agent reaper goroutine. (bd-khlpu)
+	// Scans presence tracker every 60s, marks agents idle >15min as dead.
+	if pt := bus.Presence(); pt != nil {
+		pt.StartReaper(&eventbus.ReaperConfig{
+			OnDead: func(actor, sessionID string) {
+				// Emit AgentCrashed event on NATS.
+				payload := eventbus.AgentEventPayload{
+					AgentName: actor,
+					SessionID: sessionID,
+					Reason:    "reaper: no activity for 15+ minutes",
+				}
+				data, err := json.Marshal(payload)
+				if err == nil {
+					bus.PublishRaw("agents."+string(eventbus.EventAgentCrashed), data)
+				}
+
+				// Try to set agent_state=dead on the agent bead (best-effort).
+				if store != nil {
+					ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+					defer cancel()
+					_ = store.UpdateIssue(ctx, actor, map[string]interface{}{
+						"agent_state": "dead",
+					}, "reaper")
+				}
+			},
+		})
 	}
 
 	// Load persisted external handlers from config table (bd-4q86.1)

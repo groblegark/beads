@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -418,6 +419,150 @@ func TestBeadNudgeHandler_CooldownReducedTo3Min(t *testing.T) {
 	if h.shouldNudge("agent-1") {
 		t.Fatal("expected rate-limiting immediately after nudge")
 	}
+}
+
+// ===== Reaper tests (bd-khlpu) =====
+
+func TestPresenceTracker_Reaper_MarksDead(t *testing.T) {
+	pt := NewPresenceTracker()
+	pt.started = time.Now()
+
+	// Add an actor that's been idle for 20 minutes.
+	pt.mu.Lock()
+	pt.actors["old-agent"] = &actorState{
+		firstSeen: time.Now().Add(-30 * time.Minute),
+		lastSeen:  time.Now().Add(-20 * time.Minute),
+		lastEvent: "PostToolUse",
+		sessionID: "sess-old",
+	}
+	// Add an actor that's active.
+	pt.actors["active-agent"] = &actorState{
+		firstSeen: time.Now().Add(-5 * time.Minute),
+		lastSeen:  time.Now(),
+		lastEvent: "PostToolUse",
+		sessionID: "sess-active",
+	}
+	pt.mu.Unlock()
+
+	// Track which actors the callback fires for.
+	var reaped []string
+	var mu sync.Mutex
+
+	cfg := &ReaperConfig{
+		DeadThreshold: 15 * time.Minute,
+		SweepInterval: 10 * time.Millisecond, // fast for testing
+		OnDead: func(actor, sessionID string) {
+			mu.Lock()
+			reaped = append(reaped, actor)
+			mu.Unlock()
+		},
+	}
+
+	pt.StartReaper(cfg)
+	// Wait for at least one sweep.
+	time.Sleep(50 * time.Millisecond)
+	pt.Stop()
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	if len(reaped) != 1 || reaped[0] != "old-agent" {
+		t.Fatalf("expected reaper to mark only 'old-agent', got: %v", reaped)
+	}
+
+	// Verify roster shows reaped state.
+	entries := pt.Roster(0)
+	for _, e := range entries {
+		if e.Actor == "old-agent" {
+			if !e.Reaped {
+				t.Error("expected old-agent to be reaped in roster")
+			}
+			if e.ReapedAt.IsZero() {
+				t.Error("expected ReapedAt to be set")
+			}
+		}
+		if e.Actor == "active-agent" && e.Reaped {
+			t.Error("active-agent should not be reaped")
+		}
+	}
+}
+
+func TestPresenceTracker_Reaper_NoDoubleReap(t *testing.T) {
+	pt := NewPresenceTracker()
+	pt.started = time.Now()
+
+	pt.mu.Lock()
+	pt.actors["dead-agent"] = &actorState{
+		lastSeen:  time.Now().Add(-20 * time.Minute),
+		lastEvent: "PostToolUse",
+	}
+	pt.mu.Unlock()
+
+	callCount := 0
+	var mu sync.Mutex
+
+	cfg := &ReaperConfig{
+		DeadThreshold: 15 * time.Minute,
+		SweepInterval: 10 * time.Millisecond,
+		OnDead: func(_, _ string) {
+			mu.Lock()
+			callCount++
+			mu.Unlock()
+		},
+	}
+
+	pt.StartReaper(cfg)
+	time.Sleep(80 * time.Millisecond) // multiple sweeps
+	pt.Stop()
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	if callCount != 1 {
+		t.Fatalf("expected exactly 1 OnDead call, got %d (double-reap bug)", callCount)
+	}
+}
+
+func TestPresenceTracker_Reaper_Resurrection(t *testing.T) {
+	pt := NewPresenceTracker()
+	pt.started = time.Now()
+
+	// Add a dead actor.
+	pt.mu.Lock()
+	pt.actors["zombie"] = &actorState{
+		lastSeen:  time.Now().Add(-20 * time.Minute),
+		lastEvent: "PostToolUse",
+	}
+	pt.mu.Unlock()
+
+	cfg := &ReaperConfig{
+		DeadThreshold: 15 * time.Minute,
+		SweepInterval: 10 * time.Millisecond,
+	}
+
+	pt.StartReaper(cfg)
+	time.Sleep(30 * time.Millisecond)
+
+	// Verify it's reaped.
+	pt.mu.RLock()
+	if !pt.actors["zombie"].reaped {
+		t.Fatal("expected zombie to be reaped")
+	}
+	pt.mu.RUnlock()
+
+	// Simulate a new event from the zombie (resurrection).
+	pt.handleHookEvent(&nats.Msg{
+		Data: []byte(`{"actor":"zombie","hook_event_name":"PostToolUse","session_id":"new-sess"}`),
+	})
+
+	// Verify it's no longer reaped.
+	pt.mu.RLock()
+	if pt.actors["zombie"].reaped {
+		t.Fatal("expected zombie to be resurrected after new event")
+	}
+	pt.mu.RUnlock()
+
+	pt.Stop()
 }
 
 // makeMutationMsg creates a nats.Msg with a MutationEventPayload for testing.

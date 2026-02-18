@@ -674,12 +674,17 @@ func outputRosterSection(w io.Writer) {
 	// Resolve the current agent's name so we can label their entry. (bd-snjni)
 	self := resolvePrimeAgentID("")
 
-	// Partition into active vs stale. Agents whose last event was Stop and
-	// who are idle > 60s are considered stopped — exclude them entirely.
-	// Agents idle > 10 min without Stop are likely dead. (bd-bstid)
+	// Partition into active vs stale/dead. (bd-bstid, bd-khlpu)
+	// - Reaped agents (marked by reaper) → stale
+	// - Agents whose last event was Stop and idle >60s → excluded (cleanly stopped)
+	// - Agents idle >10min → stale (fallback for pre-reaper detection)
 	const staleThresholdSecs = 600 // 10 minutes
 	var active, stale []rpc.AgentRosterEntry
 	for _, a := range result.Actors {
+		if a.Reaped {
+			stale = append(stale, a)
+			continue
+		}
 		isStopped := a.LastEvent == "Stop" && a.IdleSecs > 60
 		if isStopped {
 			continue // cleanly stopped — don't show at all
