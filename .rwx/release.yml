@@ -95,8 +95,8 @@ tasks:
       TAG="${REF_NAME#refs/tags/}"
       TAG="${TAG#refs/heads/}"
 
-      # Only dispatch if this is a CalVer tag (YYYY.MMDD.N)
-      if [[ "$TAG" =~ ^20[0-9]{2}\.[0-9]{4}\.[0-9]+$ ]]; then
+      # Only dispatch if this is a CalVer tag (YYYY.MDD.N — no leading zero in month)
+      if [[ "$TAG" =~ ^20[0-9]{2}\.[0-9]{3,4}\.[0-9]+$ ]]; then
         echo "Dispatching to gastown for rebuild (CalVer: $TAG)..."
         curl -fsSL -X POST https://api.rwx.com/v1/dispatches \
           -H "Authorization: Bearer $RWX_ACCESS_TOKEN" \

@@ -137,7 +137,7 @@ func CheckMetadataVersionTracking(path string, currentVersion string) DoctorChec
 			Name:    "Version Tracking",
 			Status:  StatusWarning,
 			Message: fmt.Sprintf("Invalid version format in .local_version: %q", lastVersion),
-			Detail:  "Expected version format like '2026.0218.0' or '0.24.2'",
+			Detail:  "Expected version format like '2026.218.0' or '0.24.2'",
 			Fix:     "Run any bd command to reset version tracking to current version",
 		}
 	}
