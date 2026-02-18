@@ -176,7 +176,8 @@ const (
 	OpVcsLog           = "vcs_log"
 
 	// Admin operations (bd-ma0s.5)
-	OpAdminGC = "admin_gc"
+	OpAdminGC          = "admin_gc"
+	OpGCTombstones     = "gc_tombstones"
 
 	// Federation operations (bd-ma0s.4)
 	OpFedListRemotes  = "fed_list_remotes"
@@ -2222,6 +2223,28 @@ type AdminGCResult struct {
 	SpaceFreed  int64  `json:"space_freed"`
 	DryRun      bool   `json:"dry_run,omitempty"`
 	ElapsedMs   int64  `json:"elapsed_ms"`
+}
+
+// GCTombstonesArgs represents arguments for the gc_tombstones operation (bd-t8b0).
+type GCTombstonesArgs struct {
+	OlderThanDays int  `json:"older_than_days,omitempty"` // Only delete tombstones older than N days (0 = all)
+	IncludeClosed bool `json:"include_closed,omitempty"`  // Also delete closed issues (not just tombstones)
+	DryRun        bool `json:"dry_run,omitempty"`         // If true, report counts without deleting
+}
+
+// GCTombstonesResult represents the result of a gc_tombstones operation.
+type GCTombstonesResult struct {
+	TombstonesDeleted int  `json:"tombstones_deleted"`
+	ClosedDeleted     int  `json:"closed_deleted"`
+	DepsDeleted       int  `json:"deps_deleted"`
+	EventsDeleted     int  `json:"events_deleted"`
+	CommentsDeleted   int  `json:"comments_deleted"`
+	LabelsDeleted     int  `json:"labels_deleted"`
+	DirtyDeleted      int  `json:"dirty_deleted"`
+	TotalBefore       int  `json:"total_before"`
+	TotalAfter        int  `json:"total_after"`
+	DryRun            bool `json:"dry_run,omitempty"`
+	ElapsedMs         int64 `json:"elapsed_ms"`
 }
 
 // FedSyncResult represents the result of a fed_sync operation.

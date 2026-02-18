@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/steveyegge/beads/internal/storage"
@@ -555,4 +556,199 @@ func formatJSONStringArray(arr []string) string {
 		return ""
 	}
 	return string(data)
+}
+
+// GCResult contains the results of a garbage collection run
+type GCResult struct {
+	TombstonesDeleted int `json:"tombstones_deleted"`
+	ClosedDeleted     int `json:"closed_deleted"`
+	DepsDeleted       int `json:"deps_deleted"`
+	EventsDeleted     int `json:"events_deleted"`
+	CommentsDeleted   int `json:"comments_deleted"`
+	LabelsDeleted     int `json:"labels_deleted"`
+	DirtyDeleted      int `json:"dirty_deleted"`
+	TotalBefore       int `json:"total_before"`
+	TotalAfter        int `json:"total_after"`
+}
+
+// GCTombstones permanently deletes tombstone issues and their related data from the database.
+// Unlike JSONL pruning, this actually removes rows from Dolt tables.
+// If olderThan > 0, only deletes tombstones older than that duration.
+// If olderThan == 0, deletes ALL tombstones.
+// Pinned issues are never deleted.
+// Processes in batches to avoid oversized transactions.
+func (s *DoltStore) GCTombstones(ctx context.Context, olderThan time.Duration, includeClosed bool) (*GCResult, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	result := &GCResult{}
+
+	// Count total before
+	var totalBefore int
+	if err := s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM issues").Scan(&totalBefore); err != nil {
+		return nil, fmt.Errorf("failed to count issues: %w", err)
+	}
+	result.TotalBefore = totalBefore
+
+	// Build the condition for what to delete
+	// Always delete tombstones; optionally also delete closed issues
+	var statusConditions []string
+	statusConditions = append(statusConditions, "status = 'tombstone'")
+	if includeClosed {
+		statusConditions = append(statusConditions, "status = 'closed'")
+	}
+	statusCond := "(" + strings.Join(statusConditions, " OR ") + ")"
+
+	// Build age condition
+	var ageCond string
+	var ageArgs []interface{}
+	if olderThan > 0 {
+		cutoff := time.Now().UTC().Add(-olderThan)
+		// For tombstones: use deleted_at; for closed: use closed_at
+		if includeClosed {
+			ageCond = " AND ((status = 'tombstone' AND deleted_at IS NOT NULL AND deleted_at < ?) OR (status = 'closed' AND closed_at IS NOT NULL AND closed_at < ?))"
+			ageArgs = append(ageArgs, cutoff, cutoff)
+		} else {
+			ageCond = " AND deleted_at IS NOT NULL AND deleted_at < ?"
+			ageArgs = append(ageArgs, cutoff)
+		}
+	}
+
+	// Never delete pinned issues
+	pinnedCond := " AND (pinned = 0 OR pinned IS NULL)"
+
+	// Collect IDs to delete in batches
+	const batchSize = 500
+	for {
+		query := fmt.Sprintf("SELECT id FROM issues WHERE %s%s%s LIMIT %d",
+			statusCond, ageCond, pinnedCond, batchSize)
+		rows, err := s.db.QueryContext(ctx, query, ageArgs...)
+		if err != nil {
+			return nil, fmt.Errorf("failed to query GC candidates: %w", err)
+		}
+
+		var ids []string
+		for rows.Next() {
+			var id string
+			if err := rows.Scan(&id); err != nil {
+				rows.Close()
+				return nil, fmt.Errorf("failed to scan id: %w", err)
+			}
+			ids = append(ids, id)
+		}
+		rows.Close()
+
+		if len(ids) == 0 {
+			break // No more candidates
+		}
+
+		// Delete related data and issues in a single transaction per batch
+		placeholders := make([]string, len(ids))
+		deleteArgs := make([]interface{}, len(ids))
+		for i, id := range ids {
+			placeholders[i] = "?"
+			deleteArgs[i] = id
+		}
+		inClause := strings.Join(placeholders, ",")
+
+		tx, err := s.db.BeginTx(ctx, nil)
+		if err != nil {
+			return nil, fmt.Errorf("failed to begin GC transaction: %w", err)
+		}
+
+		// Delete from related tables — use both issue_id and depends_on_id for deps
+		depArgs := make([]interface{}, 0, len(ids)*2)
+		depArgs = append(depArgs, deleteArgs...)
+		depArgs = append(depArgs, deleteArgs...)
+
+		res, err := tx.ExecContext(ctx, fmt.Sprintf(
+			"DELETE FROM dependencies WHERE issue_id IN (%s) OR depends_on_id IN (%s)",
+			inClause, inClause), depArgs...)
+		if err != nil {
+			tx.Rollback()
+			return nil, fmt.Errorf("failed to delete dependencies: %w", err)
+		}
+		if n, _ := res.RowsAffected(); n > 0 {
+			result.DepsDeleted += int(n)
+		}
+
+		res, err = tx.ExecContext(ctx, fmt.Sprintf(
+			"DELETE FROM events WHERE issue_id IN (%s)", inClause), deleteArgs...)
+		if err != nil {
+			tx.Rollback()
+			return nil, fmt.Errorf("failed to delete events: %w", err)
+		}
+		if n, _ := res.RowsAffected(); n > 0 {
+			result.EventsDeleted += int(n)
+		}
+
+		res, err = tx.ExecContext(ctx, fmt.Sprintf(
+			"DELETE FROM comments WHERE issue_id IN (%s)", inClause), deleteArgs...)
+		if err != nil {
+			tx.Rollback()
+			return nil, fmt.Errorf("failed to delete comments: %w", err)
+		}
+		if n, _ := res.RowsAffected(); n > 0 {
+			result.CommentsDeleted += int(n)
+		}
+
+		res, err = tx.ExecContext(ctx, fmt.Sprintf(
+			"DELETE FROM labels WHERE issue_id IN (%s)", inClause), deleteArgs...)
+		if err != nil {
+			tx.Rollback()
+			return nil, fmt.Errorf("failed to delete labels: %w", err)
+		}
+		if n, _ := res.RowsAffected(); n > 0 {
+			result.LabelsDeleted += int(n)
+		}
+
+		res, err = tx.ExecContext(ctx, fmt.Sprintf(
+			"DELETE FROM dirty_issues WHERE issue_id IN (%s)", inClause), deleteArgs...)
+		if err != nil {
+			tx.Rollback()
+			return nil, fmt.Errorf("failed to delete dirty_issues: %w", err)
+		}
+		if n, _ := res.RowsAffected(); n > 0 {
+			result.DirtyDeleted += int(n)
+		}
+
+		// Count tombstones vs closed in this batch with a single query
+		countRows, err := tx.QueryContext(ctx, fmt.Sprintf(
+			"SELECT status, COUNT(*) FROM issues WHERE id IN (%s) GROUP BY status", inClause), deleteArgs...)
+		if err == nil {
+			for countRows.Next() {
+				var status string
+				var cnt int
+				if countRows.Scan(&status, &cnt) == nil {
+					if status == "tombstone" {
+						result.TombstonesDeleted += cnt
+					} else if status == "closed" {
+						result.ClosedDeleted += cnt
+					}
+				}
+			}
+			countRows.Close()
+		}
+
+		// Delete the issues themselves
+		_, err = tx.ExecContext(ctx, fmt.Sprintf(
+			"DELETE FROM issues WHERE id IN (%s)", inClause), deleteArgs...)
+		if err != nil {
+			tx.Rollback()
+			return nil, fmt.Errorf("failed to delete issues: %w", err)
+		}
+
+		if err := tx.Commit(); err != nil {
+			return nil, fmt.Errorf("failed to commit GC transaction: %w", err)
+		}
+	}
+
+	// Count total after
+	var totalAfter int
+	if err := s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM issues").Scan(&totalAfter); err != nil {
+		return nil, fmt.Errorf("failed to count issues after GC: %w", err)
+	}
+	result.TotalAfter = totalAfter
+
+	return result, nil
 }

@@ -483,6 +483,8 @@ func (s *Server) executeOperation(req *Request) Response {
 	// Admin operations (bd-ma0s.5)
 	case OpAdminGC:
 		resp = s.handleAdminGC(req)
+	case OpGCTombstones:
+		resp = s.handleGCTombstones(req)
 	// Federation operations (bd-ma0s.4)
 	case OpFedListRemotes:
 		resp = s.handleFedListRemotes(req)

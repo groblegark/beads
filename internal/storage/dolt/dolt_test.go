@@ -1434,3 +1434,117 @@ func TestGetStatisticsAfterClose(t *testing.T) {
 		t.Errorf("error message should mention nil or closed, got: %v", err)
 	}
 }
+
+func TestDoltStoreGCTombstones(t *testing.T) {
+	store, cleanup := setupTestStore(t)
+	defer cleanup()
+
+	ctx, cancel := testContext(t)
+	defer cancel()
+
+	// Create a mix of issues: open, closed, and tombstone
+	issues := []*types.Issue{
+		{ID: "gc-open-1", Title: "Open 1", Status: types.StatusOpen, Priority: 2, IssueType: types.TypeTask},
+		{ID: "gc-open-2", Title: "Open 2", Status: types.StatusOpen, Priority: 2, IssueType: types.TypeTask},
+		{ID: "gc-closed-1", Title: "Closed 1", Status: types.StatusClosed, Priority: 2, IssueType: types.TypeTask},
+		{ID: "gc-closed-2", Title: "Closed 2", Status: types.StatusClosed, Priority: 2, IssueType: types.TypeTask},
+		{ID: "gc-tomb-1", Title: "Tombstone 1", Status: types.StatusTombstone, Priority: 2, IssueType: types.TypeTask},
+		{ID: "gc-tomb-2", Title: "Tombstone 2", Status: types.StatusTombstone, Priority: 2, IssueType: types.TypeTask},
+		{ID: "gc-pinned", Title: "Pinned Tombstone", Status: types.StatusTombstone, Priority: 2, IssueType: types.TypeTask, Pinned: true},
+	}
+
+	for _, issue := range issues {
+		if err := store.CreateIssue(ctx, issue, "tester"); err != nil {
+			t.Fatalf("failed to create issue %s: %v", issue.ID, err)
+		}
+	}
+
+	// Set deleted_at for tombstones (simulate deletion timestamp)
+	now := time.Now().UTC()
+	for _, id := range []string{"gc-tomb-1", "gc-tomb-2", "gc-pinned"} {
+		if err := store.UpdateIssue(ctx, id, map[string]interface{}{
+			"status": types.StatusTombstone,
+		}, "tester"); err != nil {
+			// Might fail if already tombstone, that's fine
+			_ = err
+		}
+		// Set deleted_at directly via SQL
+		_, _ = store.UnderlyingDB().ExecContext(ctx, "UPDATE issues SET deleted_at = ? WHERE id = ?", now.Add(-48*time.Hour), id)
+	}
+
+	// GC tombstones only (no include-closed)
+	result, err := store.GCTombstones(ctx, 0, false)
+	if err != nil {
+		t.Fatalf("GCTombstones failed: %v", err)
+	}
+
+	// Should delete 2 tombstones (not pinned one)
+	if result.TombstonesDeleted != 2 {
+		t.Errorf("expected 2 tombstones deleted, got %d", result.TombstonesDeleted)
+	}
+	if result.ClosedDeleted != 0 {
+		t.Errorf("expected 0 closed deleted, got %d", result.ClosedDeleted)
+	}
+
+	// Verify open issues still exist
+	for _, id := range []string{"gc-open-1", "gc-open-2"} {
+		issue, err := store.GetIssue(ctx, id)
+		if err != nil || issue == nil {
+			t.Errorf("open issue %s should still exist", id)
+		}
+	}
+
+	// Verify closed issues still exist
+	for _, id := range []string{"gc-closed-1", "gc-closed-2"} {
+		issue, err := store.GetIssue(ctx, id)
+		if err != nil || issue == nil {
+			t.Errorf("closed issue %s should still exist", id)
+		}
+	}
+
+	// Verify tombstones are gone
+	for _, id := range []string{"gc-tomb-1", "gc-tomb-2"} {
+		issue, err := store.GetIssue(ctx, id)
+		if err != nil {
+			t.Errorf("unexpected error getting deleted tombstone: %v", err)
+		}
+		if issue != nil {
+			t.Errorf("tombstone %s should have been deleted", id)
+		}
+	}
+
+	// Verify pinned tombstone is preserved
+	pinned, err := store.GetIssue(ctx, "gc-pinned")
+	if err != nil || pinned == nil {
+		t.Error("pinned tombstone should still exist")
+	}
+
+	// Now GC with include-closed
+	result2, err := store.GCTombstones(ctx, 0, true)
+	if err != nil {
+		t.Fatalf("GCTombstones with include-closed failed: %v", err)
+	}
+
+	if result2.ClosedDeleted != 2 {
+		t.Errorf("expected 2 closed deleted, got %d", result2.ClosedDeleted)
+	}
+
+	// Verify closed issues are gone
+	for _, id := range []string{"gc-closed-1", "gc-closed-2"} {
+		issue, err := store.GetIssue(ctx, id)
+		if err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
+		if issue != nil {
+			t.Errorf("closed issue %s should have been deleted", id)
+		}
+	}
+
+	// Open issues should still be there
+	for _, id := range []string{"gc-open-1", "gc-open-2"} {
+		issue, err := store.GetIssue(ctx, id)
+		if err != nil || issue == nil {
+			t.Errorf("open issue %s should still exist after GC", id)
+		}
+	}
+}

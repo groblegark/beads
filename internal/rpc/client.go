@@ -1701,6 +1701,20 @@ func (c *Client) AdminGC(args *AdminGCArgs) (*AdminGCResult, error) {
 	return &result, nil
 }
 
+// GCTombstones deletes tombstone (and optionally closed) issues from the database (bd-t8b0).
+func (c *Client) GCTombstones(args *GCTombstonesArgs) (*GCTombstonesResult, error) {
+	resp, err := c.Execute(OpGCTombstones, args)
+	if err != nil {
+		return nil, err
+	}
+
+	var result GCTombstonesResult
+	if err := json.Unmarshal(resp.Data, &result); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal gc_tombstones response: %w", err)
+	}
+	return &result, nil
+}
+
 // ===== Dirty Tracking Client Methods (beads-x1lr) =====
 
 // DirtyCount returns the number of dirty issues.

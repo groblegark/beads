@@ -508,7 +508,8 @@ func httpMethodToOperation(method string) string {
 		"VcsLog":           OpVcsLog,
 
 		// Admin operations (bd-ma0s.5)
-		"AdminGC": OpAdminGC,
+		"AdminGC":      OpAdminGC,
+		"GCTombstones": OpGCTombstones,
 
 		// Dirty tracking operations (beads-x1lr)
 		"DirtyCount": OpDirtyCount,
