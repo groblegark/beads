@@ -675,7 +675,7 @@ func outputRosterSection(w io.Writer) {
 	if self != "" {
 		fmt.Fprintf(w, "You are **%s**. Do not pick up other agents' in-progress tasks.\n\n", self)
 	} else {
-		_, _ = fmt.Fprintln(w, "Do not pick up other agents' in-progress tasks.\n")
+		_, _ = fmt.Fprintf(w, "Do not pick up other agents' in-progress tasks.\n\n")
 	}
 
 	for _, a := range result.Actors {
