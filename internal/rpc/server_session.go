@@ -232,11 +232,12 @@ func (s *Server) handleSessionRegister(req *Request) Response {
 	if s.sessionReg == nil {
 		s.sessionRegOnce.Do(func() {
 			s.sessionReg = newSessionRegistry()
-			// Load persisted sessions from database
+			// Load persisted sessions from database, pruning entries older than
+			// the configured session TTL (default 2h). (bd-n00hy)
 			if db := s.storage.UnderlyingDB(); db != nil {
 				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 				defer cancel()
-				_ = s.sessionReg.loadFromDB(ctx, db, 24*time.Hour)
+				_ = s.sessionReg.loadFromDB(ctx, db, sessionTTL())
 			}
 		})
 	}
@@ -274,8 +275,8 @@ func (s *Server) handleSessionList(req *Request) Response {
 
 	entries := s.sessionReg.list()
 
-	// Filter stale entries unless explicitly requested
-	cutoff := time.Now().Add(-24 * time.Hour)
+	// Filter stale entries unless explicitly requested (uses same TTL as pruner)
+	cutoff := time.Now().Add(-sessionTTL())
 	sessions := make([]SessionListEntry, 0, len(entries))
 	for _, e := range entries {
 		if !args.IncludeStale && e.LastSeen.Before(cutoff) {
