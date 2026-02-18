@@ -175,15 +175,32 @@ func runInboxList(cmd *cobra.Command, args []string) {
 
 	agentName := getActor()
 
+	// Always fetch all items from daemon; filter client-side so we can
+	// include recently-delivered items in the default view. (bd-4luku)
 	listArgs := &rpc.InboxListArgs{
 		AgentName:        agentName,
-		IncludeDelivered: showAll,
+		IncludeDelivered: true,
 	}
 
 	result, err := daemonClient.InboxList(listArgs)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error listing inbox: %v\n", err)
 		os.Exit(1)
+	}
+
+	// Client-side filter: without --all, show undelivered + delivered in last 60s.
+	// The PostToolUse hook auto-drains inbox between tool calls, so messages get
+	// marked delivered before agents can manually list them. (bd-4luku)
+	if !showAll {
+		recentCutoff := time.Now().Add(-60 * time.Second)
+		var filtered []*types.InboxItem
+		for _, item := range result.Items {
+			if item.DeliveredAt == nil || item.DeliveredAt.After(recentCutoff) {
+				filtered = append(filtered, item)
+			}
+		}
+		result.Items = filtered
+		result.Count = len(filtered)
 	}
 
 	if jsonOutput {
@@ -201,7 +218,11 @@ func runInboxList(cmd *cobra.Command, args []string) {
 	for i, item := range result.Items {
 		status := "  "
 		if item.DeliveredAt != nil {
-			status = ui.RenderMuted("✓")
+			if time.Since(*item.DeliveredAt) < 60*time.Second {
+				status = ui.RenderMuted("↳") // just delivered (bd-4luku)
+			} else {
+				status = ui.RenderMuted("✓")
+			}
 		}
 
 		age := formatInboxAge(item.CreatedAt)
