@@ -353,8 +353,8 @@ func TestBusWithDefaultHandlers(t *testing.T) {
 		bus.Register(h)
 	}
 
-	if len(bus.Handlers()) != 12 {
-		t.Errorf("expected 12 handlers, got %d", len(bus.Handlers()))
+	if len(bus.Handlers()) != 14 {
+		t.Errorf("expected 14 handlers, got %d", len(bus.Handlers()))
 	}
 }
 
