@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/signal"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/steveyegge/beads/internal/rpc"
+	"github.com/steveyegge/beads/internal/types"
 )
 
 var (
@@ -53,9 +55,8 @@ Examples:
 	RunE:    runDone,
 }
 
-// donePreflightCheck warns if the agent has no pending decision points.
-// Called before entering the blocking wait loop to catch the common mistake
-// of "bd done" without a prior "bd decision create". (bd-r4ni3)
+// donePreflightCheck warns if the agent has no pending decision points,
+// and shows what decisions we're waiting for. (bd-r4ni3, bd-oowwa)
 func donePreflightCheck(agent string) {
 	resp, err := daemonClient.DecisionList(&rpc.DecisionListArgs{})
 	if err != nil {
@@ -63,23 +64,47 @@ func donePreflightCheck(agent string) {
 		return
 	}
 
-	hasPending := false
+	var pending []*types.DecisionPoint
 	for _, d := range resp.Decisions {
 		if d.Decision == nil {
 			continue
 		}
 		dp := d.Decision
-		// Check for pending (unresolved) decisions requested by this agent.
+		// Pending = requested by this agent and not yet resolved.
 		if dp.RequestedBy == agent && dp.SelectedOption == "" && dp.ResponseText == "" {
-			hasPending = true
-			break
+			pending = append(pending, dp)
 		}
 	}
 
-	if !hasPending {
+	if len(pending) == 0 {
 		fmt.Fprintf(os.Stderr, "⚠ Warning: no pending decision found for agent %q — bd done may block indefinitely.\n", agent)
 		fmt.Fprintf(os.Stderr, "  Did you forget to run: bd decision create --no-wait --requested-by=%s ...?\n", agent)
+		return
 	}
+
+	// Show what we're waiting for.
+	for _, dp := range pending {
+		prompt := dp.Prompt
+		if len(prompt) > 60 {
+			prompt = prompt[:57] + "..."
+		}
+		optCount := countDecisionOptions(dp.Options)
+		age := time.Since(dp.CreatedAt).Truncate(time.Second)
+		fmt.Fprintf(os.Stderr, "  Pending: %s %q (%d options, created %s ago)\n",
+			dp.IssueID, prompt, optCount, age)
+	}
+}
+
+// countDecisionOptions parses the JSON options array and returns the count.
+func countDecisionOptions(optionsJSON string) int {
+	if optionsJSON == "" {
+		return 0
+	}
+	var opts []types.DecisionOption
+	if err := json.Unmarshal([]byte(optionsJSON), &opts); err != nil {
+		return 0
+	}
+	return len(opts)
 }
 
 func runDone(cmd *cobra.Command, args []string) error {
