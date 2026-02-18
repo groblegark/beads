@@ -403,21 +403,21 @@ Examples:
 
 		if jsonOutput {
 			type gateInfo struct {
-				ID          string        `json:"id"`
-				Hook        gate.HookType `json:"hook"`
-				Mode        gate.GateMode `json:"mode"`
-				Description string        `json:"description"`
-				Hint        string        `json:"hint,omitempty"`
-				HasAutoCheck bool         `json:"has_auto_check"`
+				ID           string        `json:"id"`
+				Hook         gate.HookType `json:"hook"`
+				Mode         gate.GateMode `json:"mode"`
+				Description  string        `json:"description"`
+				Hint         string        `json:"hint,omitempty"`
+				HasAutoCheck bool          `json:"has_auto_check"`
 			}
 			var infos []gateInfo
 			for _, g := range gates {
 				infos = append(infos, gateInfo{
-					ID:          g.ID,
-					Hook:        g.Hook,
-					Mode:        g.Mode,
-					Description: g.Description,
-					Hint:        g.Hint,
+					ID:           g.ID,
+					Hook:         g.Hook,
+					Mode:         g.Mode,
+					Description:  g.Description,
+					Hint:         g.Hint,
 					HasAutoCheck: g.AutoCheck != nil,
 				})
 			}
@@ -497,10 +497,10 @@ Examples:
 
 		if jsonOutput {
 			outputJSON(map[string]interface{}{
-				"gate_id":     gateID,
-				"hook":        string(hookType),
-				"mode":        string(mode),
-				"registered":  true,
+				"gate_id":    gateID,
+				"hook":       string(hookType),
+				"mode":       string(mode),
+				"registered": true,
 			})
 			return
 		}
@@ -623,6 +623,14 @@ func loadGatePromptFromConfig() string {
 			}
 		}
 	}
+	// Inject the resolved actor name so the LLM can pass it to
+	// bd decision create --requested-by, ensuring decisions are attributed
+	// to the real agent identity instead of a generic fallback. (bd-2rs8c)
+	if prompt != "" {
+		resolvedActor := getActorWithGit()
+		prompt = strings.ReplaceAll(prompt, "{{ACTOR}}", resolvedActor)
+	}
+
 	return prompt
 }
 

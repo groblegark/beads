@@ -16,7 +16,7 @@ set -euo pipefail
 id=$(bd decision create \
   --prompt="Claude is ready to stop. Review and decide:" \
   --options='[{"id":"continue","short":"continue","label":"Continue working"},{"id":"stop","short":"stop","label":"Allow Claude to stop"}]' \
-  --requested-by=stop-hook \
+  --requested-by="${BD_ACTOR:-stop-hook}" \
   --urgency=high \
   --json 2>/dev/null | jq -r .id)
 
