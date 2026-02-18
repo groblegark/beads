@@ -664,7 +664,86 @@ func loadGatePromptFromConfig() string {
 		prompt = strings.ReplaceAll(prompt, "{{ACTOR}}", resolvedActor)
 	}
 
+	// Inject live roster summary so the Stop hook prompt can include
+	// real-time agent state for smarter checkpoint options. (bd-b7b60)
+	if prompt != "" && strings.Contains(prompt, "{{ROSTER_SUMMARY}}") {
+		prompt = strings.ReplaceAll(prompt, "{{ROSTER_SUMMARY}}", buildRosterSummaryForHook(resolvedActor))
+	}
+
 	return prompt
+}
+
+// buildRosterSummaryForHook generates a compact roster summary for injection
+// into hook prompts. Includes active agents with tasks, crashed agents with
+// orphaned work, and uncovered epics. (bd-b7b60)
+func buildRosterSummaryForHook(self string) string {
+	if daemonClient == nil {
+		return "(roster unavailable)"
+	}
+
+	result, err := daemonClient.AgentRoster(&rpc.AgentRosterArgs{
+		StaleThresholdSecs: 1800,
+	})
+	if err != nil || result == nil || len(result.Actors) == 0 {
+		return "(no agents in roster)"
+	}
+
+	var sb strings.Builder
+
+	// Partition agents.
+	const staleThresholdSecs = 600
+	var active, crashed []rpc.AgentRosterEntry
+	for _, a := range result.Actors {
+		if a.Reaped || a.LastEvent == "AgentCrashed" {
+			crashed = append(crashed, a)
+			continue
+		}
+		if a.LastEvent == "Stop" && a.IdleSecs > 60 {
+			continue // cleanly stopped
+		}
+		if a.IdleSecs > staleThresholdSecs {
+			crashed = append(crashed, a) // treat stale as crashed
+		} else {
+			active = append(active, a)
+		}
+	}
+
+	// Active agents.
+	sb.WriteString(fmt.Sprintf("Active agents: %d\n", len(active)))
+	for _, a := range active {
+		youTag := ""
+		if a.Actor == self {
+			youTag = " (you)"
+		}
+		if a.TaskID != "" {
+			sb.WriteString(fmt.Sprintf("  %s%s → %s: %s (idle %s)\n",
+				a.Actor, youTag, a.TaskID, a.TaskTitle, formatIdleDuration(a.IdleSecs)))
+		} else {
+			sb.WriteString(fmt.Sprintf("  %s%s → no task (idle %s)\n",
+				a.Actor, youTag, formatIdleDuration(a.IdleSecs)))
+		}
+	}
+
+	// Crashed agents with orphaned work.
+	if len(crashed) > 0 {
+		var orphaned []string
+		for _, a := range crashed {
+			if a.TaskID != "" {
+				orphaned = append(orphaned, fmt.Sprintf("%s had %s: %s", a.Actor, a.TaskID, a.TaskTitle))
+			}
+		}
+		sb.WriteString(fmt.Sprintf("Crashed: %d", len(crashed)))
+		if len(orphaned) > 0 {
+			sb.WriteString(fmt.Sprintf(" (%d with orphaned work)\n", len(orphaned)))
+			for _, o := range orphaned {
+				sb.WriteString(fmt.Sprintf("  %s\n", o))
+			}
+		} else {
+			sb.WriteString("\n")
+		}
+	}
+
+	return sb.String()
 }
 
 // formatGateResults formats gate results as a human-readable string.
