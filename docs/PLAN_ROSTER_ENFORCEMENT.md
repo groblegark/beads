@@ -269,6 +269,9 @@ Useful for captain triage.
 
 ## Phase 5: Global Advice for Anti-Freelancing Prompting
 
+**Ships after Phase 3.** Don't promise enforcement that doesn't exist yet —
+agents learn to ignore instructions that aren't backed by real consequences.
+
 ### 5A. Create global advice bead for bead-assignment expectations
 
 Agents receive advice via `bd prime` on SessionStart/PreCompact. This is the
@@ -337,10 +340,11 @@ agents of the expectation.
 | 2 (Tracking) | Low — adds data, no enforcement | Yes, after Phase 1 | Medium (presence + roster + display) |
 | 3 (Escalation) | Medium — can block agents if misconfigured | Yes, after Phase 2. Default off. | Medium-Large (handler refactor + config) |
 | 4 (Display) | Low — cosmetic improvements | Yes, after Phase 2 | Small |
-| 5 (Advice) | Low — adds prompting, no code enforcement | Yes, ships independently | Small (1 advice bead + 2 string changes) |
+| 5 (Advice) | Low — adds prompting | Yes, after Phase 3 | Small (1 advice bead + 2 string changes) |
 
-Recommended order: **5 → 1 → 2 → 4 → 3** (ship advice prompting first since it's
-zero-risk and immediate, then fix bugs, add tracking/display, then enforcement).
+Recommended order: **1 → 2 → 4 → 3 → 5** (fix bugs first, add tracking/display,
+then enforcement, then prompting last — don't promise enforcement that doesn't
+exist yet, agents will learn to ignore it).
 
 ---
 
