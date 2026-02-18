@@ -34,20 +34,28 @@ func (s *DoltStore) InboxPush(ctx context.Context, item *types.InboxItem) error 
 // Also includes broadcast messages (agent_name='all') so that --to=all pushes
 // are visible to every agent. Broadcasts already acked by this agent (via
 // inbox_broadcast_ack) are excluded unless includeDelivered is true. (bd-r7slg)
+//
+// Uses NOT EXISTS instead of LEFT JOIN for broadcast ack filtering because Dolt's
+// LEFT JOIN can produce spurious duplicate rows, causing acked broadcasts to
+// reappear endlessly. NOT EXISTS is immune to this issue. (bd-5dh7k)
 func (s *DoltStore) InboxList(ctx context.Context, agentName string, includeDelivered bool) ([]*types.InboxItem, error) {
 	query := `
 		SELECT i.id, i.agent_name, i.rig, i.session_id, i.type, i.source, i.content,
 		       i.priority, i.created_at, i.delivered_at, i.expires_at, i.dedup_key
 		FROM inbox i
-		LEFT JOIN inbox_broadcast_ack ba ON i.id = ba.inbox_id AND ba.agent_name = ?
 		WHERE (i.agent_name = ? OR i.agent_name = 'all')`
-	args := []interface{}{agentName, agentName}
+	args := []interface{}{agentName}
 	if !includeDelivered {
-		// Direct messages: delivered_at IS NULL. Broadcasts: no ack row for this agent.
+		// Direct messages: delivered_at IS NULL.
+		// Broadcasts: no ack row for this agent (NOT EXISTS subquery).
 		query += ` AND (
 			(i.agent_name != 'all' AND i.delivered_at IS NULL)
-			OR (i.agent_name = 'all' AND ba.inbox_id IS NULL)
+			OR (i.agent_name = 'all' AND NOT EXISTS (
+				SELECT 1 FROM inbox_broadcast_ack ba
+				WHERE ba.inbox_id = i.id AND ba.agent_name = ?
+			))
 		)`
+		args = append(args, agentName)
 	}
 	query += ` ORDER BY i.priority ASC, i.created_at ASC`
 
@@ -67,16 +75,22 @@ func (s *DoltStore) InboxList(ctx context.Context, agentName string, includeDeli
 // this agent (via inbox_broadcast_ack) are excluded. (bd-r7slg)
 // Optional maxPriority filters to only return items with priority <= the given value
 // (0=critical only, 1=critical+high, etc.). Omit or pass no value for all priorities.
+//
+// Uses NOT EXISTS instead of LEFT JOIN for broadcast ack filtering because Dolt's
+// LEFT JOIN can produce spurious duplicate rows, causing acked broadcasts to
+// reappear endlessly. NOT EXISTS is immune to this issue. (bd-5dh7k)
 func (s *DoltStore) InboxDrain(ctx context.Context, agentName string, maxPriority ...int) ([]*types.InboxItem, error) {
 	query := `
 		SELECT i.id, i.agent_name, i.rig, i.session_id, i.type, i.source, i.content,
 		       i.priority, i.created_at, i.delivered_at, i.expires_at, i.dedup_key
 		FROM inbox i
-		LEFT JOIN inbox_broadcast_ack ba ON i.id = ba.inbox_id AND ba.agent_name = ?
 		WHERE (i.agent_name = ? OR i.agent_name = 'all')
 		  AND (
 		    (i.agent_name != 'all' AND i.delivered_at IS NULL)
-		    OR (i.agent_name = 'all' AND ba.inbox_id IS NULL)
+		    OR (i.agent_name = 'all' AND NOT EXISTS (
+		        SELECT 1 FROM inbox_broadcast_ack ba
+		        WHERE ba.inbox_id = i.id AND ba.agent_name = ?
+		    ))
 		  )
 		  AND (i.expires_at IS NULL OR i.expires_at > NOW())`
 	args := []interface{}{agentName, agentName}
