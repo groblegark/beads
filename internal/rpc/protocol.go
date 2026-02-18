@@ -1947,17 +1947,19 @@ type AgentRosterArgs struct {
 
 // AgentRosterEntry represents a single actor's live presence.
 type AgentRosterEntry struct {
-	Actor      string  `json:"actor"`
-	LastSeen   string  `json:"last_seen"`
-	LastEvent  string  `json:"last_event"`
-	ToolName   string  `json:"tool_name,omitempty"`
-	SessionID  string  `json:"session_id,omitempty"`
-	IdleSecs   float64 `json:"idle_secs"`
-	EventCount int64   `json:"event_count"`
-	TaskID     string  `json:"task_id,omitempty"`    // in_progress bead ID (bd-qdhxw)
-	TaskTitle  string  `json:"task_title,omitempty"` // in_progress bead title
-	EpicID     string  `json:"epic_id,omitempty"`    // parent epic bead ID
-	EpicTitle  string  `json:"epic_title,omitempty"` // parent epic bead title
+	Actor               string  `json:"actor"`
+	LastSeen            string  `json:"last_seen"`
+	LastEvent           string  `json:"last_event"`
+	ToolName            string  `json:"tool_name,omitempty"`
+	SessionID           string  `json:"session_id,omitempty"`
+	IdleSecs            float64 `json:"idle_secs"`
+	EventCount          int64   `json:"event_count"`
+	SessionDurationSecs float64 `json:"session_duration_secs,omitempty"` // seconds since first event (bd-4ul0v)
+	EventsPerMin        float64 `json:"events_per_min,omitempty"`        // rolling event rate (bd-4ul0v)
+	TaskID              string  `json:"task_id,omitempty"`               // in_progress bead ID (bd-qdhxw)
+	TaskTitle           string  `json:"task_title,omitempty"`            // in_progress bead title
+	EpicID              string  `json:"epic_id,omitempty"`               // parent epic bead ID
+	EpicTitle           string  `json:"epic_title,omitempty"`            // parent epic bead title
 }
 
 // AgentRosterResult is the response from agent_roster.
@@ -1965,6 +1967,8 @@ type AgentRosterResult struct {
 	Actors  []AgentRosterEntry `json:"actors"`
 	Uptime  string             `json:"uptime"`  // Tracker uptime
 	Tracked int                `json:"tracked"` // Total actors tracked (including stale)
+	Working int                `json:"working"` // Actors with an in_progress task (bd-4ul0v)
+	Idle    int                `json:"idle"`    // Actors active but no task (bd-4ul0v)
 }
 
 // ===== Agent Lifecycle Operations (beads-2qz5) =====

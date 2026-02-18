@@ -836,10 +836,16 @@ func runAgentRoster(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	fmt.Printf("Live Roster (%d active, %d total tracked, uptime: %s)\n\n", len(result.Actors), result.Tracked, result.Uptime)
+	fmt.Printf("Live Roster (%d active, %d total tracked, uptime: %s)\n", len(result.Actors), result.Tracked, result.Uptime)
+	if result.Working > 0 || result.Idle > 0 {
+		fmt.Printf("  Working: %d  Idle: %d\n", result.Working, result.Idle)
+	}
+	fmt.Println()
 	for _, a := range result.Actors {
 		idle := formatIdleDuration(a.IdleSecs)
-		line := fmt.Sprintf("  %-20s  idle=%-8s  events=%-5d  last=%s", a.Actor, idle, a.EventCount, a.LastEvent)
+		dur := formatIdleDuration(a.SessionDurationSecs)
+		rate := fmt.Sprintf("%.1f/m", a.EventsPerMin)
+		line := fmt.Sprintf("  %-20s  idle=%-8s  dur=%-8s  rate=%-7s  events=%-5d  last=%s", a.Actor, idle, dur, rate, a.EventCount, a.LastEvent)
 		if a.ToolName != "" {
 			line += fmt.Sprintf("  tool=%s", a.ToolName)
 		}

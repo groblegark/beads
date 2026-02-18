@@ -282,23 +282,37 @@ func (s *Server) handleAgentRoster(req *Request) Response {
 	rosterEntries := make([]AgentRosterEntry, len(entries))
 	for i, e := range entries {
 		rosterEntries[i] = AgentRosterEntry{
-			Actor:      e.Actor,
-			LastSeen:   e.LastSeen.Format(time.RFC3339),
-			LastEvent:  e.LastEvent,
-			ToolName:   e.ToolName,
-			SessionID:  e.SessionID,
-			IdleSecs:   e.IdleSecs,
-			EventCount: e.EventCount,
+			Actor:               e.Actor,
+			LastSeen:            e.LastSeen.Format(time.RFC3339),
+			LastEvent:           e.LastEvent,
+			ToolName:            e.ToolName,
+			SessionID:           e.SessionID,
+			IdleSecs:            e.IdleSecs,
+			EventCount:          e.EventCount,
+			SessionDurationSecs: e.SessionDurationSecs,
+			EventsPerMin:        e.EventsPerMin,
 		}
 	}
 
 	// Enrich with in_progress task and epic context (bd-qdhxw).
 	s.enrichRosterWithTasks(req, rosterEntries)
 
+	// Compute working/idle summary counters (bd-4ul0v).
+	var working, idle int
+	for _, e := range rosterEntries {
+		if e.TaskID != "" {
+			working++
+		} else {
+			idle++
+		}
+	}
+
 	result := AgentRosterResult{
 		Actors:  rosterEntries,
 		Uptime:  pt.Uptime().Round(time.Second).String(),
 		Tracked: len(pt.Roster(0)),
+		Working: working,
+		Idle:    idle,
 	}
 	data, _ := json.Marshal(result)
 	return Response{Success: true, Data: data}

@@ -11,13 +11,16 @@ import (
 
 // PresenceEntry tracks a single actor's live presence derived from NATS events.
 type PresenceEntry struct {
-	Actor       string    `json:"actor"`
-	LastSeen    time.Time `json:"last_seen"`
-	LastEvent   string    `json:"last_event"`             // e.g., "PreToolUse", "PostToolUse"
-	ToolName    string    `json:"tool_name,omitempty"`     // last tool used (if hook event)
-	SessionID   string    `json:"session_id,omitempty"`    // Claude Code session
-	IdleSecs    float64   `json:"idle_secs"`               // seconds since last event
-	EventCount  int64     `json:"event_count"`             // total events seen
+	Actor               string    `json:"actor"`
+	LastSeen            time.Time `json:"last_seen"`
+	FirstSeen           time.Time `json:"first_seen"`              // when this actor first appeared (bd-4ul0v)
+	LastEvent           string    `json:"last_event"`              // e.g., "PreToolUse", "PostToolUse"
+	ToolName            string    `json:"tool_name,omitempty"`     // last tool used (if hook event)
+	SessionID           string    `json:"session_id,omitempty"`    // Claude Code session
+	IdleSecs            float64   `json:"idle_secs"`               // seconds since last event
+	EventCount          int64     `json:"event_count"`             // total events seen
+	SessionDurationSecs float64   `json:"session_duration_secs"`   // seconds since first event (bd-4ul0v)
+	EventsPerMin        float64   `json:"events_per_min"`          // rolling event rate (bd-4ul0v)
 }
 
 // PresenceTracker subscribes to NATS JetStream and maintains a live roster
@@ -30,6 +33,7 @@ type PresenceTracker struct {
 }
 
 type actorState struct {
+	firstSeen  time.Time
 	lastSeen   time.Time
 	lastEvent  string
 	toolName   string
@@ -111,14 +115,27 @@ func (pt *PresenceTracker) Roster(staleThreshold time.Duration) []PresenceEntry 
 		if staleThreshold > 0 && idle > staleThreshold {
 			continue
 		}
+		// Use firstSeen if set, otherwise fall back to tracker start time (for pre-existing actors).
+		firstSeen := state.firstSeen
+		if firstSeen.IsZero() {
+			firstSeen = pt.started
+		}
+		sessionDur := now.Sub(firstSeen).Seconds()
+		var eventsPerMin float64
+		if sessionDur > 0 {
+			eventsPerMin = float64(state.eventCount) / (sessionDur / 60.0)
+		}
 		entries = append(entries, PresenceEntry{
-			Actor:      actor,
-			LastSeen:   state.lastSeen,
-			LastEvent:  state.lastEvent,
-			ToolName:   state.toolName,
-			SessionID:  state.sessionID,
-			IdleSecs:   idle.Seconds(),
-			EventCount: state.eventCount,
+			Actor:               actor,
+			LastSeen:            state.lastSeen,
+			FirstSeen:           firstSeen,
+			LastEvent:           state.lastEvent,
+			ToolName:            state.toolName,
+			SessionID:           state.sessionID,
+			IdleSecs:            idle.Seconds(),
+			EventCount:          state.eventCount,
+			SessionDurationSecs: sessionDur,
+			EventsPerMin:        eventsPerMin,
 		})
 	}
 
@@ -195,15 +212,16 @@ func (pt *PresenceTracker) handleHookEvent(msg *nats.Msg) {
 		return
 	}
 
+	now := time.Now()
 	pt.mu.Lock()
 	defer pt.mu.Unlock()
 
 	state, ok := pt.actors[event.Actor]
 	if !ok {
-		state = &actorState{}
+		state = &actorState{firstSeen: now}
 		pt.actors[event.Actor] = state
 	}
-	state.lastSeen = time.Now()
+	state.lastSeen = now
 	state.lastEvent = event.EventType
 	state.eventCount++
 	if event.ToolName != "" {
@@ -282,15 +300,16 @@ func (pt *PresenceTracker) handleAgentEvent(msg *nats.Msg) {
 
 	eventType := EventTypeFromSubject(msg.Subject)
 
+	now := time.Now()
 	pt.mu.Lock()
 	defer pt.mu.Unlock()
 
 	state, ok := pt.actors[actor]
 	if !ok {
-		state = &actorState{}
+		state = &actorState{firstSeen: now}
 		pt.actors[actor] = state
 	}
-	state.lastSeen = time.Now()
+	state.lastSeen = now
 	state.lastEvent = eventType
 	state.eventCount++
 	if payload.SessionID != "" {

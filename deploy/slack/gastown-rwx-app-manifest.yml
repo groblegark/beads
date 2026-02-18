@@ -1,0 +1,43 @@
+display_information:
+  name: "Gastown RWX (Test)"
+  description: "Beads decision notifications for gastown-rwx test environment"
+  background_color: "#4a154b"
+
+features:
+  bot_user:
+    display_name: "Gastown RWX Bot"
+    always_online: true
+
+oauth_config:
+  scopes:
+    bot:
+      # Messaging: PostMessage, PostEphemeral, UpdateMessage, DeleteMessage
+      - chat:write
+      # Channel management: CreateConversation, InviteUsersToConversation, JoinConversation
+      - channels:manage
+      # Channel listing: GetConversations
+      - channels:read
+      # Channel history: GetConversationReplies + message events
+      - channels:history
+      # Group (private channel) support
+      - groups:write
+      - groups:history
+      # DM support: OpenConversation
+      - im:write
+      - im:history
+      # User info: GetUserInfo
+      - users:read
+      # Reactions (for status indicators)
+      - reactions:write
+
+settings:
+  event_subscriptions:
+    bot_events:
+      - message.channels
+      - message.groups
+      - message.im
+  interactivity:
+    is_enabled: true
+  org_deploy_enabled: false
+  socket_mode_enabled: true
+  token_rotation_enabled: false

@@ -64,7 +64,8 @@ func init() {
 	decisionCreateCmd.Flags().StringP("urgency", "u", "medium", "Urgency level: high, medium, low")
 	decisionCreateCmd.Flags().String("predecessor", "", "Previous decision in chain (for decision chaining)")
 	decisionCreateCmd.Flags().StringP("context", "c", "", "Background/analysis context for the decision (JSON or text)")
-	// --wait is always true; decisions always block until responded to.
+	// By default, decisions block until responded to. Use --no-wait to return immediately (gt-lquqdp).
+	decisionCreateCmd.Flags().Bool("no-wait", false, "Create the decision and return immediately without waiting for a response")
 	decisionCreateCmd.Flags().Duration("wait-timeout", 60*time.Minute, "Timeout when waiting for response")
 	decisionCreateCmd.Flags().Duration("wait-poll-interval", 2*time.Second, "Poll interval when waiting for response")
 
@@ -84,6 +85,7 @@ func runDecisionCreate(cmd *cobra.Command, args []string) {
 	blocks, _ := cmd.Flags().GetString("blocks")
 	maxIterations, _ := cmd.Flags().GetInt("max-iterations")
 	noNotify, _ := cmd.Flags().GetBool("no-notify")
+	noWait, _ := cmd.Flags().GetBool("no-wait")
 	requestedBy, _ := cmd.Flags().GetString("requested-by")
 	if requestedBy == "" && actor != "" {
 		requestedBy = actor // Default to resolved actor identity for readable Slack display
@@ -266,6 +268,18 @@ func runDecisionCreate(cmd *cobra.Command, args []string) {
 		} else {
 			fmt.Println("\n  (No notification routes configured)")
 		}
+	}
+
+	// With --no-wait, return immediately after creation (gt-lquqdp).
+	// The caller handles awaiting/notification separately.
+	if noWait {
+		if jsonOutput {
+			outputJSON(map[string]interface{}{
+				"id":     decisionID,
+				"status": "created",
+			})
+		}
+		return
 	}
 
 	// Block until human responds, then output the response.
