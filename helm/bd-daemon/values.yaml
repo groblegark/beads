@@ -281,6 +281,21 @@ slackBot:
   channelID: ""  # Default Slack channel ID (or set via SLACK_CHANNEL env)
   coopmuxURL: ""  # Coopmux URL for credential reauth (e.g. "http://gastown-next-coopmux:9800")
   coopmuxTokenSecret: ""  # K8s secret name containing coopmux auth token (key: "token")
+  healthPort: 8080  # Health check port for liveness/readiness probes
+  livenessProbe:
+    enabled: true
+    path: /healthz
+    initialDelaySeconds: 15
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+  readinessProbe:
+    enabled: true
+    path: /readyz  # Fails when Socket Mode num_connections > 1 (bd-4yp0j)
+    initialDelaySeconds: 5
+    periodSeconds: 5
+    timeoutSeconds: 3
+    failureThreshold: 1
   resources:
     requests:
       cpu: 100m

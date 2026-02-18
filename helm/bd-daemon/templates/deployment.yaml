@@ -263,6 +263,8 @@ spec:
               value: "/home/beads/.beads"
             - name: BEADS_DOLT_SERVER_MODE
               value: "1"
+            - name: HEALTH_PORT
+              value: {{ .Values.slackBot.healthPort | default 8080 | quote }}
             {{- if .Values.slackBot.channelID }}
             - name: SLACK_CHANNEL
               value: {{ .Values.slackBot.channelID | quote }}
@@ -282,6 +284,30 @@ spec:
                   name: {{ .Values.slackBot.coopmuxTokenSecret }}
                   key: token
             {{- end }}
+          ports:
+            - name: slack-health
+              containerPort: {{ .Values.slackBot.healthPort | default 8080 }}
+              protocol: TCP
+          {{- if .Values.slackBot.livenessProbe.enabled }}
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.slackBot.livenessProbe.path | default "/healthz" }}
+              port: slack-health
+            initialDelaySeconds: {{ .Values.slackBot.livenessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.slackBot.livenessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.slackBot.livenessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.slackBot.livenessProbe.failureThreshold }}
+          {{- end }}
+          {{- if .Values.slackBot.readinessProbe.enabled }}
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.slackBot.readinessProbe.path | default "/readyz" }}
+              port: slack-health
+            initialDelaySeconds: {{ .Values.slackBot.readinessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.slackBot.readinessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.slackBot.readinessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.slackBot.readinessProbe.failureThreshold }}
+          {{- end }}
           volumeMounts:
             - name: beads-data
               mountPath: /home/beads/.beads
