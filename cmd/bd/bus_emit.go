@@ -90,6 +90,10 @@ func runBusEmit(cmd *cobra.Command, args []string) error {
 		if err := os.MkdirAll(aliasDir, 0o755); err == nil {
 			_ = os.WriteFile(filepath.Join(aliasDir, termSID), []byte(eventMeta.SessionID), 0o644)
 		}
+		// Write reverse mapping (CLAUDE_SESSION_ID → TERM_SESSION_ID) so
+		// cross-session gate checks can be scoped to the same terminal/agent,
+		// preventing one agent's decision marker from satisfying all agents. (bd-gh0ik)
+		_ = gate.WriteSessionTerminal(".", eventMeta.SessionID, termSID)
 	}
 
 	// Inject caller's session tag into the event JSON so handlers can
@@ -189,7 +193,8 @@ func runLocalGateCheck(hookType, sessionID string) map[string]interface{} {
 	}
 
 	workDir := getWorkDir()
-	results, err := gate.CheckGatesForHook(workDir, sessionID, ht, sessionGateRegistry)
+	termSID := os.Getenv("TERM_SESSION_ID")
+	results, err := gate.CheckGatesForHook(workDir, sessionID, ht, sessionGateRegistry, termSID)
 	if err != nil || len(results) == 0 {
 		return nil
 	}
@@ -218,11 +223,28 @@ func runLocalGateCheck(hookType, sessionID string) map[string]interface{} {
 		}
 	}
 
-	return map[string]interface{}{
+	result := map[string]interface{}{
 		"decision": decision,
 		"results":  resultList,
 		"warnings": warnings,
 	}
+
+	// For Stop hook blocks, enrich the reason with the config bead prompt
+	// (same logic as gateSessionCheckCmd). Without this, the daemon's
+	// handlePreCheckedGate returns an empty reason and Claude Code shows
+	// "No stderr output" instead of the decision prompt. (bd-gh0ik)
+	if decision == "block" && hookType == "Stop" {
+		reason := "decision: decision point offered before session end"
+		for _, w := range warnings {
+			reason = w // Use last strict-gate warning as default reason
+		}
+		if prompt := loadGatePromptFromConfig(); prompt != "" {
+			reason = prompt
+		}
+		result["reason"] = reason
+	}
+
+	return result
 }
 
 // outputEmitResult writes the emit result according to the Claude Code hook

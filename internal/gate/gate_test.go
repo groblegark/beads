@@ -477,6 +477,94 @@ func TestClearGateAllSessions_NoGatesDir(t *testing.T) {
 	ClearGateAllSessions(workDir, "decision")
 }
 
+func TestIsGateSatisfiedSameTerminal(t *testing.T) {
+	workDir := t.TempDir()
+
+	// Simulate two agents (two different terminals) each with their own sessions.
+	// Agent A: terminal "term-A", sessions "claude-A1" and "claude-A2" (rotated)
+	// Agent B: terminal "term-B", session "claude-B1"
+	if err := WriteSessionTerminal(workDir, "claude-A1", "term-A"); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteSessionTerminal(workDir, "claude-A2", "term-A"); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteSessionTerminal(workDir, "claude-B1", "term-B"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Agent A marks decision in session claude-A1
+	if err := MarkGate(workDir, "claude-A1", "decision"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Agent A's new session (claude-A2) should see the marker via same-terminal check
+	if !IsGateSatisfiedSameTerminal(workDir, "decision", "term-A") {
+		t.Error("agent A's new session should see decision marker from old session (same terminal)")
+	}
+
+	// Agent B should NOT see agent A's marker
+	if IsGateSatisfiedSameTerminal(workDir, "decision", "term-B") {
+		t.Error("agent B should NOT see agent A's decision marker (different terminal)")
+	}
+
+	// With empty termSessionID, should fall back to any-session behavior
+	if !IsGateSatisfiedSameTerminal(workDir, "decision", "") {
+		t.Error("empty termSessionID should fall back to any-session check")
+	}
+}
+
+func TestCheckGatesForHook_CrossSessionScoped(t *testing.T) {
+	workDir := t.TempDir()
+
+	// Set up two agents with different terminals
+	if err := WriteSessionTerminal(workDir, "claude-A", "term-A"); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteSessionTerminal(workDir, "claude-B", "term-B"); err != nil {
+		t.Fatal(err)
+	}
+
+	reg := NewRegistry()
+	if err := reg.Register(&Gate{
+		ID:          "decision",
+		Hook:        HookStop,
+		Description: "decision point offered",
+		Mode:        GateModeStrict,
+		Hint:        "offer a decision",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Agent A marks decision in their session
+	if err := MarkGate(workDir, "claude-A", "decision"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Agent B checks from a DIFFERENT claude session but same workdir.
+	// Without terminal scoping, this would be satisfied via cross-session fallback.
+	// With terminal scoping (bd-gh0ik), it should NOT be satisfied.
+	results, err := CheckGatesForHook(workDir, "claude-B", HookStop, reg, "term-B")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(results))
+	}
+	if results[0].Satisfied {
+		t.Error("agent B's decision gate should NOT be satisfied by agent A's marker (different terminal)")
+	}
+
+	// Agent A's gate check should still work (cross-session within same terminal)
+	results, err = CheckGatesForHook(workDir, "claude-A-rotated", HookStop, reg, "term-A")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !results[0].Satisfied {
+		t.Error("agent A's decision gate should be satisfied via cross-session (same terminal)")
+	}
+}
+
 func TestEvaluateHook_OnlyChecksCorrectHook(t *testing.T) {
 	workDir := t.TempDir()
 	sessionID := "test-eval-hookfilter"

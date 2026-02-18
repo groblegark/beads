@@ -53,12 +53,13 @@ const (
 
 // GateContext provides runtime context for gate auto-check functions.
 type GateContext struct {
-	SessionID string
-	HookType  HookType
-	WorkDir   string
-	HookBead  string // current hooked bead if any
-	Role      string // GT_ROLE
-	ToolInput string // for PreToolUse: the command being executed
+	SessionID          string
+	TerminalSessionID  string // TERM_SESSION_ID — stable across session rotations
+	HookType           HookType
+	WorkDir            string
+	HookBead           string // current hooked bead if any
+	Role               string // GT_ROLE
+	ToolInput          string // for PreToolUse: the command being executed
 }
 
 // Gate defines a session-level gate that can block or warn on a hook event.
@@ -163,6 +164,10 @@ func ClearGateAllSessions(workDir, gateID string) {
 //
 // Only considers markers younger than 12 hours to avoid stale markers from
 // old sessions incorrectly satisfying gates in new ones. (bd-02qeb)
+//
+// WARNING: In multi-agent setups, this can leak across agents — one agent's
+// marker satisfies another agent's gate. Prefer IsGateSatisfiedSameTerminal
+// when a TerminalSessionID is available. (bd-gh0ik)
 func IsGateSatisfiedAnySession(workDir, gateID string) bool {
 	gatesDir := filepath.Join(workDir, ".runtime", "gates")
 	entries, err := os.ReadDir(gatesDir)
@@ -186,18 +191,90 @@ func IsGateSatisfiedAnySession(workDir, gateID string) bool {
 	return false
 }
 
+// IsGateSatisfiedSameTerminal checks whether a gate marker exists in any session
+// directory that belongs to the same terminal (TERM_SESSION_ID). This scopes the
+// cross-session fallback to only the calling agent's own session lineage, preventing
+// one agent's markers from satisfying another agent's gates. (bd-gh0ik)
+//
+// Falls back to IsGateSatisfiedAnySession if termSessionID is empty (backward compat).
+func IsGateSatisfiedSameTerminal(workDir, gateID, termSessionID string) bool {
+	if termSessionID == "" {
+		return IsGateSatisfiedAnySession(workDir, gateID)
+	}
+
+	// Build the set of CLAUDE_SESSION_IDs that belong to this terminal.
+	// Reverse mapping: session-terminal/<CLAUDE_SESSION_ID> contains TERM_SESSION_ID.
+	termDir := filepath.Join(workDir, ".runtime", "session-terminal")
+	entries, err := os.ReadDir(termDir)
+	if err != nil {
+		return false
+	}
+
+	ownSessions := make(map[string]bool)
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(termDir, entry.Name()))
+		if err != nil {
+			continue
+		}
+		if strings.TrimSpace(string(data)) == termSessionID {
+			ownSessions[entry.Name()] = true
+		}
+	}
+
+	if len(ownSessions) == 0 {
+		return false
+	}
+
+	cutoff := time.Now().Add(-12 * time.Hour)
+	gatesDir := filepath.Join(workDir, ".runtime", "gates")
+	for sessionID := range ownSessions {
+		marker := filepath.Join(gatesDir, sessionID, gateID)
+		info, err := os.Stat(marker)
+		if err != nil {
+			continue
+		}
+		if info.ModTime().After(cutoff) {
+			return true
+		}
+	}
+	return false
+}
+
+// WriteSessionTerminal writes a reverse mapping from CLAUDE_SESSION_ID to
+// TERM_SESSION_ID so that cross-session gate checks can be scoped to the
+// same terminal/agent. (bd-gh0ik)
+func WriteSessionTerminal(workDir, claudeSessionID, termSessionID string) error {
+	dir := filepath.Join(workDir, ".runtime", "session-terminal")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(dir, claudeSessionID), []byte(termSessionID), 0o644)
+}
+
 // CheckGatesForHook evaluates all registered gates for the specified hook type.
 // A gate is satisfied if:
 //  1. Its marker file exists, OR
 //  2. Its AutoCheck function returns true (and the marker is set automatically)
-func CheckGatesForHook(workDir, sessionID string, hookType HookType, reg *Registry) ([]GateResult, error) {
+//
+// The optional terminalSessionID scopes cross-session fallback checks to the
+// same terminal/agent, preventing cross-agent gate leakage. (bd-gh0ik)
+func CheckGatesForHook(workDir, sessionID string, hookType HookType, reg *Registry, terminalSessionID ...string) ([]GateResult, error) {
 	gates := reg.GatesForHook(hookType)
 	results := make([]GateResult, 0, len(gates))
 
+	var termSID string
+	if len(terminalSessionID) > 0 {
+		termSID = terminalSessionID[0]
+	}
+
 	ctx := GateContext{
-		SessionID: sessionID,
-		HookType:  hookType,
-		WorkDir:   workDir,
+		SessionID:         sessionID,
+		TerminalSessionID: termSID,
+		HookType:          hookType,
+		WorkDir:           workDir,
 	}
 
 	for _, g := range gates {
@@ -216,10 +293,12 @@ func CheckGatesForHook(workDir, sessionID string, hookType HookType, reg *Regist
 			continue
 		}
 
-		// Fallback: check if the marker exists in ANY session directory.
-		// Claude Code rotates session_id on compaction/continuation, so the
-		// marker may have been written under a previous session_id. (bd-02qeb)
-		if IsGateSatisfiedAnySession(workDir, g.ID) {
+		// Fallback: check if the marker exists in a session directory belonging
+		// to the same terminal/agent. Claude Code rotates session_id on
+		// compaction/continuation, so the marker may have been written under a
+		// previous session_id. Scoped to same terminal to prevent cross-agent
+		// leakage. (bd-02qeb, bd-gh0ik)
+		if IsGateSatisfiedSameTerminal(workDir, g.ID, ctx.TerminalSessionID) {
 			result.Satisfied = true
 			result.Message = "marked satisfied (cross-session)"
 			results = append(results, result)
@@ -250,8 +329,8 @@ func CheckGatesForHook(workDir, sessionID string, hookType HookType, reg *Regist
 // EvaluateHook checks all gates for a hook type and returns a CheckResponse.
 // If any strict gate is unsatisfied, the decision is "block".
 // Soft unsatisfied gates produce warnings but allow the hook.
-func EvaluateHook(workDir, sessionID string, hookType HookType, reg *Registry) (*CheckResponse, error) {
-	results, err := CheckGatesForHook(workDir, sessionID, hookType, reg)
+func EvaluateHook(workDir, sessionID string, hookType HookType, reg *Registry, terminalSessionID ...string) (*CheckResponse, error) {
+	results, err := CheckGatesForHook(workDir, sessionID, hookType, reg, terminalSessionID...)
 	if err != nil {
 		return nil, err
 	}

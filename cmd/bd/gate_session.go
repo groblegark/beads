@@ -230,7 +230,8 @@ Examples:
 			reg = softCopyRegistry(reg, hookType)
 		}
 
-		resp, err := gate.EvaluateHook(workDir, sessionID, hookType, reg)
+		termSID := os.Getenv("TERM_SESSION_ID")
+		resp, err := gate.EvaluateHook(workDir, sessionID, hookType, reg, termSID)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error evaluating gates: %v\n", err)
 			os.Exit(1)
