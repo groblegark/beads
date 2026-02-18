@@ -756,6 +756,33 @@ func buildRosterSummaryForHook(self string) string {
 		}
 	}
 
+	// Epic coverage — show which epics are crowded vs uncovered.
+	epicAgents := make(map[string][]string)
+	epicTitles := make(map[string]string)
+	for _, a := range active {
+		if a.EpicID != "" {
+			epicAgents[a.EpicID] = append(epicAgents[a.EpicID], a.Actor)
+			if a.EpicTitle != "" {
+				epicTitles[a.EpicID] = a.EpicTitle
+			}
+		}
+	}
+	if len(epicAgents) > 0 {
+		var crowded []string
+		for epicID, agents := range epicAgents {
+			title := epicTitles[epicID]
+			if title == "" {
+				title = epicID
+			}
+			if len(agents) >= 3 {
+				crowded = append(crowded, fmt.Sprintf("%s (%d agents)", title, len(agents)))
+			}
+		}
+		if len(crowded) > 0 {
+			sb.WriteString(fmt.Sprintf("Crowded epics: %s\n", strings.Join(crowded, ", ")))
+		}
+	}
+
 	// Ready work — unclaimed tasks not being worked by any active agent.
 	readyWork := getReadyWorkForHook(active)
 	if len(readyWork) > 0 {
