@@ -646,6 +646,9 @@ func outputAdviceSection(w io.Writer, agentID string) {
 // Shows active agents, their current task/epic, and idle time so the
 // receiving agent can avoid picking up work already in progress. (bd-rzec3)
 //
+// Agents idle > 10 minutes without a last_event of Stop are shown as stale.
+// Agents whose last event was Stop are excluded entirely (cleanly stopped). (bd-bstid)
+//
 // Connects to the daemon RPC (same pattern as outputAdviceSection).
 // Fails silently if daemon is unavailable or no agents are active.
 func outputRosterSection(w io.Writer) {
@@ -662,7 +665,7 @@ func outputRosterSection(w io.Writer) {
 	defer func() { _ = client.Close() }()
 
 	result, err := client.AgentRoster(&rpc.AgentRosterArgs{
-		StaleThresholdSecs: 1800, // 30 minutes — show recently active agents
+		StaleThresholdSecs: 1800, // 30 minutes — fetch broadly, filter below
 	})
 	if err != nil || result == nil || len(result.Actors) == 0 {
 		return
@@ -671,14 +674,35 @@ func outputRosterSection(w io.Writer) {
 	// Resolve the current agent's name so we can label their entry. (bd-snjni)
 	self := resolvePrimeAgentID("")
 
-	fmt.Fprintf(w, "\n## Active Agents (%d)\n\n", len(result.Actors))
+	// Partition into active vs stale. Agents whose last event was Stop and
+	// who are idle > 60s are considered stopped — exclude them entirely.
+	// Agents idle > 10 min without Stop are likely dead. (bd-bstid)
+	const staleThresholdSecs = 600 // 10 minutes
+	var active, stale []rpc.AgentRosterEntry
+	for _, a := range result.Actors {
+		isStopped := a.LastEvent == "Stop" && a.IdleSecs > 60
+		if isStopped {
+			continue // cleanly stopped — don't show at all
+		}
+		if a.IdleSecs > staleThresholdSecs {
+			stale = append(stale, a)
+		} else {
+			active = append(active, a)
+		}
+	}
+
+	if len(active) == 0 && len(stale) == 0 {
+		return
+	}
+
+	fmt.Fprintf(w, "\n## Active Agents (%d)\n\n", len(active))
 	if self != "" {
 		fmt.Fprintf(w, "You are **%s**. Do not pick up other agents' in-progress tasks.\n\n", self)
 	} else {
 		_, _ = fmt.Fprintf(w, "Do not pick up other agents' in-progress tasks.\n\n")
 	}
 
-	for _, a := range result.Actors {
+	for _, a := range active {
 		idleStr := formatIdleDuration(a.IdleSecs)
 		youTag := ""
 		if self != "" && a.Actor == self {
@@ -697,6 +721,18 @@ func outputRosterSection(w io.Writer) {
 				a.Actor, youTag, idleStr)
 		}
 	}
+
+	// Show stale agents as a compact summary so agents know they exist but
+	// don't treat them as active collaborators. (bd-bstid)
+	if len(stale) > 0 {
+		names := make([]string, len(stale))
+		for i, a := range stale {
+			names[i] = a.Actor
+		}
+		fmt.Fprintf(w, "\n_Stale (%d, idle >10m — likely disconnected): %s_\n",
+			len(stale), strings.Join(names, ", "))
+	}
+
 	_, _ = fmt.Fprintln(w, "")
 }
 

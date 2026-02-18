@@ -2,6 +2,9 @@ package eventbus
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -21,8 +24,8 @@ type BeadAssignmentStore interface {
 // Uses PresenceTracker for O(1) in-memory task checks when available (bd-tlckc).
 // Falls back to store query or subprocess when presence tracking isn't wired.
 //
-// Rate-limited: at most one nudge per cooldown period (default 10 minutes)
-// per actor, to avoid spamming agents with repeated reminders. (bd-0ttt3)
+// Rate-limited: at most one nudge per cooldown period (default 3 minutes)
+// per actor, to avoid spamming agents with repeated reminders. (bd-0ttt3, bd-bstid)
 type BeadNudgeHandler struct {
 	store    BeadAssignmentStore
 	presence *PresenceTracker
@@ -64,14 +67,68 @@ func (h *BeadNudgeHandler) Handle(ctx context.Context, event *Event, result *Res
 		return nil
 	}
 
-	// Nudge!
+	// Nudge! Include ready task suggestions when possible. (bd-bstid)
 	h.recordNudge(event.Actor)
-	result.Warnings = append(result.Warnings,
-		"You don't have a bead assigned. Run `bd ready` to find available work, "+
-			"or `bd create --title=\"...\" --type=task` to track what you're working on. "+
-			"Agents should always have an in_progress bead so others can see what you're doing.")
+	nudgeMsg := h.buildNudgeMessage(ctx, event)
+	result.Warnings = append(result.Warnings, nudgeMsg)
 
 	return nil
+}
+
+// buildNudgeMessage creates a nudge message, optionally including ready task
+// suggestions so the agent can claim work immediately. (bd-bstid)
+func (h *BeadNudgeHandler) buildNudgeMessage(ctx context.Context, event *Event) string {
+	var b strings.Builder
+	b.WriteString("You don't have a bead assigned. " +
+		"Agents should always have an in_progress bead so others can see what you're doing.")
+
+	// Try to get ready task suggestions.
+	suggestions := h.getReadyTaskSuggestions(ctx, event)
+	if len(suggestions) > 0 {
+		b.WriteString("\n\nReady tasks you could claim:")
+		for _, s := range suggestions {
+			fmt.Fprintf(&b, "\n  - `bd update %s --status=in_progress` — %s", s.id, s.title)
+		}
+		b.WriteString("\n\nOr create a new one: `bd create --title=\"...\" --type=task`")
+	} else {
+		b.WriteString(" Run `bd ready` to find available work, " +
+			"or `bd create --title=\"...\" --type=task` to track what you're working on.")
+	}
+
+	return b.String()
+}
+
+type readyTaskSuggestion struct {
+	id    string
+	title string
+}
+
+// getReadyTaskSuggestions returns up to 3 ready tasks for the nudge message.
+func (h *BeadNudgeHandler) getReadyTaskSuggestions(ctx context.Context, event *Event) []readyTaskSuggestion {
+	// Try subprocess: `bd ready --json` to get unblocked tasks.
+	stdout, _, err := runBDCommandWithEnv(ctx, event.CWD, envFromEvent(event),
+		"ready", "--json", "--limit=3")
+	if err != nil || stdout == "" || stdout == "[]" || stdout == "null" {
+		return nil
+	}
+
+	// Parse JSON array of issues.
+	var issues []struct {
+		ID    string `json:"id"`
+		Title string `json:"title"`
+	}
+	if jsonErr := json.Unmarshal([]byte(stdout), &issues); jsonErr != nil {
+		return nil
+	}
+
+	suggestions := make([]readyTaskSuggestion, 0, 3)
+	for _, issue := range issues {
+		if len(suggestions) >= 3 {
+			break
+		}
+		suggestions = append(suggestions, readyTaskSuggestion{id: issue.ID, title: issue.Title})
+	}
+	return suggestions
 }
 
 // shouldNudge returns true if enough time has passed since the last nudge
@@ -86,7 +143,7 @@ func (h *BeadNudgeHandler) shouldNudge(actor string) bool {
 
 	cooldown := h.cooldown
 	if cooldown == 0 {
-		cooldown = 10 * time.Minute
+		cooldown = 3 * time.Minute // (bd-bstid) reduced from 10min to nudge more frequently
 	}
 
 	last, ok := h.lastNudge[actor]

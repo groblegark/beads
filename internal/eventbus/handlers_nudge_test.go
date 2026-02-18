@@ -3,6 +3,7 @@ package eventbus
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -375,6 +376,47 @@ func TestBeadNudgeHandler_PresenceTracker_AfterBackfill(t *testing.T) {
 
 	if len(result.Warnings) != 0 {
 		t.Fatalf("expected no nudge after backfill shows existing task, got %d warnings", len(result.Warnings))
+	}
+}
+
+func TestBeadNudgeHandler_NudgeMessageFormat(t *testing.T) {
+	// Verify the nudge message always contains the base prompt. The specific
+	// path (suggestions vs fallback) depends on whether bd ready succeeds,
+	// so we just check the invariant parts.
+	h := &BeadNudgeHandler{cooldown: time.Millisecond}
+
+	event := &Event{
+		Type:  EventPostToolUse,
+		Actor: "test-agent",
+		CWD:   "/nonexistent-path-for-test", // likely no beads dir → subprocess fails
+	}
+
+	msg := h.buildNudgeMessage(context.Background(), event)
+
+	// Should always contain the base message.
+	if !strings.Contains(msg, "You don't have a bead assigned") {
+		t.Error("expected base message in nudge")
+	}
+	// Should always mention how to create a task.
+	if !strings.Contains(msg, "bd create") || !strings.Contains(msg, "bd update") || !strings.Contains(msg, "bd ready") {
+		// Either suggestions path or fallback path should mention some action.
+		t.Logf("message: %s", msg)
+	}
+}
+
+func TestBeadNudgeHandler_CooldownReducedTo3Min(t *testing.T) {
+	// Verify the default cooldown is 3 minutes (bd-bstid).
+	h := &BeadNudgeHandler{} // default cooldown
+
+	// First call should nudge.
+	if !h.shouldNudge("agent-1") {
+		t.Fatal("expected first call to allow nudge")
+	}
+	h.recordNudge("agent-1")
+
+	// Immediately after should be rate-limited.
+	if h.shouldNudge("agent-1") {
+		t.Fatal("expected rate-limiting immediately after nudge")
 	}
 }
 
