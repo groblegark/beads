@@ -15,7 +15,7 @@ import (
 var (
 	// Version is the current version of bd (overridden by ldflags at build time).
 	// Uses CalVer format: YYYY.MDD.N (e.g., 2026.218.0) — 3-part for semver compatibility.
-	Version = "2026.218.4"
+	Version = "2026.218.5"
 	// Build can be set via ldflags at compile time
 	Build = "dev"
 	// Commit and branch the git revision the binary was built from (optional ldflag)

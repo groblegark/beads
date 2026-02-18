@@ -4,4 +4,4 @@ This package provides an MCP (Model Context Protocol) server that exposes
 beads (bd) issue tracker functionality to MCP Clients.
 """
 
-__version__ = "2026.218.4"
+__version__ = "2026.218.5"
