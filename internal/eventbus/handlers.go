@@ -24,9 +24,9 @@ type InboxStore interface {
 // Priority 10 (runs first — context injection should happen before gates).
 type PrimeHandler struct{}
 
-func (h *PrimeHandler) ID() string              { return "prime" }
-func (h *PrimeHandler) Handles() []EventType     { return []EventType{EventSessionStart, EventPreCompact} }
-func (h *PrimeHandler) Priority() int            { return 10 }
+func (h *PrimeHandler) ID() string           { return "prime" }
+func (h *PrimeHandler) Handles() []EventType { return []EventType{EventSessionStart, EventPreCompact} }
+func (h *PrimeHandler) Priority() int        { return 10 }
 
 func (h *PrimeHandler) Handle(ctx context.Context, event *Event, result *Result) error {
 	stdout, _, err := runBDCommandWithEnv(ctx, event.CWD, envFromEvent(event), "prime")
@@ -45,9 +45,9 @@ func (h *PrimeHandler) Handle(ctx context.Context, event *Event, result *Result)
 // Priority 20 (runs after context injection).
 type GateHandler struct{}
 
-func (h *GateHandler) ID() string              { return "gate" }
-func (h *GateHandler) Handles() []EventType     { return []EventType{EventStop, EventPreToolUse} }
-func (h *GateHandler) Priority() int            { return 20 }
+func (h *GateHandler) ID() string           { return "gate" }
+func (h *GateHandler) Handles() []EventType { return []EventType{EventStop, EventPreToolUse} }
+func (h *GateHandler) Priority() int        { return 20 }
 
 func (h *GateHandler) Handle(ctx context.Context, event *Event, result *Result) error {
 	hookName := string(event.Type)
@@ -96,7 +96,6 @@ type gateCheckResponse struct {
 	Warnings []string `json:"warnings,omitempty"`
 }
 
-
 // InboxDrainHandler drains inbox items on SessionStart, PreCompact, and Stop.
 // Priority 30 (Phase 3: primary delivery path, replaces DecisionHandler).
 //
@@ -111,9 +110,11 @@ type InboxDrainHandler struct {
 	store InboxStore
 }
 
-func (h *InboxDrainHandler) ID() string          { return "inbox-drain" }
-func (h *InboxDrainHandler) Handles() []EventType { return []EventType{EventSessionStart, EventPreCompact, EventStop} }
-func (h *InboxDrainHandler) Priority() int        { return 30 }
+func (h *InboxDrainHandler) ID() string { return "inbox-drain" }
+func (h *InboxDrainHandler) Handles() []EventType {
+	return []EventType{EventSessionStart, EventPreCompact, EventStop}
+}
+func (h *InboxDrainHandler) Priority() int { return 30 }
 
 // SetInboxStore wires in direct storage access, eliminating the subprocess round-trip.
 func (h *InboxDrainHandler) SetInboxStore(store InboxStore) { h.store = store }
@@ -173,7 +174,7 @@ type PostToolUseInboxHandler struct {
 	store InboxStore
 }
 
-func (h *PostToolUseInboxHandler) ID() string          { return "post-tool-inbox" }
+func (h *PostToolUseInboxHandler) ID() string           { return "post-tool-inbox" }
 func (h *PostToolUseInboxHandler) Handles() []EventType { return []EventType{EventPostToolUse} }
 func (h *PostToolUseInboxHandler) Priority() int        { return 30 }
 
@@ -243,9 +244,9 @@ func runBDCommand(ctx context.Context, cwd string, args ...string) (string, stri
 // These override the daemon's own environment so the subprocess runs in the
 // context of the calling agent, not the daemon itself. (bd-awrs6, bd-7j9ao)
 type SubprocessEnv struct {
-	Actor             string // BD_ACTOR — the beads agent name (e.g., "bright-hog")
-	CallerSessionTag  string // TERM_SESSION_ID — scopes decisions to the caller's terminal
-	ClaudeSessionID   string // CLAUDE_SESSION_ID — Claude Code session ID for gate checks
+	Actor            string // BD_ACTOR — the beads agent name (e.g., "bright-hog")
+	CallerSessionTag string // TERM_SESSION_ID — scopes decisions to the caller's terminal
+	ClaudeSessionID  string // CLAUDE_SESSION_ID — Claude Code session ID for gate checks
 }
 
 // envFromEvent builds a SubprocessEnv from an Event's fields.
@@ -323,6 +324,7 @@ func DefaultHandlers() []Handler {
 	handlers := []Handler{
 		&HealthCheckHandler{},      // 5 — early stuck detection for agents (bd-4mpv3)
 		&PrimeHandler{},            // 10
+		&SubagentIdentityHandler{}, // 15 — inject unique BD_ACTOR for subagents (bd-hfiav)
 		&GateHandler{},             // 20
 		&AdviceHookHandler{},       // 25 — run advice hook commands at lifecycle points (beads-it2j)
 		&InboxDrainHandler{},       // 30 — sole delivery path (Phase 5)
@@ -330,8 +332,8 @@ func DefaultHandlers() []Handler {
 		&BeadNudgeHandler{},        // 40 — nudge unassigned agents to claim/create beads (bd-0ttt3)
 	}
 	handlers = append(handlers, DefaultOjHandlers()...)   // 40
-	handlers = append(handlers, &CommitNudgeHandler{})     // 45 — nudge agents to commit (bd-z4a0u)
-	handlers = append(handlers, DefaultMailHandlers()...)  // 50
-	handlers = append(handlers, &DoneWaitHandler{})        // 90 — must be last (bd-s7wv1)
+	handlers = append(handlers, &CommitNudgeHandler{})    // 45 — nudge agents to commit (bd-z4a0u)
+	handlers = append(handlers, DefaultMailHandlers()...) // 50
+	handlers = append(handlers, &DoneWaitHandler{})       // 90 — must be last (bd-s7wv1)
 	return handlers
 }
