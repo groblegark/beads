@@ -103,17 +103,17 @@ func parseTimeRPC(s string) (time.Time, error) {
 	if t, err := time.Parse(time.RFC3339, s); err == nil {
 		return t, nil
 	}
-	
+
 	// Try YYYY-MM-DD format (common user input)
 	if t, err := time.Parse("2006-01-02", s); err == nil {
 		return t, nil
 	}
-	
+
 	// Try YYYY-MM-DD HH:MM:SS format
 	if t, err := time.Parse("2006-01-02 15:04:05", s); err == nil {
 		return t, nil
 	}
-	
+
 	return time.Time{}, fmt.Errorf("unsupported date format: %q (use YYYY-MM-DD or RFC3339)", s)
 }
 
@@ -540,16 +540,16 @@ func (s *Server) handleCreate(req *Request) Response {
 		if depSpec == "" {
 			continue
 		}
-		
+
 		var depType types.DependencyType
 		var dependsOnID string
-		
+
 		if strings.Contains(depSpec, ":") {
 			parts := strings.SplitN(depSpec, ":", 2)
 			if len(parts) == 2 {
 				depType = types.DependencyType(strings.TrimSpace(parts[0]))
 				dependsOnID = strings.TrimSpace(parts[1])
-				
+
 				if depType == types.DepDiscoveredFrom {
 					discoveredFromParentID = dependsOnID
 					break
@@ -557,7 +557,7 @@ func (s *Server) handleCreate(req *Request) Response {
 			}
 		}
 	}
-	
+
 	// If we found a discovered-from dependency, inherit source_repo from parent
 	if discoveredFromParentID != "" {
 		parentIssue, err := store.GetIssue(ctx, discoveredFromParentID)
@@ -798,7 +798,7 @@ func (s *Server) handleCreate(req *Request) Response {
 			AdviceHookTrigger:   issue.AdviceHookTrigger,
 			AdviceHookTimeout:   issue.AdviceHookTimeout,
 			AdviceHookOnFailure: issue.AdviceHookOnFailure,
-		})
+		}, s.reqActor(req))
 	}
 
 	// Emit mail event when a message issue is created (bd-h59f).
@@ -811,7 +811,7 @@ func (s *Server) handleCreate(req *Request) Response {
 			To:        issue.Assignee,
 			Subject:   issue.Title,
 			SentAt:    issue.CreatedAt.Format(time.RFC3339),
-		})
+		}, s.reqActor(req))
 	}
 
 	// Update label cache for the new issue
@@ -1174,7 +1174,7 @@ func (s *Server) handleUpdate(req *Request) Response {
 			AdviceHookTrigger:   updatedIssue.AdviceHookTrigger,
 			AdviceHookTimeout:   updatedIssue.AdviceHookTimeout,
 			AdviceHookOnFailure: updatedIssue.AdviceHookOnFailure,
-		})
+		}, s.reqActor(req))
 	}
 
 	// Emit agent lifecycle event when agent_state or last_activity is updated
@@ -1205,7 +1205,7 @@ func (s *Server) handleUpdate(req *Request) Response {
 				AgentName: updatedIssue.ID,
 				RigName:   updatedIssue.Rig,
 				Role:      updatedIssue.RoleType,
-			})
+			}, s.reqActor(req))
 		}
 	}
 
@@ -1477,7 +1477,7 @@ func (s *Server) handleClose(req *Request) Response {
 			AdviceHookTrigger:   issue.AdviceHookTrigger,
 			AdviceHookTimeout:   issue.AdviceHookTimeout,
 			AdviceHookOnFailure: issue.AdviceHookOnFailure,
-		})
+		}, s.reqActor(req))
 	}
 
 	closedIssue, _ := store.GetIssue(ctx, closeArgs.ID)
@@ -1637,7 +1637,7 @@ func (s *Server) handleDelete(req *Request) Response {
 			}
 			// Emit advice.deleted bus events for advice beads (bd-z4cu.2)
 			for _, payload := range advicePayloads {
-				s.emitAdviceEvent(eventbus.EventAdviceDeleted, payload)
+				s.emitAdviceEvent(eventbus.EventAdviceDeleted, payload, s.reqActor(req))
 			}
 
 			// Build response
@@ -1750,7 +1750,7 @@ func (s *Server) handleDelete(req *Request) Response {
 				AdviceHookTrigger:   issue.AdviceHookTrigger,
 				AdviceHookTimeout:   issue.AdviceHookTimeout,
 				AdviceHookOnFailure: issue.AdviceHookOnFailure,
-			})
+			}, s.reqActor(req))
 		}
 
 		deletedCount++
@@ -1866,8 +1866,8 @@ func (s *Server) handleRename(req *Request) Response {
 	s.emitMutationFor(MutationUpdate, oldIssue)
 
 	result := RenameResult{
-		OldID:            renameArgs.OldID,
-		NewID:            renameArgs.NewID,
+		OldID:             renameArgs.OldID,
+		NewID:             renameArgs.NewID,
 		ReferencesUpdated: referencesUpdated,
 	}
 
@@ -2000,7 +2000,7 @@ func (s *Server) handleList(req *Request) Response {
 		status := types.Status(listArgs.Status)
 		filter.Status = &status
 	}
-	
+
 	if listArgs.IssueType != "" {
 		issueType := types.IssueType(listArgs.IssueType)
 		filter.IssueType = &issueType
@@ -2011,7 +2011,7 @@ func (s *Server) handleList(req *Request) Response {
 	if listArgs.Priority != nil {
 		filter.Priority = listArgs.Priority
 	}
-	
+
 	// Normalize and apply label filters
 	labels := util.NormalizeLabels(listArgs.Labels)
 	labelsAny := util.NormalizeLabels(listArgs.LabelsAny)
@@ -2030,12 +2030,12 @@ func (s *Server) handleList(req *Request) Response {
 			filter.IDs = ids
 		}
 	}
-	
+
 	// Pattern matching
 	filter.TitleContains = listArgs.TitleContains
 	filter.DescriptionContains = listArgs.DescriptionContains
 	filter.NotesContains = listArgs.NotesContains
-	
+
 	// Date ranges - use parseTimeRPC helper for flexible formats
 	if listArgs.CreatedAfter != "" {
 		t, err := parseTimeRPC(listArgs.CreatedAfter)
@@ -2097,12 +2097,12 @@ func (s *Server) handleList(req *Request) Response {
 		}
 		filter.ClosedBefore = &t
 	}
-	
+
 	// Empty/null checks
 	filter.EmptyDescription = listArgs.EmptyDescription
 	filter.NoAssignee = listArgs.NoAssignee
 	filter.NoLabels = listArgs.NoLabels
-	
+
 	// Priority range
 	filter.PriorityMin = listArgs.PriorityMin
 	filter.PriorityMax = listArgs.PriorityMax
@@ -3236,7 +3236,7 @@ func (s *Server) handleConfigSet(req *Request) Response {
 		Key:   args.Key,
 		Value: args.Value,
 		Actor: s.reqActor(req),
-	})
+	}, s.reqActor(req))
 
 	result := ConfigSetResponse{
 		Key:   args.Key,
@@ -3315,7 +3315,7 @@ func (s *Server) handleConfigUnset(req *Request) Response {
 	s.emitConfigEvent(eventbus.EventConfigUnset, eventbus.ConfigEventPayload{
 		Key:   args.Key,
 		Actor: s.reqActor(req),
-	})
+	}, s.reqActor(req))
 
 	result := ConfigUnsetResponse{
 		Key: args.Key,
@@ -3358,7 +3358,7 @@ func (s *Server) handleGateCreate(req *Request) Response {
 		Status:    types.StatusOpen,
 		Priority:  1, // Gates are typically high priority
 		Assignee:  "deacon/",
-		Ephemeral:      true, // Gates are wisps (ephemeral)
+		Ephemeral: true, // Gates are wisps (ephemeral)
 		AwaitType: args.AwaitType,
 		AwaitID:   args.AwaitID,
 		Timeout:   args.Timeout,
@@ -3840,7 +3840,7 @@ func (s *Server) handleDecisionCreate(req *Request) Response {
 			AgentName: args.RequestedBy,
 			BeadID:    args.Parent,
 			Reason:    args.Prompt,
-		})
+		}, s.reqActor(req))
 	}
 
 	// Return the decision with its associated issue
@@ -4799,7 +4799,7 @@ func (s *Server) handleCreateMolecule(req *Request) Response {
 		s.emitOjEvent(eventbus.EventOjJobCreated, eventbus.OjJobEventPayload{
 			JobID:  rootID,
 			BeadID: rootID,
-		})
+		}, s.reqActor(req))
 	}
 
 	data, _ := json.Marshal(result)

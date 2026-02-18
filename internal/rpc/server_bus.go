@@ -309,7 +309,8 @@ func (s *Server) emitDecisionEvent(eventType eventbus.EventType, payload eventbu
 // emitOjEvent dispatches an OddJobs lifecycle event to the event bus (and NATS
 // JetStream) so that handlers and external consumers are notified of OJ
 // lifecycle transitions.  No-op if the bus is nil.  (bd-2iae)
-func (s *Server) emitOjEvent(eventType eventbus.EventType, payload interface{}) {
+// Actor identifies which agent emitted the event (for NATS routing). (bd-plj5b)
+func (s *Server) emitOjEvent(eventType eventbus.EventType, payload interface{}, actor ...string) {
 	s.mu.RLock()
 	bus := s.bus
 	s.mu.RUnlock()
@@ -328,6 +329,9 @@ func (s *Server) emitOjEvent(eventType eventbus.EventType, payload interface{}) 
 		Type: eventType,
 		Raw:  raw,
 	}
+	if len(actor) > 0 && actor[0] != "" {
+		event.Actor = actor[0]
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), s.requestTimeout)
 	defer cancel()
@@ -340,7 +344,8 @@ func (s *Server) emitOjEvent(eventType eventbus.EventType, payload interface{}) 
 // emitAgentEvent dispatches an agent lifecycle event to the event bus (and NATS
 // JetStream) so the PresenceTracker picks up gastown agents and other agents
 // that update state via bd agent state/heartbeat. No-op if the bus is nil.
-func (s *Server) emitAgentEvent(eventType eventbus.EventType, payload eventbus.AgentEventPayload) {
+// Actor identifies which agent emitted the event (for NATS routing). (bd-plj5b)
+func (s *Server) emitAgentEvent(eventType eventbus.EventType, payload eventbus.AgentEventPayload, actor ...string) {
 	s.mu.RLock()
 	bus := s.bus
 	s.mu.RUnlock()
@@ -359,6 +364,9 @@ func (s *Server) emitAgentEvent(eventType eventbus.EventType, payload eventbus.A
 		Type: eventType,
 		Raw:  raw,
 	}
+	if len(actor) > 0 && actor[0] != "" {
+		event.Actor = actor[0]
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), s.requestTimeout)
 	defer cancel()
@@ -370,7 +378,8 @@ func (s *Server) emitAgentEvent(eventType eventbus.EventType, payload eventbus.A
 
 // emitMailEvent dispatches a mail event to the event bus (and NATS JetStream)
 // so that agents receive instant mail notifications. No-op if the bus is nil. (bd-h59f)
-func (s *Server) emitMailEvent(eventType eventbus.EventType, payload eventbus.MailEventPayload) {
+// Actor identifies which agent emitted the event (for NATS routing). (bd-plj5b)
+func (s *Server) emitMailEvent(eventType eventbus.EventType, payload eventbus.MailEventPayload, actor ...string) {
 	s.mu.RLock()
 	bus := s.bus
 	s.mu.RUnlock()
@@ -389,6 +398,9 @@ func (s *Server) emitMailEvent(eventType eventbus.EventType, payload eventbus.Ma
 		Type: eventType,
 		Raw:  raw,
 	}
+	if len(actor) > 0 && actor[0] != "" {
+		event.Actor = actor[0]
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), s.requestTimeout)
 	defer cancel()
@@ -400,7 +412,8 @@ func (s *Server) emitMailEvent(eventType eventbus.EventType, payload eventbus.Ma
 
 // emitConfigEvent dispatches a config/formula change event to the event bus
 // (and NATS JetStream). No-op if the bus is nil. (bd-hkgu)
-func (s *Server) emitConfigEvent(eventType eventbus.EventType, payload eventbus.ConfigEventPayload) {
+// Actor identifies which agent emitted the event (for NATS routing). (bd-plj5b)
+func (s *Server) emitConfigEvent(eventType eventbus.EventType, payload eventbus.ConfigEventPayload, actor ...string) {
 	s.mu.RLock()
 	bus := s.bus
 	s.mu.RUnlock()
@@ -419,6 +432,9 @@ func (s *Server) emitConfigEvent(eventType eventbus.EventType, payload eventbus.
 		Type: eventType,
 		Raw:  raw,
 	}
+	if len(actor) > 0 && actor[0] != "" {
+		event.Actor = actor[0]
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), s.requestTimeout)
 	defer cancel()
@@ -430,7 +446,8 @@ func (s *Server) emitConfigEvent(eventType eventbus.EventType, payload eventbus.
 
 // emitAdviceEvent dispatches an advice bus event if the bus is configured. (bd-z4cu.2)
 // No-op if bus is nil — CRUD operations still succeed without a bus.
-func (s *Server) emitAdviceEvent(eventType eventbus.EventType, payload AdviceEventPayload) {
+// Actor identifies which agent emitted the event (for NATS routing). (bd-plj5b)
+func (s *Server) emitAdviceEvent(eventType eventbus.EventType, payload AdviceEventPayload, actor ...string) {
 	s.mu.RLock()
 	bus := s.bus
 	s.mu.RUnlock()
@@ -447,6 +464,9 @@ func (s *Server) emitAdviceEvent(eventType eventbus.EventType, payload AdviceEve
 	event := &eventbus.Event{
 		Type: eventType,
 		Raw:  raw,
+	}
+	if len(actor) > 0 && actor[0] != "" {
+		event.Actor = actor[0]
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), s.requestTimeout)

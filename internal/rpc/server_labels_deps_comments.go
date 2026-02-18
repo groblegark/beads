@@ -230,10 +230,10 @@ func (s *Server) handleDepAddBidirectional(req *Request) Response {
 	}
 
 	result := map[string]interface{}{
-		"status":  "added",
-		"id1":     args.ID1,
-		"id2":     args.ID2,
-		"type":    args.DepType,
+		"status": "added",
+		"id1":    args.ID1,
+		"id2":    args.ID2,
+		"type":   args.DepType,
 	}
 	data, _ := json.Marshal(result)
 	return Response{Success: true, Data: data}
@@ -861,7 +861,7 @@ func (s *Server) handleBatchQueryWorkers(req *Request) Response {
 		Worker:    s.reqActor(req),
 		Queue:     "batch_query",
 		ItemCount: len(workers),
-	})
+	}, s.reqActor(req))
 
 	result := &BatchQueryWorkersResult{
 		Workers: workers,

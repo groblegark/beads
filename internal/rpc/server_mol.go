@@ -93,7 +93,7 @@ func (s *Server) handleMolBond(req *Request) Response {
 		s.emitOjEvent(eventbus.EventOjJobCreated, eventbus.OjJobEventPayload{
 			JobID:  result.ResultID,
 			BeadID: result.ResultID,
-		})
+		}, s.reqActor(req))
 	}
 
 	data, _ := json.Marshal(result)
@@ -1286,7 +1286,7 @@ func (s *Server) handleCloseContinue(req *Request) Response {
 		s.emitOjEvent(eventbus.EventOjJobCompleted, eventbus.OjJobEventPayload{
 			JobID:  moleculeID,
 			BeadID: moleculeID,
-		})
+		}, s.reqActor(req))
 
 		data, _ := json.Marshal(result)
 		return Response{Success: true, Data: data}
@@ -1319,7 +1319,7 @@ func (s *Server) handleCloseContinue(req *Request) Response {
 		FromStep: closedStepID,
 		ToStep:   nextStep.ID,
 		BeadID:   moleculeID,
-	})
+	}, s.reqActor(req))
 
 	// Auto-claim if requested
 	if args.AutoClaim {

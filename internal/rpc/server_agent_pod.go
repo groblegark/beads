@@ -68,7 +68,7 @@ func (s *Server) handleAgentPodRegister(req *Request) Response {
 	s.emitOjEvent(eventbus.EventOjAgentSpawned, eventbus.OjAgentEventPayload{
 		AgentName: args.AgentID,
 		SessionID: args.ScreenSession,
-	})
+	}, s.reqActor(req))
 
 	// Emit agent lifecycle event so PresenceTracker roster picks up the agent.
 	if agentIssue, _ := store.GetIssue(ctx, args.AgentID); agentIssue != nil {
@@ -78,7 +78,7 @@ func (s *Server) handleAgentPodRegister(req *Request) Response {
 			RigName:   agentIssue.Rig,
 			Role:      agentIssue.RoleType,
 			SessionID: args.ScreenSession,
-		})
+		}, s.reqActor(req))
 	}
 
 	result := AgentPodRegisterResult{
@@ -193,13 +193,13 @@ func (s *Server) handleAgentPodStatus(req *Request) Response {
 	case "idle":
 		s.emitOjEvent(eventbus.EventOjAgentIdle, eventbus.OjAgentEventPayload{
 			AgentName: args.AgentID,
-		})
+		}, s.reqActor(req))
 	case "failed":
 		s.emitOjEvent(eventbus.EventOjJobFailed, eventbus.OjJobEventPayload{
 			JobID:  args.AgentID,
 			BeadID: args.AgentID,
 			Error:  "agent pod failed",
-		})
+		}, s.reqActor(req))
 	}
 
 	result := AgentPodStatusResult{
@@ -210,7 +210,7 @@ func (s *Server) handleAgentPodStatus(req *Request) Response {
 	return Response{Success: true, Data: data}
 }
 
-// handleAgentPodList returns agents with active pods (pod_name != '').
+// handleAgentPodList returns agents with active pods (pod_name != ”).
 func (s *Server) handleAgentPodList(req *Request) Response {
 	var args AgentPodListArgs
 	if req.Args != nil {

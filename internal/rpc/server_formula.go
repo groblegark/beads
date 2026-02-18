@@ -67,7 +67,7 @@ func (s *Server) handleFormulaList(req *Request) Response {
 			Type:        string(f.Type),
 			Phase:       f.Phase,
 			Version:     f.Version,
-			Source:       f.Source,
+			Source:      f.Source,
 		})
 
 		if args.Limit > 0 && len(formulas) >= args.Limit {
@@ -250,7 +250,7 @@ func (s *Server) handleFormulaSave(req *Request) Response {
 		IssueID: issue.ID,
 		Created: created,
 		Actor:   actor,
-	})
+	}, actor)
 
 	result := FormulaSaveResult{
 		ID:      issue.ID,
@@ -338,7 +338,7 @@ func (s *Server) handleFormulaDelete(req *Request) Response {
 		Name:    issue.Title,
 		IssueID: issue.ID,
 		Actor:   actor,
-	})
+	}, actor)
 
 	result := FormulaDeleteResult{
 		ID:   issue.ID,

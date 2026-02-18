@@ -73,7 +73,7 @@ func (s *Server) handleAgentStop(req *Request) Response {
 		RigName:   issue.Rig,
 		Role:      issue.RoleType,
 		Reason:    "agent stop requested",
-	})
+	}, s.reqActor(req))
 
 	// Optionally send SIGTERM to the coop sidecar.
 	coopSignaled := false
@@ -162,7 +162,7 @@ func (s *Server) handleAgentRestart(req *Request) Response {
 		RigName:   issue.Rig,
 		Role:      issue.RoleType,
 		Reason:    "agent restart requested",
-	})
+	}, s.reqActor(req))
 
 	result := AgentRestartResult{
 		AgentID:    args.AgentID,
