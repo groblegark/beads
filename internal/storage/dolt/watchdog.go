@@ -75,6 +75,12 @@ func (r *Rows) Close() error {
 //  4. Spawns a watchdog goroutine that fires KILL QUERY if the timeout expires
 //  5. Returns *Rows whose Close() method cleans up the watchdog
 //
+// Auto-reconnect (bd-pui1c): if the primary returns a read-only error
+// (indicating a Dolt cluster failover), the connection pool is reconnected
+// to pick up the new primary endpoint from the K8s service, and the query
+// is retried once. This prevents reads from permanently falling back to
+// standby after a failover resolves.
+//
 // Standby fallback (bd-4az2z): if the primary returns a connection error
 // and a standby pool is configured, the query is transparently retried on
 // the standby replica. This allows read-only operations (bd list, bd show)
@@ -84,17 +90,36 @@ func (r *Rows) Close() error {
 // possible with a single-connection embedded engine).
 func (s *DoltStore) queryContext(ctx context.Context, query string, args ...interface{}) (*Rows, error) {
 	rows, err := s.queryContextOnDB(ctx, s.db, query, args...)
-	if err != nil && s.dbStandby != nil && isConnectionError(err) {
-		// Primary unreachable — try standby for this read query.
-		// Log at stderr so daemon logs capture the failover event.
+	if err == nil {
+		return rows, nil
+	}
+
+	// Read-only error means primary has failed over — reconnect pool to new primary.
+	if s.serverMode && s.connStr != "" && isReadOnlyError(err) {
+		fmt.Fprintf(os.Stderr, "primary: read query got read-only error — reconnecting to pick up new primary\n")
+		if reconnErr := s.reconnectPrimary(ctx); reconnErr != nil {
+			fmt.Fprintf(os.Stderr, "primary: reconnect failed: %v\n", reconnErr)
+		} else {
+			fmt.Fprintf(os.Stderr, "primary: reconnected successfully, retrying read query\n")
+			retryRows, retryErr := s.queryContextOnDB(ctx, s.db, query, args...)
+			if retryErr == nil {
+				return retryRows, nil
+			}
+			// Reconnected but query still failed — fall through to standby
+			err = retryErr
+		}
+	}
+
+	// Connection error — try standby if available.
+	if s.dbStandby != nil && isConnectionError(err) {
 		fmt.Fprintf(os.Stderr, "standby: primary connection failed, falling back to standby for read query\n")
 		standbyRows, standbyErr := s.queryContextOnDB(ctx, s.dbStandby, query, args...)
 		if standbyErr == nil {
 			return standbyRows, nil
 		}
-		// Both failed — return the original primary error for clarity
 		fmt.Fprintf(os.Stderr, "standby: standby also failed: %v\n", standbyErr)
 	}
+
 	return rows, err
 }
 
