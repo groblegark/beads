@@ -1461,3 +1461,120 @@ func TestHandleClose_BlockerCheck_ClosedBlocker(t *testing.T) {
 		t.Errorf("expected close to succeed after blocker was closed, got error: %s", closeBlockedResp.Error)
 	}
 }
+
+// TestHandleUpdate_AutoAssignRespectsExplicitAssignee verifies that when
+// --assignee=X and --status=in_progress are both provided, the explicit
+// assignee is used instead of auto-assigning to the calling actor. (bd-fo6i9)
+func TestHandleUpdate_AutoAssignRespectsExplicitAssignee(t *testing.T) {
+	store := teststore.New(t)
+	server := NewServer("/tmp/test.sock", store, "/tmp", "/tmp/test.db")
+
+	// Create an issue with no assignee
+	createArgs := CreateArgs{
+		Title:     "Test explicit assignee override",
+		IssueType: "task",
+		Priority:  2,
+	}
+	createJSON, _ := json.Marshal(createArgs)
+	createResp := server.handleCreate(&Request{
+		Operation: OpCreate,
+		Args:      createJSON,
+		Actor:     "leader-agent",
+	})
+	if !createResp.Success {
+		t.Fatalf("create failed: %s", createResp.Error)
+	}
+
+	var createdIssue map[string]interface{}
+	if err := json.Unmarshal(createResp.Data, &createdIssue); err != nil {
+		t.Fatalf("failed to parse created issue: %v", err)
+	}
+	issueID := createdIssue["id"].(string)
+
+	// Update with both --assignee=target-agent and --status=in_progress
+	// called by leader-agent (a different actor)
+	status := "in_progress"
+	assignee := "target-agent"
+	updateArgs := UpdateArgs{
+		ID:       issueID,
+		Status:   &status,
+		Assignee: &assignee,
+	}
+	updateJSON, _ := json.Marshal(updateArgs)
+	updateResp := server.handleUpdate(&Request{
+		Operation: OpUpdate,
+		Args:      updateJSON,
+		Actor:     "leader-agent",
+	})
+	if !updateResp.Success {
+		t.Fatalf("update failed: %s", updateResp.Error)
+	}
+
+	// Verify the assignee is target-agent, NOT leader-agent
+	var updatedIssue types.Issue
+	if err := json.Unmarshal(updateResp.Data, &updatedIssue); err != nil {
+		t.Fatalf("failed to parse updated issue: %v", err)
+	}
+
+	if updatedIssue.Assignee != "target-agent" {
+		t.Errorf("expected assignee 'target-agent', got %q (auto-assign overwrote explicit --assignee)", updatedIssue.Assignee)
+	}
+	if updatedIssue.Status != types.StatusInProgress {
+		t.Errorf("expected status 'in_progress', got %q", updatedIssue.Status)
+	}
+}
+
+// TestHandleUpdate_AutoAssignWhenNoExplicitAssignee verifies that auto-assign
+// still works when no explicit --assignee is provided. (bd-fo6i9)
+func TestHandleUpdate_AutoAssignWhenNoExplicitAssignee(t *testing.T) {
+	store := teststore.New(t)
+	server := NewServer("/tmp/test.sock", store, "/tmp", "/tmp/test.db")
+
+	// Create an issue with no assignee
+	createArgs := CreateArgs{
+		Title:     "Test auto-assign without explicit assignee",
+		IssueType: "task",
+		Priority:  2,
+	}
+	createJSON, _ := json.Marshal(createArgs)
+	createResp := server.handleCreate(&Request{
+		Operation: OpCreate,
+		Args:      createJSON,
+		Actor:     "creator-agent",
+	})
+	if !createResp.Success {
+		t.Fatalf("create failed: %s", createResp.Error)
+	}
+
+	var createdIssue map[string]interface{}
+	if err := json.Unmarshal(createResp.Data, &createdIssue); err != nil {
+		t.Fatalf("failed to parse created issue: %v", err)
+	}
+	issueID := createdIssue["id"].(string)
+
+	// Update with only --status=in_progress (no --assignee)
+	status := "in_progress"
+	updateArgs := UpdateArgs{
+		ID:     issueID,
+		Status: &status,
+	}
+	updateJSON, _ := json.Marshal(updateArgs)
+	updateResp := server.handleUpdate(&Request{
+		Operation: OpUpdate,
+		Args:      updateJSON,
+		Actor:     "worker-agent",
+	})
+	if !updateResp.Success {
+		t.Fatalf("update failed: %s", updateResp.Error)
+	}
+
+	// Verify the assignee is auto-assigned to worker-agent (the actor)
+	var updatedIssue types.Issue
+	if err := json.Unmarshal(updateResp.Data, &updatedIssue); err != nil {
+		t.Fatalf("failed to parse updated issue: %v", err)
+	}
+
+	if updatedIssue.Assignee != "worker-agent" {
+		t.Errorf("expected auto-assigned assignee 'worker-agent', got %q", updatedIssue.Assignee)
+	}
+}

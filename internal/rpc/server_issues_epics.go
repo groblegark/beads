@@ -942,10 +942,13 @@ func (s *Server) handleUpdate(req *Request) Response {
 
 	// Auto-assign: when transitioning to in_progress and assignee is empty,
 	// set assignee from the request actor. (bd-qdhxw)
+	// Only auto-assign if no explicit --assignee was provided. (bd-fo6i9)
 	if actor != "" && issue.Assignee == "" {
-		if statusVal, ok := updates["status"]; ok {
-			if statusStr, ok := statusVal.(string); ok && statusStr == string(types.StatusInProgress) {
-				updates["assignee"] = actor
+		if _, hasExplicitAssignee := updates["assignee"]; !hasExplicitAssignee {
+			if statusVal, ok := updates["status"]; ok {
+				if statusStr, ok := statusVal.(string); ok && statusStr == string(types.StatusInProgress) {
+					updates["assignee"] = actor
+				}
 			}
 		}
 	}
