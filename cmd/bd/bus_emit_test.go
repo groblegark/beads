@@ -3,10 +3,13 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/steveyegge/beads/internal/rpc"
@@ -266,5 +269,174 @@ func TestRunBusEmit_LocalFallback_NoDaemon(t *testing.T) {
 	err := cmd.Execute()
 	if err != nil {
 		t.Fatalf("expected no error for local fallback, got: %v", err)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Stop-loop detection tests (hq-86ygth)
+// ---------------------------------------------------------------------------
+
+func TestParseStopLoopLog_Empty(t *testing.T) {
+	result := parseStopLoopLog("")
+	if len(result) != 0 {
+		t.Errorf("expected empty, got %v", result)
+	}
+}
+
+func TestParseStopLoopLog_ValidTimestamps(t *testing.T) {
+	input := "1708300000\n1708300060\n1708300120\n"
+	result := parseStopLoopLog(input)
+	if len(result) != 3 {
+		t.Fatalf("expected 3 timestamps, got %d", len(result))
+	}
+	if result[0] != 1708300000 || result[1] != 1708300060 || result[2] != 1708300120 {
+		t.Errorf("unexpected timestamps: %v", result)
+	}
+}
+
+func TestParseStopLoopLog_InvalidLines(t *testing.T) {
+	input := "1708300000\nbadline\n1708300060\n"
+	result := parseStopLoopLog(input)
+	if len(result) != 2 {
+		t.Fatalf("expected 2 valid timestamps, got %d", len(result))
+	}
+}
+
+// chdirTemp changes to a temp dir and returns a cleanup function.
+func chdirTemp(t *testing.T) {
+	t.Helper()
+	tmpDir := t.TempDir()
+	origDir, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(tmpDir); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(origDir) })
+}
+
+func TestDetectStopLoop_BelowThreshold(t *testing.T) {
+	chdirTemp(t)
+	t.Setenv("BEADS_STOP_LOOP_THRESHOLD", "5")
+	t.Setenv("BEADS_STOP_LOOP_WINDOW", "30m")
+
+	sessionID := "test-session-below"
+
+	// First 4 activations should not trigger loop detection (threshold=5).
+	for i := 0; i < 4; i++ {
+		if detectStopLoop(sessionID) {
+			t.Errorf("activation %d should not trigger loop detection", i+1)
+		}
+	}
+}
+
+func TestDetectStopLoop_AtThreshold(t *testing.T) {
+	chdirTemp(t)
+	t.Setenv("BEADS_STOP_LOOP_THRESHOLD", "3")
+	t.Setenv("BEADS_STOP_LOOP_WINDOW", "30m")
+
+	sessionID := "test-session-threshold"
+
+	// First 2 should not trigger.
+	for i := 0; i < 2; i++ {
+		if detectStopLoop(sessionID) {
+			t.Errorf("activation %d should not trigger loop detection", i+1)
+		}
+	}
+
+	// 3rd activation should trigger (threshold=3).
+	if !detectStopLoop(sessionID) {
+		t.Error("activation 3 should trigger loop detection at threshold=3")
+	}
+}
+
+func TestDetectStopLoop_WindowExpiry(t *testing.T) {
+	chdirTemp(t)
+	t.Setenv("BEADS_STOP_LOOP_THRESHOLD", "3")
+	t.Setenv("BEADS_STOP_LOOP_WINDOW", "30m")
+
+	sessionID := "test-session-expiry"
+
+	// Write old timestamps (>30 min ago) directly to the log file.
+	wd, _ := os.Getwd()
+	logPath := filepath.Join(wd, ".runtime", "stop-loop", sessionID)
+	_ = os.MkdirAll(filepath.Dir(logPath), 0o755)
+	oldTime := time.Now().Add(-45 * time.Minute).Unix()
+	content := fmt.Sprintf("%d\n%d\n", oldTime, oldTime+60)
+	_ = os.WriteFile(logPath, []byte(content), 0o600)
+
+	// New activation should start fresh (old entries pruned).
+	if detectStopLoop(sessionID) {
+		t.Error("should not trigger — old entries outside window should be pruned")
+	}
+}
+
+func TestDetectStopLoop_SessionIsolation(t *testing.T) {
+	chdirTemp(t)
+	t.Setenv("BEADS_STOP_LOOP_THRESHOLD", "2")
+	t.Setenv("BEADS_STOP_LOOP_WINDOW", "30m")
+
+	// Fill session A to just below threshold.
+	detectStopLoop("session-a")
+
+	// Session B should not be affected by session A.
+	if detectStopLoop("session-b") {
+		t.Error("session-b should not be affected by session-a activations")
+	}
+}
+
+func TestDetectStopLoop_PersistsAcrossDecisionCreate(t *testing.T) {
+	// Verify that the stop-loop log is NOT cleared by clearStopDebounceMarker.
+	// This is the key behavior: debounce markers reset per decision cycle,
+	// but the stop-loop log persists across the full window.
+	chdirTemp(t)
+	t.Setenv("BEADS_STOP_LOOP_THRESHOLD", "3")
+	t.Setenv("BEADS_STOP_LOOP_WINDOW", "30m")
+
+	sessionID := "test-persist"
+
+	// Simulate 2 activations.
+	detectStopLoop(sessionID)
+	detectStopLoop(sessionID)
+
+	// Simulate what bd decision create does — clear the debounce marker.
+	// The stop-loop log should NOT be affected.
+	debounceMarker := stopDebounceMarkerPath(sessionID)
+	_ = os.MkdirAll(filepath.Dir(debounceMarker), 0o755)
+	_ = os.WriteFile(debounceMarker, []byte("123:1"), 0o600)
+	_ = os.Remove(debounceMarker)
+
+	// 3rd activation should still trigger (log wasn't cleared).
+	if !detectStopLoop(sessionID) {
+		t.Error("stop-loop log should persist across debounce marker clears")
+	}
+}
+
+func TestStopLoopThreshold_Default(t *testing.T) {
+	t.Setenv("BEADS_STOP_LOOP_THRESHOLD", "")
+	if got := stopLoopThreshold(); got != defaultStopLoopThreshold {
+		t.Errorf("default threshold = %d, want %d", got, defaultStopLoopThreshold)
+	}
+}
+
+func TestStopLoopThreshold_Custom(t *testing.T) {
+	t.Setenv("BEADS_STOP_LOOP_THRESHOLD", "10")
+	if got := stopLoopThreshold(); got != 10 {
+		t.Errorf("custom threshold = %d, want 10", got)
+	}
+}
+
+func TestStopLoopWindow_Default(t *testing.T) {
+	t.Setenv("BEADS_STOP_LOOP_WINDOW", "")
+	if got := stopLoopWindow(); got != defaultStopLoopWindow {
+		t.Errorf("default window = %v, want %v", got, defaultStopLoopWindow)
+	}
+}
+
+func TestStopLoopWindow_Custom(t *testing.T) {
+	t.Setenv("BEADS_STOP_LOOP_WINDOW", "1h")
+	if got := stopLoopWindow(); got != time.Hour {
+		t.Errorf("custom window = %v, want 1h", got)
 	}
 }

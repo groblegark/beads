@@ -126,6 +126,21 @@ func runBusEmit(cmd *cobra.Command, args []string) error {
 		debounceStopHook(eventMeta.SessionID)
 	}
 
+	// Stop-loop detection: track stop hook activations in a sliding window.
+	// If the stop hook fires too many times within the window (even across
+	// decision create/respond cycles), auto-satisfy the gate to break the
+	// loop. This catches the bd-done wake loop where broadcast mail keeps
+	// waking the agent, triggering stop → checkpoint → bd done → wake → stop.
+	// Unlike debounce (which resets on decision create), this persists across
+	// the full window. (hq-86ygth)
+	if resolvedType == "Stop" {
+		if detectStopLoop(eventMeta.SessionID) {
+			if eventMeta.SessionID != "" {
+				_ = gate.MarkGate(getWorkDir(), eventMeta.SessionID, "decision")
+			}
+		}
+	}
+
 	// Local gate pre-check: gate markers live on the local filesystem but the
 	// daemon may be remote (BD_DAEMON_HOST). Run the gate check locally first
 	// and inject the result into the event JSON so the remote GateHandler can
@@ -326,6 +341,109 @@ func stopDebounceMarkerPath(sessionID string) string {
 		sessionID = "_unknown"
 	}
 	return filepath.Join(getWorkDir(), ".runtime", "stop-debounce", sessionID)
+}
+
+// --------------------------------------------------------------------------
+// Stop-loop detection: sliding-window counter that persists across decision
+// create/respond cycles. Unlike the debounce marker (reset by bd decision
+// create), the stop-loop log tracks ALL stop hook activations within a
+// rolling window. When the count exceeds the threshold, the loop is broken
+// by auto-satisfying the decision gate. (hq-86ygth)
+// --------------------------------------------------------------------------
+
+const (
+	// defaultStopLoopWindow is the sliding window duration for loop detection.
+	defaultStopLoopWindow = 30 * time.Minute
+	// defaultStopLoopThreshold is the number of stop activations within the
+	// window before the loop is broken.
+	defaultStopLoopThreshold = 5
+)
+
+// detectStopLoop records a stop hook activation and returns true if the
+// session is in a stop loop (activations within window >= threshold).
+func detectStopLoop(sessionID string) bool {
+	logPath := stopLoopLogPath(sessionID)
+	dir := filepath.Dir(logPath)
+	_ = os.MkdirAll(dir, 0o755)
+
+	now := time.Now()
+	cutoff := now.Add(-stopLoopWindow())
+
+	// Read existing timestamps.
+	var timestamps []int64
+	if data, err := os.ReadFile(logPath); err == nil { //nolint:gosec // path from controlled .runtime/ directory
+		timestamps = parseStopLoopLog(string(data))
+	}
+
+	// Prune entries outside the window.
+	pruned := make([]int64, 0, len(timestamps)+1)
+	for _, ts := range timestamps {
+		if time.Unix(ts, 0).After(cutoff) {
+			pruned = append(pruned, ts)
+		}
+	}
+
+	// Append current activation.
+	pruned = append(pruned, now.Unix())
+
+	// Write back.
+	writeStopLoopLog(logPath, pruned)
+
+	// Check threshold.
+	return len(pruned) >= stopLoopThreshold()
+}
+
+// stopLoopLogPath returns the path for the stop-loop activation log.
+func stopLoopLogPath(sessionID string) string {
+	if sessionID == "" {
+		sessionID = "_unknown"
+	}
+	return filepath.Join(getWorkDir(), ".runtime", "stop-loop", sessionID)
+}
+
+// parseStopLoopLog parses newline-separated unix timestamps.
+func parseStopLoopLog(data string) []int64 {
+	var result []int64
+	for _, line := range strings.Split(strings.TrimSpace(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		ts, err := strconv.ParseInt(line, 10, 64)
+		if err == nil {
+			result = append(result, ts)
+		}
+	}
+	return result
+}
+
+// writeStopLoopLog writes timestamps as newline-separated unix timestamps.
+func writeStopLoopLog(path string, timestamps []int64) {
+	var sb strings.Builder
+	for _, ts := range timestamps {
+		fmt.Fprintf(&sb, "%d\n", ts)
+	}
+	_ = os.WriteFile(path, []byte(sb.String()), 0o600)
+}
+
+// stopLoopWindow returns the sliding window duration from config or default.
+func stopLoopWindow() time.Duration {
+	if v := os.Getenv("BEADS_STOP_LOOP_WINDOW"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil && d > 0 {
+			return d
+		}
+	}
+	return defaultStopLoopWindow
+}
+
+// stopLoopThreshold returns the loop detection threshold from config or default.
+func stopLoopThreshold() int {
+	if v := os.Getenv("BEADS_STOP_LOOP_THRESHOLD"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			return n
+		}
+	}
+	return defaultStopLoopThreshold
 }
 
 // runLocalGateCheck runs the gate check locally (where markers live on the
