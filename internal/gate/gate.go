@@ -215,7 +215,7 @@ func IsGateSatisfiedSameTerminal(workDir, gateID, termSessionID string) bool {
 		if entry.IsDir() {
 			continue
 		}
-		data, err := os.ReadFile(filepath.Join(termDir, entry.Name()))
+		data, err := os.ReadFile(filepath.Join(termDir, entry.Name())) //nolint:gosec // G304: path from controlled .runtime/ directory
 		if err != nil {
 			continue
 		}
@@ -251,7 +251,7 @@ func WriteSessionTerminal(workDir, claudeSessionID, termSessionID string) error 
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(dir, claudeSessionID), []byte(termSessionID), 0o644)
+	return os.WriteFile(filepath.Join(dir, claudeSessionID), []byte(termSessionID), 0o600)
 }
 
 // CheckGatesForHook evaluates all registered gates for the specified hook type.

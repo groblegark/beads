@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"math"
 	"net/http"
 	"sync/atomic"
 )
@@ -90,7 +91,12 @@ var numSocketConnections int32
 
 // SetNumConnections records the number of active Socket Mode connections.
 func SetNumConnections(n int) {
-	atomic.StoreInt32(&numSocketConnections, int32(n))
+	if n < 0 {
+		n = 0
+	} else if n > math.MaxInt32 {
+		n = math.MaxInt32
+	}
+	atomic.StoreInt32(&numSocketConnections, int32(n)) //nolint:gosec // G115: bounds checked above
 }
 
 // NumConnections returns the last-reported Socket Mode connection count.

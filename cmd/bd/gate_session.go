@@ -44,7 +44,7 @@ func getSessionID() string {
 	}
 	wd := getWorkDir()
 	aliasPath := filepath.Join(wd, ".runtime", "session-alias", termSID)
-	data, err := os.ReadFile(aliasPath)
+	data, err := os.ReadFile(aliasPath) //nolint:gosec // G304: path constructed from controlled .runtime/ directory
 	if err != nil {
 		return ""
 	}

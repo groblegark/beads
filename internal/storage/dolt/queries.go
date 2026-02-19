@@ -717,7 +717,7 @@ func (s *DoltStore) GetEpicOverview(ctx context.Context) ([]*types.EpicOverview,
 
 	//nolint:gosec // SQL uses ? placeholders; string concat is for placeholder count only
 	epicQuery := fmt.Sprintf(`SELECT %s FROM issues i WHERE i.id IN (%s)`,
-		prefixColumns("i.", issueColumns), strings.Join(placeholders, ","))
+		prefixColumns(issueColumns), strings.Join(placeholders, ","))
 	epicIssueRows, err := s.queryContext(ctx, epicQuery, args...)
 	if err != nil {
 		return nil, fmt.Errorf("GetEpicOverview: failed to batch-fetch epics: %w", err)
@@ -744,7 +744,7 @@ func (s *DoltStore) GetEpicOverview(ctx context.Context) ([]*types.EpicOverview,
 		JOIN dependencies d ON i.id = d.issue_id
 		WHERE d.depends_on_id IN (%s) AND d.type = 'parent-child'
 		ORDER BY i.priority ASC, i.created_at DESC
-	`, prefixColumns("i.", issueColumns), strings.Join(placeholders, ","))
+	`, prefixColumns(issueColumns), strings.Join(placeholders, ","))
 	childRows, err := s.queryContext(ctx, childQuery, args...)
 	if err != nil {
 		return nil, fmt.Errorf("GetEpicOverview: failed to batch-fetch children: %w", err)

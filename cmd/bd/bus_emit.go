@@ -90,7 +90,7 @@ func runBusEmit(cmd *cobra.Command, args []string) error {
 	if termSID := os.Getenv("TERM_SESSION_ID"); termSID != "" && eventMeta.SessionID != "" && eventMeta.SessionID != termSID {
 		aliasDir := filepath.Join(".", ".runtime", "session-alias")
 		if err := os.MkdirAll(aliasDir, 0o755); err == nil {
-			_ = os.WriteFile(filepath.Join(aliasDir, termSID), []byte(eventMeta.SessionID), 0o644)
+			_ = os.WriteFile(filepath.Join(aliasDir, termSID), []byte(eventMeta.SessionID), 0o600)
 		}
 		// Write reverse mapping (CLAUDE_SESSION_ID → TERM_SESSION_ID) so
 		// cross-session gate checks can be scoped to the same terminal/agent,
@@ -205,7 +205,7 @@ func runBusEmit(cmd *cobra.Command, args []string) error {
 // process the checkpoint prompt and call bd decision create. (bd-ss2lc)
 func debounceStopHook(sessionID string) {
 	markerPath := stopDebounceMarkerPath(sessionID)
-	data, err := os.ReadFile(markerPath)
+	data, err := os.ReadFile(markerPath) //nolint:gosec // G304: path is constructed from controlled .runtime/ directory
 	if err != nil {
 		return
 	}
@@ -233,7 +233,7 @@ func writeStopDebounceMarker(sessionID string) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return
 	}
-	_ = os.WriteFile(markerPath, []byte(strconv.FormatInt(time.Now().Unix(), 10)), 0o644)
+	_ = os.WriteFile(markerPath, []byte(strconv.FormatInt(time.Now().Unix(), 10)), 0o600)
 }
 
 // clearStopDebounceMarker removes the Stop hook debounce marker for the
