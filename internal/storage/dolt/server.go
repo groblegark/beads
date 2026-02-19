@@ -235,7 +235,7 @@ func (s *Server) checkPortAvailable(port int) error {
 // waitForReady waits for the server to accept connections
 func (s *Server) waitForReady(ctx context.Context) error {
 	deadline := time.Now().Add(ServerStartTimeout)
-	addr := fmt.Sprintf("%s:%d", s.cfg.Host, s.cfg.SQLPort)
+	addr := net.JoinHostPort(s.cfg.Host, strconv.Itoa(s.cfg.SQLPort))
 
 	for time.Now().Before(deadline) {
 		select {
@@ -310,7 +310,7 @@ func EnsureServerRunning(ctx context.Context, dataDir string, host string, port 
 	}
 
 	// Check if server is already running by trying to connect
-	addr := fmt.Sprintf("%s:%d", host, port)
+	addr := net.JoinHostPort(host, strconv.Itoa(port))
 	conn, err := net.DialTimeout("tcp", addr, 500*time.Millisecond)
 	if err == nil {
 		_ = conn.Close()
@@ -404,7 +404,7 @@ func DetectRunningServer() (string, int, bool) {
 
 // isServerListening checks if a server is accepting connections on the given host:port.
 func isServerListening(host string, port int) bool {
-	addr := fmt.Sprintf("%s:%d", host, port)
+	addr := net.JoinHostPort(host, strconv.Itoa(port))
 	conn, err := net.DialTimeout("tcp", addr, 500*time.Millisecond)
 	if err != nil {
 		return false
