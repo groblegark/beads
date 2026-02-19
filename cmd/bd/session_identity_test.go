@@ -5,10 +5,11 @@ import (
 )
 
 func TestDeriveSessionKey_ClaudeSessionID(t *testing.T) {
-	// CLAUDE_SESSION_ID should take priority and produce stable keys
+	// CLAUDE_SESSION_ID should produce stable keys when no actor identity is set
 	t.Setenv("CLAUDE_SESSION_ID", "test-session-abc")
 	t.Setenv("TERM_SESSION_ID", "")
 	t.Setenv("BD_ACTOR", "")
+	t.Setenv("BEADS_ACTOR", "")
 	t.Setenv("GT_ROLE", "")
 
 	key1 := deriveSessionKey("/home/agent/gt")
@@ -64,18 +65,57 @@ func TestDeriveSessionKey_BDActorPriority(t *testing.T) {
 	}
 }
 
-func TestDeriveSessionKey_ClaudeSessionOverridesActor(t *testing.T) {
-	// CLAUDE_SESSION_ID should take priority over actor identity
+func TestDeriveSessionKey_ActorOverridesClaudeSession(t *testing.T) {
+	// Actor identity should take priority over CLAUDE_SESSION_ID so that
+	// parent sessions and Claude Code subagents (which get different
+	// CLAUDE_SESSION_IDs) resolve to the same session key. (bd-vmuoj)
 	t.Setenv("CLAUDE_SESSION_ID", "session-123")
+	t.Setenv("BD_ACTOR", "")
+	t.Setenv("BEADS_ACTOR", "")
 	t.Setenv("GT_ROLE", "mayor")
 
-	keyWithSession := deriveSessionKey("/test")
+	keyWithBoth := deriveSessionKey("/test")
 
 	t.Setenv("CLAUDE_SESSION_ID", "")
-	keyWithRole := deriveSessionKey("/test")
+	keyWithRoleOnly := deriveSessionKey("/test")
 
-	if keyWithSession == keyWithRole {
-		t.Errorf("CLAUDE_SESSION_ID should take priority over GT_ROLE")
+	if keyWithBoth != keyWithRoleOnly {
+		t.Errorf("actor identity should take priority over CLAUDE_SESSION_ID, got %q and %q", keyWithBoth, keyWithRoleOnly)
+	}
+}
+
+func TestDeriveSessionKey_SubagentSameSession(t *testing.T) {
+	// A parent Claude Code session and its subagent (different CLAUDE_SESSION_ID)
+	// should get the same session key when BD_ACTOR is set. This prevents
+	// the mayor-1, mayor-2 suffix explosion. (bd-vmuoj)
+	t.Setenv("BD_ACTOR", "mayor")
+	t.Setenv("GT_ROLE", "mayor")
+
+	t.Setenv("CLAUDE_SESSION_ID", "parent-session-abc")
+	keyParent := deriveSessionKey("/home/agent/gt")
+
+	t.Setenv("CLAUDE_SESSION_ID", "subagent-session-xyz")
+	keySubagent := deriveSessionKey("/home/agent/gt")
+
+	if keyParent != keySubagent {
+		t.Errorf("parent and subagent should share session key when BD_ACTOR is set, got %q and %q", keyParent, keySubagent)
+	}
+}
+
+func TestDeriveSessionKey_NoBDActorUsesClaudeSession(t *testing.T) {
+	// Without BD_ACTOR, CLAUDE_SESSION_ID should be used (local developer case).
+	t.Setenv("BD_ACTOR", "")
+	t.Setenv("BEADS_ACTOR", "")
+	t.Setenv("GT_ROLE", "")
+	t.Setenv("CLAUDE_SESSION_ID", "session-123")
+
+	key1 := deriveSessionKey("/test")
+
+	t.Setenv("CLAUDE_SESSION_ID", "session-456")
+	key2 := deriveSessionKey("/test")
+
+	if key1 == key2 {
+		t.Errorf("different CLAUDE_SESSION_IDs should produce different keys when no actor identity is set")
 	}
 }
 

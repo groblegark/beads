@@ -215,8 +215,15 @@ func (pt *PresenceTracker) sweep(cfg *ReaperConfig) {
 	pt.mu.Lock()
 	for actor, state := range pt.actors {
 		if state.reaped {
-			// Evict actors that have been reaped for longer than EvictAfter. (bd-vta0i)
-			if !state.reapedAt.IsZero() && now.Sub(state.reapedAt) > cfg.EvictAfter {
+			// Evict actors that have been reaped for longer than EvictAfter.
+			// Low-event-count actors (< 10 events) are likely ephemeral subagents
+			// or noise — evict them faster (5 min) to prevent roster clutter.
+			// (bd-vta0i, bd-vmuoj)
+			evictThreshold := cfg.EvictAfter
+			if state.eventCount < 10 {
+				evictThreshold = 5 * time.Minute
+			}
+			if !state.reapedAt.IsZero() && now.Sub(state.reapedAt) > evictThreshold {
 				delete(pt.actors, actor)
 				evicted++
 			}

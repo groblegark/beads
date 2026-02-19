@@ -20,14 +20,26 @@ var sessionAssignedName string
 // within the same session.
 //
 // Priority for key derivation:
-//  1. CLAUDE_SESSION_ID — set by Claude Code, stable across all CLI calls in a session
-//  2. TERM_SESSION_ID — macOS terminal tabs, stable within a tab
-//  3. BD_ACTOR / BEADS_ACTOR / GT_ROLE + project-root — managed agents without
-//     a terminal session; uses actor identity instead of PPID to avoid creating
-//     a new session for every CLI invocation (bd-ph9r1)
+//  1. BD_ACTOR / BEADS_ACTOR / GT_ROLE + project-root — explicit agent identity
+//     takes top priority so that parent sessions and Claude Code subagents
+//     (which get distinct CLAUDE_SESSION_IDs) resolve to the same session.
+//     Without this, every Task-tool subagent registers as mayor-1, mayor-2, etc.
+//     (bd-ph9r1, bd-vmuoj)
+//  2. CLAUDE_SESSION_ID — set by Claude Code, stable across CLI calls in a session
+//  3. TERM_SESSION_ID — macOS terminal tabs, stable within a tab
 //  4. PPID + TTY + project-root — fallback for interactive terminals
 func deriveSessionKey(projectRoot string) string {
-	// Best: Claude Code session ID — explicitly stable across CLI calls
+	// Best: explicit agent identity. When BD_ACTOR (or equivalent) is set,
+	// all CLI calls — including from Claude Code subagents with different
+	// CLAUDE_SESSION_IDs — resolve to the same session key. This prevents
+	// the mayor-1, mayor-2, sharp-seal-1 suffix explosion. (bd-vmuoj)
+	if actor := getStableActorIdentity(); actor != "" {
+		raw := fmt.Sprintf("actor:%s:%s", actor, projectRoot)
+		return shortHash(raw)
+	}
+
+	// Claude Code session ID — stable across CLI calls within one session.
+	// Used when no explicit agent identity is set (local developer usage).
 	if claudeSession := os.Getenv("CLAUDE_SESSION_ID"); claudeSession != "" {
 		raw := fmt.Sprintf("claude:%s:%s", claudeSession, projectRoot)
 		return shortHash(raw)
@@ -37,14 +49,6 @@ func deriveSessionKey(projectRoot string) string {
 	termSessionID := os.Getenv("TERM_SESSION_ID")
 	if termSessionID != "" {
 		raw := fmt.Sprintf("term:%s:%s", termSessionID, projectRoot)
-		return shortHash(raw)
-	}
-
-	// Managed agents: use actor identity instead of PPID.
-	// Without this, every `bd` CLI call from a K8s pod gets a unique PPID,
-	// creating hundreds of orphan sessions (e.g., mayor-1 through mayor-800+).
-	if actor := getStableActorIdentity(); actor != "" {
-		raw := fmt.Sprintf("actor:%s:%s", actor, projectRoot)
 		return shortHash(raw)
 	}
 

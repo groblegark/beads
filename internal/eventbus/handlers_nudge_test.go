@@ -812,19 +812,29 @@ func TestPresenceTracker_Reaper_Eviction(t *testing.T) {
 
 	now := time.Now()
 
-	// Add a recently reaped actor (should survive) and an old reaped actor (should be evicted).
+	// Add a recently reaped actor (should survive), an old reaped actor (should be evicted),
+	// and a low-event-count reaped actor (should be evicted faster). (bd-vmuoj)
 	pt.mu.Lock()
 	pt.actors["recent-dead"] = &actorState{
-		lastSeen:  now.Add(-20 * time.Minute),
-		lastEvent: "PostToolUse",
-		reaped:    true,
-		reapedAt:  now.Add(-5 * time.Minute), // reaped 5 min ago
+		lastSeen:   now.Add(-20 * time.Minute),
+		lastEvent:  "PostToolUse",
+		eventCount: 50, // high event count → uses normal 30-min evict threshold
+		reaped:     true,
+		reapedAt:   now.Add(-5 * time.Minute), // reaped 5 min ago — survives
 	}
 	pt.actors["old-dead"] = &actorState{
-		lastSeen:  now.Add(-60 * time.Minute),
-		lastEvent: "AgentCrashed",
-		reaped:    true,
-		reapedAt:  now.Add(-35 * time.Minute), // reaped 35 min ago
+		lastSeen:   now.Add(-60 * time.Minute),
+		lastEvent:  "AgentCrashed",
+		eventCount: 100,
+		reaped:     true,
+		reapedAt:   now.Add(-35 * time.Minute), // reaped 35 min ago — evicted
+	}
+	pt.actors["ephemeral-dead"] = &actorState{
+		lastSeen:   now.Add(-20 * time.Minute),
+		lastEvent:  "PreToolUse",
+		eventCount: 3, // low event count → evicted after 5 min
+		reaped:     true,
+		reapedAt:   now.Add(-6 * time.Minute), // reaped 6 min ago — evicted (< 10 events)
 	}
 	pt.actors["alive"] = &actorState{
 		lastSeen:  now,
@@ -849,7 +859,10 @@ func TestPresenceTracker_Reaper_Eviction(t *testing.T) {
 		t.Error("expected old-dead to be evicted (reaped > 30 min ago)")
 	}
 	if _, ok := pt.actors["recent-dead"]; !ok {
-		t.Error("expected recent-dead to survive (reaped only 5 min ago)")
+		t.Error("expected recent-dead to survive (reaped only 5 min ago, high event count)")
+	}
+	if _, ok := pt.actors["ephemeral-dead"]; ok {
+		t.Error("expected ephemeral-dead to be evicted (low event count, reaped > 5 min ago)")
 	}
 	if _, ok := pt.actors["alive"]; !ok {
 		t.Error("expected alive actor to survive")
