@@ -172,11 +172,6 @@ func runSlotSet(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Trigger auto-flush
-	if flushManager != nil {
-		flushManager.MarkDirty(false)
-	}
-
 	if jsonOutput {
 		result := map[string]interface{}{
 			"agent": agentID,
@@ -247,11 +242,6 @@ func runSlotClear(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return fmt.Errorf("failed to clear slot: %w", err)
 		}
-	}
-
-	// Trigger auto-flush
-	if flushManager != nil {
-		flushManager.MarkDirty(false)
 	}
 
 	if jsonOutput {

@@ -86,8 +86,6 @@ func runAdviceRemove(cmd *cobra.Command, args []string) {
 			FatalError("deleting advice: %v", err)
 		}
 
-		markDirtyAndScheduleFlush()
-
 		if jsonOutput {
 			outputJSON(map[string]interface{}{
 				"deleted": resolvedID,

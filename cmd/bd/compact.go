@@ -327,8 +327,6 @@ func runCompactSingle(ctx context.Context, compactor *compact.Compactor, store c
 			tombstonePruneResult.PrunedCount, tombstonePruneResult.TTLDays)
 	}
 
-	// Schedule auto-flush to export changes
-	markDirtyAndScheduleFlush()
 }
 
 func runCompactAll(ctx context.Context, compactor *compact.Compactor, store compactableStore) {
@@ -459,10 +457,6 @@ func runCompactAll(ctx context.Context, compactor *compact.Compactor, store comp
 			tombstonePruneResult.PrunedCount, tombstonePruneResult.TTLDays)
 	}
 
-	// Schedule auto-flush to export changes
-	if successCount > 0 {
-		markDirtyAndScheduleFlush()
-	}
 }
 
 func runCompactStats(ctx context.Context, store compactableStore) {
@@ -751,8 +745,6 @@ func runCompactApply(ctx context.Context, store compactableStore) {
 			tombstonePruneResult.PrunedCount, tombstonePruneResult.TTLDays)
 	}
 
-	// Schedule auto-flush to export changes
-	markDirtyAndScheduleFlush()
 }
 
 // runCompactDolt runs Dolt garbage collection on the .beads/dolt directory.

@@ -200,9 +200,6 @@ func burnMultipleMolecules(ctx context.Context, moleculeIDs []string, dryRun, fo
 		})
 	}
 
-	// Schedule auto-flush
-	markDirtyAndScheduleFlush()
-
 	if jsonOutput {
 		outputJSON(batchResult)
 		return
@@ -284,9 +281,6 @@ func burnWispMolecule(ctx context.Context, resolvedID string, dryRun, force bool
 		os.Exit(1)
 	}
 	result.MoleculeID = resolvedID
-
-	// Schedule auto-flush
-	markDirtyAndScheduleFlush()
 
 	if jsonOutput {
 		outputJSON(result)
@@ -405,9 +399,6 @@ func runMolBurnViaDaemon(moleculeIDs []string, dryRun, force bool) {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
-
-	// Schedule auto-flush
-	markDirtyAndScheduleFlush()
 
 	if jsonOutput {
 		// Output BatchBurnResult for consistency with direct store path

@@ -398,9 +398,6 @@ func deleteBatchFallback(issueIDs []string, force bool, dryRun bool, cascade boo
 		}
 	}
 
-	// Schedule auto-flush
-	markDirtyAndScheduleFlush()
-
 	// Output results
 	if jsonOutput {
 		outputJSON(map[string]interface{}{

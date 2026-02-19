@@ -241,9 +241,6 @@ func runMolSquashViaDaemon(moleculeID string, dryRun, keepChildren bool, summary
 		os.Exit(1)
 	}
 
-	// Schedule auto-flush
-	markDirtyAndScheduleFlush()
-
 	if jsonOutput {
 		// Convert to SquashResult for consistency
 		outputJSON(&SquashResult{

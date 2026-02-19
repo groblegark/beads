@@ -493,9 +493,6 @@ func runMolBondViaDaemon(args []string, bondType, customTitle string, vars map[s
 		os.Exit(1)
 	}
 
-	// Schedule auto-flush
-	markDirtyAndScheduleFlush()
-
 	if jsonOutput {
 		// Convert to BondResult for consistency
 		outputJSON(&BondResult{

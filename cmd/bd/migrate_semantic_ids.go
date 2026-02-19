@@ -254,8 +254,6 @@ func runMigrateSemanticIDs(cmd *cobra.Command, _ []string) {
 		}
 	}
 
-	// Schedule auto-flush
-	markDirtyAndScheduleFlush()
 }
 
 // SlugMapping represents the mapping from canonical ID to semantic slug

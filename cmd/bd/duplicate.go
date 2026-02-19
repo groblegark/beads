@@ -110,11 +110,6 @@ func runDuplicate(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Trigger auto-flush
-	if flushManager != nil {
-		flushManager.MarkDirty(false)
-	}
-
 	if jsonOutput {
 		result := map[string]interface{}{
 			"duplicate":  duplicateID,
@@ -180,11 +175,6 @@ func runSupersede(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return fmt.Errorf("failed to mark as superseded: %w", err)
 		}
-	}
-
-	// Trigger auto-flush
-	if flushManager != nil {
-		flushManager.MarkDirty(false)
 	}
 
 	if jsonOutput {
