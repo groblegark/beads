@@ -697,8 +697,7 @@ func buildRosterSummaryForHook(self string) string {
 
 	// Partition agents.
 	const staleThresholdSecs = 600
-	const idleHandoffSecs = 300 // 5 min — idle enough to accept a handoff
-	var active, idle, crashed []rpc.AgentRosterEntry
+	var active, crashed []rpc.AgentRosterEntry
 	for _, a := range result.Actors {
 		if a.Reaped || a.LastEvent == "AgentCrashed" {
 			crashed = append(crashed, a)
@@ -709,51 +708,37 @@ func buildRosterSummaryForHook(self string) string {
 		}
 		if a.IdleSecs > staleThresholdSecs {
 			crashed = append(crashed, a) // treat stale as crashed
-		} else if a.IdleSecs >= idleHandoffSecs && a.TaskID == "" {
-			idle = append(idle, a) // idle and available for handoff
 		} else {
 			active = append(active, a)
 		}
 	}
 
-	// Active agents.
-	sb.WriteString(fmt.Sprintf("Active agents: %d\n", len(active)))
+	// Active agents — only show agents with in-progress work.
+	// Idle no-task agents are noise in the roster. (bd-kpudsl)
+	var working []rpc.AgentRosterEntry
 	for _, a := range active {
-		youTag := ""
-		if a.Actor == self {
-			youTag = " (you)"
-		}
-		// Build repo/branch suffix if available. (bd-z6958)
-		repoTag := ""
-		if a.Repo != "" {
-			repoTag = " [" + a.Repo
-			if a.Branch != "" && a.Branch != "main" && a.Branch != "master" {
-				repoTag += "@" + a.Branch
-			}
-			repoTag += "]"
-		}
 		if a.TaskID != "" {
-			sb.WriteString(fmt.Sprintf("  %s%s%s → %s: %s (idle %s)\n",
-				a.Actor, youTag, repoTag, a.TaskID, a.TaskTitle, formatIdleDuration(a.IdleSecs)))
-		} else {
-			// Show last tool for idle agents so the roster is more informative. (bd-0u2uw)
-			toolHint := ""
-			if a.ToolName != "" {
-				toolHint = fmt.Sprintf(", last: %s", a.ToolName)
+			working = append(working, a)
+		}
+	}
+	if len(working) > 0 {
+		sb.WriteString(fmt.Sprintf("Working agents: %d\n", len(working)))
+		for _, a := range working {
+			// Build repo/branch suffix if available. (bd-z6958)
+			repoTag := ""
+			if a.Repo != "" {
+				repoTag = " [" + a.Repo
+				if a.Branch != "" && a.Branch != "main" && a.Branch != "master" {
+					repoTag += "@" + a.Branch
+				}
+				repoTag += "]"
 			}
-			sb.WriteString(fmt.Sprintf("  %s%s%s → no task (idle %s%s)\n",
-				a.Actor, youTag, repoTag, formatIdleDuration(a.IdleSecs), toolHint))
+			sb.WriteString(fmt.Sprintf("  %s%s → %s: %s\n",
+				a.Actor, repoTag, a.TaskID, a.TaskTitle))
 		}
 	}
 
-	// Idle agents available for handoff.
-	if len(idle) > 0 {
-		sb.WriteString(fmt.Sprintf("Idle agents (available for handoff): %d\n", len(idle)))
-		for _, a := range idle {
-			sb.WriteString(fmt.Sprintf("  %s → idle %s, no task\n",
-				a.Actor, formatIdleDuration(a.IdleSecs)))
-		}
-	}
+	// Idle agents — skip, no task means no listing. (bd-kpudsl)
 
 	// Crashed agents with orphaned work.
 	if len(crashed) > 0 {
