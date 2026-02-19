@@ -126,7 +126,7 @@ type Issue struct {
 	PodIP          string `json:"pod_ip,omitempty"`          // Pod IP address
 	PodNode        string `json:"pod_node,omitempty"`        // K8s node the pod is scheduled on
 	PodStatus      string `json:"pod_status,omitempty"`      // Pod status: pending|running|terminating|terminated
-	ScreenSession  string `json:"screen_session,omitempty"`  // Screen session name inside the pod
+	ScreenSession  string `json:"screen_session,omitempty"`  // Deprecated: Coop backend ignores session names in K8s mode (bd-otwxa)
 
 	// ===== Molecule Type Fields (swarm coordination) =====
 	MolType MolType `json:"mol_type,omitempty"` // Molecule type: swarm|patrol|work (empty = work)

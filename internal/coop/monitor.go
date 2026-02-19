@@ -13,7 +13,7 @@ import (
 type AgentInfo struct {
 	AgentID       string
 	PodIP         string // Coop sidecar pod IP (required)
-	ScreenSession string // session name (used for session path derivation)
+	ScreenSession string // Deprecated: ignored by CoopSessionBackend in K8s mode (bd-otwxa)
 	RoleType      string // polecat, crew, witness, etc.
 	Rig           string
 }

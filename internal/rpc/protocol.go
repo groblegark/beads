@@ -358,7 +358,7 @@ type UpdateArgs struct {
 	PodIP         *string `json:"pod_ip,omitempty"`         // Pod IP address
 	PodNode       *string `json:"pod_node,omitempty"`       // K8s node name
 	PodStatus     *string `json:"pod_status,omitempty"`     // Pod status: pending|running|terminating|terminated
-	ScreenSession *string `json:"screen_session,omitempty"` // Screen session name
+	ScreenSession *string `json:"screen_session,omitempty"` // Deprecated: ignored in K8s mode (bd-otwxa)
 	// Event fields (only valid when IssueType == "event")
 	EventCategory *string `json:"event_category,omitempty"` // Namespaced category (e.g., patrol.muted, agent.started)
 	EventActor    *string `json:"event_actor,omitempty"`    // Entity URI who caused this event
@@ -1959,7 +1959,7 @@ type AgentPodRegisterArgs struct {
 	PodIP         string `json:"pod_ip,omitempty"`         // Pod IP address
 	PodNode       string `json:"pod_node,omitempty"`       // K8s node name
 	PodStatus     string `json:"pod_status,omitempty"`     // Pod status (default: "running")
-	ScreenSession string `json:"screen_session,omitempty"` // Screen session name
+	ScreenSession string `json:"screen_session,omitempty"` // Deprecated: ignored in K8s mode. Coop backend ignores session names. (bd-otwxa)
 	CoopURL       string `json:"coop_url,omitempty"`       // Coop sidecar HTTP URL for signal delivery (bd-wvrpy)
 }
 
@@ -2004,7 +2004,7 @@ type AgentPodInfo struct {
 	PodIP         string `json:"pod_ip,omitempty"`
 	PodNode       string `json:"pod_node,omitempty"`
 	PodStatus     string `json:"pod_status"`
-	ScreenSession string `json:"screen_session,omitempty"`
+	ScreenSession string `json:"screen_session,omitempty"` // Deprecated: ignored in K8s mode (bd-otwxa)
 	CoopURL       string `json:"coop_url,omitempty"`
 	AgentState    string `json:"agent_state,omitempty"`
 	Rig           string `json:"rig,omitempty"`

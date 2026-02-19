@@ -149,8 +149,8 @@ var agentPodDeregisterCmd = &cobra.Command{
 	Short: "Deregister a K8s pod from an agent",
 	Long: `Deregister (clear) pod fields from an agent bead.
 
-Clears all pod fields (pod_name, pod_ip, pod_node, pod_status, screen_session)
-and updates last_activity.
+Clears all pod fields (pod_name, pod_ip, pod_node, pod_status, screen_session,
+coop_url) and updates last_activity.
 
 This command requires the daemon (BD_DAEMON_HOST).
 
@@ -306,7 +306,7 @@ func init() {
 	agentPodRegisterCmd.Flags().StringVar(&podRegisterIP, "pod-ip", "", "Pod IP address")
 	agentPodRegisterCmd.Flags().StringVar(&podRegisterNode, "pod-node", "", "K8s node name")
 	agentPodRegisterCmd.Flags().StringVar(&podRegisterStatus, "status", "", "Pod status (default: running)")
-	agentPodRegisterCmd.Flags().StringVar(&podRegisterScreen, "screen", "", "Coop session name")
+	agentPodRegisterCmd.Flags().StringVar(&podRegisterScreen, "screen", "", "Deprecated: session name (ignored in K8s mode)")
 	agentPodRegisterCmd.Flags().StringVar(&podRegisterCoopURL, "coop-url", "", "Coop sidecar HTTP URL for signal delivery")
 	_ = agentPodRegisterCmd.MarkFlagRequired("pod-name")
 

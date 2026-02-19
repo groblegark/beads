@@ -53,12 +53,16 @@ func (s *Server) handleAgentPodRegister(req *Request) Response {
 		"last_activity":  time.Now(),
 	}
 
-	// If coop_url is provided, store it in the notes field (bd-wvrpy).
-	// The notes field uses "key: value\n" format; we upsert the coop_url line.
-	if args.CoopURL != "" {
+	// Store coop_url in the notes field (bd-wvrpy).
+	// If not explicitly provided, derive from pod_ip (default coop port 3000). (bd-otwxa)
+	coopURL := args.CoopURL
+	if coopURL == "" && args.PodIP != "" {
+		coopURL = fmt.Sprintf("http://%s:3000", args.PodIP)
+	}
+	if coopURL != "" {
 		issue, err := store.GetIssue(ctx, args.AgentID)
 		if err == nil && issue != nil {
-			updates["notes"] = upsertNotesField(issue.Notes, "coop_url", args.CoopURL)
+			updates["notes"] = upsertNotesField(issue.Notes, "coop_url", coopURL)
 		}
 	}
 
