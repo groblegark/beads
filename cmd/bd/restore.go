@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/steveyegge/beads/internal/rpc"
 	"github.com/steveyegge/beads/internal/types"
 	"github.com/steveyegge/beads/internal/ui"
 )
@@ -30,7 +31,6 @@ This is read-only and does not modify the database or git state.`,
 	Args: cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		issueID := args[0]
-		ctx := rootCtx
 
 		// Check if we're in a git repository
 		if !isGitRepo() {
@@ -39,14 +39,16 @@ This is read-only and does not modify the database or git state.`,
 			os.Exit(1)
 		}
 
-		// Get the issue
-		issue, err := store.GetIssue(ctx, issueID)
+		// Get the issue via daemon RPC (hq-18vg2m.2)
+		requireDaemon("restore")
+		showResp, err := daemonClient.Show(&rpc.ShowArgs{ID: issueID})
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error: issue '%s' not found: %v\n", issueID, err)
 			os.Exit(1)
 		}
-		if issue == nil {
-			fmt.Fprintf(os.Stderr, "Error: issue '%s' not found\n", issueID)
+		var issue types.Issue
+		if err := json.Unmarshal(showResp.Data, &issue); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: failed to parse issue '%s': %v\n", issueID, err)
 			os.Exit(1)
 		}
 

@@ -482,14 +482,9 @@ var rootCmd = &cobra.Command{
 			}
 		}
 
-		// Force direct mode for human-only interactive commands
-		// edit: can take minutes in $EDITOR, local daemon connection may time out (GH #227)
-		// Exception: when BD_DAEMON_HOST is set (remote daemon), we must use daemon RPC
-		// since direct database access is blocked. The edit command's RPC calls (Show + Update)
-		// are short-lived; only the local $EDITOR session is long-running. (bd-bdbt)
-		if cmd.Name() == "edit" && rpc.GetDaemonHost() == "" {
-			forceDirectMode = true
-		}
+		// edit: now uses daemon RPC (Show + Update) exclusively.
+		// The forceDirectMode bypass was removed because edit already calls
+		// requireDaemon() and never touches direct storage. (hq-18vg2m.2)
 
 		// Set auto-flush based on flag (invert no-auto-flush)
 		autoFlushEnabled = !noAutoFlush
@@ -583,11 +578,8 @@ var rootCmd = &cobra.Command{
 			forceDirectMode = true
 		}
 
-		// Restore should always run in direct mode. It performs git checkouts to read
-		// historical issue data, which could conflict with daemon operations.
-		if cmd.Name() == "restore" {
-			forceDirectMode = true
-		}
+		// restore: now uses daemon RPC (Show) to fetch the issue, then performs
+		// git checkouts locally for JSONL history. Direct storage no longer needed. (hq-18vg2m.2)
 
 		// Try to connect to daemon first (unless direct mode is forced or worktree safety check fails)
 		if forceDirectMode {
@@ -596,7 +588,7 @@ var rootCmd = &cobra.Command{
 			// because it specifically diagnoses daemon connectivity issues. (bd-lkks)
 			if remoteHost := rpc.GetDaemonHost(); remoteHost != "" && cmd.Name() != "doctor" {
 				fmt.Fprintf(os.Stderr, "Error: this command requested direct database access, but BD_DAEMON_HOST is set (%s)\n", remoteHost)
-				fmt.Fprintf(os.Stderr, "Direct mode (--profile, restore) is not available with a remote daemon.\n")
+				fmt.Fprintf(os.Stderr, "Direct mode (--profile) is not available with a remote daemon.\n")
 				fmt.Fprintf(os.Stderr, "Hint: unset BD_DAEMON_HOST to use local mode, or run the command without --profile\n")
 				os.Exit(1)
 			}
@@ -755,7 +747,7 @@ var rootCmd = &cobra.Command{
 
 		// Daemon connection is REQUIRED for all normal commands (bd-mwmfu).
 		// Exclude daemon commands (they manage the daemon itself) and
-		// forceDirectMode commands (doctor, restore, profile).
+		// forceDirectMode commands (doctor, profile).
 		isDaemonCommand := cmd.Name() == "daemon" || cmd.Name() == "daemons" ||
 			(cmd.Parent() != nil && (cmd.Parent().Name() == "daemon" || cmd.Parent().Name() == "daemons"))
 		rigFlag, _ := cmd.Flags().GetString("rig")
@@ -771,7 +763,7 @@ var rootCmd = &cobra.Command{
 
 		// When daemon is connected, skip direct storage initialization entirely.
 		// The daemon provides all read/write capabilities via RPC. Direct storage
-		// is only needed for forceDirectMode commands (doctor, restore) and
+		// is only needed for forceDirectMode commands (doctor, profile) and
 		// daemon management commands. (hq-18vg2m)
 		if daemonClient != nil {
 			// Sync state and return — no local storage needed
