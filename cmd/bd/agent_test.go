@@ -411,6 +411,54 @@ func strSlicesEqual(a, b []string) bool {
 	return true
 }
 
+func TestUpdateDescriptionField(t *testing.T) {
+	tests := []struct {
+		name        string
+		description string
+		key         string
+		value       string
+		want        string
+	}{
+		{
+			name:        "replace existing field",
+			description: "Agent: fast-toad\n\nrole_type: polecat\nrig: beads\ncleanup_status: null",
+			key:         "cleanup_status",
+			value:       "clean",
+			want:        "Agent: fast-toad\n\nrole_type: polecat\nrig: beads\ncleanup_status: clean",
+		},
+		{
+			name:        "append when field missing",
+			description: "Agent: fast-toad\n\nrole_type: polecat\nrig: beads",
+			key:         "cleanup_status",
+			value:       "has_uncommitted",
+			want:        "Agent: fast-toad\n\nrole_type: polecat\nrig: beads\ncleanup_status: has_uncommitted",
+		},
+		{
+			name:        "replace non-null value",
+			description: "role_type: polecat\ncleanup_status: has_stash\nrig: beads",
+			key:         "cleanup_status",
+			value:       "clean",
+			want:        "role_type: polecat\ncleanup_status: clean\nrig: beads",
+		},
+		{
+			name:        "empty description",
+			description: "",
+			key:         "cleanup_status",
+			value:       "unknown",
+			want:        "\ncleanup_status: unknown",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := updateDescriptionField(tt.description, tt.key, tt.value)
+			if got != tt.want {
+				t.Errorf("updateDescriptionField() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestFormatSubscriptionList(t *testing.T) {
 	tests := []struct {
 		name string

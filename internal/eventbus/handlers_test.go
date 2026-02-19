@@ -14,8 +14,8 @@ import (
 
 func TestDefaultHandlers(t *testing.T) {
 	handlers := DefaultHandlers()
-	if len(handlers) != 15 {
-		t.Fatalf("expected 15 default handlers, got %d", len(handlers))
+	if len(handlers) != 16 {
+		t.Fatalf("expected 16 default handlers, got %d", len(handlers))
 	}
 
 	// Verify IDs
@@ -68,6 +68,12 @@ func TestDefaultHandlers(t *testing.T) {
 	}
 	if !ids["subagent-identity"] {
 		t.Error("missing subagent-identity handler")
+	}
+	if !ids["commit-nudge"] {
+		t.Error("missing commit-nudge handler")
+	}
+	if !ids["cleanup-status"] {
+		t.Error("missing cleanup-status handler")
 	}
 	if !ids["done-wait"] {
 		t.Error("missing done-wait handler")
@@ -826,6 +832,46 @@ func TestHealthCheckHandlerMetadata(t *testing.T) {
 	}
 	if handles[0] != EventSessionStart {
 		t.Errorf("expected EventSessionStart, got %s", handles[0])
+	}
+}
+
+func TestCleanupStatusHandlerMetadata(t *testing.T) {
+	h := &CleanupStatusHandler{}
+	if h.ID() != "cleanup-status" {
+		t.Errorf("expected ID 'cleanup-status', got %q", h.ID())
+	}
+	if h.Priority() != 85 {
+		t.Errorf("expected priority 85, got %d", h.Priority())
+	}
+	handles := h.Handles()
+	if len(handles) != 1 {
+		t.Fatalf("expected 1 event type, got %d", len(handles))
+	}
+	if handles[0] != EventStop {
+		t.Errorf("expected EventStop, got %s", handles[0])
+	}
+}
+
+func TestCleanupStatusHandler_SkipsNonAgent(t *testing.T) {
+	h := &CleanupStatusHandler{}
+	event := &Event{Type: EventStop} // No Actor set
+	result := &Result{}
+
+	// Temporarily clear BD_ACTOR to ensure handler skips.
+	oldActor := os.Getenv("BD_ACTOR")
+	os.Unsetenv("BD_ACTOR")
+	defer func() {
+		if oldActor != "" {
+			os.Setenv("BD_ACTOR", oldActor)
+		}
+	}()
+
+	err := h.Handle(context.Background(), event, result)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if len(result.Inject) != 0 {
+		t.Errorf("expected no injection for non-agent, got %v", result.Inject)
 	}
 }
 

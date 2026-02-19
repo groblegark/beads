@@ -373,6 +373,7 @@ func DefaultHandlers() []Handler {
 	handlers = append(handlers, DefaultOjHandlers()...)   // 40
 	handlers = append(handlers, &CommitNudgeHandler{})    // 45 — nudge agents to commit (bd-z4a0u)
 	handlers = append(handlers, DefaultMailHandlers()...) // 50
-	handlers = append(handlers, &DoneWaitHandler{})       // 90 — must be last (bd-s7wv1)
+	handlers = append(handlers, &CleanupStatusHandler{})   // 85 — proactive polecat GC (bd-6eflz)
+	handlers = append(handlers, &DoneWaitHandler{})        // 90 — must be last (bd-s7wv1)
 	return handlers
 }

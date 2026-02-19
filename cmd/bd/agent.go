@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"strings"
 	"time"
 
@@ -203,6 +204,27 @@ Examples:
 	RunE: runAgentRoster,
 }
 
+var agentCleanupStatusCmd = &cobra.Command{
+	Use:   "cleanup-status",
+	Short: "Write cleanup_status to agent bead (git state for GC)",
+	Long: `Check git working tree state and write cleanup_status to the agent bead.
+
+This is called by the Stop hook handler to record whether the agent's worktree
+is clean before shutdown. The Witness uses this to safely auto-nuke crashed
+polecats that left a clean worktree.
+
+Requires BD_ACTOR to identify the agent. Exits 0 on success and prints the
+cleanup_status value to stdout.
+
+Statuses:
+  clean           - No uncommitted changes, branch pushed to origin
+  has_uncommitted - Modified or untracked files present
+  has_stash       - Git stash is non-empty
+  has_unpushed    - Local commits not on origin
+  unknown         - Git checks failed (bd-6eflz)`,
+	RunE: runAgentCleanupStatus,
+}
+
 var rosterStaleThreshold int
 var rosterShowAll bool
 
@@ -260,6 +282,7 @@ func init() {
 	agentCmd.AddCommand(agentPodStatusCmd)
 	agentCmd.AddCommand(agentPodListCmd)
 	agentCmd.AddCommand(agentRosterCmd)
+	agentCmd.AddCommand(agentCleanupStatusCmd)
 	rootCmd.AddCommand(agentCmd)
 }
 
@@ -1299,6 +1322,113 @@ func FormatAgentDescription(fields AgentFields) string {
 		lines = append(lines, "advice_subscriptions_exclude: "+strings.Join(fields.AdviceSubscriptionsExclude, ","))
 	}
 
+	return strings.Join(lines, "\n")
+}
+
+// runAgentCleanupStatus checks git working tree state and writes cleanup_status
+// to the agent bead's description. Called by CleanupStatusHandler on Stop events. (bd-6eflz)
+func runAgentCleanupStatus(cmd *cobra.Command, args []string) error {
+	CheckReadonly("agent cleanup-status")
+
+	agentArg := os.Getenv("BD_ACTOR")
+	if agentArg == "" {
+		return fmt.Errorf("BD_ACTOR not set — cleanup-status requires an agent context")
+	}
+
+	ctx := rootCtx
+
+	// Resolve agent ID and fetch current bead.
+	res, notFound, err := resolveAgentID(ctx, agentArg)
+	if err != nil {
+		return err
+	}
+	defer res.Close()
+
+	if notFound {
+		return fmt.Errorf("agent bead not found: %s", agentArg)
+	}
+
+	agent, labels, err := res.getAgentWithLabels(ctx, agentArg)
+	if err != nil {
+		return err
+	}
+	if !isAgentBead(labels) {
+		return fmt.Errorf("%s is not an agent bead (missing gt:agent label)", res.AgentID)
+	}
+
+	// Determine cleanup_status from git state.
+	status := determineCleanupStatus()
+
+	// Update cleanup_status line in the agent's description.
+	description := updateDescriptionField(agent.Description, "cleanup_status", status)
+
+	if res.useDaemon(agentArg) {
+		_, err = daemonClient.Update(&rpc.UpdateArgs{
+			ID:          res.AgentID,
+			Description: &description,
+		})
+	} else {
+		err = res.ActiveStore.UpdateIssue(ctx, res.AgentID, map[string]interface{}{
+			"description": description,
+		}, actor)
+	}
+	if err != nil {
+		return fmt.Errorf("failed to write cleanup_status for %s: %w", res.AgentID, err)
+	}
+
+	fmt.Println(status)
+	return nil
+}
+
+// determineCleanupStatus checks git working tree state and returns the cleanup status.
+// Checks in priority order: uncommitted > stash > unpushed > clean.
+func determineCleanupStatus() string {
+	// Check for uncommitted changes (modified + untracked).
+	if out, err := exec.Command("git", "status", "--porcelain").Output(); err != nil {
+		return "unknown"
+	} else if len(strings.TrimSpace(string(out))) > 0 {
+		return "has_uncommitted"
+	}
+
+	// Check for stashed work.
+	if out, err := exec.Command("git", "stash", "list").Output(); err == nil {
+		if len(strings.TrimSpace(string(out))) > 0 {
+			return "has_stash"
+		}
+	}
+
+	// Check for unpushed commits on the current branch.
+	// Use @{upstream} — if tracking is not set, we can't compare, so assume clean.
+	if out, err := exec.Command("git", "log", "@{upstream}..HEAD", "--oneline").Output(); err == nil {
+		if len(strings.TrimSpace(string(out))) > 0 {
+			return "has_unpushed"
+		}
+	}
+
+	return "clean"
+}
+
+// updateDescriptionField replaces or appends a "key: value" line in a description string.
+// Uses the same key:value format as gastown's AgentFields (bd-6eflz).
+func updateDescriptionField(description, key, value string) string {
+	lines := strings.Split(description, "\n")
+	found := false
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		colonIdx := strings.Index(trimmed, ":")
+		if colonIdx < 0 {
+			continue
+		}
+		lineKey := strings.TrimSpace(trimmed[:colonIdx])
+		if lineKey == key {
+			lines[i] = fmt.Sprintf("%s: %s", key, value)
+			found = true
+			break
+		}
+	}
+	if !found {
+		lines = append(lines, fmt.Sprintf("%s: %s", key, value))
+	}
 	return strings.Join(lines, "\n")
 }
 
