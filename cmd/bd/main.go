@@ -769,6 +769,20 @@ var rootCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
+		// When daemon is connected, skip direct storage initialization entirely.
+		// The daemon provides all read/write capabilities via RPC. Direct storage
+		// is only needed for forceDirectMode commands (doctor, restore) and
+		// daemon management commands. (hq-18vg2m)
+		if daemonClient != nil {
+			// Sync state and return — no local storage needed
+			syncCommandContext()
+			return
+		}
+
+		// --- Direct storage fallback (forceDirectMode / daemon commands only) ---
+		// If we reach here, daemonClient is nil and we're in a special mode
+		// (doctor, restore, daemon management, or cross-rig).
+
 		// Check if this is a read-only command (GH#804)
 		// Read-only commands open SQLite in read-only mode to avoid modifying
 		// the database file (which breaks file watchers).
