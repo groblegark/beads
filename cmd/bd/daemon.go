@@ -20,6 +20,7 @@ import (
 	"github.com/steveyegge/beads/internal/configfile"
 	"github.com/steveyegge/beads/internal/daemon"
 	"github.com/steveyegge/beads/internal/eventbus"
+	"github.com/steveyegge/beads/internal/gate"
 	"github.com/steveyegge/beads/internal/rpc"
 	"github.com/steveyegge/beads/internal/storage"
 	"github.com/steveyegge/beads/internal/storage/factory"
@@ -655,6 +656,7 @@ func runDaemonLoop(interval time.Duration, autoCommit, autoPush, autoPull, local
 	var natsServer *daemon.NATSServer
 	var externalNATS *daemon.ExternalNATSConn
 	var jsCtx nats.JetStreamContext
+	var gateKV nats.KeyValue // NATS KV bucket for gate state (bd-vecxd)
 	externalNATSURL := os.Getenv("BD_NATS_URL")
 
 	if externalNATSURL != "" {
@@ -682,6 +684,12 @@ func runDaemonLoop(interval time.Duration, autoCommit, autoPush, autoPull, local
 					jsCtx = nil
 				} else {
 					log.Info("JetStream streams initialized on standalone NATS")
+					if kv, err := eventbus.EnsureKVBuckets(jsCtx); err != nil {
+						log.Warn("failed to create KV buckets", "error", err)
+					} else {
+						gateKV = kv
+						log.Info("NATS KV buckets initialized")
+					}
 				}
 			}
 		}
@@ -710,6 +718,12 @@ func runDaemonLoop(interval time.Duration, autoCommit, autoPush, autoPull, local
 					jsCtx = nil
 				} else {
 					log.Info("JetStream streams initialized")
+					if kv, err := eventbus.EnsureKVBuckets(jsCtx); err != nil {
+						log.Warn("failed to create KV buckets", "error", err)
+					} else {
+						gateKV = kv
+						log.Info("NATS KV buckets initialized")
+					}
 				}
 			}
 
@@ -747,6 +761,12 @@ func runDaemonLoop(interval time.Duration, autoCommit, autoPush, autoPull, local
 	if jsCtx != nil {
 		bus.SetJetStream(jsCtx)
 		log.Info("JetStream connected to event bus - events will be persisted")
+	}
+
+	// Initialize NATS-backed gate backend when KV is available (bd-vecxd)
+	if gateKV != nil {
+		gate.ActiveBackend = gate.NewNATSBackend(gateKV)
+		log.Info("NATS gate backend initialized")
 	}
 
 	// Wire storage into inbox handlers for in-process drain (bd-f33nh).

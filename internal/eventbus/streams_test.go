@@ -322,4 +322,53 @@ func TestAgentBaseName(t *testing.T) {
 	}
 }
 
+// TestEnsureKVBucketsCreatesGateState verifies the GATE_STATE KV bucket is created. (bd-vecxd)
+func TestEnsureKVBucketsCreatesGateState(t *testing.T) {
+	_, js, cleanup := startTestNATS(t)
+	defer cleanup()
+
+	kv, err := EnsureKVBuckets(js)
+	if err != nil {
+		t.Fatalf("EnsureKVBuckets: %v", err)
+	}
+	if kv == nil {
+		t.Fatal("expected non-nil KeyValue")
+	}
+
+	// Verify we can write and read from it.
+	_, err = kv.Put("test-agent.decision", []byte(`{"satisfied":true}`))
+	if err != nil {
+		t.Fatalf("Put: %v", err)
+	}
+
+	entry, err := kv.Get("test-agent.decision")
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if string(entry.Value()) != `{"satisfied":true}` {
+		t.Errorf("value = %q, want %q", string(entry.Value()), `{"satisfied":true}`)
+	}
+}
+
+// TestEnsureKVBucketsIdempotent verifies EnsureKVBuckets can be called multiple times.
+func TestEnsureKVBucketsIdempotent(t *testing.T) {
+	_, js, cleanup := startTestNATS(t)
+	defer cleanup()
+
+	kv1, err := EnsureKVBuckets(js)
+	if err != nil {
+		t.Fatalf("first call: %v", err)
+	}
+
+	kv2, err := EnsureKVBuckets(js)
+	if err != nil {
+		t.Fatalf("second call: %v", err)
+	}
+
+	// Both should return a usable KV.
+	if kv1 == nil || kv2 == nil {
+		t.Fatal("expected non-nil KeyValue from both calls")
+	}
+}
+
 // TestEnsureStreamsIdempotent lives in bus_test.go (more thorough version).

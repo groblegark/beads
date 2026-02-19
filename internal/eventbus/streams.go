@@ -313,6 +313,32 @@ func EnsureStreams(js nats.JetStreamContext) error {
 	return nil
 }
 
+const (
+	// BucketGateState is the NATS KV bucket for session gate satisfaction state.
+	// Keys are formatted as "<agent-base-name>.<gate-id>". (bd-vecxd)
+	BucketGateState = "GATE_STATE"
+)
+
+// EnsureKVBuckets creates the required NATS KV buckets if they don't already
+// exist. Called during daemon startup after EnsureStreams. (bd-vecxd)
+func EnsureKVBuckets(js nats.JetStreamContext) (nats.KeyValue, error) {
+	kv, err := js.KeyValue(BucketGateState)
+	if err == nil {
+		return kv, nil
+	}
+	kv, err = js.CreateKeyValue(&nats.KeyValueConfig{
+		Bucket:      BucketGateState,
+		Description: "Session gate satisfaction state (agent-scoped)",
+		History:     5,
+		Storage:     nats.FileStorage,
+		MaxBytes:    10 << 20, // 10MB
+	})
+	if err != nil {
+		return nil, fmt.Errorf("create %s KV bucket: %w", BucketGateState, err)
+	}
+	return kv, nil
+}
+
 // AgentBaseName strips a trailing "-N" continuation suffix from an agent name.
 // Continuation sessions append a numeric suffix (e.g., "sharp-seal-1") when
 // the original session runs out of context. This helper normalizes back to the
