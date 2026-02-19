@@ -3,6 +3,7 @@ package rpc
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"testing"
 
 	"github.com/steveyegge/beads/internal/types"
@@ -1336,4 +1337,82 @@ func TestDecisionResolve_NoAutoAssignWithoutBeadID(t *testing.T) {
 		t.Fatalf("DecisionResolve failed: %v", err)
 	}
 	// No assertion needed — just verify it doesn't panic or error
+}
+
+// TestExtractBeadIDFromText verifies bead ID extraction from free text labels. (bd-rceeb)
+func TestExtractBeadIDFromText(t *testing.T) {
+	tests := []struct {
+		text string
+		want string
+	}{
+		{"Start bd-rnjc6: Diagnose why agents show no task", "bd-rnjc6"},
+		{"Pick up hq-18vg2m.3: Remove JSONL auto-flush", "hq-18vg2m.3"},
+		{"Rescue bd-rnjc6 diagnose agents", "bd-rnjc6"},
+		{"Start gt-abc123 feature", "gt-abc123"},
+		{"No bead reference here", ""},
+		{"Just a bd- prefix alone", ""},
+		{"Start beads-xyz99: some task", "beads-xyz99"},
+		{"Multiple: bd-first and bd-second", "bd-first"},
+		{"Mixed hq-abc then bd-def", "hq-abc"}, // hq-abc appears first in text
+	}
+	for _, tt := range tests {
+		got := extractBeadIDFromText(tt.text)
+		if got != tt.want {
+			t.Errorf("extractBeadIDFromText(%q) = %q, want %q", tt.text, got, tt.want)
+		}
+	}
+}
+
+// TestDecisionResolve_AutoAssignFallbackFromLabel verifies that when a decision
+// option has no bead_id field but the label contains a bead ID reference,
+// the system extracts and auto-assigns it. (bd-rceeb)
+func TestDecisionResolve_AutoAssignFallbackFromLabel(t *testing.T) {
+	_, client, store, cleanup := setupTestServerWithStore(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	// Create a target bead
+	targetID := createTestIssueForDecision(t, client, "Diagnose roster display")
+
+	// Create a decision WITHOUT bead_id but WITH bead reference in label
+	options := []types.DecisionOption{
+		{ID: "diagnose", Short: "Diagnose", Label: fmt.Sprintf("Start %s: Diagnose roster display", targetID)},
+		{ID: "skip", Short: "Skip", Label: "Skip for now"},
+	}
+	_, err := client.DecisionCreate(&DecisionCreateArgs{
+		Prompt:      "Checkpoint: what next?",
+		Options:     options,
+		RequestedBy: "test-agent",
+	})
+	if err != nil {
+		t.Fatalf("DecisionCreate failed: %v", err)
+	}
+
+	pending, err := store.ListPendingDecisions(ctx)
+	if err != nil || len(pending) == 0 {
+		t.Fatalf("No pending decisions: %v", err)
+	}
+
+	// Resolve selecting the option with bead reference in label
+	_, err = client.DecisionResolve(&DecisionResolveArgs{
+		IssueID:        pending[0].IssueID,
+		SelectedOption: "diagnose",
+		RespondedBy:    "human",
+	})
+	if err != nil {
+		t.Fatalf("DecisionResolve failed: %v", err)
+	}
+
+	// Verify the target bead was auto-assigned via fallback
+	target, err := store.GetIssue(ctx, targetID)
+	if err != nil {
+		t.Fatalf("GetIssue after resolve failed: %v", err)
+	}
+	if target.Assignee != "test-agent" {
+		t.Errorf("Target bead assignee = %q, want %q", target.Assignee, "test-agent")
+	}
+	if target.Status != types.StatusInProgress {
+		t.Errorf("Target bead status = %q, want %q", target.Status, types.StatusInProgress)
+	}
 }

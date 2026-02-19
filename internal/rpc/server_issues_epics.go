@@ -4242,6 +4242,11 @@ func (s *Server) pushGateClosedToInbox(ctx context.Context, gate *types.Issue, r
 // autoAssignBeadFromDecision checks if the selected option has a bead_id field
 // and, if so, assigns that bead to the requesting agent. Best-effort: errors
 // are logged but don't fail the decision resolve. (bd-isufm)
+//
+// Fallback: when bead_id is not set, extracts the first bead-like ID from the
+// option's label or ID field. This handles checkpoint decisions where agents
+// include bead references in labels (e.g., "Start bd-rnjc6: ...") but don't
+// set the structured bead_id field. (bd-rceeb)
 func (s *Server) autoAssignBeadFromDecision(ctx context.Context, store storage.Storage, dp *types.DecisionPoint, selectedOptionID string) {
 	// Parse options from the decision point
 	var options []types.DecisionOption
@@ -4252,8 +4257,13 @@ func (s *Server) autoAssignBeadFromDecision(ctx context.Context, store storage.S
 	// Find the selected option
 	var beadID string
 	for _, opt := range options {
-		if opt.ID == selectedOptionID && opt.BeadID != "" {
-			beadID = opt.BeadID
+		if opt.ID == selectedOptionID {
+			if opt.BeadID != "" {
+				beadID = opt.BeadID
+			} else {
+				// Fallback: extract bead ID from label text (bd-rceeb)
+				beadID = extractBeadIDFromText(opt.Label)
+			}
 			break
 		}
 	}
@@ -4296,6 +4306,48 @@ func (s *Server) autoAssignBeadFromDecision(ctx context.Context, store storage.S
 
 	s.emitMutation(MutationUpdate, beadID, "", "")
 	fmt.Fprintf(os.Stderr, "decision-auto-assign: assigned %s to %s\n", beadID, dp.RequestedBy)
+}
+
+// beadIDPrefixes lists known bead ID prefixes for extraction from free text.
+var beadIDPrefixes = []string{"bd-", "gt-", "hq-", "beads-"}
+
+// extractBeadIDFromText extracts the first bead-like ID from free text.
+// Matches patterns like "bd-rnjc6", "gt-abc123", "hq-18vg2m.3" in strings like
+// "Start bd-rnjc6: Diagnose why agents show no task". Returns "" if no match.
+// Scans for the earliest occurrence across all known prefixes. (bd-rceeb)
+func extractBeadIDFromText(text string) string {
+	bestStart := -1
+	bestEnd := -1
+
+	for _, prefix := range beadIDPrefixes {
+		idx := strings.Index(text, prefix)
+		if idx < 0 {
+			continue
+		}
+		// Extract the ID: prefix + alphanumeric/hyphen/dot chars
+		end := idx + len(prefix)
+		for end < len(text) {
+			c := text[end]
+			if (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' || c == '.' {
+				end++
+			} else {
+				break
+			}
+		}
+		// Must have something after the prefix
+		if end-idx <= len(prefix) {
+			continue
+		}
+		if bestStart < 0 || idx < bestStart {
+			bestStart = idx
+			bestEnd = end
+		}
+	}
+
+	if bestStart < 0 {
+		return ""
+	}
+	return text[bestStart:bestEnd]
 }
 
 func (s *Server) handleDecisionList(req *Request) Response {
