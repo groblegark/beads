@@ -5,7 +5,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 )
 
 // envSnapshot saves and clears BD_/BEADS_ environment variables.
@@ -109,11 +108,8 @@ func TestDefaults(t *testing.T) {
 	}{
 		{"json", false, func(k string) interface{} { return GetBool(k) }},
 		{"no-daemon", false, func(k string) interface{} { return GetBool(k) }},
-		{"no-auto-flush", false, func(k string) interface{} { return GetBool(k) }},
-		{"no-auto-import", false, func(k string) interface{} { return GetBool(k) }},
 		{"db", "", func(k string) interface{} { return GetString(k) }},
 		{"actor", "", func(k string) interface{} { return GetString(k) }},
-		{"flush-debounce", 30 * time.Second, func(k string) interface{} { return GetDuration(k) }},
 		{"auto-start-daemon", true, func(k string) interface{} { return GetBool(k) }},
 	}
 	
@@ -140,7 +136,6 @@ func TestEnvironmentBinding(t *testing.T) {
 		{"BD_NO_DAEMON", "no-daemon", "true", true, func(k string) interface{} { return GetBool(k) }},
 		{"BD_ACTOR", "actor", "testuser", "testuser", func(k string) interface{} { return GetString(k) }},
 		{"BD_DB", "db", "/tmp/test.db", "/tmp/test.db", func(k string) interface{} { return GetString(k) }},
-		{"BEADS_FLUSH_DEBOUNCE", "flush-debounce", "10s", 10 * time.Second, func(k string) interface{} { return GetDuration(k) }},
 		{"BEADS_AUTO_START_DAEMON", "auto-start-daemon", "false", false, func(k string) interface{} { return GetBool(k) }},
 	}
 	
@@ -178,7 +173,6 @@ func TestConfigFile(t *testing.T) {
 json: true
 no-daemon: true
 actor: configuser
-flush-debounce: 15s
 `
 	configPath := filepath.Join(tmpDir, "config.yaml")
 	if err := os.WriteFile(configPath, []byte(configContent), 0600); err != nil {
@@ -218,10 +212,6 @@ flush-debounce: 15s
 	
 	if got := GetString("actor"); got != "configuser" {
 		t.Errorf("GetString(actor) = %q, want \"configuser\"", got)
-	}
-	
-	if got := GetDuration("flush-debounce"); got != 15*time.Second {
-		t.Errorf("GetDuration(flush-debounce) = %v, want 15s", got)
 	}
 }
 

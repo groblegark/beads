@@ -247,10 +247,7 @@ class BdCliClient(BdClientBase):
         # We pass cwd via _run_command instead
         if self.actor:
             flags.extend(["--actor", self.actor])
-        if self.no_auto_flush:
-            flags.append("--no-auto-flush")
-        if self.no_auto_import:
-            flags.append("--no-auto-import")
+        # no-auto-flush and no-auto-import flags removed (daemon-only architecture)
         return flags
 
     async def _run_command(self, *args: str, cwd: str | None = None) -> Any:

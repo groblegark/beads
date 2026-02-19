@@ -15,10 +15,8 @@ func TestIsYamlOnlyKey(t *testing.T) {
 		// Exact matches
 		{"no-db", true},
 		{"no-daemon", true},
-		{"no-auto-flush", true},
 		{"json", true},
 		{"auto-start-daemon", true},
-		{"flush-debounce", true},
 		{"git.author", true},
 		{"git.no-gpg-sign", true},
 		// Prefix matches
@@ -104,10 +102,10 @@ func TestUpdateYamlKey(t *testing.T) {
 		},
 		{
 			name:     "handle duration value",
-			content:  "# flush-debounce: \"5s\"",
-			key:      "flush-debounce",
+			content:  "# lock-timeout: \"5s\"",
+			key:      "lock-timeout",
 			value:    "30s",
-			expected: "flush-debounce: 30s",
+			expected: "lock-timeout: 30s",
 		},
 		{
 			name:     "quote special characters",

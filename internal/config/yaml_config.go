@@ -29,8 +29,6 @@ var YamlOnlyKeys = map[string]bool{
 	// Bootstrap flags — affect how bd starts [local]
 	"no-db":             true,
 	"no-daemon":         true,
-	"no-auto-flush":     true,
-	"no-auto-import":    true,
 	"json":              true, // [both] output format flag
 	"auto-start-daemon": true,
 
@@ -40,7 +38,6 @@ var YamlOnlyKeys = map[string]bool{
 	"identity": true, // [both] BEADS_IDENTITY env var
 
 	// Timing settings
-	"flush-debounce":       true, // [local] daemon flush debounce
 	"lock-timeout":         true, // [local] database lock timeout
 	"remote-sync-interval": true, // [remote] BEADS_REMOTE_SYNC_INTERVAL
 

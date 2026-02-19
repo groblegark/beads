@@ -82,12 +82,10 @@ var quickstartCmd = &cobra.Command{
 		fmt.Printf("      %s\n\n", ui.RenderAccent("https://github.com/steveyegge/beads/blob/main/docs/EXTENDING.md"))
 
 		fmt.Printf("%s\n", ui.RenderBold("GIT WORKFLOW (AUTO-SYNC)"))
-		fmt.Printf("  bd automatically keeps git in sync:\n")
-		fmt.Printf("    • %s Export to JSONL after CRUD operations (5s debounce)\n", ui.RenderPass("✓"))
-		fmt.Printf("    • %s Import from JSONL when newer than DB (after %s)\n", ui.RenderPass("✓"), ui.RenderAccent("git pull"))
+		fmt.Printf("  bd automatically keeps git in sync via the daemon:\n")
+		fmt.Printf("    • %s Daemon manages persistence and JSONL sync\n", ui.RenderPass("✓"))
 		fmt.Printf("    • %s Works seamlessly across machines and team members\n", ui.RenderPass("✓"))
 		fmt.Printf("    • No manual export/import needed!\n")
-		fmt.Printf("  Disable with: %s or %s\n\n", ui.RenderAccent("--no-auto-flush"), ui.RenderAccent("--no-auto-import"))
 
 		fmt.Printf("%s\n", ui.RenderPass("Ready to start!"))
 		fmt.Printf("Run %s to create your first issue.\n\n", ui.RenderAccent("bd create \"My first issue\""))

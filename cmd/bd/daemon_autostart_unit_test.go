@@ -19,8 +19,6 @@ import (
 	"syscall"
 	"testing"
 	"time"
-
-	"github.com/steveyegge/beads/internal/config"
 )
 
 func tempSockDir(t *testing.T) string {
@@ -292,21 +290,6 @@ func TestDaemonAutostart_TryAutoStartDaemon_EarlyExits(t *testing.T) {
 func TestDaemonAutostart_MiscHelpers(t *testing.T) {
 	if determineSocketPath("/x") != "/x" {
 		t.Fatalf("determineSocketPath should be identity")
-	}
-
-	if err := config.Initialize(); err != nil {
-		t.Fatalf("config.Initialize: %v", err)
-	}
-	old := config.GetDuration("flush-debounce")
-	defer config.Set("flush-debounce", old)
-
-	config.Set("flush-debounce", 0)
-	if got := getDebounceDuration(); got != 5*time.Second {
-		t.Fatalf("expected default debounce 5s, got %v", got)
-	}
-	config.Set("flush-debounce", 2*time.Second)
-	if got := getDebounceDuration(); got != 2*time.Second {
-		t.Fatalf("expected debounce 2s, got %v", got)
 	}
 }
 

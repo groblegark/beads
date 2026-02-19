@@ -183,7 +183,6 @@ func checkYAMLConfigValues(repoPath string) []string {
 	}
 
 	// Validate duration configs
-	issues = append(issues, validateDurationConfig(v, "flush-debounce", 0)...)
 	issues = append(issues, validateDurationConfig(v, "remote-sync-interval", 5*time.Second)...)
 
 	// Validate issue-prefix (should be alphanumeric with dashes/underscores, reasonably short)
@@ -288,7 +287,7 @@ func checkYAMLConfigValues(repoPath string) []string {
 	}
 
 	// Validate boolean config values
-	boolKeys := []string{"json", "no-daemon", "no-auto-flush", "no-auto-import", "no-db", "auto-start-daemon"}
+	boolKeys := []string{"json", "no-daemon", "no-db", "auto-start-daemon"}
 	issues = append(issues, validateBooleanConfigs(v, boolKeys)...)
 
 	// Validate repos paths

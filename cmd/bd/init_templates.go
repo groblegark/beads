@@ -45,12 +45,6 @@ func createConfigYaml(beadsDir string, noDbMode bool, prefix string) error {
 # Disable daemon for RPC communication (forces direct database access)
 # no-daemon: false
 
-# Disable auto-flush of database to JSONL after mutations
-# no-auto-flush: false
-
-# Disable auto-import from JSONL when it's newer than database
-# no-auto-import: false
-
 # Enable JSON output by default
 # json: false
 
@@ -62,9 +56,6 @@ func createConfigYaml(beadsDir string, noDbMode bool, prefix string) error {
 
 # Auto-start daemon if not running (can also use BEADS_AUTO_START_DAEMON)
 # auto-start-daemon: true
-
-# Debounce interval for auto-flush (can also use BEADS_FLUSH_DEBOUNCE)
-# flush-debounce: "5s"
 
 # Export events (audit trail) to .beads/events.jsonl on each flush/sync
 # When enabled, new events are appended incrementally using a high-water mark.

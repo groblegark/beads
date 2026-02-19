@@ -703,11 +703,3 @@ func emitVerboseWarning() {
 	}
 }
 
-func getDebounceDuration() time.Duration {
-	duration := config.GetDuration("flush-debounce")
-	if duration == 0 {
-		// If parsing failed, use default
-		return 5 * time.Second
-	}
-	return duration
-}
