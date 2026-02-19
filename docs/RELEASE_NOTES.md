@@ -4,7 +4,7 @@ Release notes for the beads platform. Each release uses CalVer (`YYYY.MDD.N`).
 
 ---
 
-## 2026.218.9 (unreleased)
+## 2026.218.9
 
 ### Agent Watch TUI Overhaul
 
