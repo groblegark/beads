@@ -451,6 +451,17 @@ func stopLoopThreshold() int {
 	return defaultStopLoopThreshold
 }
 
+// clearStopLoopLog removes the stop-loop activation log for the given session.
+// Called when a decision is successfully responded to (human engaged with the
+// checkpoint), proving the session is productive rather than in a pathological
+// loop. This allows future stop hooks to fire normally. (bd-iki79)
+func clearStopLoopLog(sessionID string) {
+	if sessionID == "" {
+		return
+	}
+	_ = os.Remove(stopLoopLogPath(sessionID))
+}
+
 // runLocalGateCheck runs the gate check locally (where markers live on the
 // local filesystem) and returns the result as a map suitable for JSON injection
 // into the event. Returns nil if no local check was needed or possible.

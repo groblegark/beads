@@ -129,6 +129,20 @@ func runDecisionRespond(cmd *cobra.Command, args []string) {
 		}
 	}
 
+	// Clear the stop-loop counter when a decision is successfully responded to.
+	// This proves the session is productive (human is engaging with checkpoints),
+	// not in a pathological loop. Without this, a productive agent that completes
+	// 5+ tasks in 30 minutes triggers the circuit breaker and loses all subsequent
+	// checkpoints for the rest of the window. (bd-iki79)
+	if shouldCloseGate {
+		sid := getSessionID()
+		if sid == "" {
+			sid = os.Getenv("TERM_SESSION_ID")
+		}
+		clearStopLoopLog(sid)
+		clearStopDebounceMarker()
+	}
+
 	// Trigger decision respond hook (hq-e0adf6.4)
 	// This allows external systems (like gt nudge) to wake the requesting agent
 	// Use RunDecisionSync to ensure hook completes before program exits

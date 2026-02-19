@@ -413,6 +413,43 @@ func TestDetectStopLoop_PersistsAcrossDecisionCreate(t *testing.T) {
 	}
 }
 
+func TestClearStopLoopLog_ResetsCounter(t *testing.T) {
+	// Verify that clearStopLoopLog removes the activation log,
+	// allowing future stop hooks to fire normally. This is the fix for
+	// bd-iki79: productive sessions should not be penalized by the
+	// circuit breaker when the human is engaging with checkpoints.
+	chdirTemp(t)
+	t.Setenv("BEADS_STOP_LOOP_THRESHOLD", "3")
+	t.Setenv("BEADS_STOP_LOOP_WINDOW", "30m")
+
+	sessionID := "test-clear-loop"
+
+	// Simulate 2 activations (just below threshold).
+	detectStopLoop(sessionID)
+	detectStopLoop(sessionID)
+
+	// Simulate a successful decision respond cycle — clear the log.
+	clearStopLoopLog(sessionID)
+
+	// After clearing, the counter should be reset. 2 more activations
+	// should NOT trigger (we're starting fresh, need 3 to hit threshold).
+	if detectStopLoop(sessionID) {
+		t.Error("1st activation after clear should not trigger loop detection")
+	}
+	if detectStopLoop(sessionID) {
+		t.Error("2nd activation after clear should not trigger loop detection")
+	}
+	// 3rd should trigger again (fresh count of 3).
+	if !detectStopLoop(sessionID) {
+		t.Error("3rd activation after clear should trigger loop detection")
+	}
+}
+
+func TestClearStopLoopLog_EmptySessionID(t *testing.T) {
+	// clearStopLoopLog with empty session ID should be a no-op (not panic).
+	clearStopLoopLog("")
+}
+
 func TestStopLoopThreshold_Default(t *testing.T) {
 	t.Setenv("BEADS_STOP_LOOP_THRESHOLD", "")
 	if got := stopLoopThreshold(); got != defaultStopLoopThreshold {
