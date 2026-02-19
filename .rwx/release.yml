@@ -53,6 +53,32 @@ tasks:
       curl -fsSL "https://github.com/goreleaser/goreleaser/releases/download/v2.8.2/goreleaser_Linux_x86_64.tar.gz" \
         | tar -xz -C $(go env GOPATH)/bin goreleaser
 
+  # ── Zig cross-compiler for darwin builds (cached by version) ───────
+  - key: zig
+    filter:
+      - .rwx/zig-version.lock  # Touch to update zig version
+    run: |
+      echo "Installing Zig 0.14.0 for cross-compilation..."
+      curl -fsSL "https://ziglang.org/download/0.14.0/zig-linux-x86_64-0.14.0.tar.xz" \
+        | tar -xJ -C /tmp
+      sudo ln -sf /tmp/zig-linux-x86_64-0.14.0/zig /usr/local/bin/zig
+      zig version
+
+      # Create zig CC wrapper scripts for darwin cross-compilation
+      # flock serializes zig calls per target to prevent AccessDenied races
+      # when go build invokes CC in parallel
+      mkdir -p /tmp/zigcc
+      for pair in \
+        "cc-x86_64-macos:x86_64-macos" \
+        "cc-aarch64-macos:aarch64-macos"; do
+        name="${pair%%:*}"
+        target="${pair##*:}"
+        printf '#!/bin/sh\nexec flock /tmp/zigcc/lock-%s zig cc -target %s "$@"\n' \
+          "$target" "$target" > "/tmp/zigcc/$name"
+        chmod +x "/tmp/zigcc/$name"
+      done
+      echo "Zig wrappers created: $(ls /tmp/zigcc/cc-*)"
+
   # ── Go deps (cached by lockfiles) ───────────────────────────────────
   - key: go-deps
     use: [code, go, system-deps]
@@ -63,7 +89,7 @@ tasks:
 
   # ── Run GoReleaser ──────────────────────────────────────────────────
   - key: release
-    use: [go-deps, goreleaser]
+    use: [go-deps, goreleaser, zig]
     cache: false
     run: |
       TAG="${REF_NAME#refs/tags/}"
@@ -78,10 +104,10 @@ tasks:
 
       if [[ "$TAG" == "dev" ]]; then
         echo "Running snapshot release for dev..."
-        goreleaser release --clean --snapshot --config .goreleaser.fork.yml
+        goreleaser release --clean --snapshot --parallelism 1 --config .goreleaser.fork.yml
       else
         echo "Running full release for $TAG..."
-        goreleaser release --clean --config .goreleaser.fork.yml
+        goreleaser release --clean --parallelism 1 --config .goreleaser.fork.yml
       fi
     env:
       GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}

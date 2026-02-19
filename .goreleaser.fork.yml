@@ -1,6 +1,6 @@
 # GoReleaser config for groblegark/beads fork releases.
 # CGO required for dolthub deps (gozstd, go-mysql-server regex, icu4c).
-# Only linux/amd64 for now — arm64 cross-compile needs ICU arm64 libs.
+# Linux: native gcc. Darwin: zig cross-compiler (installed in RWX pipeline).
 
 version: 2
 
@@ -18,6 +18,44 @@ builds:
       - linux
     goarch:
       - amd64
+    ldflags:
+      - -s -w
+      - -X main.Version={{.Version}}
+      - -X main.Build={{.ShortCommit}}
+      - -X main.Commit={{.Commit}}
+
+  - id: bd-darwin-amd64
+    main: ./cmd/bd
+    binary: bd
+    env:
+      - CGO_ENABLED=1
+      - CC=/tmp/zigcc/cc-x86_64-macos
+    tags:
+      - gms_pure_go
+      - netgo
+    goos:
+      - darwin
+    goarch:
+      - amd64
+    ldflags:
+      - -s -w
+      - -X main.Version={{.Version}}
+      - -X main.Build={{.ShortCommit}}
+      - -X main.Commit={{.Commit}}
+
+  - id: bd-darwin-arm64
+    main: ./cmd/bd
+    binary: bd
+    env:
+      - CGO_ENABLED=1
+      - CC=/tmp/zigcc/cc-aarch64-macos
+    tags:
+      - gms_pure_go
+      - netgo
+    goos:
+      - darwin
+    goarch:
+      - arm64
     ldflags:
       - -s -w
       - -X main.Version={{.Version}}
