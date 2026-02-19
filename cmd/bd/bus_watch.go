@@ -35,6 +35,10 @@ Key bindings:
   space      Pause/resume auto-scroll
   enter      Show full event detail
   g/G        Jump to first/last event
+  f          Cycle stream filter (toggle each stream)
+  a          Set actor filter (text input)
+  /          Set keyword search filter (text input)
+  c          Clear all filters
   r          Reconnect to SSE endpoint
   ?          Toggle help
   q/Ctrl+C   Quit

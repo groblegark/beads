@@ -19,6 +19,15 @@ import (
 
 const defaultHistorySize = 2000
 
+// inputTarget identifies what the text input is currently editing.
+type inputTarget int
+
+const (
+	inputNone inputTarget = iota
+	inputActor
+	inputKeyword
+)
+
 // Model is the Bubbletea model for the bus watch TUI.
 type Model struct {
 	// Dimensions
@@ -28,13 +37,23 @@ type Model struct {
 	history *RingBuffer
 
 	// Navigation
-	selected int  // cursor position (index into history)
+	selected int  // cursor position (index into filtered view)
 	paused   bool // when true, auto-scroll is disabled
 	atBottom bool // true when cursor is at the latest event
 
 	// Detail view
 	showDetail     bool
 	detailViewport viewport.Model
+
+	// Filtering
+	filter      Filter
+	filtered    []int // indices into history that pass filter (rebuilt on change)
+	streamPick  int   // index into allStreams for cycling stream filter
+
+	// Text input mode
+	inputMode   inputTarget // what we're editing (none = normal mode)
+	inputBuf    string      // current text being typed
+	inputPrompt string      // prompt shown to user
 
 	// Connection
 	sseOpts  rpc.BusSSEClientOptions
@@ -59,6 +78,7 @@ func New(opts rpc.BusSSEClientOptions) *Model {
 
 	return &Model{
 		history:        NewRingBuffer(defaultHistorySize),
+		filter:         NewFilter(),
 		atBottom:       true,
 		sseOpts:        opts,
 		keys:           DefaultKeyMap(),
@@ -155,6 +175,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.detailViewport.Height = msg.Height - 4
 
 	case tea.KeyMsg:
+		if m.inputMode != inputNone {
+			return m.handleInputKeys(msg)
+		}
 		if m.showDetail {
 			return m.handleDetailKeys(msg)
 		}
@@ -201,10 +224,11 @@ func (m *Model) handleTimelineKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 
 	case key.Matches(msg, m.keys.Down):
-		if m.selected < m.history.Len()-1 {
+		count := m.filteredLen()
+		if m.selected < count-1 {
 			m.selected++
 		}
-		if m.selected == m.history.Len()-1 {
+		if m.selected == count-1 {
 			m.atBottom = true
 		}
 
@@ -219,14 +243,15 @@ func (m *Model) handleTimelineKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 
 	case key.Matches(msg, m.keys.PageDown):
+		count := m.filteredLen()
 		m.selected += visibleLines(m.height)
-		if m.selected >= m.history.Len() {
-			m.selected = m.history.Len() - 1
+		if m.selected >= count {
+			m.selected = count - 1
 		}
 		if m.selected < 0 {
 			m.selected = 0
 		}
-		if m.selected == m.history.Len()-1 {
+		if m.selected == count-1 {
 			m.atBottom = true
 		}
 
@@ -238,24 +263,49 @@ func (m *Model) handleTimelineKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 
 	case key.Matches(msg, m.keys.End):
-		if m.history.Len() > 0 {
-			m.selected = m.history.Len() - 1
+		count := m.filteredLen()
+		if count > 0 {
+			m.selected = count - 1
 		}
 		m.atBottom = true
 		m.paused = false
 
 	case key.Matches(msg, m.keys.Pause):
 		m.paused = !m.paused
-		if !m.paused && m.history.Len() > 0 {
-			m.selected = m.history.Len() - 1
+		count := m.filteredLen()
+		if !m.paused && count > 0 {
+			m.selected = count - 1
 			m.atBottom = true
 		}
 
 	case key.Matches(msg, m.keys.Detail):
-		if m.history.Len() > 0 && m.selected < m.history.Len() {
+		count := m.filteredLen()
+		if count > 0 && m.selected < count {
 			m.showDetail = true
 			m.updateDetailViewport()
 		}
+
+	case key.Matches(msg, m.keys.FilterStream):
+		// Cycle through stream filters: toggle next stream
+		stream := allStreams[m.streamPick%len(allStreams)]
+		m.filter.ToggleStream(stream)
+		m.streamPick++
+		m.rebuildFiltered()
+
+	case key.Matches(msg, m.keys.FilterActor):
+		m.inputMode = inputActor
+		m.inputBuf = m.filter.Actor
+		m.inputPrompt = "Actor filter: "
+
+	case key.Matches(msg, m.keys.FilterSearch):
+		m.inputMode = inputKeyword
+		m.inputBuf = m.filter.Keyword
+		m.inputPrompt = "Search: "
+
+	case key.Matches(msg, m.keys.FilterClear):
+		m.filter.Clear()
+		m.streamPick = 0
+		m.rebuildFiltered()
 
 	case key.Matches(msg, m.keys.Refresh):
 		m.status = "Reconnecting..."
@@ -287,9 +337,90 @@ func (m *Model) handleDetailKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// handleInputKeys handles key presses during text input mode (actor/keyword).
+func (m *Model) handleInputKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyEnter:
+		// Commit the input
+		switch m.inputMode {
+		case inputActor:
+			m.filter.SetActor(m.inputBuf)
+		case inputKeyword:
+			m.filter.SetKeyword(m.inputBuf)
+		}
+		m.inputMode = inputNone
+		m.inputBuf = ""
+		m.inputPrompt = ""
+		m.rebuildFiltered()
+
+	case tea.KeyEscape:
+		// Cancel without saving
+		m.inputMode = inputNone
+		m.inputBuf = ""
+		m.inputPrompt = ""
+
+	case tea.KeyBackspace:
+		if len(m.inputBuf) > 0 {
+			m.inputBuf = m.inputBuf[:len(m.inputBuf)-1]
+		}
+
+	default:
+		if msg.Type == tea.KeyRunes {
+			m.inputBuf += string(msg.Runes)
+		} else if msg.Type == tea.KeySpace {
+			m.inputBuf += " "
+		}
+	}
+	return m, nil
+}
+
+// rebuildFiltered rebuilds the filtered index list from the history.
+func (m *Model) rebuildFiltered() {
+	if m.filter.IsEmpty() {
+		m.filtered = nil
+		// Reset selected to end when clearing filters
+		if m.history.Len() > 0 {
+			m.selected = m.history.Len() - 1
+		}
+		m.atBottom = true
+		return
+	}
+
+	m.filtered = m.filtered[:0]
+	for i := 0; i < m.history.Len(); i++ {
+		if m.filter.Matches(m.history.Get(i)) {
+			m.filtered = append(m.filtered, i)
+		}
+	}
+
+	// Clamp selected to filtered range
+	if len(m.filtered) == 0 {
+		m.selected = 0
+	} else if m.selected >= len(m.filtered) {
+		m.selected = len(m.filtered) - 1
+	}
+	m.atBottom = m.selected == len(m.filtered)-1
+}
+
+// filteredLen returns the count of visible events (filtered or total).
+func (m *Model) filteredLen() int {
+	if m.filter.IsEmpty() {
+		return m.history.Len()
+	}
+	return len(m.filtered)
+}
+
+// filteredGet returns the history event at the given filtered index.
+func (m *Model) filteredGet(i int) rpc.BusSSEEvent {
+	if m.filter.IsEmpty() {
+		return m.history.Get(i)
+	}
+	return m.history.Get(m.filtered[i])
+}
+
 // updateDetailViewport updates the detail viewport content for the selected event.
 func (m *Model) updateDetailViewport() {
-	if m.selected < 0 || m.selected >= m.history.Len() {
+	if m.selected < 0 || m.selected >= m.filteredLen() {
 		return
 	}
 	m.detailViewport.Width = m.width - 4
@@ -302,15 +433,45 @@ func (m *Model) updateDetailViewport() {
 func (m *Model) appendEvent(evt rpc.BusSSEEvent) {
 	evicted := m.history.Push(evt)
 
-	// Adjust selected cursor when oldest event is evicted
-	if evicted && m.selected > 0 {
-		m.selected--
-	}
-
-	// Auto-scroll if not paused
-	if !m.paused || m.atBottom {
-		m.selected = m.history.Len() - 1
-		m.atBottom = true
+	if !m.filter.IsEmpty() {
+		// Maintain filtered index incrementally
+		if evicted && len(m.filtered) > 0 {
+			// The evicted event was at old history index 0.
+			// All filtered indices shift down by 1.
+			j := 0
+			for _, idx := range m.filtered {
+				if idx > 0 {
+					m.filtered[j] = idx - 1
+					j++
+				}
+			}
+			m.filtered = m.filtered[:j]
+			if m.selected > j-1 && j > 0 {
+				m.selected = j - 1
+			}
+		}
+		// Check if the new event passes the filter
+		if m.filter.Matches(evt) {
+			m.filtered = append(m.filtered, m.history.Len()-1)
+		}
+		// Auto-scroll filtered
+		if !m.paused || m.atBottom {
+			m.selected = len(m.filtered) - 1
+			if m.selected < 0 {
+				m.selected = 0
+			}
+			m.atBottom = true
+		}
+	} else {
+		// No filter — adjust selected cursor when oldest event is evicted
+		if evicted && m.selected > 0 {
+			m.selected--
+		}
+		// Auto-scroll if not paused
+		if !m.paused || m.atBottom {
+			m.selected = m.history.Len() - 1
+			m.atBottom = true
+		}
 	}
 }
 

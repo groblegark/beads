@@ -16,6 +16,12 @@ type KeyMap struct {
 	Refresh key.Binding
 	Detail  key.Binding // Show full JSON detail of selected event
 
+	// Filtering
+	FilterStream key.Binding // Cycle through stream filters
+	FilterActor  key.Binding // Set actor filter (text input)
+	FilterSearch key.Binding // Set keyword search filter
+	FilterClear  key.Binding // Clear all filters
+
 	// General
 	Help key.Binding
 	Quit key.Binding
@@ -60,6 +66,22 @@ func DefaultKeyMap() KeyMap {
 			key.WithKeys("enter"),
 			key.WithHelp("enter", "detail view"),
 		),
+		FilterStream: key.NewBinding(
+			key.WithKeys("f"),
+			key.WithHelp("f", "filter stream"),
+		),
+		FilterActor: key.NewBinding(
+			key.WithKeys("a"),
+			key.WithHelp("a", "filter actor"),
+		),
+		FilterSearch: key.NewBinding(
+			key.WithKeys("/"),
+			key.WithHelp("/", "search keyword"),
+		),
+		FilterClear: key.NewBinding(
+			key.WithKeys("c"),
+			key.WithHelp("c", "clear filters"),
+		),
 		Help: key.NewBinding(
 			key.WithKeys("?"),
 			key.WithHelp("?", "help"),
@@ -81,6 +103,7 @@ func (k KeyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{k.Up, k.Down, k.PageUp, k.PageDown},
 		{k.Home, k.End, k.Pause, k.Detail},
+		{k.FilterStream, k.FilterActor, k.FilterSearch, k.FilterClear},
 		{k.Refresh, k.Help, k.Quit},
 	}
 }

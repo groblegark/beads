@@ -33,8 +33,15 @@ func (m *Model) renderView() string {
 		b.WriteString(pausedStyle.Render("PAUSED"))
 	}
 
+	// Filter indicator
+	if !m.filter.IsEmpty() {
+		b.WriteString("  ")
+		b.WriteString(filterStyle.Render("FILTER: " + m.filter.Summary()))
+		b.WriteString(mutedStyle.Render(fmt.Sprintf(" (%d/%d)", m.filteredLen(), m.history.Len())))
+	}
+
 	// Stats
-	if m.history.Len() > 0 {
+	if m.history.Len() > 0 && m.filter.IsEmpty() {
 		b.WriteString(mutedStyle.Render(fmt.Sprintf("  %d events (buf %d/%d)",
 			m.history.Total(), m.history.Len(), m.history.Cap())))
 	}
@@ -52,13 +59,17 @@ func (m *Model) renderView() string {
 	b.WriteString("\n")
 
 	// Event list
-	if m.history.Len() == 0 {
+	count := m.filteredLen()
+	if count == 0 {
 		b.WriteString("\n")
-		b.WriteString(statusStyle.Render("Waiting for events..."))
+		if m.history.Len() == 0 {
+			b.WriteString(statusStyle.Render("Waiting for events..."))
+		} else {
+			b.WriteString(statusStyle.Render("No events match filter"))
+		}
 		b.WriteString("\n")
 	} else {
 		visible := visibleLines(m.height)
-		count := m.history.Len()
 
 		// Compute viewport window — keep selected centered
 		start := m.selected - visible/2
@@ -75,7 +86,7 @@ func (m *Model) renderView() string {
 		}
 
 		for i := start; i < end; i++ {
-			evt := m.history.Get(i)
+			evt := m.filteredGet(i)
 			selected := i == m.selected
 			b.WriteString(m.renderEventLine(evt, selected))
 			b.WriteString("\n")
@@ -92,12 +103,17 @@ func (m *Model) renderView() string {
 		b.WriteString("\n")
 	}
 
-	// Help
-	if m.showHelp {
+	// Input mode or help
+	if m.inputMode != inputNone {
+		b.WriteString(inputStyle.Render(m.inputPrompt))
+		b.WriteString(m.inputBuf)
+		b.WriteString(inputStyle.Render("█"))
+		b.WriteString(mutedStyle.Render("  (enter: apply, esc: cancel)"))
+	} else if m.showHelp {
 		b.WriteString("\n")
 		b.WriteString(m.help.View(m.keys))
 	} else {
-		b.WriteString(helpStyle.Render("j/k: scroll  space: pause  enter: detail  r: reconnect  ?: help  q: quit"))
+		b.WriteString(helpStyle.Render("j/k: scroll  f: filter stream  /: search  a: actor  c: clear  ?: help  q: quit"))
 	}
 	b.WriteString("\n")
 
@@ -141,10 +157,11 @@ func (m *Model) renderDetailView() string {
 
 	b.WriteString(titleStyle.Render("Event Detail"))
 
-	if m.selected >= 0 && m.selected < m.history.Len() {
-		evt := m.history.Get(m.selected)
+	count := m.filteredLen()
+	if m.selected >= 0 && m.selected < count {
+		evt := m.filteredGet(m.selected)
 		b.WriteString(mutedStyle.Render(fmt.Sprintf("  [%d/%d] seq=%d %s.%s",
-			m.selected+1, m.history.Len(), evt.Seq, evt.Stream, evt.Type)))
+			m.selected+1, count, evt.Seq, evt.Stream, evt.Type)))
 	}
 	b.WriteString("\n")
 
@@ -162,11 +179,11 @@ func (m *Model) renderDetailView() string {
 
 // renderDetailContent generates the content string for the detail viewport.
 func (m *Model) renderDetailContent() string {
-	if m.selected < 0 || m.selected >= m.history.Len() {
+	if m.selected < 0 || m.selected >= m.filteredLen() {
 		return "No event selected"
 	}
 
-	evt := m.history.Get(m.selected)
+	evt := m.filteredGet(m.selected)
 	var b strings.Builder
 
 	b.WriteString(detailKeyStyle.Render("Stream:  "))

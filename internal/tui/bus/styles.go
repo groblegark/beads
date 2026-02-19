@@ -54,6 +54,14 @@ var (
 	pausedStyle = lipgloss.NewStyle().
 			Foreground(colorWarn).
 			Bold(true)
+
+	filterStyle = lipgloss.NewStyle().
+			Foreground(colorTeal).
+			Bold(true)
+
+	inputStyle = lipgloss.NewStyle().
+			Foreground(colorAccent).
+			Bold(true)
 )
 
 // streamColor returns a style for a given stream name.
