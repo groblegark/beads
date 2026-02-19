@@ -941,6 +941,9 @@ func TestSetupClaudeSettings_InvalidJSON(t *testing.T) {
 	tmpDir := t.TempDir()
 	t.Chdir(tmpDir)
 
+	// Clear remote daemon host to avoid early return in setupClaudeSettings
+	t.Setenv("BD_DAEMON_HOST", "")
+
 	// Create .claude directory
 	claudeDir := filepath.Join(tmpDir, ".claude")
 	if err := os.MkdirAll(claudeDir, 0755); err != nil {

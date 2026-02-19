@@ -608,16 +608,16 @@ func recordDaemonStartFailure() {
 // socket exists, consults the global registry (~/.beads/registry.json) for a daemon
 // serving a parent workspace (hq--bug-daemon_socket_discovery_fails_nested).
 func getSocketPath() string {
+	// Check environment variable first (enables test isolation and explicit overrides)
+	if socketPath := os.Getenv("BD_SOCKET"); socketPath != "" {
+		return socketPath
+	}
+
 	// Remote daemon mode (K8s): socket is irrelevant — connection goes via HTTP.
 	// Return empty to avoid filesystem walks in pods. TryConnectAuto() will
 	// use GetDaemonHost() and never touch the socket path. (beads-jejw.3)
 	if isRemoteDaemon() {
 		return ""
-	}
-
-	// Check environment variable first (enables test isolation)
-	if socketPath := os.Getenv("BD_SOCKET"); socketPath != "" {
-		return socketPath
 	}
 	// Get workspace path (parent of .beads directory)
 	// Use FindBeadsDir() for proper .beads directory resolution,
