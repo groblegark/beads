@@ -53,18 +53,24 @@ type healthResult struct {
 func runHealth() {
 	start := time.Now()
 
-	remoteHost := rpc.GetDaemonHost()
+	// Determine remote address: BD_DAEMON_HTTP_URL (includes port) takes
+	// priority over BD_DAEMON_HOST (may omit port, defaulting to 80).
+	// This mirrors the priority in rpc.TryConnectAuto. (hq-bib)
+	remoteAddr := rpc.GetDaemonHTTPURL()
+	if remoteAddr == "" {
+		remoteAddr = rpc.GetDaemonHost()
+	}
 	mode := "local"
 	host := ""
 
 	var client *rpc.Client
 	var err error
 
-	if remoteHost != "" {
+	if remoteAddr != "" {
 		// Remote mode
 		mode = "remote"
-		host = remoteHost
-		addr := remoteHost
+		host = remoteAddr
+		addr := remoteAddr
 		if !rpc.IsHTTPURL(addr) {
 			addr = "http://" + addr
 		}
