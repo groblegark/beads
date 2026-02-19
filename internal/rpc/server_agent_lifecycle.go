@@ -243,10 +243,33 @@ func extractCoopURL(notes string) string {
 	return ""
 }
 
-// sendCoopSignal sends a signal to a coop sidecar at the given URL.
+// sendCoopSignal sends a signal to a coop sidecar at the given URL (bd-88ua6).
+// Retries up to 3 times with exponential backoff for transient network failures.
 func sendCoopSignal(ctx context.Context, coopURL, signal string) error {
-	client := coop.NewClient(coopURL, coop.WithTimeout(5*time.Second))
-	return client.Signal(ctx, signal)
+	client := coop.NewClient(coopURL, coop.WithTimeout(10*time.Second))
+
+	var lastErr error
+	delays := []time.Duration{0, 1 * time.Second, 2 * time.Second}
+	for i, delay := range delays {
+		if delay > 0 {
+			select {
+			case <-ctx.Done():
+				return fmt.Errorf("context cancelled during retry: %w", ctx.Err())
+			case <-time.After(delay):
+			}
+		}
+
+		lastErr = client.Signal(ctx, signal)
+		if lastErr == nil {
+			return nil
+		}
+
+		// Don't retry on context cancellation.
+		if ctx.Err() != nil {
+			return fmt.Errorf("signal %s to %s failed (attempt %d): %w", signal, coopURL, i+1, lastErr)
+		}
+	}
+	return fmt.Errorf("signal %s to %s failed after %d attempts: %w", signal, coopURL, len(delays), lastErr)
 }
 
 // upsertNotesField sets a key-value pair in the notes field (bd-wvrpy).
