@@ -14,6 +14,7 @@ import (
 	internalbeads "github.com/steveyegge/beads/internal/beads"
 	"github.com/steveyegge/beads/internal/config"
 	"github.com/steveyegge/beads/internal/rpc"
+	"github.com/steveyegge/beads/internal/types"
 )
 
 // isDaemonAutoSyncing checks if daemon is running with auto-commit and auto-push enabled.
@@ -47,6 +48,8 @@ var (
 	primeStealthMode bool
 	primeExportMode  bool
 	primeCaptainMode bool
+	primeForAgent    string
+	primeNoAdvice    bool
 )
 
 var primeCmd = &cobra.Command{
@@ -129,6 +132,14 @@ Workflow customization:
 			// Never write to stderr (breaks Windows compatibility)
 			os.Exit(0)
 		}
+
+		// Append matching advice if not suppressed and not in export mode
+		if !primeNoAdvice && !primeExportMode {
+			agentID := resolvePrimeAgentID(primeForAgent)
+			if agentID != "" {
+				outputAdviceSection(os.Stdout, agentID)
+			}
+		}
 	},
 }
 
@@ -138,6 +149,8 @@ func init() {
 	primeCmd.Flags().BoolVar(&primeStealthMode, "stealth", false, "Stealth mode (no git operations, flush only)")
 	primeCmd.Flags().BoolVar(&primeExportMode, "export", false, "Output default content (ignores PRIME.md override)")
 	primeCmd.Flags().BoolVar(&primeCaptainMode, "captain", false, "Captain mode (supervisor workflow for AI captain agents)")
+	primeCmd.Flags().StringVar(&primeForAgent, "for", "", "Agent ID for advice filtering (e.g., beads/polecats/quartz). Falls back to BD_ACTOR env var.")
+	primeCmd.Flags().BoolVar(&primeNoAdvice, "no-advice", false, "Skip advice section in output")
 	rootCmd.AddCommand(primeCmd)
 }
 
@@ -529,4 +542,92 @@ bd decision create --prompt="Deploy to production?" \
 `
 	_, _ = fmt.Fprint(w, context)
 	return nil
+}
+
+// resolvePrimeAgentID determines the agent identity for advice filtering.
+// Priority: --for flag > BD_ACTOR env > BEADS_ACTOR env.
+// Returns empty string if no identity can be determined.
+func resolvePrimeAgentID(flagValue string) string {
+	if flagValue != "" {
+		return flagValue
+	}
+	if actor := os.Getenv("BD_ACTOR"); actor != "" {
+		return actor
+	}
+	if actor := os.Getenv("BEADS_ACTOR"); actor != "" {
+		return actor
+	}
+	return ""
+}
+
+// outputAdviceSection connects to the daemon, fetches advice matching the
+// agent's subscriptions, and appends it to prime output.
+// Uses its own daemon connection since prime skips normal db/daemon init.
+// Errors are silently ignored to avoid breaking prime output.
+func outputAdviceSection(w io.Writer, agentID string) {
+	beadsDir := beads.FindBeadsDir()
+	if beadsDir == "" {
+		return
+	}
+
+	// Connect to daemon directly (prime is in noDbCommands, so daemonClient is nil)
+	socketPath := filepath.Join(beadsDir, "bd.sock")
+	client, err := rpc.TryConnectAuto(socketPath)
+	if err != nil || client == nil {
+		return
+	}
+	defer func() { _ = client.Close() }()
+
+	subscriptions := buildAgentSubscriptionsWithoutStore(agentID, nil)
+
+	listArgs := &rpc.ListArgs{
+		IssueType: "advice",
+		Status:    "open",
+	}
+
+	resp, err := client.List(listArgs)
+	if err != nil || !resp.Success {
+		return
+	}
+
+	var issuesWithCounts []*types.IssueWithCounts
+	if err := json.Unmarshal(resp.Data, &issuesWithCounts); err != nil {
+		return
+	}
+
+	// Filter advice by agent subscriptions
+	var matched []*advicePreviewItem
+	for _, iwc := range issuesWithCounts {
+		issue := iwc.Issue
+		if issue == nil {
+			continue
+		}
+		if matchesSubscriptions(issue, issue.Labels, subscriptions) {
+			matchedLabels := findMatchedLabels(issue.Labels, subscriptions)
+			matched = append(matched, &advicePreviewItem{
+				Issue:         issue,
+				MatchedLabels: matchedLabels,
+			})
+		}
+	}
+
+	if len(matched) == 0 {
+		return
+	}
+
+	groups := groupByScope(matched)
+
+	_, _ = fmt.Fprintf(w, "\n## Agent Advice (%d items for %s)\n\n", len(matched), agentID)
+	for _, group := range groups {
+		for _, item := range group.Items {
+			_, _ = fmt.Fprintf(w, "**[%s]** %s\n", group.Header, item.Issue.Title)
+			if item.Issue.Description != "" && item.Issue.Description != item.Issue.Title {
+				lines := strings.Split(item.Issue.Description, "\n")
+				for _, line := range lines {
+					_, _ = fmt.Fprintf(w, "  %s\n", line)
+				}
+			}
+			_, _ = fmt.Fprintln(w)
+		}
+	}
 }

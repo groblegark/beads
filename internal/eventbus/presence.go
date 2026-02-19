@@ -139,6 +139,48 @@ func (pt *PresenceTracker) Uptime() time.Duration {
 	return time.Since(pt.started)
 }
 
+// TaskSeed represents a pre-existing in_progress bead for cold-start backfill.
+type TaskSeed struct {
+	IssueID string // bead ID
+	Actor   string // assignee or created_by
+}
+
+// BackfillTasks pre-populates the actor→taskIDs map from existing in_progress
+// beads. Call this after Start() to handle the cold-start problem: on daemon
+// restart, mutation events only track future changes, so agents with existing
+// in_progress beads would be incorrectly nudged until their next status change.
+// (bd-o4rvv)
+func (pt *PresenceTracker) BackfillTasks(seeds []TaskSeed) int {
+	if len(seeds) == 0 {
+		return 0
+	}
+
+	pt.mu.Lock()
+	defer pt.mu.Unlock()
+
+	count := 0
+	for _, seed := range seeds {
+		if seed.Actor == "" || seed.IssueID == "" {
+			continue
+		}
+		state, ok := pt.actors[seed.Actor]
+		if !ok {
+			state = &actorState{taskIDs: make(map[string]bool)}
+			pt.actors[seed.Actor] = state
+		}
+		if state.taskIDs == nil {
+			state.taskIDs = make(map[string]bool)
+		}
+		state.taskIDs[seed.IssueID] = true
+		count++
+	}
+
+	if count > 0 {
+		log.Printf("presence: backfilled %d in_progress tasks across %d actors", count, len(pt.actors))
+	}
+	return count
+}
+
 func (pt *PresenceTracker) handleHookEvent(msg *nats.Msg) {
 	var event struct {
 		Actor     string `json:"actor"`

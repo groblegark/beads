@@ -22,6 +22,7 @@ import (
 	"github.com/steveyegge/beads/internal/rpc"
 	"github.com/steveyegge/beads/internal/storage"
 	"github.com/steveyegge/beads/internal/storage/factory"
+	"github.com/steveyegge/beads/internal/types"
 )
 
 var daemonCmd = &cobra.Command{
@@ -765,6 +766,38 @@ func runDaemonLoop(interval time.Duration, autoCommit, autoPush, autoPull, local
 				handler.SetPresenceTracker(pt)
 			}
 		}
+	}
+
+	// Cold-start backfill: populate PresenceTracker taskIDs from existing
+	// in_progress beads so nudges work immediately after daemon restart. (bd-o4rvv)
+	if pt := bus.Presence(); pt != nil && store != nil {
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+
+			inProgress := types.StatusInProgress
+			issues, err := store.SearchIssues(ctx, "", types.IssueFilter{Status: &inProgress})
+			if err != nil {
+				log.Warn("presence backfill: failed to query in_progress beads", "error", err)
+				return
+			}
+
+			var seeds []eventbus.TaskSeed
+			for _, issue := range issues {
+				actor := issue.Assignee
+				if actor == "" {
+					actor = issue.CreatedBy
+				}
+				if actor == "" {
+					continue
+				}
+				seeds = append(seeds, eventbus.TaskSeed{IssueID: issue.ID, Actor: actor})
+			}
+
+			if n := pt.BackfillTasks(seeds); n > 0 {
+				log.Info("presence backfill: loaded in_progress tasks", "count", n)
+			}
+		}()
 	}
 
 	// Load persisted external handlers from config table (bd-4q86.1)

@@ -324,6 +324,7 @@ func DefaultHandlers() []Handler {
 		&HealthCheckHandler{},      // 5 — early stuck detection for agents (bd-4mpv3)
 		&PrimeHandler{},            // 10
 		&GateHandler{},             // 20
+		&AdviceHookHandler{},       // 25 — run advice hook commands at lifecycle points (beads-it2j)
 		&InboxDrainHandler{},       // 30 — sole delivery path (Phase 5)
 		&PostToolUseInboxHandler{}, // 30 — urgent inbox drain between tool calls (bd-qufo5)
 		&BeadNudgeHandler{},        // 40 — nudge unassigned agents to claim/create beads (bd-0ttt3)
