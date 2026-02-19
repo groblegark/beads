@@ -202,6 +202,7 @@ tasks:
     use: [code, build-linux-amd64, build-darwin-amd64, build-darwin-arm64, gh-cli]
     cache: false
     run: |
+      set -ex
       TAG="${REF_NAME#refs/tags/}"
       TAG="${TAG#refs/heads/}"
       IS_SNAPSHOT=false
@@ -246,7 +247,7 @@ tasks:
       fi
 
       # Generate changelog from previous tag
-      PREV_TAG=$(git tag --sort=-v:refname | grep -E '^20' | head -2 | tail -1)
+      PREV_TAG=$(git tag --sort=-v:refname | grep -E '^20' | head -2 | tail -1 || true)
       if [[ -n "$PREV_TAG" ]]; then
         CHANGELOG=$(git log --oneline "${PREV_TAG}..HEAD" \
           --no-merges \
