@@ -194,6 +194,12 @@ func (s *DoltStore) SearchIssues(ctx context.Context, query string, filter types
 		args = append(args, *filter.ParentID)
 	}
 
+	// Rig filtering
+	if filter.Rig != nil {
+		whereClauses = append(whereClauses, "rig = ?")
+		args = append(args, *filter.Rig)
+	}
+
 	// Molecule type filtering
 	if filter.MolType != nil {
 		whereClauses = append(whereClauses, "mol_type = ?")

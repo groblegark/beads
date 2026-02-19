@@ -264,6 +264,11 @@ func (t *doltTransaction) SearchIssues(ctx context.Context, query string, filter
 		args = append(args, *filter.Status)
 	}
 
+	if filter.Rig != nil {
+		whereClauses = append(whereClauses, "rig = ?")
+		args = append(args, *filter.Rig)
+	}
+
 	whereSQL := ""
 	if len(whereClauses) > 0 {
 		whereSQL = "WHERE " + strings.Join(whereClauses, " AND ")

@@ -67,6 +67,9 @@ func (s *Server) handleGraph(req *Request) Response {
 	if args.ParentID != "" {
 		filter.ParentID = &args.ParentID
 	}
+	if args.Rig != nil {
+		filter.Rig = args.Rig
+	}
 	// Apply type exclusions at filter level
 	for _, t := range args.ExcludeTypes {
 		filter.ExcludeTypes = append(filter.ExcludeTypes, types.IssueType(t))
@@ -212,6 +215,7 @@ func (s *Server) handleGraph(req *Request) Response {
 			Priority:  issue.Priority,
 			IssueType: string(issue.IssueType),
 			Assignee:  issue.Assignee,
+			Rig:       issue.Rig,
 			Labels:    labelsMap[issue.ID],
 			CreatedAt: issue.CreatedAt.Format("2006-01-02T15:04:05Z"),
 			UpdatedAt: issue.UpdatedAt.Format("2006-01-02T15:04:05Z"),

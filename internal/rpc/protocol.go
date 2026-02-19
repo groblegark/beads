@@ -2566,6 +2566,7 @@ type GraphArgs struct {
 	LabelsAny   []string `json:"labels_any,omitempty"`    // OR filter on labels
 	ParentID    string   `json:"parent_id,omitempty"`     // Scope to descendants of this epic/bead
 	Assignee    string   `json:"assignee,omitempty"`      // Filter by assignee
+	Rig         *string  `json:"rig,omitempty"`           // Filter by rig name (nil=any, ""=town-level)
 	Query       string   `json:"query,omitempty"`         // Full-text search in title/description
 
 	// Depth control
@@ -2584,6 +2585,7 @@ type GraphNode struct {
 	Priority    int      `json:"priority"`
 	IssueType   string   `json:"issue_type"`
 	Assignee    string   `json:"assignee,omitempty"`
+	Rig         string   `json:"rig,omitempty"`
 	Labels      []string `json:"labels,omitempty"`
 	CreatedAt   string   `json:"created_at,omitempty"`
 	UpdatedAt   string   `json:"updated_at,omitempty"`

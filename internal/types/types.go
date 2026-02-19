@@ -1175,6 +1175,9 @@ type IssueFilter struct {
 	// Parent filtering: filter children by parent issue ID
 	ParentID *string // Filter by parent issue (via parent-child dependency)
 
+	// Rig filtering
+	Rig *string // Filter by rig name (nil = any, "" matches town-level/unrigged)
+
 	// Molecule type filtering
 	MolType *MolType // Filter by molecule type (nil = any, swarm/patrol/work)
 
