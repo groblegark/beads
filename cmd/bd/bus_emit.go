@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -199,23 +200,43 @@ func runBusEmit(cmd *cobra.Command, args []string) error {
 	return outputEmitResult(&emitResult)
 }
 
+// defaultStopRetryThreshold is the number of consecutive Stop hook blocks
+// before the circuit breaker auto-satisfies the decision gate.
+const defaultStopRetryThreshold = 3
+
 // debounceStopHook checks if the Stop hook fired and blocked recently (within
 // 60s) and marks the decision gate as satisfied to prevent re-fire loops.
 // This handles the race where the Stop hook fires faster than the agent can
 // process the checkpoint prompt and call bd decision create. (bd-ss2lc)
+//
+// Also implements circuit breaker (bd-ywda): after N consecutive blocks without
+// the agent creating a decision, auto-satisfy the gate so the agent can continue.
 func debounceStopHook(sessionID string) {
 	markerPath := stopDebounceMarkerPath(sessionID)
 	data, err := os.ReadFile(markerPath) //nolint:gosec // G304: path is constructed from controlled .runtime/ directory
 	if err != nil {
 		return
 	}
-	ts, err := strconv.ParseInt(string(data), 10, 64)
-	if err != nil {
+
+	// Parse "timestamp:retryCount" format.
+	ts, retries := parseDebounceMarker(string(data))
+	if ts == 0 {
 		return
 	}
+
 	elapsed := time.Since(time.Unix(ts, 0))
 	if elapsed > 60*time.Second {
 		_ = os.Remove(markerPath)
+		return
+	}
+
+	// Circuit breaker: after N consecutive blocks, auto-satisfy the gate. (bd-ywda)
+	threshold := stopRetryThreshold()
+	if retries >= threshold {
+		if sessionID != "" {
+			_ = gate.MarkGate(getWorkDir(), sessionID, "decision")
+		}
+		_ = os.Remove(markerPath) // Reset counter after circuit break
 		return
 	}
 
@@ -227,13 +248,23 @@ func debounceStopHook(sessionID string) {
 }
 
 // writeStopDebounceMarker records that the Stop hook blocked at the current time.
+// Increments the retry counter for circuit breaker tracking. (bd-ywda)
 func writeStopDebounceMarker(sessionID string) {
 	markerPath := stopDebounceMarkerPath(sessionID)
 	dir := filepath.Dir(markerPath)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return
 	}
-	_ = os.WriteFile(markerPath, []byte(strconv.FormatInt(time.Now().Unix(), 10)), 0o600)
+
+	// Read existing marker to increment retry count.
+	retries := 0
+	if data, err := os.ReadFile(markerPath); err == nil { //nolint:gosec // G304: path from controlled .runtime/ directory
+		_, retries = parseDebounceMarker(string(data))
+	}
+
+	// Write "timestamp:retryCount" format.
+	content := fmt.Sprintf("%d:%d", time.Now().Unix(), retries+1)
+	_ = os.WriteFile(markerPath, []byte(content), 0o600)
 }
 
 // clearStopDebounceMarker removes the Stop hook debounce marker for the
@@ -248,6 +279,39 @@ func clearStopDebounceMarker() {
 		return
 	}
 	_ = os.Remove(stopDebounceMarkerPath(sid))
+}
+
+// parseDebounceMarker parses the debounce marker content.
+// Format: "timestamp" (legacy) or "timestamp:retryCount".
+// Returns (unix timestamp, retry count).
+func parseDebounceMarker(data string) (int64, int) {
+	data = strings.TrimSpace(data)
+	if data == "" {
+		return 0, 0
+	}
+
+	parts := strings.SplitN(data, ":", 2)
+	ts, err := strconv.ParseInt(parts[0], 10, 64)
+	if err != nil {
+		return 0, 0
+	}
+
+	retries := 0
+	if len(parts) == 2 {
+		retries, _ = strconv.Atoi(parts[1])
+	}
+	return ts, retries
+}
+
+// stopRetryThreshold returns the circuit breaker threshold from config or default.
+// Configurable via BEADS_STOP_RETRY_THRESHOLD env var. (bd-ywda)
+func stopRetryThreshold() int {
+	if v := os.Getenv("BEADS_STOP_RETRY_THRESHOLD"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			return n
+		}
+	}
+	return defaultStopRetryThreshold
 }
 
 // stopDebounceMarkerPath returns the path for the Stop hook debounce marker.
