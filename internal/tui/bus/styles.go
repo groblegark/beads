@@ -84,6 +84,57 @@ var (
 				Bold(true)
 )
 
+// eventTypeStyle returns a style for a given event type.
+// Error/failure types get red, start/create types get green,
+// stop/end types get muted, everything else is white.
+func eventTypeStyle(evtType string) lipgloss.Style {
+	switch evtType {
+	// Failure / error types — red
+	case "PostToolUseFailure", "OjJobFailed", "AgentCrashed",
+		"DecisionExpired", "MutationDelete", "FormulaDeleted",
+		"ConfigUnset", "advice.deleted":
+		return lipgloss.NewStyle().Foreground(colorFail)
+
+	// Start / create types — green
+	case "SessionStart", "AgentStarted", "OjJobCreated",
+		"DecisionCreated", "MutationCreate", "MailSent",
+		"ConfigSet", "FormulaSaved", "advice.created",
+		"SubagentStart", "OjAgentSpawned":
+		return lipgloss.NewStyle().Foreground(colorPass)
+
+	// Warning / escalation types — orange/yellow
+	case "DecisionEscalated", "OjAgentEscalated", "Stop",
+		"PreCompact":
+		return lipgloss.NewStyle().Foreground(colorWarn)
+
+	// End / stop types — muted
+	case "SessionEnd", "AgentStopped", "AgentIdle",
+		"SubagentStop", "OjAgentIdle", "AgentHeartbeat",
+		"OjWorkerPollComplete":
+		return lipgloss.NewStyle().Foreground(colorMuted)
+
+	// Default — white
+	default:
+		return lipgloss.NewStyle().Foreground(colorWhite)
+	}
+}
+
+// severityBadge returns a short colored badge for error/warning events, or "".
+func severityBadge(evtType string) string {
+	switch evtType {
+	case "PostToolUseFailure", "OjJobFailed", "AgentCrashed":
+		return lipgloss.NewStyle().Foreground(colorFail).Bold(true).Render("ERR")
+	case "DecisionExpired":
+		return lipgloss.NewStyle().Foreground(colorFail).Render("EXP")
+	case "DecisionEscalated", "OjAgentEscalated":
+		return lipgloss.NewStyle().Foreground(colorWarn).Bold(true).Render("ESC")
+	case "Stop":
+		return lipgloss.NewStyle().Foreground(colorWarn).Render("STP")
+	default:
+		return ""
+	}
+}
+
 // streamColor returns a style for a given stream name.
 func streamStyle(stream string) lipgloss.Style {
 	switch stream {

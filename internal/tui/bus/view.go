@@ -132,11 +132,18 @@ func (m *Model) renderEventLine(evt rpc.BusSSEEvent, selected bool) string {
 	evtType := evt.Type
 	summary := eventSummary(evt)
 
-	// Format: HH:MM:SS.mmm seq    stream.type summary
+	// Format: HH:MM:SS.mmm seq    stream.type [badge] summary
 	prefix := fmt.Sprintf("%s %s", tsStyle.Render(ts), seqStyle.Render(fmt.Sprintf("%-6d", evt.Seq)))
-	streamType := fmt.Sprintf("%s.%s", streamStyle(stream).Render(stream), evtType)
+	streamType := fmt.Sprintf("%s.%s", streamStyle(stream).Render(stream), eventTypeStyle(evtType).Render(evtType))
 
-	maxSummary := m.width - len(ts) - 8 - len(stream) - 1 - len(evtType) - 2
+	badge := severityBadge(evtType)
+	badgeLen := 0
+	if badge != "" {
+		badge = " " + badge
+		badgeLen = 4 // space + 3-char badge
+	}
+
+	maxSummary := m.width - len(ts) - 8 - len(stream) - 1 - len(evtType) - badgeLen - 2
 	if maxSummary < 0 {
 		maxSummary = 0
 	}
@@ -148,7 +155,7 @@ func (m *Model) renderEventLine(evt rpc.BusSSEEvent, selected bool) string {
 		}
 	}
 
-	line := fmt.Sprintf("%s %s %s", prefix, streamType, summary)
+	line := fmt.Sprintf("%s %s%s %s", prefix, streamType, badge, summary)
 
 	if selected {
 		return selectedStyle.Render(line)
