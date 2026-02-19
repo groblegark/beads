@@ -12,6 +12,10 @@ spec:
       {{- range .Values.ingress.ipWhitelist.sourceRange }}
       - {{ . | quote }}
       {{- end }}
+    {{- if .Values.ingress.ipWhitelist.ipStrategyDepth }}
+    ipStrategy:
+      depth: {{ .Values.ingress.ipWhitelist.ipStrategyDepth }}
+    {{- end }}
 ---
 {{- end }}
 {{- if .Values.ingress.rateLimit.enabled }}

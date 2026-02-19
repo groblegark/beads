@@ -369,6 +369,10 @@ ingress:
   ipWhitelist:
     enabled: false
     sourceRange: []
+    # ipStrategy.depth tells Traefik how many proxy hops to skip in
+    # X-Forwarded-For when determining the client IP. Behind an ALB,
+    # depth=1 means "use the IP the ALB added" (the real client).
+    ipStrategyDepth: 1
   rateLimit:
     enabled: false
     average: 50
