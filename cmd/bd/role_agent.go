@@ -164,17 +164,19 @@ func runRoleList(roleType, rigFilter string, includeAll bool) error {
 		return fmt.Errorf("%s list requires the daemon (set BD_DAEMON_HOST)", roleType)
 	}
 
-	// Query agents using label filters (role_type: prefix matches agent bead labels).
-	roleLabel := "role_type:" + roleType
-	labels := []string{"gt:agent", roleLabel}
+	// Query agent beads by type + role label. Using IssueType avoids a label AND
+	// query bug where "gt:agent"+"role:X" returns empty for closed beads.
+	rolePrefix := "role:"
+	labels := []string{rolePrefix + roleType}
 	status := "open"
 	if includeAll {
 		status = ""
 	}
 
 	resp, err := daemonClient.List(&rpc.ListArgs{
-		Labels: labels,
-		Status: status,
+		IssueType: "agent",
+		Labels:    labels,
+		Status:    status,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to list %s agents: %w", roleType, err)
@@ -354,11 +356,13 @@ func resolveRoleAgent(roleType, rigArg string) (string, error) {
 		}
 	}
 
-	// Fallback: search open beads by labels to find the agent for this rig+role.
-	roleLabel := "role_type:" + roleType
+	// Fallback: search open beads by type + role label to find the agent for this rig+role.
+	// (Avoid "gt:agent"+"role:X" AND query which has a bug with closed beads.)
+	roleLabel := strings.Join([]string{"role", roleType}, ":")
 	listResp, err := daemonClient.List(&rpc.ListArgs{
-		Labels: []string{"gt:agent", roleLabel},
-		Status: "open",
+		IssueType: "agent",
+		Labels:    []string{roleLabel},
+		Status:    "open",
 	})
 	if err != nil {
 		return "", fmt.Errorf("failed to find %s agent for rig %q: %w", roleType, rigArg, err)
@@ -391,10 +395,11 @@ func resolveRoleAgentAnyStatus(roleType, rigArg string) (string, error) {
 		}
 	}
 
-	// Fallback: search all statuses by labels.
-	roleLabel := "role_type:" + roleType
+	// Fallback: search all statuses using type + role label.
+	roleLabel := strings.Join([]string{"role", roleType}, ":")
 	listResp, err := daemonClient.List(&rpc.ListArgs{
-		Labels: []string{"gt:agent", roleLabel},
+		IssueType: "agent",
+		Labels:    []string{roleLabel},
 	})
 	if err != nil {
 		return "", fmt.Errorf("failed to find %s agent for rig %q: %w", roleType, rigArg, err)
