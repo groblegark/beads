@@ -733,6 +733,58 @@ func TestPresenceTracker_Reaper_Resurrection(t *testing.T) {
 	pt.Stop()
 }
 
+// TestPresenceTracker_Reaper_Eviction verifies that reaped actors are permanently
+// removed from the map after EvictAfter duration to prevent unbounded growth. (bd-vta0i)
+func TestPresenceTracker_Reaper_Eviction(t *testing.T) {
+	pt := NewPresenceTracker()
+	pt.started = time.Now()
+
+	now := time.Now()
+
+	// Add a recently reaped actor (should survive) and an old reaped actor (should be evicted).
+	pt.mu.Lock()
+	pt.actors["recent-dead"] = &actorState{
+		lastSeen:  now.Add(-20 * time.Minute),
+		lastEvent: "PostToolUse",
+		reaped:    true,
+		reapedAt:  now.Add(-5 * time.Minute), // reaped 5 min ago
+	}
+	pt.actors["old-dead"] = &actorState{
+		lastSeen:  now.Add(-60 * time.Minute),
+		lastEvent: "AgentCrashed",
+		reaped:    true,
+		reapedAt:  now.Add(-35 * time.Minute), // reaped 35 min ago
+	}
+	pt.actors["alive"] = &actorState{
+		lastSeen:  now,
+		lastEvent: "PreToolUse",
+	}
+	pt.mu.Unlock()
+
+	cfg := &ReaperConfig{
+		DeadThreshold: 15 * time.Minute,
+		EvictAfter:    30 * time.Minute,
+		SweepInterval: 10 * time.Millisecond,
+	}
+
+	pt.StartReaper(cfg)
+	time.Sleep(30 * time.Millisecond) // let at least one sweep run
+	pt.Stop()
+
+	pt.mu.RLock()
+	defer pt.mu.RUnlock()
+
+	if _, ok := pt.actors["old-dead"]; ok {
+		t.Error("expected old-dead to be evicted (reaped > 30 min ago)")
+	}
+	if _, ok := pt.actors["recent-dead"]; !ok {
+		t.Error("expected recent-dead to survive (reaped only 5 min ago)")
+	}
+	if _, ok := pt.actors["alive"]; !ok {
+		t.Error("expected alive actor to survive")
+	}
+}
+
 // TestPresenceTracker_CWD verifies that CWD from hook events is captured in the
 // roster and that it updates when the working directory changes. (bd-z6958)
 func TestPresenceTracker_CWD(t *testing.T) {

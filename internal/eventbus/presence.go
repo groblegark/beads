@@ -58,6 +58,12 @@ type ReaperConfig struct {
 	// Default: 15 minutes.
 	DeadThreshold time.Duration
 
+	// EvictAfter is how long after being reaped before an actor is permanently
+	// removed from the in-memory map. This prevents unbounded growth from
+	// ephemeral agents (e.g. furiosa-1 through furiosa-267). Default: 30 minutes.
+	// (bd-vta0i)
+	EvictAfter time.Duration
+
 	// SweepInterval is how often the reaper scans for dead actors.
 	// Default: 60 seconds.
 	SweepInterval time.Duration
@@ -147,6 +153,9 @@ func (pt *PresenceTracker) StartReaper(cfg *ReaperConfig) {
 	if cfg.DeadThreshold == 0 {
 		cfg.DeadThreshold = 15 * time.Minute
 	}
+	if cfg.EvictAfter == 0 {
+		cfg.EvictAfter = 30 * time.Minute // (bd-vta0i)
+	}
 	if cfg.SweepInterval == 0 {
 		cfg.SweepInterval = 60 * time.Second
 	}
@@ -177,6 +186,8 @@ func (pt *PresenceTracker) reapLoop(cfg *ReaperConfig) {
 }
 
 // sweep scans all actors and marks those idle > DeadThreshold as reaped.
+// Actors reaped for longer than EvictAfter are permanently removed from the map
+// to prevent unbounded growth from ephemeral agents. (bd-vta0i)
 // Newly reaped actors trigger the OnDead callback (outside the lock).
 func (pt *PresenceTracker) sweep(cfg *ReaperConfig) {
 	now := time.Now()
@@ -187,11 +198,17 @@ func (pt *PresenceTracker) sweep(cfg *ReaperConfig) {
 		sessionID string
 	}
 	var newlyDead []deadActor
+	var evicted int
 
 	pt.mu.Lock()
 	for actor, state := range pt.actors {
 		if state.reaped {
-			continue // already reaped
+			// Evict actors that have been reaped for longer than EvictAfter. (bd-vta0i)
+			if !state.reapedAt.IsZero() && now.Sub(state.reapedAt) > cfg.EvictAfter {
+				delete(pt.actors, actor)
+				evicted++
+			}
+			continue
 		}
 		idle := now.Sub(state.lastSeen)
 		if idle > cfg.DeadThreshold {
@@ -201,6 +218,10 @@ func (pt *PresenceTracker) sweep(cfg *ReaperConfig) {
 		}
 	}
 	pt.mu.Unlock()
+
+	if evicted > 0 {
+		log.Printf("presence: reaper evicted %d stale actors", evicted)
+	}
 
 	// Fire callbacks outside the lock.
 	for _, dead := range newlyDead {

@@ -774,26 +774,38 @@ func outputRosterSection(w io.Writer) {
 	}
 
 	// Show stale agents with their actual state so agents know whether they
-	// crashed, were reaped, or are just idle. (bd-bstid, bd-bs7u8)
+	// crashed, were reaped, or are just idle. (bd-bstid, bd-bs7u8, bd-vta0i)
 	if len(stale) > 0 {
-		// Partition stale into crashed vs merely idle.
-		var crashed, idle []string
+		// Partition stale into crashed (with orphaned work) vs ephemeral crashes vs idle.
+		var crashedWithTask, crashedNoTask, idle []string
 		var orphaned []string
 		for _, a := range stale {
 			idleStr := formatIdleDuration(a.IdleSecs)
 			if a.Reaped || a.LastEvent == "AgentCrashed" {
 				if a.TaskID != "" {
-					crashed = append(crashed, fmt.Sprintf("%s (had %s: %s)", a.Actor, a.TaskID, a.TaskTitle))
+					crashedWithTask = append(crashedWithTask, fmt.Sprintf("%s (had %s: %s)", a.Actor, a.TaskID, a.TaskTitle))
 					orphaned = append(orphaned, fmt.Sprintf("%s: %s (was %s's)", a.TaskID, a.TaskTitle, a.Actor))
 				} else {
-					crashed = append(crashed, fmt.Sprintf("%s (idle %s)", a.Actor, idleStr))
+					crashedNoTask = append(crashedNoTask, fmt.Sprintf("%s (idle %s)", a.Actor, idleStr))
 				}
 			} else {
 				idle = append(idle, fmt.Sprintf("%s (idle %s)", a.Actor, idleStr))
 			}
 		}
-		if len(crashed) > 0 {
-			fmt.Fprintf(w, "\n_Crashed (%d): %s_\n", len(crashed), strings.Join(crashed, ", "))
+		totalCrashed := len(crashedWithTask) + len(crashedNoTask)
+		if totalCrashed > 0 {
+			// Show crashed agents with orphaned work individually (important).
+			// For taskless crashes, cap at 10 to avoid flooding context. (bd-vta0i)
+			const maxShown = 10
+			var shown []string
+			shown = append(shown, crashedWithTask...)
+			if len(crashedNoTask) <= maxShown {
+				shown = append(shown, crashedNoTask...)
+			} else {
+				shown = append(shown, crashedNoTask[:maxShown]...)
+				shown = append(shown, fmt.Sprintf("... and %d more", len(crashedNoTask)-maxShown))
+			}
+			fmt.Fprintf(w, "\n_Crashed (%d): %s_\n", totalCrashed, strings.Join(shown, ", "))
 		}
 		if len(idle) > 0 {
 			fmt.Fprintf(w, "\n_Stale (%d, likely disconnected): %s_\n", len(idle), strings.Join(idle, ", "))

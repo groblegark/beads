@@ -858,10 +858,15 @@ func runAgentRoster(cmd *cobra.Command, args []string) error {
 		printRosterEntry(a)
 	}
 
-	// Show dead agents in a separate section. (bd-khlpu)
+	// Show dead agents in a separate section, capped to avoid flooding. (bd-khlpu, bd-vta0i)
 	if len(deadActors) > 0 {
+		const maxDeadShown = 20
 		fmt.Printf("\nDead (%d — no activity for 15+ min, likely disconnected):\n", len(deadActors))
-		for _, a := range deadActors {
+		for i, a := range deadActors {
+			if i >= maxDeadShown {
+				fmt.Printf("  ... and %d more (use --all for full list)\n", len(deadActors)-maxDeadShown)
+				break
+			}
 			printRosterEntry(a)
 		}
 	}
