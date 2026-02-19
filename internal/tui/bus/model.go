@@ -11,6 +11,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/help"
 	"github.com/charmbracelet/bubbles/key"
+	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/steveyegge/beads/internal/rpc"
@@ -23,26 +24,25 @@ type Model struct {
 	// Dimensions
 	width, height int
 
-	// Data — ring buffer of events
-	events []rpc.BusSSEEvent
-	maxLen int // ring buffer capacity
+	// Data — circular ring buffer of events
+	history *RingBuffer
 
 	// Navigation
-	selected int  // cursor position (index into events)
+	selected int  // cursor position (index into history)
 	paused   bool // when true, auto-scroll is disabled
 	atBottom bool // true when cursor is at the latest event
 
 	// Detail view
-	showDetail bool
+	showDetail     bool
+	detailViewport viewport.Model
 
 	// Connection
-	sseOpts    rpc.BusSSEClientOptions
-	connected  bool
-	cancel     context.CancelFunc
-	sseCh      <-chan rpc.BusSSEEvent // SSE event channel (kept for chaining)
-	sseErrCh   <-chan error           // SSE error channel
-	sseCtx     context.Context
-	eventCount int64 // total events received (including beyond ring buffer)
+	sseOpts  rpc.BusSSEClientOptions
+	connected bool
+	cancel    context.CancelFunc
+	sseCh     <-chan rpc.BusSSEEvent // SSE event channel (kept for chaining)
+	sseErrCh  <-chan error           // SSE error channel
+	sseCtx    context.Context
 
 	// UI
 	keys     KeyMap
@@ -58,18 +58,19 @@ func New(opts rpc.BusSSEClientOptions) *Model {
 	h.ShowAll = false
 
 	return &Model{
-		maxLen:   defaultHistorySize,
-		atBottom: true,
-		sseOpts:  opts,
-		keys:     DefaultKeyMap(),
-		help:     h,
+		history:        NewRingBuffer(defaultHistorySize),
+		atBottom:       true,
+		sseOpts:        opts,
+		keys:           DefaultKeyMap(),
+		help:           h,
+		detailViewport: viewport.New(0, 0),
 	}
 }
 
-// SetHistorySize sets the ring buffer capacity.
+// SetHistorySize replaces the ring buffer with a new one of the given capacity.
 func (m *Model) SetHistorySize(n int) {
 	if n > 0 {
-		m.maxLen = n
+		m.history = NewRingBuffer(n)
 	}
 }
 
@@ -150,6 +151,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		m.detailViewport.Width = msg.Width - 4
+		m.detailViewport.Height = msg.Height - 4
 
 	case tea.KeyMsg:
 		if m.showDetail {
@@ -159,8 +162,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case sseEventMsg:
 		m.appendEvent(msg.event)
-		m.eventCount++
-		m.status = fmt.Sprintf("Events: %d (buf: %d/%d)", m.eventCount, len(m.events), m.maxLen)
+		m.status = fmt.Sprintf("Events: %d (buf: %d/%d)", m.history.Total(), m.history.Len(), m.history.Cap())
 		// Chain: wait for next event
 		return m, m.waitForSSE()
 
@@ -199,10 +201,10 @@ func (m *Model) handleTimelineKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 
 	case key.Matches(msg, m.keys.Down):
-		if m.selected < len(m.events)-1 {
+		if m.selected < m.history.Len()-1 {
 			m.selected++
 		}
-		if m.selected == len(m.events)-1 {
+		if m.selected == m.history.Len()-1 {
 			m.atBottom = true
 		}
 
@@ -218,13 +220,13 @@ func (m *Model) handleTimelineKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case key.Matches(msg, m.keys.PageDown):
 		m.selected += visibleLines(m.height)
-		if m.selected >= len(m.events) {
-			m.selected = len(m.events) - 1
+		if m.selected >= m.history.Len() {
+			m.selected = m.history.Len() - 1
 		}
 		if m.selected < 0 {
 			m.selected = 0
 		}
-		if m.selected == len(m.events)-1 {
+		if m.selected == m.history.Len()-1 {
 			m.atBottom = true
 		}
 
@@ -236,22 +238,23 @@ func (m *Model) handleTimelineKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 
 	case key.Matches(msg, m.keys.End):
-		if len(m.events) > 0 {
-			m.selected = len(m.events) - 1
+		if m.history.Len() > 0 {
+			m.selected = m.history.Len() - 1
 		}
 		m.atBottom = true
 		m.paused = false
 
 	case key.Matches(msg, m.keys.Pause):
 		m.paused = !m.paused
-		if !m.paused && len(m.events) > 0 {
-			m.selected = len(m.events) - 1
+		if !m.paused && m.history.Len() > 0 {
+			m.selected = m.history.Len() - 1
 			m.atBottom = true
 		}
 
 	case key.Matches(msg, m.keys.Detail):
-		if len(m.events) > 0 && m.selected < len(m.events) {
+		if m.history.Len() > 0 && m.selected < m.history.Len() {
 			m.showDetail = true
+			m.updateDetailViewport()
 		}
 
 	case key.Matches(msg, m.keys.Refresh):
@@ -267,26 +270,46 @@ func (m *Model) handleDetailKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch {
 	case key.Matches(msg, m.keys.Quit), key.Matches(msg, m.keys.Detail):
 		m.showDetail = false
+		return m, nil
+	case key.Matches(msg, m.keys.Up):
+		m.detailViewport.ScrollUp(1)
+	case key.Matches(msg, m.keys.Down):
+		m.detailViewport.ScrollDown(1)
+	case key.Matches(msg, m.keys.PageUp):
+		m.detailViewport.HalfPageUp()
+	case key.Matches(msg, m.keys.PageDown):
+		m.detailViewport.HalfPageDown()
+	case key.Matches(msg, m.keys.Home):
+		m.detailViewport.GotoTop()
+	case key.Matches(msg, m.keys.End):
+		m.detailViewport.GotoBottom()
 	}
 	return m, nil
 }
 
+// updateDetailViewport updates the detail viewport content for the selected event.
+func (m *Model) updateDetailViewport() {
+	if m.selected < 0 || m.selected >= m.history.Len() {
+		return
+	}
+	m.detailViewport.Width = m.width - 4
+	m.detailViewport.Height = m.height - 8
+	m.detailViewport.SetContent(m.renderDetailContent())
+	m.detailViewport.GotoTop()
+}
+
 // appendEvent adds an event to the ring buffer.
 func (m *Model) appendEvent(evt rpc.BusSSEEvent) {
-	if len(m.events) >= m.maxLen {
-		// Shift — remove oldest
-		copy(m.events, m.events[1:])
-		m.events = m.events[:len(m.events)-1]
-		// Adjust selected if it was pointing at the removed event
-		if m.selected > 0 {
-			m.selected--
-		}
+	evicted := m.history.Push(evt)
+
+	// Adjust selected cursor when oldest event is evicted
+	if evicted && m.selected > 0 {
+		m.selected--
 	}
-	m.events = append(m.events, evt)
 
 	// Auto-scroll if not paused
 	if !m.paused || m.atBottom {
-		m.selected = len(m.events) - 1
+		m.selected = m.history.Len() - 1
 		m.atBottom = true
 	}
 }

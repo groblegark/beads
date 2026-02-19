@@ -34,9 +34,9 @@ func (m *Model) renderView() string {
 	}
 
 	// Stats
-	if len(m.events) > 0 {
+	if m.history.Len() > 0 {
 		b.WriteString(mutedStyle.Render(fmt.Sprintf("  %d events (buf %d/%d)",
-			m.eventCount, len(m.events), m.maxLen)))
+			m.history.Total(), m.history.Len(), m.history.Cap())))
 	}
 	b.WriteString("\n")
 
@@ -52,21 +52,22 @@ func (m *Model) renderView() string {
 	b.WriteString("\n")
 
 	// Event list
-	if len(m.events) == 0 {
+	if m.history.Len() == 0 {
 		b.WriteString("\n")
 		b.WriteString(statusStyle.Render("Waiting for events..."))
 		b.WriteString("\n")
 	} else {
 		visible := visibleLines(m.height)
+		count := m.history.Len()
 
-		// Compute viewport window
+		// Compute viewport window — keep selected centered
 		start := m.selected - visible/2
 		if start < 0 {
 			start = 0
 		}
 		end := start + visible
-		if end > len(m.events) {
-			end = len(m.events)
+		if end > count {
+			end = count
 			start = end - visible
 			if start < 0 {
 				start = 0
@@ -74,7 +75,7 @@ func (m *Model) renderView() string {
 		}
 
 		for i := start; i < end; i++ {
-			evt := m.events[i]
+			evt := m.history.Get(i)
 			selected := i == m.selected
 			b.WriteString(m.renderEventLine(evt, selected))
 			b.WriteString("\n")
@@ -110,8 +111,7 @@ func (m *Model) renderEventLine(evt rpc.BusSSEEvent, selected bool) string {
 	evtType := evt.Type
 	summary := eventSummary(evt)
 
-	// Truncate summary to fit width
-	// Format: [HH:MM:SS.mmm] seq=NNNNN stream.type summary
+	// Format: HH:MM:SS.mmm seq    stream.type summary
 	prefix := fmt.Sprintf("%s %s", tsStyle.Render(ts), seqStyle.Render(fmt.Sprintf("%-6d", evt.Seq)))
 	streamType := fmt.Sprintf("%s.%s", streamStyle(stream).Render(stream), evtType)
 
@@ -135,64 +135,75 @@ func (m *Model) renderEventLine(evt rpc.BusSSEEvent, selected bool) string {
 	return line
 }
 
-// renderDetailView renders the full detail of the selected event.
+// renderDetailView renders the detail view with scrollable viewport.
 func (m *Model) renderDetailView() string {
 	var b strings.Builder
 
-	if m.selected < 0 || m.selected >= len(m.events) {
+	b.WriteString(titleStyle.Render("Event Detail"))
+
+	if m.selected >= 0 && m.selected < m.history.Len() {
+		evt := m.history.Get(m.selected)
+		b.WriteString(mutedStyle.Render(fmt.Sprintf("  [%d/%d] seq=%d %s.%s",
+			m.selected+1, m.history.Len(), evt.Seq, evt.Stream, evt.Type)))
+	}
+	b.WriteString("\n")
+
+	// Scrollable viewport
+	b.WriteString(m.detailViewport.View())
+	b.WriteString("\n")
+
+	// Scroll indicator
+	pct := m.detailViewport.ScrollPercent()
+	b.WriteString(helpStyle.Render(fmt.Sprintf("j/k: scroll  g/G: top/bottom  %.0f%%  enter/q: back", pct*100)))
+	b.WriteString("\n")
+
+	return b.String()
+}
+
+// renderDetailContent generates the content string for the detail viewport.
+func (m *Model) renderDetailContent() string {
+	if m.selected < 0 || m.selected >= m.history.Len() {
 		return "No event selected"
 	}
 
-	evt := m.events[m.selected]
+	evt := m.history.Get(m.selected)
+	var b strings.Builder
 
-	b.WriteString(titleStyle.Render("Event Detail"))
-	b.WriteString("\n\n")
-
-	// Metadata
-	b.WriteString(detailKeyStyle.Render("  Stream:  "))
+	b.WriteString(detailKeyStyle.Render("Stream:  "))
 	b.WriteString(streamStyle(evt.Stream).Render(evt.Stream))
 	b.WriteString("\n")
 
-	b.WriteString(detailKeyStyle.Render("  Type:    "))
+	b.WriteString(detailKeyStyle.Render("Type:    "))
 	b.WriteString(detailValStyle.Render(evt.Type))
 	b.WriteString("\n")
 
-	b.WriteString(detailKeyStyle.Render("  Subject: "))
+	b.WriteString(detailKeyStyle.Render("Subject: "))
 	b.WriteString(detailValStyle.Render(evt.Subject))
 	b.WriteString("\n")
 
-	b.WriteString(detailKeyStyle.Render("  Seq:     "))
+	b.WriteString(detailKeyStyle.Render("Seq:     "))
 	b.WriteString(detailValStyle.Render(fmt.Sprintf("%d", evt.Seq)))
 	b.WriteString("\n")
 
-	b.WriteString(detailKeyStyle.Render("  Time:    "))
+	b.WriteString(detailKeyStyle.Render("Time:    "))
 	b.WriteString(detailValStyle.Render(evt.TS))
 	b.WriteString("\n")
 
 	b.WriteString("\n")
-
-	// Payload — pretty-printed JSON
-	b.WriteString(detailKeyStyle.Render("  Payload:"))
+	b.WriteString(detailKeyStyle.Render("Payload:"))
 	b.WriteString("\n")
 
 	var prettyJSON json.RawMessage
 	if err := json.Unmarshal(evt.Payload, &prettyJSON); err == nil {
-		formatted, err := json.MarshalIndent(prettyJSON, "  ", "  ")
+		formatted, err := json.MarshalIndent(prettyJSON, "", "  ")
 		if err == nil {
-			b.WriteString("  ")
 			b.WriteString(detailValStyle.Render(string(formatted)))
 		} else {
-			b.WriteString("  ")
 			b.WriteString(detailValStyle.Render(string(evt.Payload)))
 		}
 	} else {
-		b.WriteString("  ")
 		b.WriteString(detailValStyle.Render(string(evt.Payload)))
 	}
-	b.WriteString("\n")
-
-	b.WriteString("\n")
-	b.WriteString(helpStyle.Render("Press enter or q to return"))
 	b.WriteString("\n")
 
 	return b.String()
