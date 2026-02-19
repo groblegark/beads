@@ -108,8 +108,12 @@ type Model struct {
 	displayActors []rpc.AgentRosterEntry
 
 	// Overlay for bd show output (bd-edx55)
-	overlay        string // Non-empty = overlay text visible
+	overlay         string // Non-empty = overlay text visible
 	overlayViewport viewport.Model
+
+	// Recent events for selected agent (bd-1xgft)
+	recentEvents      []rpc.AgentEvent // Cached recent events for selected agent
+	recentEventsActor string           // Actor name of cached events
 }
 
 // epicViewRow represents one navigable row in the epic view.
@@ -164,6 +168,13 @@ type fetchRosterMsg struct {
 // fetchTaskMsg is sent when task detail arrives. (bd-edx55)
 type fetchTaskMsg struct {
 	output string
+	err    error
+}
+
+// fetchRecentEventsMsg is sent when recent events arrive. (bd-1xgft)
+type fetchRecentEventsMsg struct {
+	actor  string
+	events []rpc.AgentEvent
 	err    error
 }
 
@@ -355,6 +366,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.status = "Refreshing..."
 		}
 
+		// Fetch recent events when selected agent changes. (bd-1xgft)
+		if a := m.selectedAgent(); a != nil && a.Actor != m.recentEventsActor {
+			cmds = append(cmds, m.fetchRecentEvents(a.Actor))
+		}
+
 	case fetchTaskMsg:
 		if msg.err != nil {
 			m.status = fmt.Sprintf("Error: %v", msg.err)
@@ -364,6 +380,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.overlayViewport.Width = m.width - 4
 			m.overlayViewport.Height = m.height - 4
 			m.overlayViewport.GotoTop()
+		}
+
+	case fetchRecentEventsMsg:
+		if msg.err == nil && msg.actor != "" {
+			m.recentEvents = msg.events
+			m.recentEventsActor = msg.actor
 		}
 
 	case fetchRosterMsg:
@@ -376,6 +398,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.rebuildDisplayActors()
 			m.buildEpicGroups()
 			m.status = fmt.Sprintf("Updated: %d agents", len(m.displayActors))
+			// Re-fetch recent events for the selected agent on each poll cycle. (bd-1xgft)
+			if a := m.selectedAgent(); a != nil {
+				cmds = append(cmds, m.fetchRecentEvents(a.Actor))
+			}
 		}
 
 	case tickMsg:
@@ -587,6 +613,30 @@ func (m *Model) fetchTaskDetail(taskID string) tea.Cmd {
 			return fetchTaskMsg{err: fmt.Errorf("bd show %s: %v (%s)", taskID, err, stderr.String())}
 		}
 		return fetchTaskMsg{output: stdout.String()}
+	}
+}
+
+// fetchRecentEvents fetches recent events for the given actor via bd agent recent-events --json. (bd-1xgft)
+func (m *Model) fetchRecentEvents(actor string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		cmd := exec.CommandContext(ctx, "bd", "agent", "recent-events", actor, "--json", "--limit=20")
+		var stdout, stderr bytes.Buffer
+		cmd.Stdout = &stdout
+		cmd.Stderr = &stderr
+
+		if err := cmd.Run(); err != nil {
+			return fetchRecentEventsMsg{actor: actor, err: fmt.Errorf("bd agent recent-events: %v", err)}
+		}
+
+		var result rpc.AgentRecentEventsResult
+		if err := json.Unmarshal(stdout.Bytes(), &result); err != nil {
+			return fetchRecentEventsMsg{actor: actor, err: fmt.Errorf("parse recent events: %w", err)}
+		}
+
+		return fetchRecentEventsMsg{actor: actor, events: result.Events}
 	}
 }
 

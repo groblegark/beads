@@ -275,6 +275,27 @@ func (m *Model) renderAgentDetail(a rpc.AgentRosterEntry) string {
 	idle := formatDuration(a.IdleSecs)
 	b.WriteString(fmt.Sprintf("  %s %s\n", detailLabelStyle.Render("Idle:"), agentStateStyle(a.IdleSecs).Render(idle)))
 
+	// Recent events timeline (bd-1xgft)
+	if m.recentEventsActor == a.Actor && len(m.recentEvents) > 0 {
+		b.WriteString("\n")
+		b.WriteString(sectionHeaderStyle.Render("  ── Recent Events "))
+		sepRE := strings.Repeat("─", max(0, detailWidth-19))
+		b.WriteString(mutedStyle.Render(sepRE))
+		b.WriteString("\n")
+
+		maxEvents := 15
+		if len(m.recentEvents) < maxEvents {
+			maxEvents = len(m.recentEvents)
+		}
+		for i := 0; i < maxEvents; i++ {
+			e := m.recentEvents[i]
+			b.WriteString(m.renderRecentEvent(e, detailWidth))
+		}
+		if len(m.recentEvents) > maxEvents {
+			b.WriteString(mutedStyle.Render(fmt.Sprintf("  ... +%d more\n", len(m.recentEvents)-maxEvents)))
+		}
+	}
+
 	// Section 6: Unclaimed Tasks (bd-s6fiy)
 	if m.roster != nil && len(m.roster.UnclaimedTasks) > 0 {
 		b.WriteString("\n")
@@ -282,6 +303,54 @@ func (m *Model) renderAgentDetail(a rpc.AgentRosterEntry) string {
 	}
 
 	return b.String()
+}
+
+// renderRecentEvent renders a single event in the recent activity timeline. (bd-1xgft)
+func (m *Model) renderRecentEvent(e rpc.AgentEvent, width int) string {
+	ts, _ := time.Parse(time.RFC3339, e.Timestamp)
+	ago := time.Since(ts).Round(time.Second)
+	agoStr := formatDuration(ago.Seconds())
+
+	// Event type style: tool events in teal, errors in red, lifecycle in muted
+	var eventStyle lipgloss.Style
+	switch {
+	case e.EventType == "PreToolUse" || e.EventType == "PostToolUse":
+		eventStyle = toolStyle
+	case strings.Contains(e.EventType, "Error") || strings.Contains(e.EventType, "Crash"):
+		eventStyle = staleStyle // red
+	default:
+		eventStyle = mutedStyle
+	}
+
+	// Build the event line
+	var line string
+	if e.ToolName != "" {
+		line = fmt.Sprintf("  %s %s %s",
+			mutedStyle.Render(fmt.Sprintf("%5s", agoStr)),
+			eventStyle.Render(e.ToolName),
+			"",
+		)
+	} else {
+		line = fmt.Sprintf("  %s %s",
+			mutedStyle.Render(fmt.Sprintf("%5s", agoStr)),
+			eventStyle.Render(e.EventType),
+		)
+	}
+
+	// Add summary if available, truncated to fit
+	if e.Summary != "" {
+		maxSummary := width - 22 // room for timestamp + tool name + padding
+		if maxSummary < 10 {
+			maxSummary = 10
+		}
+		summary := e.Summary
+		if len(summary) > maxSummary {
+			summary = summary[:maxSummary-1] + "…"
+		}
+		line += " " + detailValueStyle.Render(summary)
+	}
+
+	return line + "\n"
 }
 
 // renderUnclaimedTasks renders the unclaimed tasks section for the detail panel. (bd-s6fiy)
