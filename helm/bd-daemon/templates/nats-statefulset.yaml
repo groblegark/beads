@@ -110,7 +110,7 @@ metadata:
     {{- include "bd-daemon.labels" . | nindent 4 }}
     app.kubernetes.io/component: nats
 spec:
-  serviceName: {{ $fullname }}-nats-headless
+  serviceName: {{ if $clusterEnabled }}{{ $fullname }}-nats-headless{{ else }}{{ $fullname }}-nats{{ end }}
   replicas: {{ $replicas }}
   selector:
     matchLabels:
