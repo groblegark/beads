@@ -1960,6 +1960,7 @@ type AgentPodRegisterArgs struct {
 	PodNode       string `json:"pod_node,omitempty"`       // K8s node name
 	PodStatus     string `json:"pod_status,omitempty"`     // Pod status (default: "running")
 	ScreenSession string `json:"screen_session,omitempty"` // Screen session name
+	CoopURL       string `json:"coop_url,omitempty"`       // Coop sidecar HTTP URL for signal delivery (bd-wvrpy)
 }
 
 // AgentPodRegisterResult is returned after pod registration.
@@ -2004,6 +2005,7 @@ type AgentPodInfo struct {
 	PodNode       string `json:"pod_node,omitempty"`
 	PodStatus     string `json:"pod_status"`
 	ScreenSession string `json:"screen_session,omitempty"`
+	CoopURL       string `json:"coop_url,omitempty"`
 	AgentState    string `json:"agent_state,omitempty"`
 	Rig           string `json:"rig,omitempty"`
 	RoleType      string `json:"role_type,omitempty"`

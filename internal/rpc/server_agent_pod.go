@@ -53,6 +53,15 @@ func (s *Server) handleAgentPodRegister(req *Request) Response {
 		"last_activity":  time.Now(),
 	}
 
+	// If coop_url is provided, store it in the notes field (bd-wvrpy).
+	// The notes field uses "key: value\n" format; we upsert the coop_url line.
+	if args.CoopURL != "" {
+		issue, err := store.GetIssue(ctx, args.AgentID)
+		if err == nil && issue != nil {
+			updates["notes"] = upsertNotesField(issue.Notes, "coop_url", args.CoopURL)
+		}
+	}
+
 	if err := store.UpdateIssue(ctx, args.AgentID, updates, req.Actor); err != nil {
 		return Response{
 			Success: false,
@@ -123,6 +132,11 @@ func (s *Server) handleAgentPodDeregister(req *Request) Response {
 		"pod_status":     "",
 		"screen_session": "",
 		"last_activity":  time.Now(),
+	}
+
+	// Clear coop_url from notes on deregister (bd-wvrpy).
+	if issue, err := store.GetIssue(ctx, args.AgentID); err == nil && issue != nil {
+		updates["notes"] = removeNotesField(issue.Notes, "coop_url")
 	}
 
 	if err := store.UpdateIssue(ctx, args.AgentID, updates, req.Actor); err != nil {
@@ -260,6 +274,7 @@ func (s *Server) handleAgentPodList(req *Request) Response {
 			PodNode:       issue.PodNode,
 			PodStatus:     issue.PodStatus,
 			ScreenSession: issue.ScreenSession,
+			CoopURL:       extractCoopURL(issue.Notes),
 			AgentState:    string(issue.AgentState),
 			Rig:           issue.Rig,
 			RoleType:      issue.RoleType,

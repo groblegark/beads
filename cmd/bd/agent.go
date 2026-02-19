@@ -130,10 +130,15 @@ var agentPodRegisterCmd = &cobra.Command{
 Sets the pod fields (pod_name, pod_ip, pod_node, coop_session) and
 updates last_activity. If pod_status is not specified, defaults to "running".
 
+If --coop-url is provided, the Coop sidecar HTTP URL is stored in the agent
+bead's notes field. This URL is used by agent stop/restart/signal operations
+to send signals (SIGTERM, etc.) to the agent's Coop process.
+
 This command requires the daemon (BD_DAEMON_HOST).
 
 Examples:
   bd agent pod-register gt-emma --pod-name=emma-pod-abc --pod-ip=10.0.1.5
+  bd agent pod-register gt-emma --pod-name=emma-pod-abc --pod-ip=10.0.1.5 --coop-url=http://10.0.1.5:8080
   bd agent pod-register gt-emma --pod-name=emma-pod-abc --pod-node=node-1 --screen=emma-screen`,
 	Args: cobra.ExactArgs(1),
 	RunE: runAgentPodRegister,
@@ -272,6 +277,7 @@ var podRegisterIP string
 var podRegisterNode string
 var podRegisterStatus string
 var podRegisterScreen string
+var podRegisterCoopURL string
 var podStatusValue string
 var podListRig string
 
@@ -301,6 +307,7 @@ func init() {
 	agentPodRegisterCmd.Flags().StringVar(&podRegisterNode, "pod-node", "", "K8s node name")
 	agentPodRegisterCmd.Flags().StringVar(&podRegisterStatus, "status", "", "Pod status (default: running)")
 	agentPodRegisterCmd.Flags().StringVar(&podRegisterScreen, "screen", "", "Coop session name")
+	agentPodRegisterCmd.Flags().StringVar(&podRegisterCoopURL, "coop-url", "", "Coop sidecar HTTP URL for signal delivery")
 	_ = agentPodRegisterCmd.MarkFlagRequired("pod-name")
 
 	agentPodStatusCmd.Flags().StringVar(&podStatusValue, "status", "", "Pod status value (required)")
@@ -738,6 +745,7 @@ func runAgentPodRegister(cmd *cobra.Command, args []string) error {
 		PodNode:       podRegisterNode,
 		PodStatus:     podRegisterStatus,
 		ScreenSession: podRegisterScreen,
+		CoopURL:       podRegisterCoopURL,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to register pod: %w", err)

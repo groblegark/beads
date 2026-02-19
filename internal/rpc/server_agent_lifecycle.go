@@ -248,3 +248,40 @@ func sendCoopSignal(ctx context.Context, coopURL, signal string) error {
 	client := coop.NewClient(coopURL, coop.WithTimeout(5*time.Second))
 	return client.Signal(ctx, signal)
 }
+
+// upsertNotesField sets a key-value pair in the notes field (bd-wvrpy).
+// Notes use "key: value\n" format. If the key already exists, its value is replaced.
+func upsertNotesField(notes, key, value string) string {
+	var result []string
+	found := false
+	for _, line := range strings.Split(notes, "\n") {
+		parts := strings.SplitN(line, ":", 2)
+		if len(parts) == 2 && strings.TrimSpace(parts[0]) == key {
+			result = append(result, key+": "+value)
+			found = true
+		} else {
+			result = append(result, line)
+		}
+	}
+	if !found {
+		trimmed := strings.TrimRight(strings.Join(result, "\n"), "\n")
+		if trimmed == "" {
+			return key + ": " + value
+		}
+		return trimmed + "\n" + key + ": " + value
+	}
+	return strings.Join(result, "\n")
+}
+
+// removeNotesField removes a key from the notes field (bd-wvrpy).
+func removeNotesField(notes, key string) string {
+	var result []string
+	for _, line := range strings.Split(notes, "\n") {
+		parts := strings.SplitN(line, ":", 2)
+		if len(parts) == 2 && strings.TrimSpace(parts[0]) == key {
+			continue
+		}
+		result = append(result, line)
+	}
+	return strings.Join(result, "\n")
+}
