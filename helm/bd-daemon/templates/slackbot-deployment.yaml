@@ -75,16 +75,25 @@ spec:
             - name: BD_NATS_URL
               value: {{ include "bd-daemon.natsURL" . | quote }}
             {{- end }}
-            {{- if .Values.slackBot.coopmuxURL }}
-            - name: COOPMUX_URL
-              value: {{ .Values.slackBot.coopmuxURL | quote }}
-            {{- end }}
-            {{- if .Values.slackBot.coopmuxTokenSecret }}
-            - name: COOPMUX_TOKEN
+            {{- /* Anthropic API key for standalone slackbot */ -}}
+            {{- if and .Values.externalSecrets.enabled .Values.externalSecrets.anthropicApiKey.enabled .Values.externalSecrets.anthropicApiKey.remoteRef }}
+            - name: ANTHROPIC_API_KEY
               valueFrom:
                 secretKeyRef:
-                  name: {{ .Values.slackBot.coopmuxTokenSecret }}
-                  key: token
+                  name: {{ include "bd-daemon.daemon.fullname" . }}-anthropic
+                  key: api-key
+            {{- else if .Values.anthropicApiKey.existingSecret }}
+            - name: ANTHROPIC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.anthropicApiKey.existingSecret }}
+                  key: api-key
+            {{- else if .Values.anthropicApiKey.key }}
+            - name: ANTHROPIC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "bd-daemon.daemon.fullname" . }}-anthropic
+                  key: api-key
             {{- end }}
           ports:
             - name: health

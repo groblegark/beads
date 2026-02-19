@@ -265,6 +265,18 @@ dolt:
   tolerations: []
   affinity: {}
 
+# --- Anthropic API key ---
+# Long-lived API key for Claude access. Replaces the previous OAuth token
+# refresh flow. The key can be provided:
+#   1. Directly in values (anthropicApiKey.key) — creates a K8s Secret
+#   2. Via an existing K8s Secret (anthropicApiKey.existingSecret)
+#   3. Via ExternalSecrets (externalSecrets.anthropicApiKey)
+anthropicApiKey:
+  # Static API key (creates a K8s Secret; use existingSecret for pre-created secrets)
+  key: ""
+  # Name of an existing K8s Secret containing the API key (key: "api-key")
+  existingSecret: ""
+
 # --- Slack bot ---
 # When standalone=false (default), runs as a sidecar in the daemon pod.
 # When standalone=true, runs as a separate single-replica Deployment.
@@ -279,8 +291,6 @@ slackBot:
     pullPolicy: ""  # Defaults to main image.pullPolicy
   secretName: "slack-bot-credentials"
   channelID: ""  # Default Slack channel ID (or set via SLACK_CHANNEL env)
-  coopmuxURL: ""  # Coopmux URL for credential reauth (e.g. "http://gastown-next-coopmux:9800")
-  coopmuxTokenSecret: ""  # K8s secret name containing coopmux auth token (key: "token")
   healthPort: 8080  # Health check port for liveness/readiness probes
   livenessProbe:
     enabled: true
@@ -327,6 +337,12 @@ externalSecrets:
   daemonToken:
     remoteRef: ""
     property: ""
+
+  # Anthropic API key
+  anthropicApiKey:
+    enabled: false
+    remoteRef: ""
+    property: ""       # Property within the secret (if JSON)
 
   # Slack bot credentials
   slackBotCredentials:
@@ -388,7 +404,10 @@ redis:
   # TTL for wisp entries
   wispTTL: "24h"
 
-  # Bitnami Redis subchart overrides
+  # Bitnami Redis subchart overrides.
+  # architecture: standalone | replication
+  #   standalone — single master, no HA (default)
+  #   replication — 1 master + N replicas; add sentinel.enabled=true for auto-failover
   architecture: standalone
   auth:
     enabled: true
@@ -398,13 +417,29 @@ redis:
     persistence:
       enabled: false  # Wisps are ephemeral
 
+  # Replica configuration (active when architecture != standalone).
+  replica:
+    replicaCount: 0
+    persistence:
+      enabled: false
+
+  # Sentinel configuration (active when architecture == sentinel).
+  sentinel:
+    enabled: false
+    masterSet: bdmaster
+    quorum: 2
+
 # --- NATS event bus ---
 nats:
   enabled: false
 
-  # Deploys a standalone NATS server (StatefulSet + Service + ConfigMap).
+  # Deploys a NATS server (StatefulSet + Service + ConfigMap).
   # When enabled, the daemon connects as a client (BD_NATS_URL) instead
   # of starting its embedded NATS server.
+
+  # Cluster mode: set replicas > 1 to enable a NATS cluster with
+  # automatic route discovery via headless service.
+  replicas: 1
 
   # Token auth (shared with daemon and agents).
   # Set via --set nats.auth.token=<daemon-token> at deploy time.
@@ -431,6 +466,11 @@ nats:
     tag: "2.10-alpine"
     pullPolicy: IfNotPresent
 
+  # Cluster configuration (active when replicas > 1).
+  # NATS nodes discover each other via DNS on the headless service.
+  cluster:
+    port: 6222
+
   # WebSocket listener for browser-based and external NATS clients.
   # Clients connect via wss://<host>/nats when ingress is enabled.
   websocket:
@@ -448,6 +488,14 @@ nats:
       - web
       - websecure
     stripPrefix: true  # Strip /nats prefix before forwarding to NATS WS
+
+  # Pod anti-affinity to spread NATS nodes across K8s nodes (cluster mode).
+  affinity: {}
+
+  # Pod Disruption Budget (cluster mode).
+  pdb:
+    enabled: false
+    maxUnavailable: 1
 
   # Resource limits
   resources:

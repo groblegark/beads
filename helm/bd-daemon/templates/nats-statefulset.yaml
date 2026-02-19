@@ -1,14 +1,18 @@
 {{- if .Values.nats.enabled }}
+{{- $replicas := .Values.nats.replicas | default 1 | int }}
+{{- $clusterEnabled := gt $replicas 1 }}
+{{- $fullname := include "bd-daemon.fullname" . }}
+{{- $clusterPort := .Values.nats.cluster.port | default 6222 | int }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: {{ include "bd-daemon.fullname" . }}-nats
+  name: {{ $fullname }}-nats
   labels:
     {{- include "bd-daemon.labels" . | nindent 4 }}
     app.kubernetes.io/component: nats
 data:
   nats-server.conf: |
-    server_name: bd-nats
+    server_name: $SERVER_NAME
     listen: 0.0.0.0:4222
     http: 0.0.0.0:8222
     {{- if .Values.nats.auth.enabled }}
@@ -29,11 +33,22 @@ data:
       max_memory_store: {{ .Values.nats.jetstream.maxMemory | default "256M" }}
       max_file_store: {{ .Values.nats.persistence.size | default "2Gi" }}
     }
+    {{- if $clusterEnabled }}
+    cluster {
+      name: bd-nats
+      listen: 0.0.0.0:{{ $clusterPort }}
+      routes: [
+        {{- range $i := until $replicas }}
+        nats-route://{{ $fullname }}-nats-{{ $i }}.{{ $fullname }}-nats-headless:{{ $clusterPort }}
+        {{- end }}
+      ]
+    }
+    {{- end }}
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ include "bd-daemon.fullname" . }}-nats
+  name: {{ $fullname }}-nats
   labels:
     {{- include "bd-daemon.labels" . | nindent 4 }}
     app.kubernetes.io/component: nats
@@ -57,17 +72,46 @@ spec:
   selector:
     {{- include "bd-daemon.selectorLabels" . | nindent 4 }}
     app.kubernetes.io/component: nats
+{{- if $clusterEnabled }}
 ---
-apiVersion: apps/v1
-kind: StatefulSet
+apiVersion: v1
+kind: Service
 metadata:
-  name: {{ include "bd-daemon.fullname" . }}-nats
+  name: {{ $fullname }}-nats-headless
   labels:
     {{- include "bd-daemon.labels" . | nindent 4 }}
     app.kubernetes.io/component: nats
 spec:
-  serviceName: {{ include "bd-daemon.fullname" . }}-nats
-  replicas: 1
+  clusterIP: None
+  publishNotReadyAddresses: true
+  ports:
+    - port: 4222
+      targetPort: client
+      protocol: TCP
+      name: client
+    - port: {{ $clusterPort }}
+      targetPort: cluster
+      protocol: TCP
+      name: cluster
+    - port: 8222
+      targetPort: monitoring
+      protocol: TCP
+      name: monitoring
+  selector:
+    {{- include "bd-daemon.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: nats
+{{- end }}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ $fullname }}-nats
+  labels:
+    {{- include "bd-daemon.labels" . | nindent 4 }}
+    app.kubernetes.io/component: nats
+spec:
+  serviceName: {{ $fullname }}-nats-headless
+  replicas: {{ $replicas }}
   selector:
     matchLabels:
       {{- include "bd-daemon.selectorLabels" . | nindent 6 }}
@@ -82,6 +126,10 @@ spec:
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+      {{- with .Values.nats.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
         - name: nats
           image: "{{ .Values.nats.image.registry | default "docker.io" }}/{{ .Values.nats.image.repository | default "nats" }}:{{ .Values.nats.image.tag | default "2.10-alpine" }}"
@@ -89,6 +137,11 @@ spec:
           args:
             - "--config"
             - "/etc/nats/nats-server.conf"
+          env:
+            - name: SERVER_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
           ports:
             - name: client
               containerPort: 4222
@@ -96,6 +149,11 @@ spec:
             - name: monitoring
               containerPort: 8222
               protocol: TCP
+            {{- if $clusterEnabled }}
+            - name: cluster
+              containerPort: {{ $clusterPort }}
+              protocol: TCP
+            {{- end }}
             {{- if .Values.nats.websocket.enabled }}
             - name: websocket
               containerPort: {{ .Values.nats.websocket.port | default 8443 }}
@@ -138,7 +196,7 @@ spec:
       volumes:
         - name: config
           configMap:
-            name: {{ include "bd-daemon.fullname" . }}-nats
+            name: {{ $fullname }}-nats
   {{- if .Values.nats.persistence.enabled }}
   volumeClaimTemplates:
     - metadata:
@@ -150,4 +208,20 @@ spec:
           requests:
             storage: {{ .Values.nats.persistence.size | default "2Gi" }}
   {{- end }}
+{{- if and $clusterEnabled .Values.nats.pdb.enabled }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ $fullname }}-nats
+  labels:
+    {{- include "bd-daemon.labels" . | nindent 4 }}
+    app.kubernetes.io/component: nats
+spec:
+  maxUnavailable: {{ .Values.nats.pdb.maxUnavailable | default 1 }}
+  selector:
+    matchLabels:
+      {{- include "bd-daemon.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: nats
+{{- end }}
 {{- end }}

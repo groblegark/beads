@@ -1,4 +1,5 @@
-# gastown-ha: HA Dolt cluster for e2e validation
+# gastown-ha: Full-stack HA for e2e validation
+# Covers: daemon (2 replicas), Dolt (3-node cluster), NATS (3-node cluster), Redis (sentinel).
 # Deploy with: helm upgrade --install gastown-ha ./helm/bd-daemon -n gastown-ha --values helm/bd-daemon/values/gastown-ha.yaml
 
 image:
@@ -110,6 +111,70 @@ dolt:
     periodSeconds: 10
     timeoutSeconds: 5
     failureThreshold: 3
+
+# --- NATS 3-node cluster with JetStream ---
+nats:
+  enabled: true
+  replicas: 3
+
+  auth:
+    enabled: true
+    token: ""  # Set via --set or ExternalSecret at deploy time
+
+  jetstream:
+    maxMemory: 256M
+
+  persistence:
+    enabled: true
+    storageClass: gp2
+    size: 2Gi
+
+  pdb:
+    enabled: true
+    maxUnavailable: 1
+
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            labelSelector:
+              matchLabels:
+                app.kubernetes.io/component: nats
+            topologyKey: kubernetes.io/hostname
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+# --- Redis Sentinel (1 master + 2 replicas + Sentinel for auto-failover) ---
+redis:
+  enabled: true
+  namespace: "bd"
+  wispTTL: "24h"
+
+  architecture: replication
+  auth:
+    enabled: true
+    password: ""  # Set via --set or ExternalSecret at deploy time
+
+  master:
+    persistence:
+      enabled: false  # Wisps are ephemeral — no persistence needed
+
+  replica:
+    replicaCount: 2
+    persistence:
+      enabled: false
+
+  sentinel:
+    enabled: true
+    masterSet: bdmaster
+    quorum: 2
 
 externalSecrets:
   enabled: true
