@@ -93,6 +93,7 @@ tasks:
   - key: build-linux-amd64
     use: [code, go-deps]
     filter:
+      - .rwx/release.yml
       - "**/*.go"
       - go.mod
       - go.sum
@@ -122,6 +123,7 @@ tasks:
   - key: build-darwin-amd64
     use: [code, go-deps, zig]
     filter:
+      - .rwx/release.yml
       - "**/*.go"
       - go.mod
       - go.sum
@@ -154,6 +156,7 @@ tasks:
   - key: build-darwin-arm64
     use: [code, go-deps, zig]
     filter:
+      - .rwx/release.yml
       - "**/*.go"
       - go.mod
       - go.sum
