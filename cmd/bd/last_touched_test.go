@@ -7,6 +7,7 @@ import (
 )
 
 func TestLastTouchedBasic(t *testing.T) {
+	t.Setenv("BD_DAEMON_HOST", "") // Ensure local mode for test
 	// Create a temp directory to simulate .beads
 	tmpDir := t.TempDir()
 	beadsDir := filepath.Join(tmpDir, ".beads")
@@ -64,6 +65,7 @@ func TestLastTouchedBasic(t *testing.T) {
 }
 
 func TestSetLastTouchedIDIgnoresEmpty(t *testing.T) {
+	t.Setenv("BD_DAEMON_HOST", "") // Ensure local mode for test
 	// Create a temp directory
 	tmpDir := t.TempDir()
 	beadsDir := filepath.Join(tmpDir, ".beads")

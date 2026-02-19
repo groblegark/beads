@@ -2,11 +2,15 @@ package fix
 
 import (
 	"context"
+	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"testing"
+	"time"
 
+	"github.com/steveyegge/beads/internal/configfile"
 	"github.com/steveyegge/beads/internal/storage/dolt"
 	"github.com/steveyegge/beads/internal/types"
 )
@@ -48,6 +52,18 @@ func skipIfNoDolt(t *testing.T) {
 	t.Helper()
 	if _, err := exec.LookPath("dolt"); err != nil {
 		t.Skip("dolt binary not in PATH, skipping test")
+	}
+}
+
+// skipIfDoltServerRunning skips the test when a local dolt sql-server is running.
+// Tests that use setupDoltStore (direct path access) but verify via openDB (server mode)
+// can't work when a live server intercepts connections on the default port.
+func skipIfDoltServerRunning(t *testing.T) {
+	t.Helper()
+	conn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", configfile.DefaultDoltServerPort), 2*time.Second)
+	if err == nil {
+		conn.Close()
+		t.Skip("local dolt sql-server is running, skipping test (data isolation issue)")
 	}
 }
 
@@ -136,7 +152,9 @@ func reopenDB(t *testing.T, dir string) *dolt.DoltStore {
 }
 
 func TestChildParentDependencies_NoBadDeps(t *testing.T) {
+	t.Setenv("BD_DAEMON_HOST", "") // Ensure local mode for test
 	skipIfNoDolt(t)
+	skipIfDoltServerRunning(t)
 
 	dir := t.TempDir()
 
@@ -172,7 +190,9 @@ func TestChildParentDependencies_NoBadDeps(t *testing.T) {
 }
 
 func TestChildParentDependencies_FixesBadDeps(t *testing.T) {
+	t.Setenv("BD_DAEMON_HOST", "") // Ensure local mode for test
 	skipIfNoDolt(t)
+	skipIfDoltServerRunning(t)
 
 	dir := t.TempDir()
 
@@ -221,7 +241,9 @@ func TestChildParentDependencies_FixesBadDeps(t *testing.T) {
 // We test with separate issue pairs: one with 'blocks' (should be removed) and
 // another with 'parent-child' (should be preserved).
 func TestChildParentDependencies_PreservesParentChildType(t *testing.T) {
+	t.Setenv("BD_DAEMON_HOST", "") // Ensure local mode for test
 	skipIfNoDolt(t)
+	skipIfDoltServerRunning(t)
 
 	dir := t.TempDir()
 

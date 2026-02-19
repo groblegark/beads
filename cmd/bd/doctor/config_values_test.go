@@ -141,6 +141,7 @@ flush-debounce: "not-a-duration"
 }
 
 func TestCheckMetadataConfigValues(t *testing.T) {
+	t.Setenv("BD_DAEMON_HOST", "") // Ensure local mode for test
 	// Create a temporary directory for testing
 	tmpDir := t.TempDir()
 	beadsDir := filepath.Join(tmpDir, ".beads")

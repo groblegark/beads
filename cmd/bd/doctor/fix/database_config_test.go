@@ -11,6 +11,7 @@ import (
 // TestDatabaseConfigFix_JSONLMismatch tests that DatabaseConfig fixes JSONL mismatches.
 // bd-6xd: Verify auto-fix for metadata.json jsonl_export mismatch
 func TestDatabaseConfigFix_JSONLMismatch(t *testing.T) {
+	t.Setenv("BD_DAEMON_HOST", "") // Ensure local mode for test
 	// Create temporary directory
 	tmpDir := t.TempDir()
 	beadsDir := filepath.Join(tmpDir, ".beads")
@@ -52,6 +53,7 @@ func TestDatabaseConfigFix_JSONLMismatch(t *testing.T) {
 // TestDatabaseConfigFix_PrefersIssuesJSONL tests that DatabaseConfig prefers issues.jsonl over beads.jsonl.
 // bd-6xd: issues.jsonl is the canonical filename
 func TestDatabaseConfigFix_PrefersIssuesJSONL(t *testing.T) {
+	t.Setenv("BD_DAEMON_HOST", "") // Ensure local mode for test
 	// Create temporary directory
 	tmpDir := t.TempDir()
 	beadsDir := filepath.Join(tmpDir, ".beads")
@@ -128,6 +130,7 @@ func TestFindActualJSONLFile_SkipsBackups(t *testing.T) {
 // TestLegacyJSONLConfig_MigratesBeadsToIssues tests migration from beads.jsonl to issues.jsonl.
 // bd-6xd: issues.jsonl is the canonical filename
 func TestLegacyJSONLConfig_MigratesBeadsToIssues(t *testing.T) {
+	t.Setenv("BD_DAEMON_HOST", "") // Ensure local mode for test
 	// Create temporary directory
 	tmpDir := t.TempDir()
 	beadsDir := filepath.Join(tmpDir, ".beads")
@@ -177,6 +180,7 @@ func TestLegacyJSONLConfig_MigratesBeadsToIssues(t *testing.T) {
 
 // TestLegacyJSONLConfig_UpdatesGitattributes tests that .gitattributes is updated during migration.
 func TestLegacyJSONLConfig_UpdatesGitattributes(t *testing.T) {
+	t.Setenv("BD_DAEMON_HOST", "") // Ensure local mode for test
 	// Create temporary directory
 	tmpDir := t.TempDir()
 	beadsDir := filepath.Join(tmpDir, ".beads")
@@ -243,6 +247,7 @@ func TestFindActualJSONLFile_SkipsSystemFiles(t *testing.T) {
 }
 
 func TestDatabaseConfigFix_RejectsSystemJSONLExport(t *testing.T) {
+	t.Setenv("BD_DAEMON_HOST", "") // Ensure local mode for test
 	tmpDir := t.TempDir()
 	beadsDir := filepath.Join(tmpDir, ".beads")
 	if err := os.Mkdir(beadsDir, 0755); err != nil {

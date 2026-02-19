@@ -19,6 +19,8 @@ import (
 // TestDatabaseReinitialization tests all database reinitialization scenarios
 // covered in DATABASE_REINIT_BUG.md
 func TestDatabaseReinitialization(t *testing.T) {
+	t.Setenv("BD_DAEMON_HOST", "") // Ensure local mode for test
+
 	// Skip on Windows due to git hook autoimport flakiness
 	if runtime.GOOS == "windows" {
 		t.Skip("Skipping on Windows: git hook autoimport is flaky in CI")

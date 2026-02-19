@@ -364,6 +364,7 @@ func TestCheckLegacyJSONLFilename(t *testing.T) {
 }
 
 func TestCheckLegacyJSONLConfig(t *testing.T) {
+	t.Setenv("BD_DAEMON_HOST", "") // Ensure local mode for test
 	tests := []struct {
 		name           string
 		configJSONL    string   // what metadata.json says
@@ -469,6 +470,7 @@ func TestCheckDatabaseConfig_IgnoresSystemJSONLs(t *testing.T) {
 }
 
 func TestCheckDatabaseConfig_SystemJSONLExportIsError(t *testing.T) {
+	t.Setenv("BD_DAEMON_HOST", "") // Ensure local mode for test
 	tmpDir := t.TempDir()
 	beadsDir := filepath.Join(tmpDir, ".beads")
 	if err := os.Mkdir(beadsDir, 0750); err != nil {
@@ -490,6 +492,7 @@ func TestCheckDatabaseConfig_SystemJSONLExportIsError(t *testing.T) {
 }
 
 func TestCheckFreshClone(t *testing.T) {
+	t.Setenv("BD_DAEMON_HOST", "") // Ensure local mode for test
 	tests := []struct {
 		name           string
 		hasBeadsDir    bool

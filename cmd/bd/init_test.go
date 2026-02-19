@@ -996,6 +996,7 @@ func TestSetupClaudeSettings_InvalidJSON(t *testing.T) {
 
 // TestSetupClaudeSettings_ValidJSON verifies that valid JSON is properly updated
 func TestSetupClaudeSettings_ValidJSON(t *testing.T) {
+	t.Setenv("BD_DAEMON_HOST", "") // Ensure local mode for test
 	tmpDir := t.TempDir()
 	t.Chdir(tmpDir)
 
@@ -1058,6 +1059,7 @@ func TestSetupClaudeSettings_ValidJSON(t *testing.T) {
 
 // TestSetupClaudeSettings_NoExistingFile verifies behavior when no file exists
 func TestSetupClaudeSettings_NoExistingFile(t *testing.T) {
+	t.Setenv("BD_DAEMON_HOST", "") // Ensure local mode for test
 	tmpDir := t.TempDir()
 	t.Chdir(tmpDir)
 
