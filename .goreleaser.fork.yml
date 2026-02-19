@@ -38,7 +38,7 @@ builds:
     goarch:
       - amd64
     ldflags:
-      - -s -w
+      - -s -w -linkmode internal
       - -X main.Version={{.Version}}
       - -X main.Build={{.ShortCommit}}
       - -X main.Commit={{.Commit}}
@@ -57,7 +57,7 @@ builds:
     goarch:
       - arm64
     ldflags:
-      - -s -w
+      - -s -w -linkmode internal
       - -X main.Version={{.Version}}
       - -X main.Build={{.ShortCommit}}
       - -X main.Commit={{.Commit}}
