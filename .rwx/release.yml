@@ -109,6 +109,7 @@ tasks:
   - key: release
     use: [go-deps, goreleaser, zig]
     cache: false
+    timeout: 20m
     run: |
       TAG="${REF_NAME#refs/tags/}"
       TAG="${TAG#refs/heads/}"
