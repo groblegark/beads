@@ -164,14 +164,18 @@ spec:
               cd "$DB_DIR"
               rm -rf "$DB_DIR/.doltcfg"
               mkdir -p "$DATA_DIR/.doltcfg"
+              # Ensure root@% user exists for daemon authentication.
+              # Use separate statements so failures are visible. (gt-th7xav)
               {{- if .Values.externalSecrets.enabled }}
               if [ -n "$DOLT_ROOT_PASSWORD" ]; then
-                dolt --doltcfg-dir="$DATA_DIR/.doltcfg" sql -q "DROP USER IF EXISTS 'root'@'%';" 2>/dev/null || true
-                dolt --doltcfg-dir="$DATA_DIR/.doltcfg" sql -q "CREATE USER 'root'@'%' IDENTIFIED BY '$DOLT_ROOT_PASSWORD'; GRANT ALL ON *.* TO 'root'@'%' WITH GRANT OPTION; FLUSH PRIVILEGES;"
+                dolt --doltcfg-dir="$DATA_DIR/.doltcfg" sql -q "DROP USER IF EXISTS 'root'@'%';" || echo "Warning: DROP USER failed (may not exist)"
+                dolt --doltcfg-dir="$DATA_DIR/.doltcfg" sql -q "CREATE USER 'root'@'%' IDENTIFIED BY '$DOLT_ROOT_PASSWORD';"
+                dolt --doltcfg-dir="$DATA_DIR/.doltcfg" sql -q "GRANT ALL ON *.* TO 'root'@'%' WITH GRANT OPTION;"
                 echo "Ensured root@% user with password from secret"
               fi
               {{- else }}
-              dolt --doltcfg-dir="$DATA_DIR/.doltcfg" sql -q "CREATE USER IF NOT EXISTS 'root'@'%'; GRANT ALL ON *.* TO 'root'@'%' WITH GRANT OPTION; FLUSH PRIVILEGES;" 2>/dev/null || true
+              dolt --doltcfg-dir="$DATA_DIR/.doltcfg" sql -q "CREATE USER IF NOT EXISTS 'root'@'%';" || echo "Warning: CREATE USER failed"
+              dolt --doltcfg-dir="$DATA_DIR/.doltcfg" sql -q "GRANT ALL ON *.* TO 'root'@'%' WITH GRANT OPTION;" || echo "Warning: GRANT failed"
               {{- end }}
 
               echo "Dolt init complete"
@@ -261,14 +265,18 @@ spec:
                 # Remove DB-level .doltcfg to avoid conflicts — server reads from $DATA_DIR/.doltcfg
                 rm -rf "$DB_DIR/.doltcfg"
                 mkdir -p "$DATA_DIR/.doltcfg"
+                # Ensure root@% user exists for daemon authentication.
+                # Use separate statements so failures are visible. (gt-th7xav)
                 {{- if .Values.externalSecrets.enabled }}
                 if [ -n "$DOLT_ROOT_PASSWORD" ]; then
-                  dolt --doltcfg-dir="$DATA_DIR/.doltcfg" sql -q "DROP USER IF EXISTS 'root'@'%';" 2>/dev/null || true
-                  dolt --doltcfg-dir="$DATA_DIR/.doltcfg" sql -q "CREATE USER 'root'@'%' IDENTIFIED BY '$DOLT_ROOT_PASSWORD'; GRANT ALL ON *.* TO 'root'@'%' WITH GRANT OPTION; FLUSH PRIVILEGES;"
+                  dolt --doltcfg-dir="$DATA_DIR/.doltcfg" sql -q "DROP USER IF EXISTS 'root'@'%';" || echo "Warning: DROP USER failed (may not exist)"
+                  dolt --doltcfg-dir="$DATA_DIR/.doltcfg" sql -q "CREATE USER 'root'@'%' IDENTIFIED BY '$DOLT_ROOT_PASSWORD';"
+                  dolt --doltcfg-dir="$DATA_DIR/.doltcfg" sql -q "GRANT ALL ON *.* TO 'root'@'%' WITH GRANT OPTION;"
                   echo "Ensured root@% user with password from secret"
                 fi
                 {{- else }}
-                dolt --doltcfg-dir="$DATA_DIR/.doltcfg" sql -q "CREATE USER IF NOT EXISTS 'root'@'%'; GRANT ALL ON *.* TO 'root'@'%' WITH GRANT OPTION; FLUSH PRIVILEGES;" 2>/dev/null || true
+                dolt --doltcfg-dir="$DATA_DIR/.doltcfg" sql -q "CREATE USER IF NOT EXISTS 'root'@'%';" || echo "Warning: CREATE USER failed"
+                dolt --doltcfg-dir="$DATA_DIR/.doltcfg" sql -q "GRANT ALL ON *.* TO 'root'@'%' WITH GRANT OPTION;" || echo "Warning: GRANT failed"
                 {{- end }}
               else
                 echo "No local database found, attempting to clone from S3..."
@@ -277,15 +285,19 @@ spec:
                   cd "$DB_DIR"
                   rm -rf "$DB_DIR/.doltcfg"
                   mkdir -p "$DATA_DIR/.doltcfg"
+                  # Ensure root@% user after S3 clone. (gt-th7xav)
                   {{- if .Values.externalSecrets.enabled }}
                   if [ -n "$DOLT_ROOT_PASSWORD" ]; then
-                    dolt --doltcfg-dir="$DATA_DIR/.doltcfg" sql -q "DROP USER IF EXISTS 'root'@'%';" 2>/dev/null || true
-                    dolt --doltcfg-dir="$DATA_DIR/.doltcfg" sql -q "CREATE USER 'root'@'%' IDENTIFIED BY '$DOLT_ROOT_PASSWORD'; GRANT ALL ON *.* TO 'root'@'%' WITH GRANT OPTION; FLUSH PRIVILEGES;"
+                    dolt --doltcfg-dir="$DATA_DIR/.doltcfg" sql -q "DROP USER IF EXISTS 'root'@'%';" || echo "Warning: DROP USER failed (may not exist)"
+                    dolt --doltcfg-dir="$DATA_DIR/.doltcfg" sql -q "CREATE USER 'root'@'%' IDENTIFIED BY '$DOLT_ROOT_PASSWORD';"
+                    dolt --doltcfg-dir="$DATA_DIR/.doltcfg" sql -q "GRANT ALL ON *.* TO 'root'@'%' WITH GRANT OPTION;"
                   else
-                    dolt --doltcfg-dir="$DATA_DIR/.doltcfg" sql -q "CREATE USER IF NOT EXISTS 'root'@'%'; GRANT ALL ON *.* TO 'root'@'%' WITH GRANT OPTION; FLUSH PRIVILEGES;" 2>/dev/null || true
+                    dolt --doltcfg-dir="$DATA_DIR/.doltcfg" sql -q "CREATE USER IF NOT EXISTS 'root'@'%';" || echo "Warning: CREATE USER failed"
+                    dolt --doltcfg-dir="$DATA_DIR/.doltcfg" sql -q "GRANT ALL ON *.* TO 'root'@'%' WITH GRANT OPTION;" || echo "Warning: GRANT failed"
                   fi
                   {{- else }}
-                  dolt --doltcfg-dir="$DATA_DIR/.doltcfg" sql -q "CREATE USER IF NOT EXISTS 'root'@'%'; GRANT ALL ON *.* TO 'root'@'%' WITH GRANT OPTION; FLUSH PRIVILEGES;" 2>/dev/null || true
+                  dolt --doltcfg-dir="$DATA_DIR/.doltcfg" sql -q "CREATE USER IF NOT EXISTS 'root'@'%';" || echo "Warning: CREATE USER failed"
+                  dolt --doltcfg-dir="$DATA_DIR/.doltcfg" sql -q "GRANT ALL ON *.* TO 'root'@'%' WITH GRANT OPTION;" || echo "Warning: GRANT failed"
                   {{- end }}
                 else
                   echo "No existing data in S3, initializing new database..."
@@ -293,14 +305,18 @@ spec:
                   cd "$DB_DIR"
                   dolt init
                   mkdir -p "$DATA_DIR/.doltcfg"
+                  # Ensure root@% user for fresh init. (gt-th7xav)
                   {{- if .Values.externalSecrets.enabled }}
                   if [ -n "$DOLT_ROOT_PASSWORD" ]; then
-                    dolt --doltcfg-dir="$DATA_DIR/.doltcfg" sql -q "CREATE USER 'root'@'%' IDENTIFIED BY '$DOLT_ROOT_PASSWORD'; GRANT ALL ON *.* TO 'root'@'%' WITH GRANT OPTION; FLUSH PRIVILEGES;"
+                    dolt --doltcfg-dir="$DATA_DIR/.doltcfg" sql -q "CREATE USER 'root'@'%' IDENTIFIED BY '$DOLT_ROOT_PASSWORD';"
+                    dolt --doltcfg-dir="$DATA_DIR/.doltcfg" sql -q "GRANT ALL ON *.* TO 'root'@'%' WITH GRANT OPTION;"
                   else
-                    dolt --doltcfg-dir="$DATA_DIR/.doltcfg" sql -q "CREATE USER IF NOT EXISTS 'root'@'%'; GRANT ALL ON *.* TO 'root'@'%' WITH GRANT OPTION; FLUSH PRIVILEGES;"
+                    dolt --doltcfg-dir="$DATA_DIR/.doltcfg" sql -q "CREATE USER IF NOT EXISTS 'root'@'%';"
+                    dolt --doltcfg-dir="$DATA_DIR/.doltcfg" sql -q "GRANT ALL ON *.* TO 'root'@'%' WITH GRANT OPTION;"
                   fi
                   {{- else }}
-                  dolt --doltcfg-dir="$DATA_DIR/.doltcfg" sql -q "CREATE USER IF NOT EXISTS 'root'@'%'; GRANT ALL ON *.* TO 'root'@'%' WITH GRANT OPTION; FLUSH PRIVILEGES;"
+                  dolt --doltcfg-dir="$DATA_DIR/.doltcfg" sql -q "CREATE USER IF NOT EXISTS 'root'@'%';"
+                  dolt --doltcfg-dir="$DATA_DIR/.doltcfg" sql -q "GRANT ALL ON *.* TO 'root'@'%' WITH GRANT OPTION;"
                   {{- end }}
                   dolt remote add origin "$REMOTE_URL" || true
                   echo "New database initialized"
