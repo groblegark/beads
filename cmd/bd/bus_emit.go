@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/steveyegge/beads/internal/eventbus"
 	"github.com/steveyegge/beads/internal/gate"
 	"github.com/steveyegge/beads/internal/rpc"
 )
@@ -144,8 +146,12 @@ func runBusEmit(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Dispatch via daemon RPC
-	requireDaemon("bus emit")
+	// Dispatch via daemon RPC, or fall back to local dispatch if no daemon.
+	// Local dispatch creates a bus with DefaultHandlers() so hooks like
+	// SessionStart and Stop still work without a daemon. (beads-feat-event_bus)
+	if daemonClient == nil {
+		return dispatchLocal(resolvedType, eventData, eventMeta.SessionID, hookType)
+	}
 
 	// For Stop hooks, extend the request timeout so handlers
 	// can complete without hitting daemon timeouts.
@@ -414,6 +420,62 @@ func outputEmitResult(result *rpc.BusEmitResult) error {
 	}
 
 	return nil
+}
+
+// dispatchLocal creates a local event bus with DefaultHandlers() and dispatches
+// the event without requiring a daemon connection. This enables hooks like
+// SessionStart and Stop to work when the daemon is unavailable.
+// Handlers run as subprocesses (bd prime, bd gate session-check, etc.), which
+// is the same mechanism the daemon uses. (beads-feat-event_bus)
+func dispatchLocal(hookType string, eventData []byte, sessionID, _ string) error {
+	bus := eventbus.New()
+	for _, h := range eventbus.DefaultHandlers() {
+		bus.Register(h)
+	}
+
+	// Build event from the raw JSON payload (same logic as server_bus.go).
+	event := &eventbus.Event{
+		Type:      eventbus.EventType(hookType),
+		SessionID: sessionID,
+		Raw:       eventData,
+	}
+	if len(eventData) > 0 {
+		_ = json.Unmarshal(eventData, event)
+		event.Type = eventbus.EventType(hookType)
+	}
+
+	// Set Actor from BD_ACTOR env var (normally set by daemon from authenticated request).
+	if actor := os.Getenv("BD_ACTOR"); actor != "" {
+		event.Actor = actor
+	}
+
+	// Use a generous timeout — local dispatch doesn't have the daemon's
+	// request timeout constraint. For Stop hooks, allow up to 1 hour.
+	timeout := 5 * time.Minute
+	if hookType == "Stop" {
+		timeout = time.Hour
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	result, err := bus.Dispatch(ctx, event)
+	if err != nil {
+		return fmt.Errorf("bus emit (local): dispatch error: %w", err)
+	}
+
+	emitResult := &rpc.BusEmitResult{
+		Block:    result.Block,
+		Reason:   result.Reason,
+		Inject:   result.Inject,
+		Warnings: result.Warnings,
+	}
+
+	// Write debounce marker after a Stop hook blocks. (bd-ss2lc)
+	if hookType == "Stop" && emitResult.Block {
+		writeStopDebounceMarker(sessionID)
+	}
+
+	return outputEmitResult(emitResult)
 }
 
 func init() {

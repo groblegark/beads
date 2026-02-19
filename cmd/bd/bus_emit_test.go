@@ -209,6 +209,62 @@ func TestRunBusEmit_MissingHookFlag(t *testing.T) {
 	}
 }
 
-// Local fallback tests removed: bus_emit now requires daemon (requireDaemon call).
-// The old TestRunBusEmit_LocalFallbackPassthrough and TestRunBusEmit_LocalFallbackEmptyStdin
-// tests are no longer valid since there is no local dispatch path.
+// ---------------------------------------------------------------------------
+// dispatchLocal tests (local fallback when daemon is unavailable)
+// ---------------------------------------------------------------------------
+
+func TestDispatchLocal_Passthrough(t *testing.T) {
+	// When dispatchLocal runs without any handlers matching an unknown event type,
+	// it should return nil (no block, no error) and output nothing.
+	oldStdout := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stdout = w
+
+	// Use a non-hook event type that no default handler handles.
+	err = dispatchLocal("UnknownTestEvent", []byte(`{}`), "test-session", "")
+	if err != nil {
+		os.Stdout = oldStdout
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	w.Close()
+	os.Stdout = oldStdout
+
+	var buf bytes.Buffer
+	if _, err := buf.ReadFrom(r); err != nil {
+		t.Fatal(err)
+	}
+	if buf.String() != "" {
+		t.Errorf("expected no output, got %q", buf.String())
+	}
+}
+
+func newFullBusEmitCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:  "emit",
+		RunE: runBusEmit,
+	}
+	cmd.Flags().String("hook", "", "Hook event type")
+	cmd.Flags().String("event", "", "Non-hook event type")
+	cmd.Flags().String("payload", "", "JSON payload for --event")
+	return cmd
+}
+
+func TestRunBusEmit_LocalFallback_NoDaemon(t *testing.T) {
+	// Verify that runBusEmit falls back to local dispatch when daemonClient is nil.
+	oldClient := daemonClient
+	daemonClient = nil
+	defer func() { daemonClient = oldClient }()
+
+	cmd := newFullBusEmitCmd()
+	cmd.SetArgs([]string{"--event=TestLocalFallback", "--payload={}"})
+
+	// Should not error — local dispatch handles the event gracefully.
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("expected no error for local fallback, got: %v", err)
+	}
+}
