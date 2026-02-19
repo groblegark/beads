@@ -70,6 +70,10 @@ func (s *Server) Start(_ context.Context) error {
 
 	if httpAddr != "" {
 		httpServer := NewHTTPServer(s, httpAddr, authToken)
+		s.mu.RLock()
+		httpServer.authPolicy = s.authPolicy
+		httpServer.auditLog = s.auditLog
+		s.mu.RUnlock()
 		s.mu.Lock()
 		s.httpServer = httpServer
 		s.mu.Unlock()

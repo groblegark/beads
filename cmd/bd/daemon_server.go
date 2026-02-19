@@ -52,6 +52,18 @@ func startRPCServer(ctx context.Context, socketPath string, store storage.Storag
 		server.SetAuthToken(authToken)
 	}
 
+	// Configure per-rig API key authorization if BD_RPC_AUTH_KEYS is set
+	authPolicy := rpc.LoadAuthPolicyFromEnv()
+	if authPolicy.HasKeys() {
+		server.SetAuthPolicy(authPolicy)
+		log.Info("per-rig API key authorization enabled")
+	}
+
+	// Enable audit logging for write operations (if auth is configured)
+	if authToken != "" || authPolicy.HasKeys() {
+		server.SetAuditLog(true)
+	}
+
 	// Configure HTTP listener if address provided (Connect-RPC style API)
 	if httpAddr != "" {
 		server.SetHTTPAddr(httpAddr)

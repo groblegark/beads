@@ -20,7 +20,9 @@ type HTTPServer struct {
 	httpServer *http.Server
 	listener   net.Listener
 	addr       string
-	token      string // Bearer token for authentication
+	token      string      // Bearer token for authentication (legacy single token)
+	authPolicy *AuthPolicy // Per-rig API key authorization (bd-65bc)
+	auditLog   bool        // Enable RPC audit logging
 	mu         sync.RWMutex
 	readyChan  chan struct{} // closed when listener is bound
 }
@@ -256,25 +258,7 @@ func (h *HTTPServer) handleRPC(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Check authentication if token is configured
-	if h.token != "" {
-		authHeader := r.Header.Get("Authorization")
-		if authHeader == "" {
-			h.writeError(w, http.StatusUnauthorized, "missing Authorization header")
-			return
-		}
-		if !strings.HasPrefix(authHeader, "Bearer ") {
-			h.writeError(w, http.StatusUnauthorized, "invalid Authorization header format")
-			return
-		}
-		token := strings.TrimPrefix(authHeader, "Bearer ")
-		if token != h.token {
-			h.writeError(w, http.StatusUnauthorized, "invalid token")
-			return
-		}
-	}
-
-	// Extract method from path: /bd.v1.BeadsService/List -> List
+	// Extract method from path first (needed for per-rig auth)
 	path := strings.TrimPrefix(r.URL.Path, "/bd.v1.BeadsService/")
 	if path == "" || path == r.URL.Path {
 		h.writeError(w, http.StatusNotFound, "invalid endpoint")
@@ -288,11 +272,58 @@ func (h *HTTPServer) handleRPC(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Read request body
+	// Read request body (needed for per-rig auth to extract rig from args)
 	body, err := io.ReadAll(io.LimitReader(r.Body, 10*1024*1024)) // 10MB limit
 	if err != nil {
 		h.writeError(w, http.StatusBadRequest, "failed to read request body")
 		return
+	}
+
+	// Authentication: check bearer token (legacy single-token or per-rig keys)
+	var authKeyName string // For audit logging
+	if h.token != "" || (h.authPolicy != nil && h.authPolicy.HasKeys()) {
+		authHeader := r.Header.Get("Authorization")
+		if authHeader == "" {
+			h.writeError(w, http.StatusUnauthorized, "missing Authorization header")
+			return
+		}
+		if !strings.HasPrefix(authHeader, "Bearer ") {
+			h.writeError(w, http.StatusUnauthorized, "invalid Authorization header format")
+			return
+		}
+		token := strings.TrimPrefix(authHeader, "Bearer ")
+
+		// Try legacy single-token first
+		if h.token != "" && token == h.token {
+			authKeyName = "daemon-token"
+		} else if h.authPolicy != nil {
+			// Try per-rig API key
+			scope := h.authPolicy.ValidateToken(token)
+			if scope == nil {
+				h.writeError(w, http.StatusUnauthorized, "invalid token")
+				return
+			}
+
+			// Check rig authorization
+			rig := ExtractRigFromArgs(operation, body)
+			if !scope.IsRigAllowed(rig) {
+				h.writeError(w, http.StatusForbidden,
+					fmt.Sprintf("key %q not authorized for rig %q", scope.Name, rig))
+				return
+			}
+
+			// Check operation authorization
+			if !scope.IsOperationAllowed(operation) {
+				h.writeError(w, http.StatusForbidden,
+					fmt.Sprintf("key %q not authorized for operation %q", scope.Name, operation))
+				return
+			}
+
+			authKeyName = scope.Name
+		} else {
+			h.writeError(w, http.StatusUnauthorized, "invalid token")
+			return
+		}
 	}
 
 	// Build RPC request
@@ -307,6 +338,13 @@ func (h *HTTPServer) handleRPC(w http.ResponseWriter, r *http.Request) {
 
 	// Execute via RPC server
 	resp := h.rpcServer.handleRequest(req)
+
+	// Audit logging: log write operations (skip reads for performance)
+	if h.auditLog && !isReadOnlyOperation(operation) {
+		rig := ExtractRigFromArgs(operation, body)
+		issueID := ExtractIssueIDFromArgs(body)
+		h.rpcServer.emitAuditEvent(operation, req.Actor, authKeyName, rig, issueID, resp.Success, resp.Error)
+	}
 
 	// Write response
 	w.Header().Set("Content-Type", "application/json")

@@ -61,6 +61,8 @@ type Server struct {
 	wispStore     WispStore       // In-memory store for ephemeral wisps
 	listener      net.Listener
 	authToken     string      // Token for HTTP authentication (empty = no auth required)
+	authPolicy    *AuthPolicy // Per-rig API key authorization (gt-f6ya1g.5)
+	auditLog      bool        // Enable RPC audit logging (gt-f6ya1g.5)
 	httpAddr      string      // HTTP address to listen on (e.g., ":9080")
 	httpServer    *HTTPServer // HTTP server (wraps RPC in HTTP POST endpoints)
 	mu            sync.RWMutex
@@ -527,6 +529,47 @@ func (s *Server) AuthToken() string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.authToken
+}
+
+// SetAuthPolicy sets the per-rig API key authorization policy.
+// Must be called before Start(). When set, the HTTP server will validate
+// API keys against per-rig scopes in addition to the legacy single token.
+func (s *Server) SetAuthPolicy(policy *AuthPolicy) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.authPolicy = policy
+}
+
+// SetAuditLog enables or disables RPC audit logging.
+// When enabled, write operations are logged as mutation events.
+func (s *Server) SetAuditLog(enabled bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.auditLog = enabled
+}
+
+// emitAuditEvent logs an RPC operation to the mutation event stream for audit.
+func (s *Server) emitAuditEvent(operation, actor, keyName, rig, issueID string, success bool, errMsg string) {
+	event := MutationEvent{
+		Type:      "rpc_audit",
+		IssueID:   issueID,
+		Actor:     actor,
+		Timestamp: time.Now(),
+	}
+	// Encode audit metadata in Title field (activity feed displays this)
+	parts := []string{"rpc:" + operation}
+	if keyName != "" {
+		parts = append(parts, "key:"+keyName)
+	}
+	if rig != "" {
+		parts = append(parts, "rig:"+rig)
+	}
+	if !success {
+		parts = append(parts, "error:"+errMsg)
+	}
+	event.Title = strings.Join(parts, " ")
+
+	s.emitRichMutation(event)
 }
 
 // SetHTTPAddr sets the HTTP address to listen on (e.g., ":9080" or "0.0.0.0:9080").

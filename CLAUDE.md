@@ -197,3 +197,32 @@ GHCR image publishing is handled by gastown `docker.yml` with CalVer tags.
 - ~~`beads-changes-check` unconditional~~ — now `if: ${{ init.trigger == 'pr' }}`
 - ~~coverage.out artifact~~ — added to ci.yml test task
 - ~~image.yml build-bd filter mismatch~~ — aligned with ci.yml filter
+
+## Directory Structure
+
+| Directory | Purpose |
+|-----------|---------|
+| `cmd/bd/` | CLI entry point and all subcommands |
+| `internal/rpc/` | Daemon RPC server and client (main business logic) |
+| `internal/storage/` | Storage backends (Dolt, SQLite, memory) |
+| `internal/eventbus/` | Event bus for inter-component communication |
+| `internal/routing/` | Multi-project routing for remote daemon |
+| `internal/types/` | Shared types (Issue, Config, etc.) |
+| `internal/hooks/` | Git and lifecycle hook system |
+| `internal/daemon/` | Daemon process management |
+| `helm/` | Helm chart for bd-daemon deployment |
+| `.rwx/` | CI/CD workflow definitions (auto-discovered) |
+| `integrations/` | Claude Code hooks and integration configs |
+| `claude-plugin/` | Claude Code skill plugin (SKILL.md, resources) |
+| `docs/` | Documentation and design documents |
+| `scripts/` | Build and test helper scripts |
+
+## Landing the Plane
+
+Before completing work, verify:
+
+1. `git status` — check what changed
+2. `git add <files>` — stage code changes
+3. `git commit -m "..."` — commit with descriptive message
+4. `git push` — push to remote
+5. `bd close <ids>` — close completed beads issues
