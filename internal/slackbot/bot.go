@@ -1096,6 +1096,25 @@ func (b *Bot) buildPreferencesModal(userID string) slack.ModalViewRequest {
 		currentLevel = levelOptions[1]
 	}
 
+	// Verbosity options
+	verbosityOptions := []*slack.OptionBlockObject{
+		slack.NewOptionBlockObject(VerbosityDecisions, slack.NewTextBlockObject("plain_text", "Decisions only (compact)", false, false), nil),
+		slack.NewOptionBlockObject(VerbosityProgress, slack.NewTextBlockObject("plain_text", "Progress (+ context)", false, false), nil),
+		slack.NewOptionBlockObject(VerbosityVerbose, slack.NewTextBlockObject("plain_text", "Verbose (full detail)", false, false), nil),
+	}
+
+	var currentVerbosity *slack.OptionBlockObject
+	effectiveVerbosity := prefs.EffectiveVerbosity()
+	for _, opt := range verbosityOptions {
+		if opt.Value == effectiveVerbosity {
+			currentVerbosity = opt
+			break
+		}
+	}
+	if currentVerbosity == nil {
+		currentVerbosity = verbosityOptions[0]
+	}
+
 	dmOptInOption := slack.NewOptionBlockObject(
 		"dm_opt_in",
 		slack.NewTextBlockObject("mrkdwn", "*Receive decisions as DMs*\nGet decision notifications as direct messages", false, false),
@@ -1140,6 +1159,14 @@ func (b *Bot) buildPreferencesModal(userID string) slack.ModalViewRequest {
 						slack.NewTextBlockObject("plain_text", "Select level", false, false),
 						"notification_level",
 						levelOptions...).WithInitialOption(currentLevel)),
+				slack.NewInputBlock("verbosity_block",
+					slack.NewTextBlockObject("plain_text", "Message Detail", false, false),
+					nil,
+					slack.NewOptionsSelectBlockElement(
+						slack.OptTypeStatic,
+						slack.NewTextBlockObject("plain_text", "Select verbosity", false, false),
+						"verbosity",
+						verbosityOptions...).WithInitialOption(currentVerbosity)),
 				slack.NewInputBlock("thread_notify_block",
 					slack.NewTextBlockObject("plain_text", "Thread Notifications", false, false),
 					nil, threadCheckbox).WithOptional(true),
@@ -1293,16 +1320,26 @@ func (b *Bot) handlePreferencesModalSubmission(callback slack.InteractionCallbac
 		}
 	}
 
+	verbosity := VerbosityDecisions
+	if verbosityBlock, ok := values["verbosity_block"]; ok {
+		if verbosityInput, ok := verbosityBlock["verbosity"]; ok {
+			if verbosityInput.SelectedOption.Value != "" {
+				verbosity = verbosityInput.SelectedOption.Value
+			}
+		}
+	}
+
 	_ = b.preferenceManager.SetDMOptIn(userID, dmOptIn)
 	_ = b.preferenceManager.SetNotificationLevel(userID, notificationLevel)
+	_ = b.preferenceManager.SetVerbosity(userID, verbosity)
 	_ = b.preferenceManager.SetThreadNotifications(userID, threadNotify)
 
 	if err := b.preferenceManager.Save(); err != nil {
 		log.Printf("slackbot: warning: failed to save preferences: %v", err)
 	}
 
-	log.Printf("slackbot: preferences saved for %s: dm=%v level=%s thread=%v",
-		userID, dmOptIn, notificationLevel, threadNotify)
+	log.Printf("slackbot: preferences saved for %s: dm=%v level=%s verbosity=%s thread=%v",
+		userID, dmOptIn, notificationLevel, verbosity, threadNotify)
 }
 
 // ---------- Notifications ----------
@@ -1341,7 +1378,10 @@ func (b *Bot) NotifyNewDecision(decision *Decision) error {
 			nil, nil),
 	}
 
-	if decision.PredecessorID != "" {
+	verbosity := b.resolveVerbosity()
+
+	// Chain info shown at progress+ verbosity
+	if verbosity != VerbosityDecisions && decision.PredecessorID != "" {
 		chainText := fmt.Sprintf(":link: _Chained from: %s_", decision.PredecessorID)
 		if decision.Iteration > 1 {
 			chainText = fmt.Sprintf(":link: _Iteration %d — chained from: %s_", decision.Iteration, decision.PredecessorID)
@@ -1351,7 +1391,8 @@ func (b *Bot) NotifyNewDecision(decision *Decision) error {
 				slack.NewTextBlockObject("mrkdwn", chainText, false, false)))
 	}
 
-	if decision.Context != "" {
+	// Context shown at progress+ verbosity
+	if verbosity != VerbosityDecisions && decision.Context != "" {
 		contextText := formatContextForSlack(decision.Context)
 		if contextText != "" {
 			blocks = append(blocks,
@@ -1779,6 +1820,18 @@ func (b *Bot) resolveChannelForDecision(decision *Decision) string {
 		}
 	}
 	return b.channelID
+}
+
+// resolveVerbosity returns the effective verbosity level for channel messages.
+// Priority: router config > default ("decisions").
+func (b *Bot) resolveVerbosity() string {
+	if b.router != nil && b.router.IsEnabled() {
+		cfg := b.router.GetConfig()
+		if cfg.Verbosity != "" && IsValidVerbosity(cfg.Verbosity) {
+			return cfg.Verbosity
+		}
+	}
+	return VerbosityDecisions
 }
 
 // isRigRoutingMode returns true if the bot is configured for rig-based routing.

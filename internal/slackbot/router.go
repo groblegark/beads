@@ -61,6 +61,12 @@ type Config struct {
 	// ChannelWebhooks maps channel IDs to their webhook URLs.
 	// If a channel has no entry, uses WebhookURL.
 	ChannelWebhooks map[string]string `json:"channel_webhooks,omitempty"`
+
+	// Verbosity controls how much detail decision messages show.
+	// Values: "decisions" (compact: question + options only),
+	// "progress" (+ context and chain info), "verbose" (+ full metadata).
+	// Default: "decisions". Per-user overrides via preferences.
+	Verbosity string `json:"verbosity,omitempty"`
 }
 
 // DefaultChannelPrefix is the default prefix for dynamically created channels.

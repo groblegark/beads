@@ -566,6 +566,7 @@ func TestConcurrentAccess(t *testing.T) {
 			pm.SetDMOptIn("U1", true)
 			pm.SetNotificationLevel("U1", "all")
 			pm.SetThreadNotifications("U1", true)
+			pm.SetVerbosity("U1", VerbosityProgress)
 		}
 	}()
 
@@ -576,4 +577,138 @@ func TestConcurrentAccess(t *testing.T) {
 		pm.ListUsers()
 	}
 	<-done
+}
+
+// ---------------------------------------------------------------------------
+// 15. IsValidVerbosity
+// ---------------------------------------------------------------------------
+
+func TestIsValidVerbosity(t *testing.T) {
+	tests := []struct {
+		level string
+		want  bool
+	}{
+		{VerbosityDecisions, true},
+		{VerbosityProgress, true},
+		{VerbosityVerbose, true},
+		{"", false},
+		{"DECISIONS", false}, // case-sensitive
+		{"minimal", false},   // not a valid level
+		{"debug", false},     // invented level
+	}
+	for _, tc := range tests {
+		t.Run("level="+tc.level, func(t *testing.T) {
+			got := IsValidVerbosity(tc.level)
+			if got != tc.want {
+				t.Errorf("IsValidVerbosity(%q) = %v, want %v", tc.level, got, tc.want)
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// 16. SetVerbosity
+// ---------------------------------------------------------------------------
+
+func TestSetVerbosity(t *testing.T) {
+	pm := newTestPM(t)
+
+	t.Run("valid_decisions", func(t *testing.T) {
+		if err := pm.SetVerbosity("U1", VerbosityDecisions); err != nil {
+			t.Fatal(err)
+		}
+		if got := pm.GetUserPreferences("U1").Verbosity; got != VerbosityDecisions {
+			t.Errorf("Verbosity = %q, want %q", got, VerbosityDecisions)
+		}
+	})
+
+	t.Run("valid_progress", func(t *testing.T) {
+		if err := pm.SetVerbosity("U1", VerbosityProgress); err != nil {
+			t.Fatal(err)
+		}
+		if got := pm.GetUserPreferences("U1").Verbosity; got != VerbosityProgress {
+			t.Errorf("Verbosity = %q, want %q", got, VerbosityProgress)
+		}
+	})
+
+	t.Run("valid_verbose", func(t *testing.T) {
+		if err := pm.SetVerbosity("U1", VerbosityVerbose); err != nil {
+			t.Fatal(err)
+		}
+		if got := pm.GetUserPreferences("U1").Verbosity; got != VerbosityVerbose {
+			t.Errorf("Verbosity = %q, want %q", got, VerbosityVerbose)
+		}
+	})
+
+	t.Run("invalid_level", func(t *testing.T) {
+		err := pm.SetVerbosity("U1", "invalid")
+		if err == nil {
+			t.Fatal("expected error for invalid verbosity level")
+		}
+	})
+}
+
+// ---------------------------------------------------------------------------
+// 17. EffectiveVerbosity
+// ---------------------------------------------------------------------------
+
+func TestEffectiveVerbosity(t *testing.T) {
+	t.Run("default_empty", func(t *testing.T) {
+		prefs := UserPrefs{}
+		if got := prefs.EffectiveVerbosity(); got != VerbosityDecisions {
+			t.Errorf("EffectiveVerbosity() = %q, want %q", got, VerbosityDecisions)
+		}
+	})
+
+	t.Run("explicit_progress", func(t *testing.T) {
+		prefs := UserPrefs{Verbosity: VerbosityProgress}
+		if got := prefs.EffectiveVerbosity(); got != VerbosityProgress {
+			t.Errorf("EffectiveVerbosity() = %q, want %q", got, VerbosityProgress)
+		}
+	})
+
+	t.Run("explicit_verbose", func(t *testing.T) {
+		prefs := UserPrefs{Verbosity: VerbosityVerbose}
+		if got := prefs.EffectiveVerbosity(); got != VerbosityVerbose {
+			t.Errorf("EffectiveVerbosity() = %q, want %q", got, VerbosityVerbose)
+		}
+	})
+}
+
+// ---------------------------------------------------------------------------
+// 18. Verbosity save/load round-trip
+// ---------------------------------------------------------------------------
+
+func TestSaveLoadRoundTrip_Verbosity(t *testing.T) {
+	dir := t.TempDir()
+	beadsDir := filepath.Join(dir, "beads")
+	if err := os.MkdirAll(beadsDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	pm1 := NewPreferenceManager(beadsDir)
+	pm1.SetVerbosity("U1", VerbosityVerbose)
+	pm1.SetVerbosity("U2", VerbosityProgress)
+
+	if err := pm1.Save(); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	pm2 := &PreferenceManager{
+		prefs:    make(map[string]UserPrefs),
+		filePath: pm1.GetFilePath(),
+	}
+	if err := pm2.Load(); err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	u1 := pm2.GetUserPreferences("U1")
+	if u1.Verbosity != VerbosityVerbose {
+		t.Errorf("loaded U1 Verbosity = %q, want %q", u1.Verbosity, VerbosityVerbose)
+	}
+
+	u2 := pm2.GetUserPreferences("U2")
+	if u2.Verbosity != VerbosityProgress {
+		t.Errorf("loaded U2 Verbosity = %q, want %q", u2.Verbosity, VerbosityProgress)
+	}
 }

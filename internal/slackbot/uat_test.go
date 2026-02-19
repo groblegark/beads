@@ -1272,17 +1272,18 @@ func TestUAT_CreateDecision_BlockKitStructure(t *testing.T) {
 	}
 
 	// Expected structure for a 3-option decision with agent info:
+	// At "decisions" verbosity (default): context block is omitted.
 	// [0] section (header with urgency emoji + question)
-	// [1] section (context text)
-	// [2] divider
-	// [3] section (option 1 with "Choose 1" button)
-	// [4] section (option 2 with "Choose 2" button)
-	// [5] section (option 3 with "Choose 3" button)
-	// [6] section (Other with "Other..." button)
-	// [7] actions (Dismiss, Peek, DM Me, Break Out)
+	// [1] divider
+	// [2] section (option 1 with "Choose 1" button)
+	// [3] section (option 2 with "Choose 2" button)
+	// [4] section (option 3 with "Choose 3" button)
+	// [5] section (Other with "Other..." button)
+	// [6] actions (Dismiss, Peek, DM Me, Break Out)
+	// At "progress"/"verbose" verbosity, a context section is added after header.
 
-	if len(blocks) < 8 {
-		t.Fatalf("expected at least 8 blocks, got %d", len(blocks))
+	if len(blocks) < 7 {
+		t.Fatalf("expected at least 7 blocks, got %d", len(blocks))
 	}
 
 	// Verify header block contains urgency emoji and question
@@ -1311,20 +1312,20 @@ func TestUAT_CreateDecision_BlockKitStructure(t *testing.T) {
 		t.Errorf("header missing agent info, got %q", header.Text.Text)
 	}
 
-	// Verify divider exists
+	// Verify divider exists (at index 1 in decisions verbosity, no context block)
 	var divider struct {
 		Type string `json:"type"`
 	}
-	if err := json.Unmarshal(blocks[2], &divider); err != nil {
+	if err := json.Unmarshal(blocks[1], &divider); err != nil {
 		t.Fatalf("parse divider block: %v", err)
 	}
 	if divider.Type != "divider" {
-		t.Errorf("block[2] type = %q, want divider", divider.Type)
+		t.Errorf("block[1] type = %q, want divider", divider.Type)
 	}
 
 	// Verify option blocks have correct labels and buttons
 	for i, opt := range d.Options {
-		blockIdx := 3 + i
+		blockIdx := 2 + i
 		var optBlock struct {
 			Type string `json:"type"`
 			Text struct {
@@ -1357,7 +1358,7 @@ func TestUAT_CreateDecision_BlockKitStructure(t *testing.T) {
 	}
 
 	// Verify "Other" option block
-	otherIdx := 3 + len(d.Options) // block after the last option
+	otherIdx := 2 + len(d.Options) // block after the last option
 	var otherBlock struct {
 		Text struct{ Text string } `json:"text"`
 		Accessory struct {

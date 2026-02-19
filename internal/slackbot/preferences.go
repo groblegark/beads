@@ -15,6 +15,7 @@ type UserPrefs struct {
 	DMOptIn             bool      `json:"dm_opt_in"`             // Whether user has opted in to DMs
 	NotificationLevel   string    `json:"notification_level"`    // all/high/muted
 	ThreadNotifications bool      `json:"thread_notifications"`  // Whether to notify on thread replies
+	Verbosity           string    `json:"verbosity,omitempty"`   // decisions/progress/verbose (default: decisions)
 	UpdatedAt           time.Time `json:"updated_at"`            // Last update timestamp
 }
 
@@ -30,6 +31,37 @@ func DefaultUserPrefs() UserPrefs {
 
 // ValidNotificationLevels contains the allowed notification level values.
 var ValidNotificationLevels = []string{"all", "high", "muted"}
+
+// Verbosity levels control how much detail decisions show in Slack.
+const (
+	// VerbosityDecisions shows only the decision question and options (compact).
+	VerbosityDecisions = "decisions"
+	// VerbosityProgress shows decisions plus context and chain info.
+	VerbosityProgress = "progress"
+	// VerbosityVerbose shows everything including full context and metadata.
+	VerbosityVerbose = "verbose"
+)
+
+// ValidVerbosityLevels contains the allowed verbosity level values.
+var ValidVerbosityLevels = []string{VerbosityDecisions, VerbosityProgress, VerbosityVerbose}
+
+// IsValidVerbosity checks if a verbosity level is valid.
+func IsValidVerbosity(level string) bool {
+	for _, l := range ValidVerbosityLevels {
+		if l == level {
+			return true
+		}
+	}
+	return false
+}
+
+// EffectiveVerbosity returns the verbosity level, defaulting to "decisions" if empty.
+func (p UserPrefs) EffectiveVerbosity() string {
+	if p.Verbosity == "" {
+		return VerbosityDecisions
+	}
+	return p.Verbosity
+}
 
 // IsValidNotificationLevel checks if a level is valid.
 func IsValidNotificationLevel(level string) bool {
@@ -113,6 +145,24 @@ func (pm *PreferenceManager) SetNotificationLevel(userID, level string) error {
 
 	prefs := pm.getOrDefaultLocked(userID)
 	prefs.NotificationLevel = level
+	prefs.UpdatedAt = time.Now()
+	pm.prefs[userID] = prefs
+
+	return nil
+}
+
+// SetVerbosity sets the verbosity level for a user.
+// Valid levels: "decisions", "progress", "verbose".
+func (pm *PreferenceManager) SetVerbosity(userID, level string) error {
+	if !IsValidVerbosity(level) {
+		return fmt.Errorf("invalid verbosity level %q: must be one of %v", level, ValidVerbosityLevels)
+	}
+
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
+
+	prefs := pm.getOrDefaultLocked(userID)
+	prefs.Verbosity = level
 	prefs.UpdatedAt = time.Now()
 	pm.prefs[userID] = prefs
 
