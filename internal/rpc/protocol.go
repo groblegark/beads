@@ -54,12 +54,18 @@ const (
 	OpGetWorkerStatus     = "get_worker_status"
 	OpGetConfig           = "get_config"
 
-	// Gate operations
+	// Gate operations (formula gates)
 	OpGateCreate = "gate_create"
 	OpGateList   = "gate_list"
 	OpGateShow   = "gate_show"
 	OpGateClose  = "gate_close"
 	OpGateWait   = "gate_wait"
+
+	// Session gate operations (NATS KV backend) (bd-vecxd, bd-rabpy)
+	OpSessionGateMark  = "session_gate_mark"
+	OpSessionGateClear = "session_gate_clear"
+	OpSessionGateCheck = "session_gate_check"
+	OpSessionGateList  = "session_gate_list"
 
 	// Decision point operations
 	OpDecisionCreate     = "decision_create"
@@ -838,6 +844,58 @@ type GateWaitArgs struct {
 // GateWaitResult represents the result of adding waiters
 type GateWaitResult struct {
 	AddedCount int `json:"added_count"` // Number of new waiters added
+}
+
+// Session gate operations (NATS KV backend) (bd-vecxd, bd-rabpy)
+
+// SessionGateMarkArgs marks a session gate as satisfied via the NATS KV backend.
+type SessionGateMarkArgs struct {
+	Agent     string `json:"agent"`               // agent base name (e.g., "sharp-seal")
+	GateID    string `json:"gate_id"`             // gate identifier (e.g., "decision")
+	Mechanism string `json:"mechanism,omitempty"` // what caused satisfaction
+	SessionID string `json:"session_id,omitempty"`
+	TTLSecs   int    `json:"ttl_seconds,omitempty"` // 0 = use default for gate
+}
+
+// SessionGateClearArgs clears a session gate.
+type SessionGateClearArgs struct {
+	Agent  string `json:"agent"`             // agent base name
+	GateID string `json:"gate_id,omitempty"` // specific gate, or empty = clear all
+	AllAgents bool `json:"all_agents,omitempty"` // clear this gate for ALL agents
+}
+
+// SessionGateCheckArgs checks session gate satisfaction.
+type SessionGateCheckArgs struct {
+	Agent  string `json:"agent"`   // agent base name
+	GateID string `json:"gate_id"` // gate identifier
+}
+
+// SessionGateCheckResult is the result of checking a session gate.
+type SessionGateCheckResult struct {
+	Satisfied bool   `json:"satisfied"`
+	Mechanism string `json:"mechanism,omitempty"`
+	Actor     string `json:"actor,omitempty"`
+	Timestamp int64  `json:"ts,omitempty"`
+	TTL       int    `json:"ttl_seconds,omitempty"`
+}
+
+// SessionGateListArgs lists all session gates for an agent.
+type SessionGateListArgs struct {
+	Agent string `json:"agent"` // agent base name
+}
+
+// SessionGateListResult is the result of listing session gates.
+type SessionGateListResult struct {
+	Gates []SessionGateEntry `json:"gates"`
+}
+
+// SessionGateEntry is a single gate entry in a list result.
+type SessionGateEntry struct {
+	GateID    string `json:"gate_id"`
+	Satisfied bool   `json:"satisfied"`
+	Mechanism string `json:"mechanism,omitempty"`
+	Timestamp int64  `json:"ts,omitempty"`
+	TTL       int    `json:"ttl_seconds,omitempty"`
 }
 
 // GetWorkerStatusArgs represents arguments for retrieving worker status

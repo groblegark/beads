@@ -307,6 +307,15 @@ func (s *Server) executeOperation(req *Request) Response {
 		resp = s.handleGateClose(req)
 	case OpGateWait:
 		resp = s.handleGateWait(req)
+	// Session gate operations (NATS KV backend) (bd-rabpy)
+	case OpSessionGateMark:
+		resp = s.handleSessionGateMark(req)
+	case OpSessionGateClear:
+		resp = s.handleSessionGateClear(req)
+	case OpSessionGateCheck:
+		resp = s.handleSessionGateCheck(req)
+	case OpSessionGateList:
+		resp = s.handleSessionGateList(req)
 	// Decision point operations
 	case OpDecisionCreate:
 		resp = s.handleDecisionCreate(req)
