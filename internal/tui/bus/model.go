@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/atotto/clipboard"
 	"github.com/charmbracelet/bubbles/help"
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/viewport"
@@ -64,11 +65,12 @@ type Model struct {
 	sseCtx    context.Context
 
 	// UI
-	keys     KeyMap
-	help     help.Model
-	showHelp bool
-	err      error
-	status   string
+	keys       KeyMap
+	help       help.Model
+	showHelp   bool
+	err        error
+	status     string
+	copyStatus string // flash message after clipboard copy
 }
 
 // New creates a new bus watch TUI model.
@@ -285,6 +287,9 @@ func (m *Model) handleTimelineKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.updateDetailViewport()
 		}
 
+	case key.Matches(msg, m.keys.Copy):
+		m.copySelectedEvent()
+
 	case key.Matches(msg, m.keys.FilterStream):
 		// Cycle through stream filters: toggle next stream
 		stream := allStreams[m.streamPick%len(allStreams)]
@@ -321,6 +326,8 @@ func (m *Model) handleDetailKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, m.keys.Quit), key.Matches(msg, m.keys.Detail):
 		m.showDetail = false
 		return m, nil
+	case key.Matches(msg, m.keys.Copy):
+		m.copySelectedEvent()
 	case key.Matches(msg, m.keys.Up):
 		m.detailViewport.ScrollUp(1)
 	case key.Matches(msg, m.keys.Down):
@@ -416,6 +423,46 @@ func (m *Model) filteredGet(i int) rpc.BusSSEEvent {
 		return m.history.Get(i)
 	}
 	return m.history.Get(m.filtered[i])
+}
+
+// copySelectedEvent copies the selected event's JSON payload to the system clipboard.
+func (m *Model) copySelectedEvent() {
+	count := m.filteredLen()
+	if m.selected < 0 || m.selected >= count {
+		return
+	}
+
+	evt := m.filteredGet(m.selected)
+
+	// Build a complete event JSON with metadata + payload
+	type eventExport struct {
+		Stream  string          `json:"stream"`
+		Type    string          `json:"type"`
+		Subject string          `json:"subject"`
+		Seq     uint64          `json:"seq"`
+		TS      string          `json:"ts"`
+		Payload json.RawMessage `json:"payload"`
+	}
+	export := eventExport{
+		Stream:  evt.Stream,
+		Type:    evt.Type,
+		Subject: evt.Subject,
+		Seq:     evt.Seq,
+		TS:      evt.TS,
+		Payload: evt.Payload,
+	}
+
+	data, err := json.MarshalIndent(export, "", "  ")
+	if err != nil {
+		m.copyStatus = "Copy failed: " + err.Error()
+		return
+	}
+
+	if err := clipboard.WriteAll(string(data)); err != nil {
+		m.copyStatus = "Copy failed: " + err.Error()
+		return
+	}
+	m.copyStatus = "Copied to clipboard!"
 }
 
 // updateDetailViewport updates the detail viewport content for the selected event.

@@ -39,6 +39,7 @@ Key bindings:
   a          Set actor filter (text input)
   /          Set keyword search filter (text input)
   c          Clear all filters
+  y          Copy selected event JSON to clipboard
   r          Reconnect to SSE endpoint
   ?          Toggle help
   q/Ctrl+C   Quit

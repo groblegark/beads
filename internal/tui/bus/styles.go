@@ -62,6 +62,26 @@ var (
 	inputStyle = lipgloss.NewStyle().
 			Foreground(colorAccent).
 			Bold(true)
+
+	// JSON syntax highlighting styles (adaptive for light/dark terminals)
+	jsonKeyStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.AdaptiveColor{Light: "#399ee6", Dark: "#59c2ff"}) // cyan — keys
+
+	jsonStringStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.AdaptiveColor{Light: "#86b300", Dark: "#c2d94c"}) // green — strings
+
+	jsonNumberStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.AdaptiveColor{Light: "#d2a6ff", Dark: "#d2a6ff"}) // purple — numbers
+
+	jsonBoolStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.AdaptiveColor{Light: "#ff8f40", Dark: "#ff8f40"}) // orange — bools/null
+
+	jsonBraceStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.AdaptiveColor{Light: "#828c99", Dark: "#6c7680"}) // muted — braces/brackets
+
+	copySuccessStyle = lipgloss.NewStyle().
+				Foreground(colorPass).
+				Bold(true)
 )
 
 // streamColor returns a style for a given stream name.

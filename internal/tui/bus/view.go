@@ -98,10 +98,15 @@ func (m *Model) renderView() string {
 	b.WriteString("\n")
 
 	// Status line
+	if m.copyStatus != "" {
+		b.WriteString(copySuccessStyle.Render(m.copyStatus))
+		m.copyStatus = ""
+		b.WriteString("  ")
+	}
 	if m.status != "" {
 		b.WriteString(statusStyle.Render(m.status))
-		b.WriteString("\n")
 	}
+	b.WriteString("\n")
 
 	// Input mode or help
 	if m.inputMode != inputNone {
@@ -169,9 +174,14 @@ func (m *Model) renderDetailView() string {
 	b.WriteString(m.detailViewport.View())
 	b.WriteString("\n")
 
-	// Scroll indicator
+	// Scroll indicator + copy status
 	pct := m.detailViewport.ScrollPercent()
-	b.WriteString(helpStyle.Render(fmt.Sprintf("j/k: scroll  g/G: top/bottom  %.0f%%  enter/q: back", pct*100)))
+	if m.copyStatus != "" {
+		b.WriteString(copySuccessStyle.Render(m.copyStatus))
+		b.WriteString("  ")
+		m.copyStatus = "" // clear after one render
+	}
+	b.WriteString(helpStyle.Render(fmt.Sprintf("j/k: scroll  g/G: top/bottom  y: copy  %.0f%%  enter/q: back", pct*100)))
 	b.WriteString("\n")
 
 	return b.String()
@@ -210,18 +220,77 @@ func (m *Model) renderDetailContent() string {
 	b.WriteString(detailKeyStyle.Render("Payload:"))
 	b.WriteString("\n")
 
-	var prettyJSON json.RawMessage
-	if err := json.Unmarshal(evt.Payload, &prettyJSON); err == nil {
-		formatted, err := json.MarshalIndent(prettyJSON, "", "  ")
+	var parsed interface{}
+	if err := json.Unmarshal(evt.Payload, &parsed); err == nil {
+		formatted, err := json.MarshalIndent(parsed, "", "  ")
 		if err == nil {
-			b.WriteString(detailValStyle.Render(string(formatted)))
+			for _, line := range strings.Split(string(formatted), "\n") {
+				b.WriteString("  ")
+				b.WriteString(colorizeJSONLine(line))
+				b.WriteString("\n")
+			}
 		} else {
 			b.WriteString(detailValStyle.Render(string(evt.Payload)))
+			b.WriteString("\n")
 		}
 	} else {
 		b.WriteString(detailValStyle.Render(string(evt.Payload)))
+		b.WriteString("\n")
 	}
-	b.WriteString("\n")
 
 	return b.String()
+}
+
+// colorizeJSONLine applies syntax highlighting to a single line of formatted JSON.
+func colorizeJSONLine(line string) string {
+	trimmed := strings.TrimSpace(line)
+	indent := line[:len(line)-len(strings.TrimLeft(line, " \t"))]
+
+	// Pure structural lines: { } [ ] or closing with comma
+	if trimmed == "{" || trimmed == "}" || trimmed == "}," ||
+		trimmed == "[" || trimmed == "]" || trimmed == "]," {
+		return indent + jsonBraceStyle.Render(trimmed)
+	}
+
+	// Lines with key: value
+	if strings.Contains(trimmed, ":") {
+		parts := strings.SplitN(trimmed, ":", 2)
+		if len(parts) == 2 && strings.HasPrefix(strings.TrimSpace(parts[0]), "\"") {
+			key := parts[0]
+			value := parts[1]
+			styledKey := jsonKeyStyle.Render(key)
+
+			valTrimmed := strings.TrimSpace(value)
+			var styledValue string
+			switch {
+			case valTrimmed == "{" || valTrimmed == "[" || valTrimmed == "{}" || valTrimmed == "[]":
+				styledValue = " " + jsonBraceStyle.Render(valTrimmed)
+			case strings.HasPrefix(valTrimmed, "\""):
+				styledValue = " " + jsonStringStyle.Render(valTrimmed)
+			case valTrimmed == "true" || valTrimmed == "true," ||
+				valTrimmed == "false" || valTrimmed == "false," ||
+				valTrimmed == "null" || valTrimmed == "null,":
+				styledValue = " " + jsonBoolStyle.Render(valTrimmed)
+			case len(valTrimmed) > 0 && (valTrimmed[0] >= '0' && valTrimmed[0] <= '9' || valTrimmed[0] == '-'):
+				styledValue = " " + jsonNumberStyle.Render(valTrimmed)
+			default:
+				styledValue = " " + detailValStyle.Render(valTrimmed)
+			}
+
+			return indent + styledKey + ":" + styledValue
+		}
+	}
+
+	// Standalone values in arrays
+	trimmedNoComma := strings.TrimSuffix(trimmed, ",")
+	switch {
+	case strings.HasPrefix(trimmedNoComma, "\""):
+		return indent + jsonStringStyle.Render(trimmed)
+	case trimmedNoComma == "true" || trimmedNoComma == "false" || trimmedNoComma == "null":
+		return indent + jsonBoolStyle.Render(trimmed)
+	case len(trimmedNoComma) > 0 && (trimmedNoComma[0] >= '0' && trimmedNoComma[0] <= '9' || trimmedNoComma[0] == '-'):
+		return indent + jsonNumberStyle.Render(trimmed)
+	}
+
+	return indent + detailValStyle.Render(trimmed)
 }
