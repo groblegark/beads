@@ -73,11 +73,50 @@ var slackRouteCmd = &cobra.Command{
 	RunE:  runSlackRoute,
 }
 
+var slackChannelModeCmd = &cobra.Command{
+	Use:   "channel-mode [agent] [mode]",
+	Short: "Get or set per-agent channel routing mode",
+	Long: `Get or set the preferred channel routing mode for an agent.
+
+With one argument, shows the current mode for the agent.
+With two arguments, sets the mode for the agent.
+With no arguments, shows the global default mode.
+
+Valid modes:
+  general  Route to the default/general channel
+  agent    Route to a dedicated per-agent channel
+  epic     Route to a channel based on the work's parent epic
+  rig      Route to a channel based on the agent's rig
+  dm       Route to a direct message with the overseer
+
+Examples:
+  # Show global default mode
+  bd slack channel-mode
+
+  # Show mode for a specific agent
+  bd slack channel-mode gastown/polecats/furiosa
+
+  # Set mode for an agent
+  bd slack channel-mode gastown/polecats/furiosa agent
+
+  # Set the global default mode
+  bd slack channel-mode --default epic
+
+  # Clear an agent's override (revert to default)
+  bd slack channel-mode gastown/polecats/furiosa --clear`,
+	Args: cobra.MaximumNArgs(2),
+	RunE: runSlackChannelMode,
+}
+
 func init() {
 	rootCmd.AddCommand(slackCmd)
 	slackCmd.AddCommand(slackStartCmd)
 	slackCmd.AddCommand(slackStatusCmd)
 	slackCmd.AddCommand(slackRouteCmd)
+	slackCmd.AddCommand(slackChannelModeCmd)
+
+	slackChannelModeCmd.Flags().Bool("clear", false, "Clear the agent's channel mode preference")
+	slackChannelModeCmd.Flags().String("default", "", "Set the global default channel mode")
 
 	slackStartCmd.Flags().StringVar(&slackBotToken, "bot-token", "", "Slack bot token (or SLACK_BOT_TOKEN env)")
 	slackStartCmd.Flags().StringVar(&slackAppToken, "app-token", "", "Slack app token (or SLACK_APP_TOKEN env)")
@@ -277,6 +316,73 @@ func runSlackRoute(cmd *cobra.Command, args []string) error {
 		fmt.Println()
 	}
 
+	return nil
+}
+
+func runSlackChannelMode(cmd *cobra.Command, args []string) error {
+	clearMode, _ := cmd.Flags().GetBool("clear")
+	defaultMode, _ := cmd.Flags().GetString("default")
+
+	// Set global default mode
+	if defaultMode != "" {
+		if !slackbot.IsValidChannelMode(defaultMode) {
+			return fmt.Errorf("invalid mode %q: must be one of %v", defaultMode, slackbot.ValidChannelModes)
+		}
+		if err := slackbot.SetDefaultChannelMode(slackbot.ChannelMode(defaultMode)); err != nil {
+			return fmt.Errorf("set default channel mode: %w", err)
+		}
+		fmt.Printf("Default channel mode set to: %s\n", defaultMode)
+		return nil
+	}
+
+	// No arguments: show global default
+	if len(args) == 0 {
+		mode, err := slackbot.GetDefaultChannelMode()
+		if err != nil {
+			return fmt.Errorf("get default channel mode: %w", err)
+		}
+		if mode == "" {
+			fmt.Println("Default channel mode: (not set, uses routing_mode from config)")
+		} else {
+			fmt.Printf("Default channel mode: %s\n", mode)
+		}
+		return nil
+	}
+
+	agent := args[0]
+
+	// Clear mode for agent
+	if clearMode {
+		if err := slackbot.ClearAgentChannelMode(agent); err != nil {
+			return fmt.Errorf("clear channel mode for %s: %w", agent, err)
+		}
+		fmt.Printf("Cleared channel mode for %s\n", agent)
+		return nil
+	}
+
+	// One argument: show mode for agent
+	if len(args) == 1 {
+		mode, err := slackbot.GetAgentChannelMode(agent)
+		if err != nil {
+			return fmt.Errorf("get channel mode for %s: %w", agent, err)
+		}
+		if mode == "" {
+			fmt.Printf("Channel mode for %s: (not set, uses default)\n", agent)
+		} else {
+			fmt.Printf("Channel mode for %s: %s\n", agent, mode)
+		}
+		return nil
+	}
+
+	// Two arguments: set mode for agent
+	mode := args[1]
+	if !slackbot.IsValidChannelMode(mode) {
+		return fmt.Errorf("invalid mode %q: must be one of %v", mode, slackbot.ValidChannelModes)
+	}
+	if err := slackbot.SetAgentChannelMode(agent, slackbot.ChannelMode(mode)); err != nil {
+		return fmt.Errorf("set channel mode for %s: %w", agent, err)
+	}
+	fmt.Printf("Channel mode for %s set to: %s\n", agent, mode)
 	return nil
 }
 
