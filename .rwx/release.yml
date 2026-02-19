@@ -101,8 +101,8 @@ tasks:
     run: |
       TAG="${REF_NAME#refs/tags/}"
       TAG="${TAG#refs/heads/}"
-      COMMIT=$(git rev-parse HEAD)
-      SHORT=$(git rev-parse --short HEAD)
+      COMMIT="${COMMIT_SHA}"
+      SHORT="${COMMIT_SHA:0:7}"
 
       CGO_ENABLED=1 GOOS=linux GOARCH=amd64 \
         go build -ldflags "-s -w \
@@ -114,6 +114,7 @@ tasks:
       file bd
     env:
       REF_NAME: ${{ init.ref-name }}
+      COMMIT_SHA: ${{ init.commit-sha }}
     outputs:
       artifacts:
         - key: binary
@@ -131,8 +132,8 @@ tasks:
     run: |
       TAG="${REF_NAME#refs/tags/}"
       TAG="${TAG#refs/heads/}"
-      COMMIT=$(git rev-parse HEAD)
-      SHORT=$(git rev-parse --short HEAD)
+      COMMIT="${COMMIT_SHA}"
+      SHORT="${COMMIT_SHA:0:7}"
 
       CGO_ENABLED=1 GOOS=darwin GOARCH=amd64 \
         CC=/tmp/zigcc/cc-x86_64-macos \
@@ -147,6 +148,7 @@ tasks:
       file bd
     env:
       REF_NAME: ${{ init.ref-name }}
+      COMMIT_SHA: ${{ init.commit-sha }}
     outputs:
       artifacts:
         - key: binary
@@ -164,8 +166,8 @@ tasks:
     run: |
       TAG="${REF_NAME#refs/tags/}"
       TAG="${TAG#refs/heads/}"
-      COMMIT=$(git rev-parse HEAD)
-      SHORT=$(git rev-parse --short HEAD)
+      COMMIT="${COMMIT_SHA}"
+      SHORT="${COMMIT_SHA:0:7}"
 
       CGO_ENABLED=1 GOOS=darwin GOARCH=arm64 \
         CC=/tmp/zigcc/cc-aarch64-macos \
@@ -180,6 +182,7 @@ tasks:
       file bd
     env:
       REF_NAME: ${{ init.ref-name }}
+      COMMIT_SHA: ${{ init.commit-sha }}
     outputs:
       artifacts:
         - key: binary
