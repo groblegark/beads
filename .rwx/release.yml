@@ -64,17 +64,40 @@ tasks:
       sudo ln -sf /tmp/zig-linux-x86_64-0.14.0/zig /usr/local/bin/zig
       zig version
 
-      # Create zig CC wrapper scripts for darwin cross-compilation
-      # flock serializes zig calls per target to prevent AccessDenied races
-      # when go build invokes CC in parallel
+      # Create zig CC wrapper scripts for darwin cross-compilation.
+      # The wrappers strip -lresolv, -framework CoreFoundation, and
+      # -framework Security from link commands — zig 0.14.0 can't
+      # find these macOS system libs. Go's runtime resolves them via
+      # dyld lazy binding at runtime instead.
+      # flock serializes zig calls per target to prevent AccessDenied races.
       mkdir -p /tmp/zigcc
       for pair in \
         "cc-x86_64-macos:x86_64-macos" \
         "cc-aarch64-macos:aarch64-macos"; do
         name="${pair%%:*}"
         target="${pair##*:}"
-        printf '#!/bin/sh\nexec flock /tmp/zigcc/lock-%s zig cc -target %s "$@"\n' \
-          "$target" "$target" > "/tmp/zigcc/$name"
+        cat > "/tmp/zigcc/$name" << 'WRAPPER'
+      #!/bin/sh
+      # Filter out macOS system libs that zig can't resolve.
+      # Go's runtime handles these via dyld lazy binding.
+      args=""
+      skip_next=false
+      for arg in "$@"; do
+        if $skip_next; then
+          skip_next=false
+          continue
+        fi
+        case "$arg" in
+          -lresolv|-lpthread) continue ;;
+          -framework)
+            skip_next=true
+            continue ;;
+        esac
+        args="$args $arg"
+      done
+      exec flock /tmp/zigcc/lock-TARGET zig cc -target TARGET $args
+      WRAPPER
+        sed -i "s/TARGET/$target/g" "/tmp/zigcc/$name"
         chmod +x "/tmp/zigcc/$name"
       done
       echo "Zig wrappers created: $(ls /tmp/zigcc/cc-*)"
