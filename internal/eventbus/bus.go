@@ -153,7 +153,8 @@ func (b *Bus) publishToJetStream(js nats.JetStreamContext, event *Event) {
 	// hooks.<actor>.<EventType> allows per-agent subscriptions. (bd-fwylb)
 	if !event.Type.IsDecisionEvent() && !event.Type.IsOjEvent() &&
 		!event.Type.IsAgentEvent() && !event.Type.IsMailEvent() &&
-		!event.Type.IsMutationEvent() && !event.Type.IsConfigEvent() {
+		!event.Type.IsMutationEvent() && !event.Type.IsConfigEvent() &&
+		!event.Type.IsGateEvent() {
 		subject = SubjectForHookEvent(event.Type, event.Actor)
 	}
 

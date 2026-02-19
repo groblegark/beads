@@ -371,4 +371,93 @@ func TestEnsureKVBucketsIdempotent(t *testing.T) {
 	}
 }
 
+// TestSubjectForGateEvent verifies gate event subject routing. (bd-cvu4c)
+func TestSubjectForGateEvent(t *testing.T) {
+	tests := []struct {
+		eventType EventType
+		want      string
+	}{
+		{EventGateSatisfied, "gate.GateSatisfied"},
+		{EventGateCleared, "gate.GateCleared"},
+	}
+	for _, tt := range tests {
+		got := SubjectForEvent(tt.eventType)
+		if got != tt.want {
+			t.Errorf("SubjectForEvent(%s) = %q, want %q", tt.eventType, got, tt.want)
+		}
+	}
+}
+
+// TestIsGateEvent verifies gate event type classification. (bd-cvu4c)
+func TestIsGateEvent(t *testing.T) {
+	gateEvents := []EventType{EventGateSatisfied, EventGateCleared}
+	for _, e := range gateEvents {
+		if !e.IsGateEvent() {
+			t.Errorf("expected %s.IsGateEvent() = true", e)
+		}
+		if e.IsDecisionEvent() {
+			t.Errorf("expected %s.IsDecisionEvent() = false", e)
+		}
+		if e.IsAgentEvent() {
+			t.Errorf("expected %s.IsAgentEvent() = false", e)
+		}
+	}
+
+	// Non-gate events should return false.
+	nonGate := []EventType{EventSessionStart, EventStop, EventDecisionCreated, EventAgentStarted}
+	for _, e := range nonGate {
+		if e.IsGateEvent() {
+			t.Errorf("expected %s.IsGateEvent() = false", e)
+		}
+	}
+}
+
+// TestEnsureStreamsCreatesGateStream verifies the GATE_EVENTS stream is created. (bd-cvu4c)
+func TestEnsureStreamsCreatesGateStream(t *testing.T) {
+	_, js, cleanup := startTestNATS(t)
+	defer cleanup()
+
+	info, err := js.StreamInfo(StreamGateEvents)
+	if err != nil {
+		t.Fatalf("StreamInfo(%s): %v", StreamGateEvents, err)
+	}
+	if info.Config.Name != StreamGateEvents {
+		t.Errorf("expected stream name %q, got %q", StreamGateEvents, info.Config.Name)
+	}
+	foundGateSubject := false
+	for _, s := range info.Config.Subjects {
+		if s == SubjectGatePrefix+">" {
+			foundGateSubject = true
+		}
+	}
+	if !foundGateSubject {
+		t.Errorf("expected %q in stream subjects, got %v", SubjectGatePrefix+">", info.Config.Subjects)
+	}
+}
+
+// TestStreamForSubjectGate verifies StreamForSubject handles gate subjects. (bd-cvu4c)
+func TestStreamForSubjectGate(t *testing.T) {
+	tests := []struct {
+		subject string
+		want    string
+	}{
+		{"gate.GateSatisfied", "gate"},
+		{"gate.GateCleared", "gate"},
+	}
+	for _, tt := range tests {
+		got := StreamForSubject(tt.subject)
+		if got != tt.want {
+			t.Errorf("StreamForSubject(%q) = %q, want %q", tt.subject, got, tt.want)
+		}
+	}
+}
+
+// TestStreamNameForJetStreamGate verifies gate stream name resolution. (bd-cvu4c)
+func TestStreamNameForJetStreamGate(t *testing.T) {
+	got := StreamNameForJetStream("gate")
+	if got != StreamGateEvents {
+		t.Errorf("StreamNameForJetStream(\"gate\") = %q, want %q", got, StreamGateEvents)
+	}
+}
+
 // TestEnsureStreamsIdempotent lives in bus_test.go (more thorough version).
