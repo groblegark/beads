@@ -6,6 +6,7 @@ package rpc
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -151,12 +152,12 @@ func TestVersionCompatibility(t *testing.T) {
 					t.Errorf("Expected operation to fail due to version mismatch, but it succeeded")
 				}
 				if err != nil && tt.errorContains != "" {
-					if !contains(err.Error(), tt.errorContains) {
+					if !strings.Contains(err.Error(), tt.errorContains) {
 						t.Errorf("Expected error to contain '%s', got: %s", tt.errorContains, err.Error())
 					}
 				}
 				if resp != nil && !resp.Success && tt.errorContains != "" {
-					if !contains(resp.Error, tt.errorContains) {
+					if !strings.Contains(resp.Error, tt.errorContains) {
 						t.Errorf("Expected error to contain '%s', got: %s", tt.errorContains, resp.Error)
 					}
 				}
@@ -317,7 +318,7 @@ func TestVersionCheckMessage(t *testing.T) {
 			if tt.expectError {
 				if err == nil {
 					t.Error("Expected error but got nil")
-				} else if tt.errorContains != "" && !contains(err.Error(), tt.errorContains) {
+				} else if tt.errorContains != "" && !strings.Contains(err.Error(), tt.errorContains) {
 					t.Errorf("Expected error to contain '%s', got: %s", tt.errorContains, err.Error())
 				}
 			} else {
@@ -444,19 +445,4 @@ func TestMetricsOperation(t *testing.T) {
 	}
 
 	server.Stop()
-}
-
-// Helper function
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(substr) == 0 ||
-		(len(s) > 0 && len(substr) > 0 && findSubstring(s, substr)))
-}
-
-func findSubstring(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
 }

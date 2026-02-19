@@ -178,7 +178,7 @@ func TestAgentStop_NotFound(t *testing.T) {
 	}
 }
 
-func TestAgentRestart_SetsSpawningState(t *testing.T) {
+func TestRestart_Spawning(t *testing.T) {
 	d := testdaemon.Start(t)
 	client := connectTestClient(t, d)
 
@@ -202,7 +202,7 @@ func TestAgentRestart_SetsSpawningState(t *testing.T) {
 	}
 }
 
-func TestAgentRestart_SignalsCoopBeforeRestart(t *testing.T) {
+func TestRestart_CoopSignal(t *testing.T) {
 	var signalReceived atomic.Bool
 	coopServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/api/v1/signal" {
@@ -330,7 +330,7 @@ func showIssue(t *testing.T, client *rpc.Client, id string) types.Issue {
 
 // --- Pod register/deregister coop_url tests (bd-x820i) ---
 
-func TestPodRegister_StoresExplicitCoopURL(t *testing.T) {
+func TestPodReg_CoopURL(t *testing.T) {
 	d := testdaemon.Start(t)
 	client := connectTestClient(t, d)
 
@@ -352,7 +352,7 @@ func TestPodRegister_StoresExplicitCoopURL(t *testing.T) {
 	}
 }
 
-func TestPodRegister_DerivesCoopURLFromPodIP(t *testing.T) {
+func TestPodReg_DeriveFromIP(t *testing.T) {
 	d := testdaemon.Start(t)
 	client := connectTestClient(t, d)
 
@@ -374,7 +374,7 @@ func TestPodRegister_DerivesCoopURLFromPodIP(t *testing.T) {
 	}
 }
 
-func TestPodDeregister_ClearsCoopURL(t *testing.T) {
+func TestPodDereg_ClearsCoop(t *testing.T) {
 	d := testdaemon.Start(t)
 	client := connectTestClient(t, d)
 
@@ -406,7 +406,7 @@ func TestPodDeregister_ClearsCoopURL(t *testing.T) {
 
 // --- Retry logic tests (bd-x820i) ---
 
-func TestAgentStop_RetriesOnTransientFailure(t *testing.T) {
+func TestStop_CoopRetry(t *testing.T) {
 	var attempts atomic.Int32
 	coopServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		n := attempts.Add(1)
@@ -441,7 +441,7 @@ func TestAgentStop_RetriesOnTransientFailure(t *testing.T) {
 	}
 }
 
-func TestAgentSignal_RetriesOnTransientFailure(t *testing.T) {
+func TestSignal_CoopRetry(t *testing.T) {
 	var attempts atomic.Int32
 	coopServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		n := attempts.Add(1)
@@ -475,7 +475,7 @@ func TestAgentSignal_RetriesOnTransientFailure(t *testing.T) {
 	}
 }
 
-func TestAgentSignal_FailsAfterAllRetries(t *testing.T) {
+func TestSignal_AllRetryFail(t *testing.T) {
 	coopServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Always fail.
 		w.WriteHeader(http.StatusServiceUnavailable)
@@ -498,18 +498,26 @@ func TestAgentSignal_FailsAfterAllRetries(t *testing.T) {
 
 // --- Restart clears pod fields (bd-x820i) ---
 
-func TestAgentRestart_ClearsPodStatus(t *testing.T) {
+func TestRestart_ClearsPod(t *testing.T) {
+	// Start a mock coop that responds instantly so restart's best-effort
+	// SIGTERM doesn't hang on a non-routable IP.
+	coopServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer coopServer.Close()
+
 	d := testdaemon.Start(t)
 	client := connectTestClient(t, d)
 
 	createAgentBead(t, client, "hq-restartclear", "")
 
-	// Register a pod so pod fields are populated.
+	// Register a pod with explicit coop_url pointing to our mock server.
 	_, err := client.AgentPodRegister(&rpc.AgentPodRegisterArgs{
 		AgentID:   "hq-restartclear",
 		PodName:   "restartclear-pod",
 		PodIP:     "10.0.3.1",
 		PodStatus: "running",
+		CoopURL:   coopServer.URL,
 	})
 	if err != nil {
 		t.Fatalf("register: %v", err)
@@ -538,7 +546,7 @@ func TestAgentRestart_ClearsPodStatus(t *testing.T) {
 	}
 }
 
-func TestAgentRestart_NotFound(t *testing.T) {
+func TestRestart_NotFound(t *testing.T) {
 	d := testdaemon.Start(t)
 	client := connectTestClient(t, d)
 
@@ -550,7 +558,7 @@ func TestAgentRestart_NotFound(t *testing.T) {
 	}
 }
 
-func TestAgentRestart_MissingAgentID(t *testing.T) {
+func TestRestart_NoAgentID(t *testing.T) {
 	d := testdaemon.Start(t)
 	client := connectTestClient(t, d)
 
@@ -562,7 +570,7 @@ func TestAgentRestart_MissingAgentID(t *testing.T) {
 
 // --- Stop behavior with missing/unreachable coop (bd-x820i) ---
 
-func TestAgentStop_NoCoop_StillSucceeds(t *testing.T) {
+func TestStop_NoCoop(t *testing.T) {
 	d := testdaemon.Start(t)
 	client := connectTestClient(t, d)
 
@@ -582,7 +590,7 @@ func TestAgentStop_NoCoop_StillSucceeds(t *testing.T) {
 	}
 }
 
-func TestAgentStop_CoopUnreachable_StillSetsStopping(t *testing.T) {
+func TestStop_CoopDown(t *testing.T) {
 	d := testdaemon.Start(t)
 	client := connectTestClient(t, d)
 
