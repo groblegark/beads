@@ -2075,6 +2075,22 @@ func (c *Client) SessionList(args *SessionListArgs) (*SessionListResponse, error
 	return &result, nil
 }
 
+// SQL executes a read-only SQL query against the Dolt database (gt-kmapkw).
+func (c *Client) SQL(args *SQLArgs) (*SQLResult, error) {
+	resp, err := c.Execute(OpSQL, args)
+	if err != nil {
+		return nil, err
+	}
+	if !resp.Success {
+		return nil, fmt.Errorf("%s", resp.Error)
+	}
+	var result SQLResult
+	if err := json.Unmarshal(resp.Data, &result); err != nil {
+		return nil, fmt.Errorf("failed to parse sql result: %w", err)
+	}
+	return &result, nil
+}
+
 // cleanupStaleDaemonArtifacts removes stale daemon.pid file when socket is missing and lock is free.
 // This prevents stale artifacts from accumulating after daemon crashes.
 // Only removes pid file - lock file is managed by OS (released on process exit).

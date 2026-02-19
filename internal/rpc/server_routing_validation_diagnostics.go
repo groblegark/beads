@@ -522,6 +522,9 @@ func (s *Server) executeOperation(req *Request) Response {
 		resp = s.handleDirtyCount(req)
 	case OpDirtyFlush:
 		resp = s.handleDirtyFlush(req)
+	// SQL query operation (gt-kmapkw)
+	case OpSQL:
+		resp = s.handleSQL(req)
 	default:
 		return Response{
 			Success: false,

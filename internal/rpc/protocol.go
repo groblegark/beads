@@ -214,6 +214,9 @@ const (
 	OpHistoryConflicts        = "history_conflicts"
 	OpHistoryResolveConflicts = "history_resolve_conflicts"
 	OpVersionedDiff           = "versioned_diff"
+
+	// SQL query operation (gt-kmapkw)
+	OpSQL = "sql"
 )
 
 // Request represents an RPC request from client to daemon
@@ -2451,6 +2454,18 @@ type VersionedDiffEntryRPC struct {
 // VersionedDiffResult represents the result of a versioned_diff operation.
 type VersionedDiffResult struct {
 	Entries []VersionedDiffEntryRPC `json:"entries"`
+}
+
+// SQLArgs represents arguments for the sql query operation (gt-kmapkw)
+type SQLArgs struct {
+	Query string `json:"query"` // SQL query string (SELECT only)
+}
+
+// SQLResult represents the result of a sql query operation
+type SQLResult struct {
+	Columns []string                 `json:"columns"`           // Column names
+	Rows    []map[string]interface{} `json:"rows"`              // Result rows as key-value maps
+	Count   int                      `json:"count"`             // Number of rows returned
 }
 
 // Sidecar metadata keys (used by K8s agent pods for toolchain sidecars)

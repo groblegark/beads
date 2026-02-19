@@ -537,6 +537,9 @@ func httpMethodToOperation(method string) string {
 		// Done/wait (bd-3lheb)
 		"DoneWait": OpDoneWait,
 
+		// SQL query (gt-kmapkw)
+		"SQL": OpSQL,
+
 		// Session identity (bd-zp6v9, bd-tp3r6)
 		"SessionRegister": OpSessionRegister,
 		"SessionList":     OpSessionList,
