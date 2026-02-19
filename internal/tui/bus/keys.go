@@ -22,6 +22,9 @@ type KeyMap struct {
 	FilterSearch key.Binding // Set keyword search filter
 	FilterClear  key.Binding // Clear all filters
 
+	// Views
+	Stats key.Binding // Toggle stats view
+
 	// Search navigation
 	NextMatch key.Binding // Jump to next search match
 	PrevMatch key.Binding // Jump to previous search match
@@ -89,6 +92,10 @@ func DefaultKeyMap() KeyMap {
 			key.WithKeys("c"),
 			key.WithHelp("c", "clear filters"),
 		),
+		Stats: key.NewBinding(
+			key.WithKeys("v"),
+			key.WithHelp("v", "stats view"),
+		),
 		NextMatch: key.NewBinding(
 			key.WithKeys("n"),
 			key.WithHelp("n", "next match"),
@@ -121,7 +128,7 @@ func (k KeyMap) ShortHelp() []key.Binding {
 func (k KeyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{k.Up, k.Down, k.PageUp, k.PageDown},
-		{k.Home, k.End, k.Pause, k.Detail},
+		{k.Home, k.End, k.Pause, k.Detail, k.Stats},
 		{k.FilterStream, k.FilterActor, k.FilterSearch, k.FilterClear},
 		{k.NextMatch, k.PrevMatch, k.Copy, k.Refresh},
 		{k.Help, k.Quit},

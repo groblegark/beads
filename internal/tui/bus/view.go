@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/steveyegge/beads/internal/rpc"
 )
@@ -18,6 +19,10 @@ func (m *Model) renderView() string {
 
 	if m.showDetail {
 		return m.renderDetailView()
+	}
+
+	if m.showStats {
+		return m.renderStatsView()
 	}
 
 	// Title bar
@@ -261,6 +266,147 @@ func (m *Model) renderDetailContent() string {
 	}
 
 	return b.String()
+}
+
+// renderStatsView renders the stats dashboard.
+func (m *Model) renderStatsView() string {
+	var b strings.Builder
+
+	b.WriteString(titleStyle.Render("Bus Stats"))
+	b.WriteString(mutedStyle.Render(fmt.Sprintf("  %d total events (buf %d/%d)",
+		m.history.Total(), m.history.Len(), m.history.Cap())))
+	b.WriteString("\n\n")
+
+	if m.history.Len() == 0 {
+		b.WriteString(statusStyle.Render("  No events yet. Waiting for data..."))
+		b.WriteString("\n\n")
+		b.WriteString(helpStyle.Render("v: back to timeline  q: quit"))
+		b.WriteString("\n")
+		return b.String()
+	}
+
+	// Compute stats from the ring buffer
+	streamCounts := make(map[string]int)
+	typeCounts := make(map[string]int)
+	actorCounts := make(map[string]int)
+
+	for i := 0; i < m.history.Len(); i++ {
+		evt := m.history.Get(i)
+		streamCounts[evt.Stream]++
+		typeCounts[evt.Type]++
+
+		// Extract actor from payload
+		var info struct {
+			Actor     string `json:"actor"`
+			AgentName string `json:"agent_name"`
+		}
+		_ = json.Unmarshal(evt.Payload, &info)
+		actor := info.Actor
+		if actor == "" {
+			actor = info.AgentName
+		}
+		if actor != "" {
+			actorCounts[actor]++
+		}
+	}
+
+	// Events per second (using first and last event timestamps)
+	eps := ""
+	if m.history.Len() >= 2 {
+		first := m.history.Get(0)
+		last := m.history.Last()
+		t0, err0 := time.Parse(time.RFC3339Nano, first.TS)
+		t1, err1 := time.Parse(time.RFC3339Nano, last.TS)
+		if err0 == nil && err1 == nil {
+			dur := t1.Sub(t0).Seconds()
+			if dur > 0 {
+				eps = fmt.Sprintf("%.1f events/sec", float64(m.history.Len())/dur)
+			}
+		}
+	}
+
+	// Section: throughput
+	b.WriteString(detailKeyStyle.Render("  Throughput: "))
+	if eps != "" {
+		b.WriteString(detailValStyle.Render(eps))
+	} else {
+		b.WriteString(mutedStyle.Render("calculating..."))
+	}
+	b.WriteString("\n\n")
+
+	// Section: streams
+	b.WriteString(detailKeyStyle.Render("  Streams"))
+	b.WriteString("\n")
+	for _, s := range allStreams {
+		count := streamCounts[s]
+		if count > 0 {
+			bar := strings.Repeat("█", min(count*40/m.history.Len(), 40))
+			pct := float64(count) * 100 / float64(m.history.Len())
+			b.WriteString(fmt.Sprintf("    %s %s %s\n",
+				streamStyle(s).Render(fmt.Sprintf("%-12s", s)),
+				streamStyle(s).Render(bar),
+				mutedStyle.Render(fmt.Sprintf("%d (%.0f%%)", count, pct))))
+		}
+	}
+	b.WriteString("\n")
+
+	// Section: top event types (top 8)
+	b.WriteString(detailKeyStyle.Render("  Top Event Types"))
+	b.WriteString("\n")
+	topTypes := topN(typeCounts, 8)
+	for _, kv := range topTypes {
+		b.WriteString(fmt.Sprintf("    %s %s\n",
+			eventTypeStyle(kv.key).Render(fmt.Sprintf("%-28s", kv.key)),
+			mutedStyle.Render(fmt.Sprintf("%d", kv.count))))
+	}
+	b.WriteString("\n")
+
+	// Section: active actors (top 8)
+	if len(actorCounts) > 0 {
+		b.WriteString(detailKeyStyle.Render("  Active Actors"))
+		b.WriteString("\n")
+		topActors := topN(actorCounts, 8)
+		for _, kv := range topActors {
+			b.WriteString(fmt.Sprintf("    %s %s\n",
+				detailValStyle.Render(fmt.Sprintf("%-20s", kv.key)),
+				mutedStyle.Render(fmt.Sprintf("%d events", kv.count))))
+		}
+		b.WriteString("\n")
+	}
+
+	// Help
+	b.WriteString(helpStyle.Render("v: back to timeline  q: quit"))
+	b.WriteString("\n")
+
+	return b.String()
+}
+
+// kvPair is a key-value pair for sorting counts.
+type kvPair struct {
+	key   string
+	count int
+}
+
+// topN returns the top N entries from a count map, sorted by count descending.
+func topN(counts map[string]int, n int) []kvPair {
+	pairs := make([]kvPair, 0, len(counts))
+	for k, v := range counts {
+		pairs = append(pairs, kvPair{k, v})
+	}
+	// Simple selection sort for small N
+	for i := 0; i < len(pairs) && i < n; i++ {
+		maxIdx := i
+		for j := i + 1; j < len(pairs); j++ {
+			if pairs[j].count > pairs[maxIdx].count {
+				maxIdx = j
+			}
+		}
+		pairs[i], pairs[maxIdx] = pairs[maxIdx], pairs[i]
+	}
+	if len(pairs) > n {
+		pairs = pairs[:n]
+	}
+	return pairs
 }
 
 // colorizeJSONLine applies syntax highlighting to a single line of formatted JSON.

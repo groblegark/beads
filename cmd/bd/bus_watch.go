@@ -29,6 +29,7 @@ Streams: hooks, decisions, oj, agents, mail, mutations, config, inbox
 Views:
   Timeline   Live scrolling event list (default)
   Detail     Full JSON payload of selected event (press Enter)
+  Stats      Throughput, stream histogram, top types, active actors (press v)
 
 Key bindings:
   j/k        Scroll up/down through events
@@ -40,6 +41,7 @@ Key bindings:
   /          Search through events (text input, then n/N to navigate)
   n/N        Jump to next/previous search match
   c          Clear all filters
+  v          Toggle stats dashboard (throughput, top types, actors)
   y          Copy selected event JSON to clipboard
   r          Reconnect to SSE endpoint
   ?          Toggle help

@@ -44,8 +44,9 @@ type Model struct {
 	paused   bool // when true, auto-scroll is disabled
 	atBottom bool // true when cursor is at the latest event
 
-	// Detail view
+	// Detail / stats views
 	showDetail     bool
+	showStats      bool
 	detailViewport viewport.Model
 
 	// Filtering
@@ -190,6 +191,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.showDetail {
 			return m.handleDetailKeys(msg)
 		}
+		if m.showStats {
+			return m.handleStatsKeys(msg)
+		}
 		return m.handleTimelineKeys(msg)
 
 	case sseEventMsg:
@@ -294,6 +298,9 @@ func (m *Model) handleTimelineKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.updateDetailViewport()
 		}
 
+	case key.Matches(msg, m.keys.Stats):
+		m.showStats = !m.showStats
+
 	case key.Matches(msg, m.keys.Copy):
 		m.copySelectedEvent()
 
@@ -356,6 +363,20 @@ func (m *Model) handleDetailKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.detailViewport.GotoTop()
 	case key.Matches(msg, m.keys.End):
 		m.detailViewport.GotoBottom()
+	}
+	return m, nil
+}
+
+// handleStatsKeys handles key presses in the stats view.
+func (m *Model) handleStatsKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch {
+	case key.Matches(msg, m.keys.Quit):
+		if m.cancel != nil {
+			m.cancel()
+		}
+		return m, tea.Quit
+	case key.Matches(msg, m.keys.Stats):
+		m.showStats = false
 	}
 	return m, nil
 }
