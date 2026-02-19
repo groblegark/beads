@@ -742,27 +742,19 @@ func buildRosterSummaryForHook(self string) string {
 
 	// Crashed agents with orphaned work.
 	if len(crashed) > 0 {
+		// Only show crashed agents that have orphaned work. (bd-kpudsl)
 		var orphaned []string
 		for _, a := range crashed {
 			if a.TaskID != "" {
-				orphaned = append(orphaned, fmt.Sprintf("%s had %s: %s", a.Actor, a.TaskID, a.TaskTitle))
+				orphaned = append(orphaned, fmt.Sprintf("  %s had %s: %s", a.Actor, a.TaskID, a.TaskTitle))
 			}
 		}
-		sb.WriteString(fmt.Sprintf("Crashed: %d", len(crashed)))
 		if len(orphaned) > 0 {
-			sb.WriteString(fmt.Sprintf(" (%d with orphaned work)\n", len(orphaned)))
+			sb.WriteString(fmt.Sprintf("Orphaned work: %d\n", len(orphaned)))
 			for _, o := range orphaned {
-				sb.WriteString(fmt.Sprintf("  %s\n", o))
+				sb.WriteString(o + "\n")
 			}
-		} else {
-			sb.WriteString("\n")
 		}
-	}
-
-	// Epic analysis — crowding, completion detection, gap analysis. (bd-o39m9)
-	epicInsights := buildEpicInsights(self, active)
-	if epicInsights != "" {
-		sb.WriteString(epicInsights)
 	}
 
 	// Ready work — unclaimed tasks not being worked by any active agent.
