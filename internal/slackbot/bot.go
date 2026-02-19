@@ -151,6 +151,20 @@ func NewBot(cfg BotConfig, decisions *DecisionClient) (*Bot, error) {
 		log.Printf("slackbot: restored %d agent status cards from state file", len(agentCards))
 	}
 
+	// Hydrate in-memory decision messages from persisted state so
+	// predecessor threading survives bot restarts. (beads-tsk-thread_support)
+	decisionMsgs := make(map[string]messageInfo)
+	for decisionID, msg := range stateMgr.state.DecisionMessages {
+		decisionMsgs[decisionID] = messageInfo{
+			channelID: msg.ChannelID,
+			timestamp: msg.Timestamp,
+			agent:     msg.Agent,
+		}
+	}
+	if len(decisionMsgs) > 0 {
+		log.Printf("slackbot: restored %d decision message refs from state file", len(decisionMsgs))
+	}
+
 	bot := &Bot{
 		client:            client,
 		socketMode:        socketClient,
@@ -163,7 +177,7 @@ func NewBot(cfg BotConfig, decisions *DecisionClient) (*Bot, error) {
 		channelPrefix:     channelPrefix,
 		channelCache:      make(map[string]string),
 		autoInviteUsers:   cfg.AutoInviteUsers,
-		decisionMessages:  make(map[string]messageInfo),
+		decisionMessages:  decisionMsgs,
 		agentStatusCards:  agentCards,
 		agentPendingCount: make(map[string]int),
 		stateManager:      stateMgr,
@@ -1328,11 +1342,13 @@ func (b *Bot) NotifyNewDecision(decision *Decision) error {
 	}
 
 	if decision.PredecessorID != "" {
+		chainText := fmt.Sprintf(":link: _Chained from: %s_", decision.PredecessorID)
+		if decision.Iteration > 1 {
+			chainText = fmt.Sprintf(":link: _Iteration %d — chained from: %s_", decision.Iteration, decision.PredecessorID)
+		}
 		blocks = append(blocks,
 			slack.NewContextBlock("",
-				slack.NewTextBlockObject("mrkdwn",
-					fmt.Sprintf(":link: _Chained from: %s_", decision.PredecessorID),
-					false, false)))
+				slack.NewTextBlockObject("mrkdwn", chainText, false, false)))
 	}
 
 	if decision.Context != "" {
@@ -1457,6 +1473,11 @@ func (b *Bot) NotifyNewDecision(decision *Decision) error {
 			agent:     agent,
 		}
 		b.decisionMessagesMu.Unlock()
+
+		// Persist decision message ref so threading survives restarts.
+		if b.stateManager != nil {
+			_ = b.stateManager.SetDecisionMessage(decision.ID, targetChannel, ts, agent)
+		}
 
 		if statusCardTS != "" {
 			// Rig mode: update agent status card with pending count

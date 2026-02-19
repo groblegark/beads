@@ -14,9 +14,17 @@ type agentCardState struct {
 	Timestamp string `json:"timestamp"`
 }
 
+// decisionMessageState is the serialized form of a decision's Slack message reference.
+type decisionMessageState struct {
+	ChannelID string `json:"channel_id"`
+	Timestamp string `json:"timestamp"`
+	Agent     string `json:"agent,omitempty"`
+}
+
 // slackState is the top-level persisted state.
 type slackState struct {
-	AgentCards map[string]agentCardState `json:"agent_cards"`
+	AgentCards       map[string]agentCardState       `json:"agent_cards"`
+	DecisionMessages map[string]decisionMessageState `json:"decision_messages,omitempty"`
 }
 
 // StateManager persists Slack bot state across restarts.
@@ -45,7 +53,8 @@ func NewStateManager(beadsDir string) *StateManager {
 	sm := &StateManager{
 		filePath: filePath,
 		state: slackState{
-			AgentCards: make(map[string]agentCardState),
+			AgentCards:       make(map[string]agentCardState),
+			DecisionMessages: make(map[string]decisionMessageState),
 		},
 	}
 
@@ -82,6 +91,40 @@ func (sm *StateManager) SetAgentCard(agent, channelID, timestamp string) error {
 func (sm *StateManager) RemoveAgentCard(agent string) error {
 	sm.mu.Lock()
 	delete(sm.state.AgentCards, agent)
+	sm.mu.Unlock()
+
+	return sm.Save()
+}
+
+// GetDecisionMessage returns the persisted message info for a decision, if any.
+func (sm *StateManager) GetDecisionMessage(decisionID string) (channelID, timestamp, agent string, ok bool) {
+	sm.mu.RLock()
+	defer sm.mu.RUnlock()
+
+	msg, exists := sm.state.DecisionMessages[decisionID]
+	if !exists {
+		return "", "", "", false
+	}
+	return msg.ChannelID, msg.Timestamp, msg.Agent, true
+}
+
+// SetDecisionMessage persists a message reference for a decision.
+func (sm *StateManager) SetDecisionMessage(decisionID, channelID, timestamp, agent string) error {
+	sm.mu.Lock()
+	sm.state.DecisionMessages[decisionID] = decisionMessageState{
+		ChannelID: channelID,
+		Timestamp: timestamp,
+		Agent:     agent,
+	}
+	sm.mu.Unlock()
+
+	return sm.Save()
+}
+
+// RemoveDecisionMessage removes a persisted decision message reference.
+func (sm *StateManager) RemoveDecisionMessage(decisionID string) error {
+	sm.mu.Lock()
+	delete(sm.state.DecisionMessages, decisionID)
 	sm.mu.Unlock()
 
 	return sm.Save()
@@ -147,6 +190,9 @@ func (sm *StateManager) Load() error {
 
 	if state.AgentCards == nil {
 		state.AgentCards = make(map[string]agentCardState)
+	}
+	if state.DecisionMessages == nil {
+		state.DecisionMessages = make(map[string]decisionMessageState)
 	}
 
 	sm.state = state

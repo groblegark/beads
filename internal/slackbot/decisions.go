@@ -39,6 +39,7 @@ type Decision struct {
 	Urgency         string // "high", "medium", "low"
 	Resolved        bool
 	PredecessorID   string
+	Iteration       int // 1-indexed iteration number in decision chain
 	ParentBeadID    string
 	ParentBeadTitle string
 	Blockers        []string
@@ -303,6 +304,7 @@ func convertDecisionResponse(resp *rpc.DecisionResponse) Decision {
 	}
 	d.Urgency = dp.Urgency
 	d.PredecessorID = dp.PriorID
+	d.Iteration = dp.Iteration
 	d.ParentBeadID = dp.ParentBeadID
 	d.Resolved = dp.RespondedAt != nil
 	d.ResolvedBy = dp.RespondedBy
