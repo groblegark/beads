@@ -348,6 +348,9 @@ func (s *Server) executeOperation(req *Request) Response {
 		resp = s.handleSessionRegister(req)
 	case OpSessionList:
 		resp = s.handleSessionList(req)
+	// Graph visualization (bd-hpk9f)
+	case OpGraph:
+		resp = s.handleGraph(req)
 	// Mol operations (gt-as9kdm)
 	case OpMolBond:
 		resp = s.handleMolBond(req)

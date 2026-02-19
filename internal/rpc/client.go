@@ -672,6 +672,11 @@ func (c *Client) Blocked(args *BlockedArgs) (*Response, error) {
 	return c.Execute(OpBlocked, args)
 }
 
+// Graph returns nodes and edges for graph visualization
+func (c *Client) Graph(args *GraphArgs) (*Response, error) {
+	return c.Execute(OpGraph, args)
+}
+
 // Stale gets stale issues via the daemon
 func (c *Client) Stale(args *StaleArgs) (*Response, error) {
 	return c.Execute(OpStale, args)

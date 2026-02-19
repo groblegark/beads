@@ -495,6 +495,9 @@ func operationToHTTPMethod(operation string) string {
 		// Session identity (bd-zp6v9, bd-tp3r6)
 		OpSessionRegister: "SessionRegister",
 		OpSessionList:     "SessionList",
+
+		// Graph visualization (bd-hpk9f)
+		OpGraph: "Graph",
 	}
 
 	return methodMap[operation]

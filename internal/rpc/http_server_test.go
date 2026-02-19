@@ -410,6 +410,8 @@ func TestHTTPMappingCompleteness(t *testing.T) {
 		OpInboxPush, OpInboxList, OpInboxDrain, OpInboxMarkDelivered,
 		// Session identity (bd-zp6v9, bd-tp3r6)
 		OpSessionRegister, OpSessionList,
+		// Graph visualization (bd-hpk9f)
+		OpGraph,
 	}
 
 	t.Run("client_operationToHTTPMethod_covers_all_handled_ops", func(t *testing.T) {

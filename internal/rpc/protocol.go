@@ -224,6 +224,9 @@ const (
 
 	// SQL query operation (gt-kmapkw)
 	OpSQL = "sql"
+
+	// Graph visualization (bd-hpk9f)
+	OpGraph = "graph"
 )
 
 // Request represents an RPC request from client to daemon
@@ -2547,6 +2550,68 @@ type SQLResult struct {
 	Columns []string                 `json:"columns"`           // Column names
 	Rows    []map[string]interface{} `json:"rows"`              // Result rows as key-value maps
 	Count   int                      `json:"count"`             // Number of rows returned
+}
+
+// GraphArgs represents arguments for the graph visualization endpoint (bd-hpk9f).
+// Returns nodes (issues) and edges (dependencies) optimized for 3D rendering.
+type GraphArgs struct {
+	// Filtering
+	Status      []string `json:"status,omitempty"`       // Include these statuses (default: open, in_progress)
+	ExcludeTypes []string `json:"exclude_types,omitempty"` // Exclude these issue types (default: message, config)
+	Types       []string `json:"types,omitempty"`         // Include only these issue types
+	Priority    *int     `json:"priority,omitempty"`      // Filter by exact priority
+	PriorityMin *int     `json:"priority_min,omitempty"`  // Min priority (0=P0)
+	PriorityMax *int     `json:"priority_max,omitempty"`  // Max priority (4=P4)
+	Labels      []string `json:"labels,omitempty"`        // AND filter on labels
+	LabelsAny   []string `json:"labels_any,omitempty"`    // OR filter on labels
+	ParentID    string   `json:"parent_id,omitempty"`     // Scope to descendants of this epic/bead
+	Assignee    string   `json:"assignee,omitempty"`      // Filter by assignee
+	Query       string   `json:"query,omitempty"`         // Full-text search in title/description
+
+	// Depth control
+	Limit       int  `json:"limit,omitempty"`          // Max nodes (default 500)
+	IncludeDeps bool `json:"include_deps,omitempty"`   // Pull in dependency targets even if they don't match filters
+
+	// Content control
+	IncludeBody bool `json:"include_body,omitempty"`   // Include full description + notes text
+}
+
+// GraphNode represents a node in the graph visualization.
+type GraphNode struct {
+	ID          string   `json:"id"`
+	Title       string   `json:"title"`
+	Status      string   `json:"status"`
+	Priority    int      `json:"priority"`
+	IssueType   string   `json:"issue_type"`
+	Assignee    string   `json:"assignee,omitempty"`
+	Labels      []string `json:"labels,omitempty"`
+	CreatedAt   string   `json:"created_at,omitempty"`
+	UpdatedAt   string   `json:"updated_at,omitempty"`
+	Description string   `json:"description,omitempty"` // Only when include_body=true
+	Notes       string   `json:"notes,omitempty"`       // Only when include_body=true
+	Design      string   `json:"design,omitempty"`      // Only when include_body=true
+	Ephemeral   bool     `json:"ephemeral,omitempty"`
+	DepCount    int      `json:"dep_count,omitempty"`   // Number of dependencies
+	DepByCount  int      `json:"dep_by_count,omitempty"` // Number of dependents
+	BlockedBy   []string `json:"blocked_by,omitempty"`   // IDs of direct blockers
+}
+
+// GraphEdge represents an edge (dependency) in the graph visualization.
+type GraphEdge struct {
+	Source string `json:"source"` // Issue ID
+	Target string `json:"target"` // Depends-on issue ID
+	Type   string `json:"type"`   // Dependency type (blocks, parent-child, related, etc.)
+}
+
+// GraphResult is the response for the Graph endpoint.
+type GraphResult struct {
+	Nodes []GraphNode `json:"nodes"`
+	Edges []GraphEdge `json:"edges"`
+	Stats struct {
+		TotalOpen       int `json:"total_open"`
+		TotalInProgress int `json:"total_in_progress"`
+		TotalBlocked    int `json:"total_blocked"`
+	} `json:"stats"`
 }
 
 // Sidecar metadata keys (used by K8s agent pods for toolchain sidecars)
