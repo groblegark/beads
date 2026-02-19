@@ -1578,3 +1578,153 @@ func TestHandleUpdate_AutoAssignWhenNoExplicitAssignee(t *testing.T) {
 		t.Errorf("expected auto-assigned assignee 'worker-agent', got %q", updatedIssue.Assignee)
 	}
 }
+
+// mustJSON marshals v to json.RawMessage, panicking on error. Test helper.
+func mustJSON(v interface{}) json.RawMessage {
+	data, err := json.Marshal(v)
+	if err != nil {
+		panic(fmt.Sprintf("mustJSON: %v", err))
+	}
+	return data
+}
+
+// TestHandleUpdate_PreventWorkStealing verifies that setting status=in_progress
+// on an issue already in_progress by another agent is rejected. (bd-eg9u3)
+func TestHandleUpdate_PreventWorkStealing(t *testing.T) {
+	store := teststore.New(t)
+	server := NewServer("/tmp/test.sock", store, "/tmp", "/tmp/test.db")
+
+	// Create and claim an issue as agent-1
+	createResp := server.handleCreate(&Request{
+		Operation: OpCreate,
+		Args:      mustJSON(CreateArgs{Title: "Work Stealing Test", IssueType: "task", Priority: 2}),
+		Actor:     "agent-1",
+	})
+	if !createResp.Success {
+		t.Fatalf("create failed: %s", createResp.Error)
+	}
+	var created types.Issue
+	if err := json.Unmarshal(createResp.Data, &created); err != nil {
+		t.Fatalf("parse failed: %v", err)
+	}
+
+	// Agent-1 claims the issue
+	claimResp := server.handleUpdate(&Request{
+		Operation: OpUpdate,
+		Args:      mustJSON(UpdateArgs{ID: created.ID, Claim: true}),
+		Actor:     "agent-1",
+	})
+	if !claimResp.Success {
+		t.Fatalf("claim failed: %s", claimResp.Error)
+	}
+
+	// Agent-2 tries to set status=in_progress (bypass claim guard) — should fail
+	status := "in_progress"
+	stealResp := server.handleUpdate(&Request{
+		Operation: OpUpdate,
+		Args:      mustJSON(UpdateArgs{ID: created.ID, Status: &status}),
+		Actor:     "agent-2",
+	})
+	if stealResp.Success {
+		t.Error("expected work-stealing attempt to be rejected, but it succeeded")
+	}
+	if !strings.Contains(stealResp.Error, "already in progress by agent-1") {
+		t.Errorf("expected error mentioning agent-1, got: %s", stealResp.Error)
+	}
+
+	// Same actor (agent-1) can re-set in_progress on their own issue
+	selfResp := server.handleUpdate(&Request{
+		Operation: OpUpdate,
+		Args:      mustJSON(UpdateArgs{ID: created.ID, Status: &status}),
+		Actor:     "agent-1",
+	})
+	if !selfResp.Success {
+		t.Errorf("same actor should be allowed to re-set in_progress: %s", selfResp.Error)
+	}
+}
+
+// TestHandleUpdate_PreventWorkStealing_WithAssigneeOverride verifies that explicitly
+// setting --assignee along with --status=in_progress is also rejected when another
+// agent already holds the issue. (bd-eg9u3)
+func TestHandleUpdate_PreventWorkStealing_WithAssigneeOverride(t *testing.T) {
+	store := teststore.New(t)
+	server := NewServer("/tmp/test.sock", store, "/tmp", "/tmp/test.db")
+
+	// Create and claim as agent-1
+	createResp := server.handleCreate(&Request{
+		Operation: OpCreate,
+		Args:      mustJSON(CreateArgs{Title: "Override Test", IssueType: "task", Priority: 2}),
+		Actor:     "agent-1",
+	})
+	if !createResp.Success {
+		t.Fatalf("create failed: %s", createResp.Error)
+	}
+	var created types.Issue
+	if err := json.Unmarshal(createResp.Data, &created); err != nil {
+		t.Fatalf("parse failed: %v", err)
+	}
+
+	claimResp := server.handleUpdate(&Request{
+		Operation: OpUpdate,
+		Args:      mustJSON(UpdateArgs{ID: created.ID, Claim: true}),
+		Actor:     "agent-1",
+	})
+	if !claimResp.Success {
+		t.Fatalf("claim failed: %s", claimResp.Error)
+	}
+
+	// Agent-2 tries status=in_progress + assignee=agent-2 — should fail
+	status := "in_progress"
+	assignee := "agent-2"
+	stealResp := server.handleUpdate(&Request{
+		Operation: OpUpdate,
+		Args:      mustJSON(UpdateArgs{ID: created.ID, Status: &status, Assignee: &assignee}),
+		Actor:     "agent-2",
+	})
+	if stealResp.Success {
+		t.Error("expected work-stealing with assignee override to be rejected")
+	}
+	if !strings.Contains(stealResp.Error, "already in progress by agent-1") {
+		t.Errorf("expected error mentioning agent-1, got: %s", stealResp.Error)
+	}
+}
+
+// TestHandleUpdate_AllowTransitionFromOpen verifies that setting status=in_progress
+// on an OPEN issue with an assignee is still allowed (normal workflow). (bd-eg9u3)
+func TestHandleUpdate_AllowTransitionFromOpen(t *testing.T) {
+	store := teststore.New(t)
+	server := NewServer("/tmp/test.sock", store, "/tmp", "/tmp/test.db")
+
+	// Create an issue and manually set assignee without changing status
+	createResp := server.handleCreate(&Request{
+		Operation: OpCreate,
+		Args:      mustJSON(CreateArgs{Title: "Open Assign Test", IssueType: "task", Priority: 2}),
+		Actor:     "agent-1",
+	})
+	if !createResp.Success {
+		t.Fatalf("create failed: %s", createResp.Error)
+	}
+	var created types.Issue
+	if err := json.Unmarshal(createResp.Data, &created); err != nil {
+		t.Fatalf("parse failed: %v", err)
+	}
+
+	// Assign to agent-1 without changing status (stays open)
+	assignee := "agent-1"
+	server.handleUpdate(&Request{
+		Operation: OpUpdate,
+		Args:      mustJSON(UpdateArgs{ID: created.ID, Assignee: &assignee}),
+		Actor:     "agent-1",
+	})
+
+	// Agent-2 should be able to set in_progress on an OPEN issue even if assigned
+	status := "in_progress"
+	resp := server.handleUpdate(&Request{
+		Operation: OpUpdate,
+		Args:      mustJSON(UpdateArgs{ID: created.ID, Status: &status}),
+		Actor:     "agent-2",
+	})
+	if !resp.Success {
+		t.Errorf("should allow in_progress on open issue: %s", resp.Error)
+	}
+}

@@ -931,6 +931,18 @@ func (s *Server) handleUpdate(req *Request) Response {
 		}
 	}
 
+	// Prevent work-stealing: reject status→in_progress when the issue is already
+	// in_progress and assigned to a different agent. This closes the bypass where
+	// agents use `bd update <id> --status=in_progress` instead of `--claim`.
+	// The same actor can re-claim their own work. (bd-eg9u3)
+	if updateArgs.Status != nil && *updateArgs.Status == string(types.StatusInProgress) &&
+		issue.Status == types.StatusInProgress && issue.Assignee != "" && issue.Assignee != actor {
+		return Response{
+			Success: false,
+			Error:   fmt.Sprintf("already in progress by %s; use 'bd show %s' to check status", issue.Assignee, issue.ID),
+		}
+	}
+
 	// Parse updates before transaction (pure validation, no DB)
 	updates, err := updatesFromArgs(updateArgs)
 	if err != nil {
