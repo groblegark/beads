@@ -4097,14 +4097,32 @@ func (s *Server) handleDecisionResolve(req *Request) Response {
 	// Get associated issue (before emit so we can enrich event)
 	issue, _ := store.GetIssue(ctx, args.IssueID)
 
-	// Emit mutation + decision event for resolve
+	// Emit mutation + decision event for resolve.
+	// Resolve option ID to human-readable label for the event payload,
+	// and include response text as rationale so bd yield delivers it. (bd-kpudsl)
+	chosenLabel := args.SelectedOption
+	if dp.Options != "" && args.SelectedOption != "" {
+		var opts []types.DecisionOption
+		if err := json.Unmarshal([]byte(dp.Options), &opts); err == nil {
+			for _, o := range opts {
+				if o.ID == args.SelectedOption {
+					chosenLabel = o.Label
+					break
+				}
+			}
+		}
+	}
+	rationale := args.Guidance
+	if rationale == "" {
+		rationale = args.ResponseText
+	}
 	s.emitMutationForActor(MutationUpdate, issue, req.Actor)
 	s.emitDecisionEvent(eventbus.EventDecisionResponded, eventbus.DecisionEventPayload{
 		DecisionID:  args.IssueID,
 		RequestedBy: dp.RequestedBy,
-		ChosenLabel: args.SelectedOption,
+		ChosenLabel: chosenLabel,
 		ResolvedBy:  args.RespondedBy,
-		Rationale:   args.Guidance,
+		Rationale:   rationale,
 	}, req.Actor)
 
 	// Push decision response to requesting agent's inbox (bd-eo9xt).
@@ -4162,14 +4180,27 @@ func (s *Server) pushDecisionResponseToInbox(ctx context.Context, dp *types.Deci
 		return
 	}
 
-	// Format the response content for the agent
+	// Format the response content for the agent.
+	// Resolve option ID to label so agents see human-readable text. (bd-kpudsl)
+	label := args.SelectedOption
+	if dp.Options != "" && args.SelectedOption != "" {
+		var opts []types.DecisionOption
+		if err := json.Unmarshal([]byte(dp.Options), &opts); err == nil {
+			for _, o := range opts {
+				if o.ID == args.SelectedOption {
+					label = o.Label
+					break
+				}
+			}
+		}
+	}
 	var content string
 	if args.ResponseText != "" {
-		content = fmt.Sprintf("Decision %s resolved: selected [%s] — %s",
-			args.IssueID, args.SelectedOption, args.ResponseText)
+		content = fmt.Sprintf("Decision %s resolved: %s — %s",
+			args.IssueID, label, args.ResponseText)
 	} else {
-		content = fmt.Sprintf("Decision %s resolved: selected [%s]",
-			args.IssueID, args.SelectedOption)
+		content = fmt.Sprintf("Decision %s resolved: %s",
+			args.IssueID, label)
 	}
 	if args.RespondedBy != "" {
 		content += fmt.Sprintf("\nResponded by: %s", args.RespondedBy)
