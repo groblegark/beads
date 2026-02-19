@@ -210,6 +210,8 @@ func TestShouldDisableDaemonForWorktree(t *testing.T) {
 // TestShouldAutoStartDaemonWorktreeIntegration tests that shouldAutoStartDaemon
 // respects the worktree+sync-branch logic.
 func TestShouldAutoStartDaemonWorktreeIntegration(t *testing.T) {
+	t.Setenv("BD_DAEMON_HOST", "") // Ensure local mode for test
+
 	// Initialize config for tests
 	if err := config.Initialize(); err != nil {
 		t.Fatalf("Failed to initialize config: %v", err)

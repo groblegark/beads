@@ -19,10 +19,7 @@ func TestAgentStateWithRouting(t *testing.T) {
 	ctx := context.Background()
 
 	// Clear BD_DAEMON_HOST to test local file-based routing (not remote daemon)
-	if oldHost := os.Getenv("BD_DAEMON_HOST"); oldHost != "" {
-		os.Unsetenv("BD_DAEMON_HOST")
-		t.Cleanup(func() { os.Setenv("BD_DAEMON_HOST", oldHost) })
-	}
+	t.Setenv("BD_DAEMON_HOST", "")
 	// Also clear daemon-host config key (may be set in workspace config.yaml)
 	oldDaemonHost := config.GetString("daemon-host")
 	config.Set("daemon-host", "")
@@ -178,10 +175,7 @@ func TestNeedsRoutingFunction(t *testing.T) {
 // NOTE: This test uses os.Chdir and cannot run in parallel with other tests.
 func TestNeedsRoutingWithGlobalBEADS_DIR(t *testing.T) {
 	// Clear BD_DAEMON_HOST to test local file-based routing
-	if oldHost := os.Getenv("BD_DAEMON_HOST"); oldHost != "" {
-		os.Unsetenv("BD_DAEMON_HOST")
-		t.Cleanup(func() { os.Setenv("BD_DAEMON_HOST", oldHost) })
-	}
+	t.Setenv("BD_DAEMON_HOST", "")
 	oldDaemonHost := config.GetString("daemon-host")
 	config.Set("daemon-host", "")
 	t.Cleanup(func() { config.Set("daemon-host", oldDaemonHost) })
@@ -281,10 +275,7 @@ func TestAgentHeartbeatWithRouting(t *testing.T) {
 	ctx := context.Background()
 
 	// Clear BD_DAEMON_HOST to test local file-based routing (not remote daemon)
-	if oldHost := os.Getenv("BD_DAEMON_HOST"); oldHost != "" {
-		os.Unsetenv("BD_DAEMON_HOST")
-		t.Cleanup(func() { os.Setenv("BD_DAEMON_HOST", oldHost) })
-	}
+	t.Setenv("BD_DAEMON_HOST", "")
 	// Also clear daemon-host config key (may be set in workspace config.yaml)
 	oldDaemonHost := config.GetString("daemon-host")
 	config.Set("daemon-host", "")
@@ -401,10 +392,7 @@ func TestAgentShowWithRouting(t *testing.T) {
 	ctx := context.Background()
 
 	// Clear BD_DAEMON_HOST to test local file-based routing (not remote daemon)
-	if oldHost := os.Getenv("BD_DAEMON_HOST"); oldHost != "" {
-		os.Unsetenv("BD_DAEMON_HOST")
-		t.Cleanup(func() { os.Setenv("BD_DAEMON_HOST", oldHost) })
-	}
+	t.Setenv("BD_DAEMON_HOST", "")
 	// Also clear daemon-host config key (may be set in workspace config.yaml)
 	oldDaemonHost := config.GetString("daemon-host")
 	config.Set("daemon-host", "")
