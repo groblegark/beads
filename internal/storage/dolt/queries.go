@@ -377,9 +377,8 @@ func (s *DoltStore) GetReadyWork(ctx context.Context, filter types.WorkFilter) (
 	}
 
 	// Exclude blocked issues using materialized cache (bd-b2ts)
-	whereClauses = append(whereClauses, `
-		id NOT IN (SELECT issue_id FROM blocked_issues_cache)
-	`)
+	// LEFT JOIN avoids NOT IN subquery which can trigger a Dolt merge join panic (bd-1oda)
+	whereClauses = append(whereClauses, `b_cache.issue_id IS NULL`)
 
 	whereSQL := "WHERE " + strings.Join(whereClauses, " AND ")
 
@@ -406,8 +405,10 @@ func (s *DoltStore) GetReadyWork(ctx context.Context, filter types.WorkFilter) (
 	}
 
 	// nolint:gosec // G201: whereSQL contains column comparisons with ?, limitSQL is a safe integer
+	// LEFT JOIN blocked_issues_cache avoids NOT IN subquery merge join panic (bd-1oda)
 	query := fmt.Sprintf(`
 		SELECT %s FROM issues
+		LEFT JOIN blocked_issues_cache b_cache ON issues.id = b_cache.issue_id
 		%s
 		%s
 		%s
@@ -973,11 +974,13 @@ func (s *DoltStore) GetStatistics(ctx context.Context) (*types.Statistics, error
 	}
 
 	// Ready count: use blocked_issues_cache instead of the expensive recursive CTE view (bd-b2ts)
+	// LEFT JOIN avoids NOT IN subquery which can trigger a Dolt merge join panic (bd-1oda)
 	err = s.db.QueryRowContext(ctx, `
-		SELECT COUNT(*) FROM issues
-		WHERE status = 'open'
-		  AND (ephemeral = 0 OR ephemeral IS NULL)
-		  AND id NOT IN (SELECT issue_id FROM blocked_issues_cache)
+		SELECT COUNT(*) FROM issues i
+		LEFT JOIN blocked_issues_cache b ON i.id = b.issue_id
+		WHERE i.status = 'open'
+		  AND (i.ephemeral = 0 OR i.ephemeral IS NULL)
+		  AND b.issue_id IS NULL
 	`).Scan(&stats.ReadyIssues)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get ready count: %w", err)
