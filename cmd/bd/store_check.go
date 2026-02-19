@@ -11,10 +11,7 @@ func ensureStoreActive() error {
 		return nil
 	}
 
-	lockStore()
-	active := isStoreActive() && getStore() != nil
-	unlockStore()
-	if active {
+	if getStore() != nil {
 		return nil
 	}
 

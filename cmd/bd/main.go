@@ -11,7 +11,6 @@ import (
 	"runtime/trace"
 	"slices"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -19,7 +18,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/steveyegge/beads/internal/beads"
 	"github.com/steveyegge/beads/internal/config"
-"github.com/steveyegge/beads/internal/debug"
+	"github.com/steveyegge/beads/internal/debug"
 	"github.com/steveyegge/beads/internal/hooks"
 	"github.com/steveyegge/beads/internal/molecules"
 	"github.com/steveyegge/beads/internal/rpc"
@@ -42,25 +41,8 @@ var (
 	rootCtx    context.Context
 	rootCancel context.CancelFunc
 
-	// Auto-flush state
-	autoFlushEnabled  = true // Can be disabled with --no-auto-flush
-	flushMutex        sync.Mutex
-	storeMutex        sync.Mutex // Protects store access from background goroutine
-	storeActive       = false    // Tracks if store is available
-	flushFailureCount = 0        // Consecutive flush failures
-	lastFlushError    error      // Last flush error for debugging
-
-	// Auto-flush manager (event-driven, fixes race condition)
-	flushManager *FlushManager
-
 	// Hook runner for extensibility
 	hookRunner *hooks.Runner
-
-	// skipFinalFlush prevents PersistentPostRun from re-exporting and dirtying the working directory.
-	skipFinalFlush = false
-
-	// Auto-import state
-	autoImportEnabled = true // Can be disabled with --no-auto-import
 
 	// Version upgrade tracking
 	versionUpgradeDetected = false // Set to true if bd version changed since last run
@@ -68,8 +50,6 @@ var (
 	upgradeAcknowledged    = false // Set to true after showing upgrade notification once per session
 )
 var (
-	noAutoFlush     bool
-	noAutoImport    bool
 	allowStale      bool          // Use --allow-stale: skip staleness check (emergency escape hatch)
 	readonlyMode    bool          // Read-only mode: block write operations (for worker sandboxes)
 	storeIsReadOnly bool          // Track if store was opened read-only (for staleness checks)
@@ -228,8 +208,6 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&dbPath, "db", "", "Database path (default: auto-discover .beads/*.db)")
 	rootCmd.PersistentFlags().StringVar(&actor, "actor", "", "Actor name for audit trail (default: $BD_ACTOR, git user.name, $USER)")
 	rootCmd.PersistentFlags().BoolVar(&jsonOutput, "json", false, "Output in JSON format")
-	rootCmd.PersistentFlags().BoolVar(&noAutoFlush, "no-auto-flush", false, "Disable automatic JSONL sync after CRUD operations")
-	rootCmd.PersistentFlags().BoolVar(&noAutoImport, "no-auto-import", false, "Disable automatic JSONL import when newer than DB")
 	rootCmd.PersistentFlags().BoolVar(&allowStale, "allow-stale", false, "Allow operations on potentially stale data (skip staleness check)")
 	rootCmd.PersistentFlags().BoolVar(&readonlyMode, "readonly", false, "Read-only mode: block write operations (for worker sandboxes)")
 	rootCmd.PersistentFlags().StringVar(&doltAutoCommit, "dolt-auto-commit", "", "Dolt backend: auto-commit after write commands (off|on). Default from config key dolt.auto-commit")
@@ -315,22 +293,6 @@ var rootCmd = &cobra.Command{
 			}{jsonOutput, true}
 		}
 
-		if !cmd.Flags().Changed("no-auto-flush") {
-			noAutoFlush = config.GetBool("no-auto-flush")
-		} else {
-			flagOverrides["no-auto-flush"] = struct {
-				Value  interface{}
-				WasSet bool
-			}{noAutoFlush, true}
-		}
-		if !cmd.Flags().Changed("no-auto-import") {
-			noAutoImport = config.GetBool("no-auto-import")
-		} else {
-			flagOverrides["no-auto-import"] = struct {
-				Value  interface{}
-				WasSet bool
-			}{noAutoImport, true}
-		}
 		if !cmd.Flags().Changed("readonly") {
 			readonlyMode = config.GetBool("readonly")
 		} else {
@@ -450,10 +412,8 @@ var rootCmd = &cobra.Command{
 		// blocked by the remote daemon. (bd-dx85)
 		if remoteHost := rpc.GetDaemonHost(); remoteHost != "" {
 			localFlags := map[string]string{
-				"db":             "--db is ignored with remote daemon (BD_DAEMON_HOST is set)",
-				"lock-timeout":   "--lock-timeout is a SQLite setting, ignored with remote daemon",
-				"no-auto-flush":  "--no-auto-flush is a JSONL setting, ignored with remote daemon",
-				"no-auto-import": "--no-auto-import is a JSONL setting, ignored with remote daemon",
+				"db":           "--db is ignored with remote daemon (BD_DAEMON_HOST is set)",
+				"lock-timeout": "--lock-timeout is a SQLite setting, ignored with remote daemon",
 			}
 			for flag, msg := range localFlags {
 				if cmd.Flags().Changed(flag) {
@@ -485,12 +445,6 @@ var rootCmd = &cobra.Command{
 		// edit: now uses daemon RPC (Show + Update) exclusively.
 		// The forceDirectMode bypass was removed because edit already calls
 		// requireDaemon() and never touches direct storage. (hq-18vg2m.2)
-
-		// Set auto-flush based on flag (invert no-auto-flush)
-		autoFlushEnabled = !noAutoFlush
-
-		// Set auto-import based on flag (invert no-auto-import)
-		autoImportEnabled = !noAutoImport
 
 		// Initialize database path
 		if dbPath == "" {
@@ -782,7 +736,6 @@ var rootCmd = &cobra.Command{
 
 		// Fall back to direct storage access
 		var err error
-		var needsBootstrap bool // Track if DB needs initial import (GH#b09)
 
 		// Find the beads directory - prefer FindBeadsDir() which respects BEADS_DIR env
 		// and follows redirects. Fall back to deriving from dbPath for explicit --db usage.
@@ -817,7 +770,6 @@ var rootCmd = &cobra.Command{
 			debug.Logf("read-only open failed, falling back to read-write: %v", err)
 			opts.ReadOnly = false
 			store, err = factory.NewFromConfigWithOptions(rootCtx, beadsDir, opts)
-			needsBootstrap = true // New DB needs auto-import (GH#b09)
 		}
 
 		// Track final read-only state for staleness checks (GH#1089)
@@ -838,20 +790,6 @@ var rootCmd = &cobra.Command{
 			s.SetSkipDirtyTracking(true)
 		}
 
-		// Mark store as active for flush goroutine safety
-		storeMutex.Lock()
-		storeActive = true
-		storeMutex.Unlock()
-
-		// Initialize flush manager (fixes race condition in auto-flush)
-		// Skip for read-only commands - they don't write anything (GH#804)
-		// For in-process test scenarios where commands run multiple times,
-		// we create a new manager each time. Shutdown() is idempotent so
-		// PostRun can safely shutdown whichever manager is active.
-		if !useReadOnly {
-			flushManager = NewFlushManager(autoFlushEnabled, getDebounceDuration())
-		}
-
 		// Initialize hook runner
 		// dbPath is .beads/something.db, so workspace root is parent of .beads
 		if dbPath != "" {
@@ -864,27 +802,6 @@ var rootCmd = &cobra.Command{
 
 		// Warn if multiple databases detected in directory hierarchy
 		warnMultipleDatabases(dbPath)
-
-		// Auto-import if JSONL is newer than DB (e.g., after git pull)
-		// Skip for import command itself to avoid recursion
-		// Skip for delete command to prevent resurrection of deleted issues
-		// Skip if sync --dry-run to avoid modifying DB in dry-run mode
-		// Skip for read-only commands - they can't write anyway (GH#804)
-		// Exception: allow auto-import for read-only commands that fell back to
-		// read-write mode due to missing DB (needsBootstrap) - fixes GH#b09
-		if cmd.Name() != "import" && cmd.Name() != "delete" && autoImportEnabled && (!useReadOnly || needsBootstrap) {
-			// Check if this is sync command with --dry-run flag
-			if cmd.Name() == "sync" {
-				if dryRun, _ := cmd.Flags().GetBool("dry-run"); dryRun {
-					// Skip auto-import in dry-run mode
-					debug.Logf("auto-import skipped for sync --dry-run")
-				} else {
-					autoImportIfNewer()
-				}
-			} else {
-				autoImportIfNewer()
-			}
-		}
 
 		// Load molecule templates from hierarchical catalog locations
 		// Templates are loaded after auto-import to ensure the database is up-to-date.

@@ -150,16 +150,13 @@ func TestBulkDeleteNoResurrection(t *testing.T) {
 
 	oldStore := store
 	oldDbPath := dbPath
-	oldAutoImportEnabled := autoImportEnabled
 	defer func() {
 		store = oldStore
 		dbPath = oldDbPath
-		autoImportEnabled = oldAutoImportEnabled
 	}()
 
 	store = s
 	dbPath = testDB
-	autoImportEnabled = true
 
 	deletedCount := 0
 	for _, id := range toDelete {

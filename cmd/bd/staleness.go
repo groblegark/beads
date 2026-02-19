@@ -43,16 +43,7 @@ func ensureDatabaseFresh(ctx context.Context) error {
 		return nil
 	}
 
-	// Database is stale - auto-import to refresh (bd-9dao fix)
-	// For read-only commands running in --no-daemon mode, auto-import instead of
-	// returning an error. This allows commands like `bd show` to work after git pull.
-	// Skip auto-import if store is read-only - it can't write anyway (GH#1089)
-	if !noAutoImport && !storeIsReadOnly {
-		autoImportIfNewer()
-		return nil
-	}
-
-	// Auto-import is disabled, refuse to operate
+	// Database is stale - refuse to operate (daemon handles auto-import)
 	return fmt.Errorf(
 		"Database out of sync with JSONL. Run 'bd sync --import-only' to fix.\n\n"+
 			"The JSONL file has been updated (e.g., after 'git pull') but the database\n"+

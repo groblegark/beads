@@ -139,16 +139,6 @@ func runBDForCoverage(t *testing.T, dir string, args ...string) (stdout string, 
 	actor = ""
 	jsonOutput = false
 	daemonStatus.Detail = "" // reset daemon status
-	noAutoFlush = false
-	noAutoImport = false
-	autoFlushEnabled = true
-	storeActive = false
-	flushFailureCount = 0
-	lastFlushError = nil
-	if flushManager != nil {
-		_ = flushManager.Shutdown()
-		flushManager = nil
-	}
 	rootCtx = nil
 	rootCancel = nil
 

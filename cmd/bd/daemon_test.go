@@ -718,26 +718,16 @@ func TestMutationToExportLatency(t *testing.T) {
 	// Configure test environment - set global store
 	oldDBPath := dbPath
 	oldStore := store
-	oldStoreActive := storeActive
-	oldAutoFlush := autoFlushEnabled
 	origDebounce := config.GetDuration("flush-debounce")
 	defer func() {
 		dbPath = oldDBPath
 		store = oldStore
-		storeMutex.Lock()
-		storeActive = oldStoreActive
-		storeMutex.Unlock()
-		autoFlushEnabled = oldAutoFlush
 		config.Set("flush-debounce", origDebounce)
 		clearAutoFlushState()
 	}()
 
 	dbPath = testDBPath
 	store = testStore
-	storeMutex.Lock()
-	storeActive = true
-	storeMutex.Unlock()
-	autoFlushEnabled = true
 	// Use fast debounce for testing (500ms to match event-driven target)
 	config.Set("flush-debounce", 500*time.Millisecond)
 

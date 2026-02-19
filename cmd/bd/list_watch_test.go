@@ -31,10 +31,8 @@ func TestWatchModeWithDaemonDoesNotPanic(t *testing.T) {
 	// Save original state
 	origDaemonClient := daemonClient
 	origStore := store
-	origStoreActive := storeActive
 	origDBPath := dbPath
 	origRootCtx := rootCtx
-	origAutoImport := autoImportEnabled
 
 	defer func() {
 		// Restore state
@@ -42,13 +40,9 @@ func TestWatchModeWithDaemonDoesNotPanic(t *testing.T) {
 		if store != nil && store != origStore {
 			_ = store.Close()
 		}
-		storeMutex.Lock()
 		store = origStore
-		storeActive = origStoreActive
-		storeMutex.Unlock()
 		dbPath = origDBPath
 		rootCtx = origRootCtx
-		autoImportEnabled = origAutoImport
 	}()
 
 	// Create temp directory with .beads structure
@@ -83,12 +77,8 @@ func TestWatchModeWithDaemonDoesNotPanic(t *testing.T) {
 	rootCtx = ctx
 
 	dbPath = testDBPath
-	storeMutex.Lock()
 	store = testStore
-	storeActive = true
-	storeMutex.Unlock()
 	daemonClient = &rpc.Client{} // Non-nil = daemon mode
-	autoImportEnabled = false
 
 	// Verify ensureStoreActive succeeds (daemon client is set)
 	if err := ensureStoreActive(); err != nil {
