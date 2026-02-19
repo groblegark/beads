@@ -73,6 +73,13 @@ func isDoltBackend() bool {
 
 // shouldAutoStartDaemon checks if daemon auto-start is enabled
 func shouldAutoStartDaemon() bool {
+	// Remote daemon mode (K8s): daemon is managed externally, never auto-start locally.
+	// This must be checked first to avoid filesystem operations (FindBeadsDir, isDoltBackend)
+	// that may fail or be slow in K8s pods. (beads-jejw.3)
+	if isRemoteDaemon() {
+		return false
+	}
+
 	// Dolt backend doesn't need daemon - it has its own sync via dolt sql-server.
 	// This applies to both embedded and server modes.
 	if isDoltBackend() {
@@ -102,6 +109,12 @@ func shouldAutoStartDaemon() bool {
 // restartDaemonForVersionMismatch stops the old daemon and starts a new one
 // Returns true if restart was successful
 func restartDaemonForVersionMismatch() bool {
+	// Remote daemon mode (K8s): daemon lifecycle is managed externally. (beads-jejw.3)
+	if isRemoteDaemon() {
+		debugLog("remote daemon: skipping daemon restart for version mismatch")
+		return false
+	}
+
 	// Dolt backend doesn't need daemon - it has its own sync mechanism.
 	if isDoltBackend() {
 		debugLog("dolt backend: skipping daemon restart for version mismatch")
@@ -211,6 +224,13 @@ func isDaemonRunningQuiet(pidFile string) bool {
 // tryAutoStartDaemon attempts to start the daemon in the background
 // Returns true if daemon was started successfully and socket is ready
 func tryAutoStartDaemon(socketPath string) bool {
+	// Remote daemon mode (K8s): daemon is managed externally, never auto-start.
+	// Check early to avoid filesystem operations in pods. (beads-jejw.3)
+	if isRemoteDaemon() {
+		debugLog("skipping auto-start: remote daemon configured")
+		return false
+	}
+
 	// Dolt backend doesn't need daemon - it has its own sync mechanism.
 	if isDoltBackend() {
 		return false
@@ -405,6 +425,12 @@ func ensureLockDirectory(lockPath string) error {
 }
 
 func startDaemonProcess(socketPath string) bool {
+	// Remote daemon mode (K8s): never start local daemon. (beads-jejw.3)
+	if isRemoteDaemon() {
+		debugLog("remote daemon: skipping local daemon start")
+		return false
+	}
+
 	// Dolt backend doesn't need daemon - it has its own sync mechanism.
 	if isDoltBackend() {
 		debugLog("dolt backend: skipping daemon start")
@@ -582,6 +608,13 @@ func recordDaemonStartFailure() {
 // socket exists, consults the global registry (~/.beads/registry.json) for a daemon
 // serving a parent workspace (hq--bug-daemon_socket_discovery_fails_nested).
 func getSocketPath() string {
+	// Remote daemon mode (K8s): socket is irrelevant — connection goes via HTTP.
+	// Return empty to avoid filesystem walks in pods. TryConnectAuto() will
+	// use GetDaemonHost() and never touch the socket path. (beads-jejw.3)
+	if isRemoteDaemon() {
+		return ""
+	}
+
 	// Check environment variable first (enables test isolation)
 	if socketPath := os.Getenv("BD_SOCKET"); socketPath != "" {
 		return socketPath

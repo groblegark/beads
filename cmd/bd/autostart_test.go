@@ -207,6 +207,13 @@ func TestGetSocketPath(t *testing.T) {
 		}
 	}()
 
+	// Ensure local mode — clear remote daemon config so getSocketPath()
+	// returns a local socket path instead of "" (beads-jejw.3)
+	t.Setenv("BD_DAEMON_HOST", "")
+	oldDaemonHost := config.GetString("daemon-host")
+	config.Set("daemon-host", "")
+	t.Cleanup(func() { config.Set("daemon-host", oldDaemonHost) })
+
 	t.Run("prefers local socket when it exists", func(t *testing.T) {
 		localSocket := filepath.Join(beadsDir, "bd.sock")
 
