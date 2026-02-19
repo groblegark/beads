@@ -26,24 +26,17 @@ func TestHandleBusEmitNoBus(t *testing.T) {
 	}
 
 	resp, err := client.Execute(OpBusEmit, args)
-	if err != nil {
-		t.Fatalf("execute: %v", err)
+	// No bus = error (not a silent no-op). The daemon should always have a
+	// bus; nil means it's still starting up. Execute returns both the
+	// response and an error when Success is false. (hq-88n9th)
+	if err == nil {
+		t.Fatal("expected error when bus is nil, got success")
 	}
-	if !resp.Success {
-		t.Fatalf("expected success, got error: %s", resp.Error)
+	if resp == nil || resp.Success {
+		t.Fatal("expected failure response when bus is nil")
 	}
-
-	var result BusEmitResult
-	if err := json.Unmarshal(resp.Data, &result); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-
-	// No bus = passthrough (no block, no inject).
-	if result.Block {
-		t.Error("expected no block with nil bus")
-	}
-	if len(result.Inject) > 0 {
-		t.Errorf("expected no inject, got %v", result.Inject)
+	if !strings.Contains(resp.Error, "event bus not initialized") {
+		t.Errorf("expected 'event bus not initialized' error, got: %s", resp.Error)
 	}
 }
 

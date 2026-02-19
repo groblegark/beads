@@ -639,10 +639,24 @@ func runDaemonLoop(interval time.Duration, autoCommit, autoPush, autoPull, local
 	serverCtx, serverCancel := context.WithCancel(ctx)
 	defer serverCancel()
 
+	// Create event bus and register built-in handlers BEFORE starting the RPC
+	// server. This ensures handleBusEmit always has a functional bus — no
+	// silent no-op window during startup. JetStream, gate backend, and handler
+	// wiring are applied later (they enhance but don't gate basic dispatch).
+	// (hq-88n9th)
+	bus := eventbus.New()
+	for _, h := range eventbus.DefaultHandlers() {
+		bus.Register(h)
+	}
+
 	server, serverErrChan, err := startRPCServer(serverCtx, socketPath, store, workspacePath, daemonDBPath, authToken, httpAddr, log)
 	if err != nil {
 		return
 	}
+	// SetBus is called immediately after server creation and before any
+	// client can receive a response, eliminating the startup race where
+	// handleBusEmit would return a silent no-op. (hq-88n9th)
+	server.SetBus(bus)
 
 	// Log HTTP address if configured
 	if httpAddr != "" {
@@ -750,12 +764,6 @@ func runDaemonLoop(interval time.Duration, autoCommit, autoPush, autoPull, local
 
 	// Set daemon configuration for status reporting
 	server.SetConfig(autoCommit, autoPush, autoPull, localMode, interval.String(), daemonMode)
-
-	// Create event bus and register built-in handlers (bd-66fp)
-	bus := eventbus.New()
-	for _, h := range eventbus.DefaultHandlers() {
-		bus.Register(h)
-	}
 
 	// Connect JetStream to bus for event persistence
 	if jsCtx != nil {
@@ -879,7 +887,9 @@ func runDaemonLoop(interval time.Duration, autoCommit, autoPush, autoPull, local
 		}
 	}
 
-	server.SetBus(bus)
+	// Bus was already set on server before Start() (hq-88n9th). JetStream,
+	// handler wiring, and gate backend have been applied to the same bus
+	// pointer, so the server sees the fully-enhanced bus automatically.
 	server.SetGateBackend(gate.ActiveBackend)
 
 	// Wire NATS health into RPC status reporting

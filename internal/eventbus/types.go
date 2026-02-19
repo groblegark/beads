@@ -68,6 +68,10 @@ const (
 	EventConfigUnset   EventType = "ConfigUnset"
 	EventFormulaSaved  EventType = "FormulaSaved"
 	EventFormulaDeleted EventType = "FormulaDeleted"
+
+	// Gate state change events (bd-cvu4c).
+	EventGateSatisfied EventType = "GateSatisfied"
+	EventGateCleared   EventType = "GateCleared"
 )
 
 // Event represents a single hook event flowing through the bus.
@@ -154,6 +158,16 @@ func (t EventType) IsMutationEvent() bool {
 	case EventMutationCreate, EventMutationUpdate,
 		EventMutationDelete, EventMutationComment,
 		EventMutationStatus:
+		return true
+	}
+	return false
+}
+
+// IsGateEvent returns true if the event type belongs to the gate state
+// change event category (bd-cvu4c).
+func (t EventType) IsGateEvent() bool {
+	switch t {
+	case EventGateSatisfied, EventGateCleared:
 		return true
 	}
 	return false
@@ -268,6 +282,17 @@ type DecisionEventPayload struct {
 	ChosenLabel string `json:"chosen_label,omitempty"`
 	ResolvedBy  string `json:"resolved_by,omitempty"`
 	Rationale   string `json:"rationale,omitempty"`
+}
+
+// GateEventPayload carries data for gate state change events (bd-cvu4c).
+// Used by GateSatisfied and GateCleared events.
+type GateEventPayload struct {
+	GateID    string `json:"gate_id"`
+	Agent     string `json:"agent"`               // agent base name
+	Mechanism string `json:"mechanism,omitempty"`  // what caused the change
+	Actor     string `json:"actor,omitempty"`      // who performed the action
+	SessionID string `json:"session_id,omitempty"`
+	Timestamp string `json:"timestamp"`
 }
 
 // Result aggregates handler responses for an event.

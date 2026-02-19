@@ -34,10 +34,8 @@ func (s *Server) handleBusEmit(req *Request) Response {
 	s.mu.RUnlock()
 
 	if bus == nil {
-		fmt.Fprintf(os.Stderr, "bus_emit: no bus configured, returning no-op\n")
-		// No bus configured — passthrough (no handlers = no-op).
-		data, _ := json.Marshal(BusEmitResult{})
-		return Response{Success: true, Data: data}
+		fmt.Fprintf(os.Stderr, "bus_emit: no bus configured, returning error\n")
+		return Response{Success: false, Error: "event bus not initialized (daemon may still be starting)"}
 	}
 
 	// Build event from the raw JSON payload.
@@ -473,4 +471,37 @@ func (s *Server) emitAdviceEvent(eventType eventbus.EventType, payload AdviceEve
 	defer cancel()
 
 	bus.Dispatch(ctx, event)
+}
+
+// emitGateEvent dispatches a gate state change event to the event bus
+// (and NATS JetStream). No-op if the bus is nil. (bd-cvu4c)
+func (s *Server) emitGateEvent(eventType eventbus.EventType, payload eventbus.GateEventPayload, actor ...string) {
+	s.mu.RLock()
+	bus := s.bus
+	s.mu.RUnlock()
+
+	if bus == nil {
+		return
+	}
+
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "emitGateEvent: marshal failed: %v\n", err)
+		return
+	}
+
+	event := &eventbus.Event{
+		Type: eventType,
+		Raw:  raw,
+	}
+	if len(actor) > 0 && actor[0] != "" {
+		event.Actor = actor[0]
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), s.requestTimeout)
+	defer cancel()
+
+	if _, err := bus.Dispatch(ctx, event); err != nil {
+		fmt.Fprintf(os.Stderr, "emitGateEvent: dispatch %s failed: %v\n", eventType, err)
+	}
 }

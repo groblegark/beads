@@ -170,6 +170,11 @@ func runBusEmit(cmd *cobra.Command, args []string) error {
 	}
 
 	if err != nil {
+		// If the daemon's event bus isn't initialized yet (startup race),
+		// fall back to local dispatch so hooks still work. (hq-88n9th)
+		if strings.Contains(err.Error(), "event bus not initialized") {
+			return dispatchLocal(resolvedType, eventData, eventMeta.SessionID, hookType)
+		}
 		return fmt.Errorf("bus emit: daemon RPC failed: %w", err)
 	}
 	if !resp.Success {

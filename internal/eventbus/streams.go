@@ -49,6 +49,12 @@ const (
 	// SubjectConfigPrefix is the subject prefix for config/formula events.
 	SubjectConfigPrefix = "config."
 
+	// StreamGateEvents is the JetStream stream for gate state change events (bd-cvu4c).
+	StreamGateEvents = "GATE_EVENTS"
+
+	// SubjectGatePrefix is the subject prefix for gate state events.
+	SubjectGatePrefix = "gate."
+
 	// StreamInboxEvents is the JetStream stream for inbox notification events (bd-xtahx).
 	StreamInboxEvents = "INBOX_EVENTS"
 
@@ -57,7 +63,7 @@ const (
 )
 
 // StreamNames lists all known stream short names (used by CLI --stream flag and SSE ?stream= param).
-var StreamNames = []string{"hooks", "decisions", "oj", "agents", "mail", "mutations", "config", "inbox"}
+var StreamNames = []string{"hooks", "decisions", "oj", "agents", "mail", "mutations", "config", "gate", "inbox"}
 
 // streamToPrefix maps short stream names to NATS subject prefixes.
 var streamToPrefix = map[string]string{
@@ -68,6 +74,7 @@ var streamToPrefix = map[string]string{
 	"mail":      SubjectMailPrefix,
 	"mutations": SubjectMutationPrefix,
 	"config":    SubjectConfigPrefix,
+	"gate":      SubjectGatePrefix,
 	"inbox":     SubjectInboxPrefix,
 }
 
@@ -80,6 +87,7 @@ var prefixToStream = map[string]string{
 	"mail":      "mail",
 	"mutations": "mutations",
 	"config":    "config",
+	"gate":      "gate",
 	"inbox":     "inbox",
 }
 
@@ -134,6 +142,8 @@ func StreamNameForJetStream(name string) string {
 		return StreamMutationEvents
 	case "config":
 		return StreamConfigEvents
+	case "gate":
+		return StreamGateEvents
 	case "inbox":
 		return StreamInboxEvents
 	}
@@ -164,6 +174,9 @@ func SubjectForEvent(eventType EventType) string {
 	}
 	if eventType.IsConfigEvent() {
 		return SubjectConfigPrefix + string(eventType)
+	}
+	if eventType.IsGateEvent() {
+		return SubjectGatePrefix + string(eventType)
 	}
 	return SubjectHookPrefix + string(eventType)
 }
@@ -293,6 +306,20 @@ func EnsureStreams(js nats.JetStreamContext) error {
 		})
 		if err != nil {
 			return fmt.Errorf("create %s stream: %w", StreamConfigEvents, err)
+		}
+	}
+
+	// Gate state change events stream (bd-cvu4c).
+	if _, err := js.StreamInfo(StreamGateEvents); err != nil {
+		_, err = js.AddStream(&nats.StreamConfig{
+			Name:     StreamGateEvents,
+			Subjects: []string{SubjectGatePrefix + ">"},
+			Storage:  nats.FileStorage,
+			MaxMsgs:  10000,
+			MaxBytes: 100 << 20,
+		})
+		if err != nil {
+			return fmt.Errorf("create %s stream: %w", StreamGateEvents, err)
 		}
 	}
 
