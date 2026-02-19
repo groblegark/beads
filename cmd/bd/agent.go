@@ -269,6 +269,64 @@ cleanup_status fields. Empty array if no orphans found. (bd-7njn3)`,
 
 var orphansRig string
 
+var agentStopForce bool
+var agentStopReason string
+var agentRestartReason string
+
+var agentStopCmd = &cobra.Command{
+	Use:   "stop <agent>",
+	Short: "Gracefully stop an agent",
+	Long: `Gracefully stop an agent by setting agent_state=stopping and sending SIGTERM
+to the agent's Coop sidecar (if coop_url is registered).
+
+The K8s controller watches for the "stopping" state mutation and deletes the pod.
+Use --force to skip the Coop signal and only set the state (the controller will
+still handle pod deletion).
+
+This command requires the daemon (BD_DAEMON_HOST).
+
+Examples:
+  bd agent stop gt-gastown-polecat-furiosa
+  bd agent stop gt-gastown-witness --reason="maintenance"
+  bd agent stop gt-emma --force                            # Skip Coop signal`,
+	Args: cobra.ExactArgs(1),
+	RunE: runAgentStop,
+}
+
+var agentRestartCmd = &cobra.Command{
+	Use:   "restart <agent>",
+	Short: "Restart an agent",
+	Long: `Restart an agent by setting agent_state=spawning and clearing pod fields.
+
+The K8s controller watches for the "spawning" state and creates a new pod.
+If the agent has a running pod, it is stopped first via Coop signal.
+
+This command requires the daemon (BD_DAEMON_HOST).
+
+Examples:
+  bd agent restart gt-gastown-polecat-furiosa
+  bd agent restart gt-gastown-witness --reason="config change"`,
+	Args: cobra.ExactArgs(1),
+	RunE: runAgentRestart,
+}
+
+var agentSignalCmd = &cobra.Command{
+	Use:   "signal <agent> <signal>",
+	Short: "Send a signal to an agent's Coop sidecar",
+	Long: `Send an arbitrary signal to an agent's Coop sidecar process.
+
+Resolves the agent's coop_url from the bead and POSTs to /api/v1/signal.
+Common signals: SIGTERM, SIGINT, SIGKILL, SIGUSR1, SIGUSR2.
+
+This command requires the daemon (BD_DAEMON_HOST).
+
+Examples:
+  bd agent signal gt-gastown-polecat-furiosa SIGTERM
+  bd agent signal gt-emma SIGUSR1`,
+	Args: cobra.ExactArgs(2),
+	RunE: runAgentSignal,
+}
+
 var rosterStaleThreshold int
 var rosterShowAll bool
 
@@ -322,11 +380,18 @@ func init() {
 
 	agentRecentEventsCmd.Flags().IntVar(&recentEventsLimit, "limit", 20, "Max events to return (1-50)")
 
+	agentStopCmd.Flags().BoolVar(&agentStopForce, "force", false, "Skip Coop signal, only set state")
+	agentStopCmd.Flags().StringVar(&agentStopReason, "reason", "", "Reason for stopping the agent")
+	agentRestartCmd.Flags().StringVar(&agentRestartReason, "reason", "", "Reason for restarting the agent")
+
 	agentCmd.AddCommand(agentStateCmd)
 	agentCmd.AddCommand(agentHeartbeatCmd)
 	agentCmd.AddCommand(agentShowCmd)
 	agentCmd.AddCommand(agentBackfillLabelsCmd)
 	agentCmd.AddCommand(agentSubscriptionsCmd)
+	agentCmd.AddCommand(agentStopCmd)
+	agentCmd.AddCommand(agentRestartCmd)
+	agentCmd.AddCommand(agentSignalCmd)
 	agentCmd.AddCommand(agentPodRegisterCmd)
 	agentCmd.AddCommand(agentPodDeregisterCmd)
 	agentCmd.AddCommand(agentPodStatusCmd)
@@ -717,6 +782,132 @@ func formatTimeOrNil(t *time.Time) interface{} {
 		return nil
 	}
 	return t.Format(time.RFC3339)
+}
+
+// runAgentStop implements `bd agent stop <agent>`. (bd-ryb3f)
+func runAgentStop(cmd *cobra.Command, args []string) error {
+	CheckReadonly("agent stop")
+
+	if daemonClient == nil {
+		return fmt.Errorf("agent stop requires the daemon (set BD_DAEMON_HOST)")
+	}
+
+	agentArg := args[0]
+
+	// Resolve agent ID
+	resp, err := daemonClient.ResolveID(&rpc.ResolveIDArgs{ID: agentArg})
+	if err != nil {
+		return fmt.Errorf("failed to resolve agent %s: %w", agentArg, err)
+	}
+	var agentID string
+	if err := json.Unmarshal(resp.Data, &agentID); err != nil {
+		return fmt.Errorf("parsing response: %w", err)
+	}
+
+	result, err := daemonClient.AgentStop(&rpc.AgentStopArgs{
+		AgentID: agentID,
+		Reason:  agentStopReason,
+		Force:   agentStopForce,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to stop agent: %w", err)
+	}
+
+	if jsonOutput {
+		encoder := json.NewEncoder(os.Stdout)
+		encoder.SetIndent("", "  ")
+		return encoder.Encode(result)
+	}
+
+	coopStatus := "no"
+	if result.CoopSignal {
+		coopStatus = "yes"
+	}
+	fmt.Printf("%s %s state=%s coop_signal=%s\n",
+		ui.RenderPass("✓"), result.AgentID, result.AgentState, coopStatus)
+	return nil
+}
+
+// runAgentRestart implements `bd agent restart <agent>`. (bd-ryb3f)
+func runAgentRestart(cmd *cobra.Command, args []string) error {
+	CheckReadonly("agent restart")
+
+	if daemonClient == nil {
+		return fmt.Errorf("agent restart requires the daemon (set BD_DAEMON_HOST)")
+	}
+
+	agentArg := args[0]
+
+	// Resolve agent ID
+	resp, err := daemonClient.ResolveID(&rpc.ResolveIDArgs{ID: agentArg})
+	if err != nil {
+		return fmt.Errorf("failed to resolve agent %s: %w", agentArg, err)
+	}
+	var agentID string
+	if err := json.Unmarshal(resp.Data, &agentID); err != nil {
+		return fmt.Errorf("parsing response: %w", err)
+	}
+
+	result, err := daemonClient.AgentRestart(&rpc.AgentRestartArgs{
+		AgentID: agentID,
+		Reason:  agentRestartReason,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to restart agent: %w", err)
+	}
+
+	if jsonOutput {
+		encoder := json.NewEncoder(os.Stdout)
+		encoder.SetIndent("", "  ")
+		return encoder.Encode(result)
+	}
+
+	fmt.Printf("%s %s state=%s\n", ui.RenderPass("✓"), result.AgentID, result.AgentState)
+	return nil
+}
+
+// runAgentSignal implements `bd agent signal <agent> <signal>`. (bd-ryb3f)
+func runAgentSignal(cmd *cobra.Command, args []string) error {
+	CheckReadonly("agent signal")
+
+	if daemonClient == nil {
+		return fmt.Errorf("agent signal requires the daemon (set BD_DAEMON_HOST)")
+	}
+
+	agentArg := args[0]
+	signalName := strings.ToUpper(args[1])
+
+	// Resolve agent ID
+	resp, err := daemonClient.ResolveID(&rpc.ResolveIDArgs{ID: agentArg})
+	if err != nil {
+		return fmt.Errorf("failed to resolve agent %s: %w", agentArg, err)
+	}
+	var agentID string
+	if err := json.Unmarshal(resp.Data, &agentID); err != nil {
+		return fmt.Errorf("parsing response: %w", err)
+	}
+
+	result, err := daemonClient.AgentSignal(&rpc.AgentSignalArgs{
+		AgentID: agentID,
+		Signal:  signalName,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to send signal: %w", err)
+	}
+
+	if jsonOutput {
+		encoder := json.NewEncoder(os.Stdout)
+		encoder.SetIndent("", "  ")
+		return encoder.Encode(result)
+	}
+
+	if result.Sent {
+		fmt.Printf("%s %s signal=%s sent\n", ui.RenderPass("✓"), result.AgentID, result.Signal)
+	} else {
+		fmt.Printf("%s %s signal=%s not sent (no coop_url)\n",
+			ui.RenderWarn("⚠"), result.AgentID, result.Signal)
+	}
+	return nil
 }
 
 func runAgentPodRegister(cmd *cobra.Command, args []string) error {
