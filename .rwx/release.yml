@@ -259,13 +259,16 @@ tasks:
           --format='* %H %s')
       fi
 
+      # Delete any existing draft release (auto-trigger may have created one)
+      gh release delete "$TAG" --repo groblegark/beads --yes 2>/dev/null || true
+
       # Create GitHub release
       BODY="## Changelog"$'\n'"${CHANGELOG}"
       gh release create "$TAG" \
         --repo groblegark/beads \
         --title "$TAG" \
         --notes "$BODY" \
-        $DIST/*.tar.gz $DIST/checksums.txt
+        $DIST/*.tar.gz $DIST/checksums.txt 2>&1
     env:
       GH_TOKEN: ${{ secrets.GH_TOKEN }}
       REF_NAME: ${{ init.ref-name }}
