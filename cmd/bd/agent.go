@@ -225,6 +225,25 @@ Statuses:
 	RunE: runAgentCleanupStatus,
 }
 
+var agentOrphansCmd = &cobra.Command{
+	Use:   "orphans",
+	Short: "Find orphaned polecats safe to auto-nuke",
+	Long: `Scan agent beads for crashed/stopped polecats with cleanup_status=clean
+that have no active session. These are safe to auto-nuke.
+
+The Witness patrol calls this to find orphaned polecats and clean them up.
+A polecat is considered an orphan when:
+  1. Its bead status is closed OR agent_state is stopped/done/dead
+  2. Its cleanup_status is "clean" (worktree was clean at shutdown)
+  3. It has role_type=polecat
+
+Output: JSON array of orphan objects with id, rig, polecat_name, agent_state,
+cleanup_status fields. Empty array if no orphans found. (bd-7njn3)`,
+	RunE: runAgentOrphans,
+}
+
+var orphansRig string
+
 var rosterStaleThreshold int
 var rosterShowAll bool
 
@@ -272,6 +291,8 @@ func init() {
 	agentRosterCmd.Flags().IntVar(&rosterStaleThreshold, "stale", 3600, "Exclude actors idle longer than N seconds (0 = no limit)")
 	agentRosterCmd.Flags().BoolVar(&rosterShowAll, "all", false, "Show all actors (no stale filtering)")
 
+	agentOrphansCmd.Flags().StringVar(&orphansRig, "rig", "", "Filter by rig name")
+
 	agentCmd.AddCommand(agentStateCmd)
 	agentCmd.AddCommand(agentHeartbeatCmd)
 	agentCmd.AddCommand(agentShowCmd)
@@ -283,6 +304,7 @@ func init() {
 	agentCmd.AddCommand(agentPodListCmd)
 	agentCmd.AddCommand(agentRosterCmd)
 	agentCmd.AddCommand(agentCleanupStatusCmd)
+	agentCmd.AddCommand(agentOrphansCmd)
 	rootCmd.AddCommand(agentCmd)
 }
 
@@ -1485,4 +1507,121 @@ func parseCommaSeparatedList(s string) []string {
 		}
 	}
 	return result
+}
+
+// OrphanResult is the JSON output for a single orphaned polecat. (bd-7njn3)
+type OrphanResult struct {
+	ID            string `json:"id"`
+	Rig           string `json:"rig"`
+	PolecatName   string `json:"polecat_name"`
+	AgentState    string `json:"agent_state"`
+	CleanupStatus string `json:"cleanup_status"`
+	Status        string `json:"status"` // bead status: open, in_progress, closed
+}
+
+// runAgentOrphans scans agent beads for orphaned polecats safe to auto-nuke.
+// An orphan is a polecat with cleanup_status=clean and no active session.
+// The Witness patrol calls this during periodic scans. (bd-7njn3)
+func runAgentOrphans(cmd *cobra.Command, args []string) error {
+	ctx := rootCtx
+
+	// Query agent beads via daemon or local store.
+	labels := []string{"gt:agent", "role_type:polecat"}
+	if orphansRig != "" {
+		labels = append(labels, "rig:"+orphansRig)
+	}
+
+	var issues []*types.Issue
+
+	issueType := types.IssueType("agent")
+	filter := types.IssueFilter{
+		IssueType: &issueType,
+		Labels:    labels,
+	}
+
+	if isRemoteDaemon() {
+		listArgs := &rpc.ListArgs{
+			IssueType: string(issueType),
+			Labels:    labels,
+		}
+		resp, err := daemonClient.List(listArgs)
+		if err != nil {
+			return fmt.Errorf("listing agent beads: %w", err)
+		}
+		if resp.Data != nil {
+			if err := json.Unmarshal(resp.Data, &issues); err != nil {
+				return fmt.Errorf("parsing agent beads: %w", err)
+			}
+		}
+	} else {
+		var err error
+		issues, err = store.SearchIssues(ctx, "", filter)
+		if err != nil {
+			return fmt.Errorf("listing agent beads: %w", err)
+		}
+	}
+
+	// Terminal agent states that indicate the polecat is no longer running.
+	terminalStates := map[types.AgentState]bool{
+		"stopped": true,
+		"done":    true,
+		"dead":    true,
+	}
+
+	orphans := make([]OrphanResult, 0)
+
+	for _, issue := range issues {
+		// Skip non-polecat agents (belt-and-suspenders with label filter).
+		if issue.RoleType != "polecat" {
+			continue
+		}
+
+		// Check if agent is in a terminal state or bead is closed.
+		isTerminal := terminalStates[issue.AgentState] || issue.Status == types.StatusClosed
+		if !isTerminal {
+			continue
+		}
+
+		// Parse cleanup_status from description.
+		cleanupStatus := parseDescriptionField(issue.Description, "cleanup_status")
+		if cleanupStatus != "clean" {
+			continue
+		}
+
+		// Extract polecat name from agent ID (format: <prefix>-<rig>-polecat-<name>).
+		polecatName := ""
+		if parts := strings.SplitN(issue.ID, "-polecat-", 2); len(parts) == 2 {
+			polecatName = parts[1]
+		}
+
+		orphans = append(orphans, OrphanResult{
+			ID:            issue.ID,
+			Rig:           issue.Rig,
+			PolecatName:   polecatName,
+			AgentState:    string(issue.AgentState),
+			CleanupStatus: cleanupStatus,
+			Status:        string(issue.Status),
+		})
+	}
+
+	// Always output JSON (this is a machine-readable command for the Witness).
+	encoder := json.NewEncoder(os.Stdout)
+	encoder.SetIndent("", "  ")
+	return encoder.Encode(orphans)
+}
+
+// parseDescriptionField extracts a single "key: value" from a description string.
+func parseDescriptionField(description, key string) string {
+	for _, line := range strings.Split(description, "\n") {
+		line = strings.TrimSpace(line)
+		colonIdx := strings.Index(line, ":")
+		if colonIdx < 0 {
+			continue
+		}
+		lineKey := strings.TrimSpace(line[:colonIdx])
+		if lineKey == key {
+			return strings.TrimSpace(line[colonIdx+1:])
+		}
+	}
+	return ""
 }
