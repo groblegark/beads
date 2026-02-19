@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/steveyegge/beads/internal/gate"
 	"github.com/steveyegge/beads/internal/types"
 )
 
@@ -695,6 +696,261 @@ func TestGateHandler_PreCheckedNoResult(t *testing.T) {
 	}
 	if result.Block {
 		t.Error("expected Block=false when pre-check result is missing")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// GateHandler in-process tests (bd-9w69g, bd-vecxd)
+// ---------------------------------------------------------------------------
+
+// mockGateBackend implements gate.GateBackend for testing.
+type mockGateBackend struct {
+	satisfied map[string]bool // key: "agent.gateID"
+	marked    []string        // track Mark calls
+}
+
+func newMockGateBackend() *mockGateBackend {
+	return &mockGateBackend{satisfied: make(map[string]bool)}
+}
+
+func (m *mockGateBackend) Mark(agent, gateID string, _ gate.MarkOpts) error {
+	m.satisfied[agent+"."+gateID] = true
+	m.marked = append(m.marked, agent+"."+gateID)
+	return nil
+}
+
+func (m *mockGateBackend) Clear(agent, gateID string) error {
+	delete(m.satisfied, agent+"."+gateID)
+	return nil
+}
+
+func (m *mockGateBackend) ClearAll(agent string) error {
+	for k := range m.satisfied {
+		if strings.HasPrefix(k, agent+".") {
+			delete(m.satisfied, k)
+		}
+	}
+	return nil
+}
+
+func (m *mockGateBackend) ClearGateAllAgents(gateID string) error {
+	for k := range m.satisfied {
+		if strings.HasSuffix(k, "."+gateID) {
+			delete(m.satisfied, k)
+		}
+	}
+	return nil
+}
+
+func (m *mockGateBackend) IsSatisfied(agent, gateID string) bool {
+	return m.satisfied[agent+"."+gateID]
+}
+
+func (m *mockGateBackend) Get(agent, gateID string) *gate.GateEntry {
+	if !m.satisfied[agent+"."+gateID] {
+		return nil
+	}
+	return &gate.GateEntry{Satisfied: true, Mechanism: "test"}
+}
+
+func TestGateHandler_InProcess_AllSatisfied(t *testing.T) {
+	backend := newMockGateBackend()
+	backend.satisfied["test-agent.decision"] = true
+
+	reg := gate.NewRegistry()
+	_ = reg.Register(&gate.Gate{
+		ID:   "decision",
+		Hook: gate.HookStop,
+		Mode: gate.GateModeStrict,
+	})
+
+	h := &GateHandler{}
+	h.SetGateBackend(backend, reg)
+
+	event := &Event{
+		Type:  EventStop,
+		Actor: "test-agent",
+		CWD:   t.TempDir(),
+	}
+	result := &Result{}
+
+	err := h.Handle(context.Background(), event, result)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Block {
+		t.Error("expected Block=false when all gates are satisfied")
+	}
+}
+
+func TestGateHandler_InProcess_StrictUnsatisfied(t *testing.T) {
+	backend := newMockGateBackend()
+	// decision gate NOT satisfied
+
+	reg := gate.NewRegistry()
+	_ = reg.Register(&gate.Gate{
+		ID:          "decision",
+		Hook:        gate.HookStop,
+		Mode:        gate.GateModeStrict,
+		Description: "decision point offered",
+	})
+
+	h := &GateHandler{}
+	h.SetGateBackend(backend, reg)
+
+	event := &Event{
+		Type:  EventStop,
+		Actor: "test-agent",
+		CWD:   t.TempDir(),
+	}
+	result := &Result{}
+
+	err := h.Handle(context.Background(), event, result)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.Block {
+		t.Error("expected Block=true when strict gate is unsatisfied")
+	}
+	if !strings.Contains(result.Reason, "decision") {
+		t.Errorf("expected reason to mention 'decision', got %q", result.Reason)
+	}
+}
+
+func TestGateHandler_InProcess_SoftUnsatisfied(t *testing.T) {
+	backend := newMockGateBackend()
+
+	reg := gate.NewRegistry()
+	_ = reg.Register(&gate.Gate{
+		ID:          "commit-push",
+		Hook:        gate.HookStop,
+		Mode:        gate.GateModeSoft,
+		Description: "changes committed",
+		Hint:        "run git push",
+	})
+
+	h := &GateHandler{}
+	h.SetGateBackend(backend, reg)
+
+	event := &Event{
+		Type:  EventStop,
+		Actor: "test-agent",
+		CWD:   t.TempDir(),
+	}
+	result := &Result{}
+
+	err := h.Handle(context.Background(), event, result)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Block {
+		t.Error("expected Block=false for soft gate")
+	}
+	if len(result.Warnings) != 1 {
+		t.Fatalf("expected 1 warning, got %d", len(result.Warnings))
+	}
+	if !strings.Contains(result.Warnings[0], "commit-push") {
+		t.Errorf("expected warning to mention 'commit-push', got %q", result.Warnings[0])
+	}
+	if !strings.Contains(result.Warnings[0], "run git push") {
+		t.Errorf("expected warning to include hint, got %q", result.Warnings[0])
+	}
+}
+
+func TestGateHandler_InProcess_AutoCheck(t *testing.T) {
+	backend := newMockGateBackend()
+
+	reg := gate.NewRegistry()
+	_ = reg.Register(&gate.Gate{
+		ID:   "auto-gate",
+		Hook: gate.HookStop,
+		Mode: gate.GateModeStrict,
+		AutoCheck: func(_ gate.GateContext) bool {
+			return true // auto-satisfied
+		},
+	})
+
+	h := &GateHandler{}
+	h.SetGateBackend(backend, reg)
+
+	event := &Event{
+		Type:  EventStop,
+		Actor: "test-agent",
+		CWD:   t.TempDir(),
+	}
+	result := &Result{}
+
+	err := h.Handle(context.Background(), event, result)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Block {
+		t.Error("expected Block=false when auto-check satisfies gate")
+	}
+	// Verify auto-satisfaction was recorded in backend.
+	if !backend.IsSatisfied("test-agent", "auto-gate") {
+		t.Error("expected auto-satisfied gate to be recorded in backend")
+	}
+}
+
+func TestGateHandler_InProcess_AgentBaseName(t *testing.T) {
+	// Agent name "test-agent-1" should normalize to "test-agent" for backend lookup.
+	backend := newMockGateBackend()
+	backend.satisfied["test-agent.decision"] = true // keyed on base name
+
+	reg := gate.NewRegistry()
+	_ = reg.Register(&gate.Gate{
+		ID:   "decision",
+		Hook: gate.HookStop,
+		Mode: gate.GateModeStrict,
+	})
+
+	h := &GateHandler{}
+	h.SetGateBackend(backend, reg)
+
+	event := &Event{
+		Type:  EventStop,
+		Actor: "test-agent-1", // continuation suffix
+		CWD:   t.TempDir(),
+	}
+	result := &Result{}
+
+	err := h.Handle(context.Background(), event, result)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Block {
+		t.Error("expected Block=false — gate should be found via base name 'test-agent'")
+	}
+}
+
+func TestGateHandler_InProcess_SkipsNonMatchingHook(t *testing.T) {
+	backend := newMockGateBackend()
+	// decision gate NOT satisfied, but it's a Stop gate
+
+	reg := gate.NewRegistry()
+	_ = reg.Register(&gate.Gate{
+		ID:   "decision",
+		Hook: gate.HookStop,
+		Mode: gate.GateModeStrict,
+	})
+
+	h := &GateHandler{}
+	h.SetGateBackend(backend, reg)
+
+	event := &Event{
+		Type:  EventPreToolUse, // different hook type
+		Actor: "test-agent",
+		CWD:   t.TempDir(),
+	}
+	result := &Result{}
+
+	err := h.Handle(context.Background(), event, result)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Block {
+		t.Error("expected Block=false — Stop gate should not block PreToolUse")
 	}
 }
 

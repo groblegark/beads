@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"strings"
 
+	"github.com/steveyegge/beads/internal/gate"
 	"github.com/steveyegge/beads/internal/types"
 )
 
@@ -43,15 +44,37 @@ func (h *PrimeHandler) Handle(ctx context.Context, event *Event, result *Result)
 
 // GateHandler evaluates session gates on Stop and PreToolUse hooks.
 // Priority 20 (runs after context injection).
-type GateHandler struct{}
+//
+// When backend and registry are set (via SetGateBackend), gates are checked
+// in-process using the NATS KV backend — no subprocess required. This replaces
+// the gate_pre_checked injection hack where the CLI ran a local filesystem check
+// and injected the result into the event JSON. (bd-9w69g, bd-vecxd)
+type GateHandler struct {
+	backend  gate.GateBackend
+	registry *gate.Registry
+}
 
 func (h *GateHandler) ID() string           { return "gate" }
 func (h *GateHandler) Handles() []EventType { return []EventType{EventStop, EventPreToolUse} }
 func (h *GateHandler) Priority() int        { return 20 }
 
+// SetGateBackend wires in the NATS KV gate backend and registry for in-process
+// gate checking. When set, the handler no longer needs the CLI-side
+// gate_pre_checked injection or subprocess fallback. (bd-9w69g, bd-vecxd)
+func (h *GateHandler) SetGateBackend(backend gate.GateBackend, reg *gate.Registry) {
+	h.backend = backend
+	h.registry = reg
+}
+
 func (h *GateHandler) Handle(ctx context.Context, event *Event, result *Result) error {
-	// If the CLI already ran the gate check locally (markers live on the CLI
-	// machine, not the daemon), use that result instead. (bd-tpkw9)
+	// In-process path: use NATS KV backend when available. (bd-9w69g, bd-vecxd)
+	if h.backend != nil && h.registry != nil {
+		return h.handleInProcess(event, result)
+	}
+
+	// Legacy: check for pre-checked gate result injected by CLI. (bd-tpkw9)
+	// This path is retained for backward compatibility when the NATS backend
+	// is not configured (e.g., local development without daemon).
 	if len(event.Raw) > 0 {
 		var raw map[string]interface{}
 		if err := json.Unmarshal(event.Raw, &raw); err == nil {
@@ -61,6 +84,7 @@ func (h *GateHandler) Handle(ctx context.Context, event *Event, result *Result) 
 		}
 	}
 
+	// Subprocess fallback: shell out to bd gate session-check.
 	hookName := string(event.Type)
 	args := []string{"gate", "session-check", "--hook", hookName, "--json"}
 	if event.SessionID != "" {
@@ -100,10 +124,90 @@ func (h *GateHandler) Handle(ctx context.Context, event *Event, result *Result) 
 	return nil
 }
 
+// handleInProcess evaluates gates using the NATS KV backend directly,
+// without spawning a subprocess. This is the primary path when the daemon
+// has a NATS gate backend configured. (bd-9w69g, bd-vecxd)
+func (h *GateHandler) handleInProcess(event *Event, result *Result) error {
+	hookType, err := gate.ParseHookType(string(event.Type))
+	if err != nil {
+		return nil // Unknown hook type — pass through
+	}
+
+	agentName := AgentBaseName(event.Actor)
+	gates := h.registry.GatesForHook(hookType)
+
+	var blockReasons []string
+
+	for _, g := range gates {
+		satisfied := false
+
+		// Check NATS backend first.
+		if h.backend.IsSatisfied(agentName, g.ID) {
+			satisfied = true
+		}
+
+		// Try auto-check if not satisfied via backend.
+		if !satisfied && g.AutoCheck != nil {
+			gateCtx := gate.GateContext{
+				SessionID: event.SessionID,
+				AgentName: agentName,
+				HookType:  hookType,
+				WorkDir:   event.CWD,
+			}
+			// Extract caller_session_tag for TerminalSessionID.
+			if len(event.Raw) > 0 {
+				var raw map[string]interface{}
+				if json.Unmarshal(event.Raw, &raw) == nil {
+					if tag, ok := raw["caller_session_tag"].(string); ok {
+						gateCtx.TerminalSessionID = tag
+					}
+				}
+			}
+			if g.AutoCheck(gateCtx) {
+				satisfied = true
+				// Record auto-satisfaction in NATS backend.
+				_ = h.backend.Mark(agentName, g.ID, gate.MarkOpts{
+					Mechanism: "auto_check",
+					SessionID: event.SessionID,
+					TTL:       gate.DefaultTTLFor(g.ID),
+				})
+			}
+		}
+
+		if satisfied {
+			continue
+		}
+
+		// Gate not satisfied.
+		switch g.Mode {
+		case gate.GateModeStrict:
+			blockReasons = append(blockReasons, fmt.Sprintf("%s: %s", g.ID, g.Description))
+		case gate.GateModeSoft:
+			warning := fmt.Sprintf("%s: %s", g.ID, g.Description)
+			if g.Hint != "" {
+				warning += fmt.Sprintf(" (hint: %s)", g.Hint)
+			}
+			result.Warnings = append(result.Warnings, warning)
+		}
+	}
+
+	if len(blockReasons) > 0 {
+		result.Block = true
+		result.Reason = strings.Join(blockReasons, "; ")
+		// Note: the CLI enriches the block reason with config bead prompts
+		// after receiving the daemon response. See bus_emit.go. (bd-9w69g)
+	}
+
+	return nil
+}
+
 // handlePreCheckedGate processes gate results that were already evaluated by the
 // CLI on the local machine. This handles the case where gate markers live locally
 // but the daemon runs remotely. The CLI injects gate_pre_checked=true and
 // gate_pre_check_result={decision, results, warnings} into the event JSON. (bd-tpkw9)
+//
+// Deprecated: This path is only used when the NATS gate backend is not configured.
+// With NATS, the GateHandler checks gates in-process via handleInProcess. (bd-9w69g)
 func (h *GateHandler) handlePreCheckedGate(raw map[string]interface{}, result *Result) error {
 	preResult, ok := raw["gate_pre_check_result"].(map[string]interface{})
 	if !ok {

@@ -143,26 +143,6 @@ func runBusEmit(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Local gate pre-check: gate markers live on the local filesystem but the
-	// daemon may be remote (BD_DAEMON_HOST). Run the gate check locally first
-	// and inject the result into the event JSON so the remote GateHandler can
-	// skip its (doomed-to-fail) subprocess check. (bd-tpkw9)
-	if hookType != "" {
-		localGateResult := runLocalGateCheck(resolvedType, eventMeta.SessionID)
-		if localGateResult != nil {
-			var raw map[string]interface{}
-			if len(eventData) > 0 {
-				_ = json.Unmarshal(eventData, &raw)
-			}
-			if raw == nil {
-				raw = map[string]interface{}{}
-			}
-			raw["gate_pre_checked"] = true
-			raw["gate_pre_check_result"] = localGateResult
-			eventData, _ = json.Marshal(raw)
-		}
-	}
-
 	// Dispatch via daemon RPC, or fall back to local dispatch if no daemon.
 	// Local dispatch creates a bus with DefaultHandlers() so hooks like
 	// SessionStart and Stop still work without a daemon. (beads-feat-event_bus)
@@ -201,16 +181,12 @@ func runBusEmit(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("parse emit result: %w", err)
 	}
 
-	// If the daemon blocked but the local gate pre-check said "allow",
-	// override the block. Gate markers live locally — the remote daemon's
-	// gate check can't see them, so trust the local result. (bd-tpkw9)
-	if emitResult.Block && hookType != "" {
-		localResult := runLocalGateCheck(resolvedType, eventMeta.SessionID)
-		if localResult != nil {
-			if decision, ok := localResult["decision"].(string); ok && decision == "allow" {
-				emitResult.Block = false
-				emitResult.Reason = ""
-			}
+	// Enrich block reason with config bead prompt for Stop hooks.
+	// The daemon's GateHandler returns a basic gate description; the CLI
+	// enriches it with the rich prompt from config beads. (bd-9w69g)
+	if emitResult.Block && resolvedType == "Stop" {
+		if prompt := loadGatePromptFromConfig(); prompt != "" {
+			emitResult.Reason = prompt
 		}
 	}
 
@@ -460,74 +436,6 @@ func clearStopLoopLog(sessionID string) {
 		return
 	}
 	_ = os.Remove(stopLoopLogPath(sessionID))
-}
-
-// runLocalGateCheck runs the gate check locally (where markers live on the
-// local filesystem) and returns the result as a map suitable for JSON injection
-// into the event. Returns nil if no local check was needed or possible.
-// This bridges the local-markers / remote-daemon gap. (bd-tpkw9)
-func runLocalGateCheck(hookType, sessionID string) map[string]interface{} {
-	ht, err := gate.ParseHookType(hookType)
-	if err != nil {
-		return nil
-	}
-
-	workDir := getWorkDir()
-	opts := gate.CheckOpts{
-		TerminalSessionID: os.Getenv("TERM_SESSION_ID"),
-		AgentName:         eventbus.AgentBaseName(getActor()),
-	}
-	results, err := gate.CheckGatesWithOpts(workDir, sessionID, ht, sessionGateRegistry, opts)
-	if err != nil || len(results) == 0 {
-		return nil
-	}
-
-	// Convert to JSON-friendly format matching gateCheckResponse.
-	decision := "allow"
-	var resultList []map[string]interface{}
-	var warnings []string
-
-	for _, r := range results {
-		entry := map[string]interface{}{
-			"gate_id":   r.GateID,
-			"hook":      string(r.Hook),
-			"satisfied": r.Satisfied,
-			"mode":      string(r.Mode),
-			"message":   r.Message,
-			"hint":      r.Hint,
-		}
-		resultList = append(resultList, entry)
-
-		if !r.Satisfied && r.Mode == gate.GateModeStrict {
-			decision = "block"
-		}
-		if !r.Satisfied {
-			warnings = append(warnings, fmt.Sprintf("%s: %s (hint: %s)", r.GateID, r.Message, r.Hint))
-		}
-	}
-
-	result := map[string]interface{}{
-		"decision": decision,
-		"results":  resultList,
-		"warnings": warnings,
-	}
-
-	// For Stop hook blocks, enrich the reason with the config bead prompt
-	// (same logic as gateSessionCheckCmd). Without this, the daemon's
-	// handlePreCheckedGate returns an empty reason and Claude Code shows
-	// "No stderr output" instead of the decision prompt. (bd-gh0ik)
-	if decision == "block" && hookType == "Stop" {
-		reason := "decision: decision point offered before session end"
-		for _, w := range warnings {
-			reason = w // Use last strict-gate warning as default reason
-		}
-		if prompt := loadGatePromptFromConfig(); prompt != "" {
-			reason = prompt
-		}
-		result["reason"] = reason
-	}
-
-	return result
 }
 
 // outputEmitResult writes the emit result according to the Claude Code hook

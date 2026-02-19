@@ -791,6 +791,13 @@ func runDaemonLoop(interval time.Duration, autoCommit, autoPush, autoPull, local
 				handler.SetAutoSling(store)
 				log.Info("auto-sling enabled for bead nudge handler")
 			}
+		case *eventbus.GateHandler:
+			// Wire NATS gate backend for in-process gate checking, replacing
+			// the filesystem marker + subprocess approach. (bd-9w69g, bd-vecxd)
+			if gate.ActiveBackend != nil {
+				handler.SetGateBackend(gate.ActiveBackend, sessionGateRegistry)
+				log.Info("gate handler wired with NATS backend (in-process gate checking)")
+			}
 		case *eventbus.DoneWaitHandler:
 			handler.SetInboxStore(store)
 			if jsCtx != nil {
