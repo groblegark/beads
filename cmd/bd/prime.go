@@ -280,7 +280,7 @@ func outputMCPContext(w io.Writer, stealthMode bool) error {
 ## Core Rules
 - **Default**: Use beads for ALL task tracking (` + "`bd create`" + `, ` + "`bd ready`" + `, ` + "`bd close`" + `)
 - **Prohibited**: Do NOT use TodoWrite, TaskCreate, or markdown files for task tracking
-- **Workflow**: Create beads issue BEFORE writing code, mark in_progress when starting
+- **Workflow**: Create beads issue BEFORE writing code, ` + "`bd claim <id>`" + ` when starting
 - Persistence you don't need beats lost context
 
 Start: Run ` + "`bd news`" + ` to check for conflicts, then ` + "`bd ready`" + ` for available work.
@@ -468,7 +468,7 @@ git push                    # Push to remote
 ## Core Rules
 - **Default**: Use beads for ALL task tracking (` + "`bd create`" + `, ` + "`bd ready`" + `, ` + "`bd close`" + `)
 - **Prohibited**: Do NOT use TodoWrite, TaskCreate, or markdown files for task tracking
-- **Workflow**: Create beads issue BEFORE writing code, mark in_progress when starting
+- **Workflow**: Create beads issue BEFORE writing code, ` + "`bd claim <id>`" + ` when starting
 - Persistence you don't need beats lost context
 - ` + gitWorkflowRule + `
 - Session management: check ` + "`bd ready`" + ` for available work
@@ -485,7 +485,7 @@ git push                    # Push to remote
 ### Creating & Updating
 - ` + "`bd create --title=\"...\" --type=task|bug|feature --priority=2`" + ` - New issue
   - Priority: 0-4 or P0-P4 (0=critical, 2=medium, 4=backlog). NOT "high"/"medium"/"low"
-- ` + "`bd update <id> --status=in_progress`" + ` - Claim work
+- ` + "`bd claim <id>`" + ` - Claim work (sets assignee + status=in_progress)
 - ` + "`bd update <id> --assignee=username`" + ` - Assign to someone
 - ` + "`bd update <id> --title/--description/--notes/--design`" + ` - Update fields inline
 - ` + "`bd close <id>`" + ` - Mark complete
@@ -518,7 +518,7 @@ git push                    # Push to remote
 bd news            # Check what others are working on (avoid conflicts)
 bd ready           # Find available work
 bd show <id>       # Review issue details
-bd update <id> --status=in_progress  # Claim it
+bd claim <id>      # Claim it (sets assignee + in_progress)
 ` + "```" + `
 
 ` + completingWorkflow + `
@@ -767,6 +767,29 @@ func outputRosterSection(w io.Writer) {
 		}
 	}
 
+	// Self-check: if this agent shows "no task" in the roster but has in_progress
+	// beads assigned, nudge them to claim. This catches the common case where an
+	// agent starts working but forgets to run bd claim. (bd-ipc0d)
+	if self != "" {
+		selfHasTask := false
+		for _, a := range active {
+			if a.Actor == self && a.TaskID != "" {
+				selfHasTask = true
+				break
+			}
+		}
+		if !selfHasTask {
+			if myBeads := findMyInProgressBeads(client, self); len(myBeads) > 0 {
+				fmt.Fprintf(w, "\n> **Claim reminder**: You have in-progress beads but the roster shows 'no task'.\n")
+				fmt.Fprintf(w, "> Run `bd claim <id>` to associate your work with the roster:\n")
+				for _, b := range myBeads {
+					fmt.Fprintf(w, ">   - `bd claim %s` — %s\n", b.id, b.title)
+				}
+				_, _ = fmt.Fprintln(w)
+			}
+		}
+	}
+
 	// Epic coverage analysis: show which epics have agents vs orphaned. (bd-hqle6)
 	epicAgents := make(map[string][]string) // epicID → actor names
 	for _, a := range active {
@@ -904,6 +927,31 @@ func countReadyTasks(client *rpc.Client) int {
 		return 0
 	}
 	return len(issues)
+}
+
+// findMyInProgressBeads returns in_progress beads assigned to the given agent.
+// Used by the roster self-check to remind agents to claim work. (bd-ipc0d)
+func findMyInProgressBeads(client *rpc.Client, agentName string) []readyWorkItem {
+	resp, err := client.List(&rpc.ListArgs{
+		Status:   "in_progress",
+		Assignee: agentName,
+		Limit:    5,
+	})
+	if err != nil || resp == nil || resp.Data == nil {
+		return nil
+	}
+	var issues []*types.IssueWithCounts
+	if err := json.Unmarshal(resp.Data, &issues); err != nil {
+		return nil
+	}
+	var result []readyWorkItem
+	for _, iwc := range issues {
+		result = append(result, readyWorkItem{
+			id:    iwc.Issue.ID,
+			title: iwc.Issue.Title,
+		})
+	}
+	return result
 }
 
 // formatIdleDuration is defined in agent.go (same package).
