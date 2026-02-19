@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 
@@ -307,5 +308,297 @@ func TestAgentStop_MissingAgentID(t *testing.T) {
 	_, err := client.AgentStop(&rpc.AgentStopArgs{})
 	if err == nil {
 		t.Fatal("expected error for missing agent_id")
+	}
+}
+
+// showIssue retrieves the full issue for inspection.
+func showIssue(t *testing.T, client *rpc.Client, id string) types.Issue {
+	t.Helper()
+	resp, err := client.Show(&rpc.ShowArgs{ID: id})
+	if err != nil {
+		t.Fatalf("Show %s: %v", id, err)
+	}
+	if !resp.Success {
+		t.Fatalf("Show %s failed: %s", id, resp.Error)
+	}
+	var issue types.Issue
+	if err := json.Unmarshal(resp.Data, &issue); err != nil {
+		t.Fatalf("unmarshal issue %s: %v", id, err)
+	}
+	return issue
+}
+
+// --- Pod register/deregister coop_url tests (bd-x820i) ---
+
+func TestPodRegister_StoresExplicitCoopURL(t *testing.T) {
+	d := testdaemon.Start(t)
+	client := connectTestClient(t, d)
+
+	createAgentBead(t, client, "hq-cooptest", "")
+
+	_, err := client.AgentPodRegister(&rpc.AgentPodRegisterArgs{
+		AgentID: "hq-cooptest",
+		PodName: "cooptest-pod",
+		PodIP:   "10.0.1.5",
+		CoopURL: "http://10.0.1.5:4000",
+	})
+	if err != nil {
+		t.Fatalf("AgentPodRegister: %v", err)
+	}
+
+	issue := showIssue(t, client, "hq-cooptest")
+	if !strings.Contains(issue.Notes, "coop_url: http://10.0.1.5:4000") {
+		t.Errorf("notes should contain explicit coop_url, got: %q", issue.Notes)
+	}
+}
+
+func TestPodRegister_DerivesCoopURLFromPodIP(t *testing.T) {
+	d := testdaemon.Start(t)
+	client := connectTestClient(t, d)
+
+	createAgentBead(t, client, "hq-derivetest", "")
+
+	// Register without CoopURL but with PodIP — should derive http://<PodIP>:3000.
+	_, err := client.AgentPodRegister(&rpc.AgentPodRegisterArgs{
+		AgentID: "hq-derivetest",
+		PodName: "derivetest-pod",
+		PodIP:   "10.0.2.99",
+	})
+	if err != nil {
+		t.Fatalf("AgentPodRegister: %v", err)
+	}
+
+	issue := showIssue(t, client, "hq-derivetest")
+	if !strings.Contains(issue.Notes, "coop_url: http://10.0.2.99:3000") {
+		t.Errorf("notes should contain derived coop_url http://10.0.2.99:3000, got: %q", issue.Notes)
+	}
+}
+
+func TestPodDeregister_ClearsCoopURL(t *testing.T) {
+	d := testdaemon.Start(t)
+	client := connectTestClient(t, d)
+
+	createAgentBead(t, client, "hq-cleartest", "")
+
+	// Register with coop_url.
+	_, err := client.AgentPodRegister(&rpc.AgentPodRegisterArgs{
+		AgentID: "hq-cleartest",
+		PodName: "cleartest-pod",
+		CoopURL: "http://10.0.1.5:3000",
+	})
+	if err != nil {
+		t.Fatalf("register: %v", err)
+	}
+
+	// Deregister should clear coop_url from notes.
+	_, err = client.AgentPodDeregister(&rpc.AgentPodDeregisterArgs{
+		AgentID: "hq-cleartest",
+	})
+	if err != nil {
+		t.Fatalf("deregister: %v", err)
+	}
+
+	issue := showIssue(t, client, "hq-cleartest")
+	if strings.Contains(issue.Notes, "coop_url") {
+		t.Errorf("notes should not contain coop_url after deregister, got: %q", issue.Notes)
+	}
+}
+
+// --- Retry logic tests (bd-x820i) ---
+
+func TestAgentStop_RetriesOnTransientFailure(t *testing.T) {
+	var attempts atomic.Int32
+	coopServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n := attempts.Add(1)
+		if n <= 2 {
+			// First 2 attempts fail with 500.
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		// Third attempt succeeds.
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer coopServer.Close()
+
+	d := testdaemon.Start(t)
+	client := connectTestClient(t, d)
+
+	createAgentBead(t, client, "hq-retrytest", coopServer.URL)
+
+	result, err := client.AgentStop(&rpc.AgentStopArgs{
+		AgentID: "hq-retrytest",
+	})
+	if err != nil {
+		t.Fatalf("AgentStop: %v", err)
+	}
+
+	if result.AgentState != "stopping" {
+		t.Errorf("AgentState = %q, want %q", result.AgentState, "stopping")
+	}
+	// Verify multiple attempts were made (retry logic).
+	if got := attempts.Load(); got < 2 {
+		t.Errorf("expected at least 2 coop attempts (retry), got %d", got)
+	}
+}
+
+func TestAgentSignal_RetriesOnTransientFailure(t *testing.T) {
+	var attempts atomic.Int32
+	coopServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n := attempts.Add(1)
+		if n <= 1 {
+			// First attempt fails.
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		// Second attempt succeeds.
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer coopServer.Close()
+
+	d := testdaemon.Start(t)
+	client := connectTestClient(t, d)
+
+	createAgentBead(t, client, "hq-sigretry", coopServer.URL)
+
+	result, err := client.AgentSignal(&rpc.AgentSignalArgs{
+		AgentID: "hq-sigretry",
+		Signal:  "SIGUSR1",
+	})
+	if err != nil {
+		t.Fatalf("AgentSignal: %v", err)
+	}
+	if !result.Sent {
+		t.Error("expected Sent=true after retry succeeds")
+	}
+	if got := attempts.Load(); got < 2 {
+		t.Errorf("expected at least 2 attempts (retry), got %d", got)
+	}
+}
+
+func TestAgentSignal_FailsAfterAllRetries(t *testing.T) {
+	coopServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Always fail.
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer coopServer.Close()
+
+	d := testdaemon.Start(t)
+	client := connectTestClient(t, d)
+
+	createAgentBead(t, client, "hq-allfail", coopServer.URL)
+
+	_, err := client.AgentSignal(&rpc.AgentSignalArgs{
+		AgentID: "hq-allfail",
+		Signal:  "SIGTERM",
+	})
+	if err == nil {
+		t.Fatal("expected error after all retries fail")
+	}
+}
+
+// --- Restart clears pod fields (bd-x820i) ---
+
+func TestAgentRestart_ClearsPodStatus(t *testing.T) {
+	d := testdaemon.Start(t)
+	client := connectTestClient(t, d)
+
+	createAgentBead(t, client, "hq-restartclear", "")
+
+	// Register a pod so pod fields are populated.
+	_, err := client.AgentPodRegister(&rpc.AgentPodRegisterArgs{
+		AgentID:   "hq-restartclear",
+		PodName:   "restartclear-pod",
+		PodIP:     "10.0.3.1",
+		PodStatus: "running",
+	})
+	if err != nil {
+		t.Fatalf("register: %v", err)
+	}
+
+	issue := showIssue(t, client, "hq-restartclear")
+	if issue.PodStatus != "running" {
+		t.Fatalf("PodStatus before restart = %q, want %q", issue.PodStatus, "running")
+	}
+
+	// Restart should clear pod_status and set state to spawning.
+	result, err := client.AgentRestart(&rpc.AgentRestartArgs{
+		AgentID: "hq-restartclear",
+		Reason:  "test restart",
+	})
+	if err != nil {
+		t.Fatalf("AgentRestart: %v", err)
+	}
+	if result.AgentState != "spawning" {
+		t.Errorf("AgentState = %q, want %q", result.AgentState, "spawning")
+	}
+
+	issue = showIssue(t, client, "hq-restartclear")
+	if issue.PodStatus != "" {
+		t.Errorf("PodStatus after restart = %q, want empty", issue.PodStatus)
+	}
+}
+
+func TestAgentRestart_NotFound(t *testing.T) {
+	d := testdaemon.Start(t)
+	client := connectTestClient(t, d)
+
+	_, err := client.AgentRestart(&rpc.AgentRestartArgs{
+		AgentID: "nonexistent",
+	})
+	if err == nil {
+		t.Fatal("expected error for nonexistent agent")
+	}
+}
+
+func TestAgentRestart_MissingAgentID(t *testing.T) {
+	d := testdaemon.Start(t)
+	client := connectTestClient(t, d)
+
+	_, err := client.AgentRestart(&rpc.AgentRestartArgs{})
+	if err == nil {
+		t.Fatal("expected error for missing agent_id")
+	}
+}
+
+// --- Stop behavior with missing/unreachable coop (bd-x820i) ---
+
+func TestAgentStop_NoCoop_StillSucceeds(t *testing.T) {
+	d := testdaemon.Start(t)
+	client := connectTestClient(t, d)
+
+	createAgentBead(t, client, "hq-nocoop", "")
+
+	result, err := client.AgentStop(&rpc.AgentStopArgs{
+		AgentID: "hq-nocoop",
+	})
+	if err != nil {
+		t.Fatalf("AgentStop: %v", err)
+	}
+	if result.CoopSignal {
+		t.Error("CoopSignal should be false when no coop_url")
+	}
+	if result.AgentState != "stopping" {
+		t.Errorf("AgentState = %q, want %q", result.AgentState, "stopping")
+	}
+}
+
+func TestAgentStop_CoopUnreachable_StillSetsStopping(t *testing.T) {
+	d := testdaemon.Start(t)
+	client := connectTestClient(t, d)
+
+	// Use a localhost port that's not listening — gets "connection refused" quickly.
+	createAgentBead(t, client, "hq-unreachable", "http://127.0.0.1:1")
+
+	result, err := client.AgentStop(&rpc.AgentStopArgs{
+		AgentID: "hq-unreachable",
+	})
+	if err != nil {
+		t.Fatalf("AgentStop: %v", err)
+	}
+	if result.AgentState != "stopping" {
+		t.Errorf("AgentState = %q, want %q", result.AgentState, "stopping")
+	}
+	if result.CoopSignal {
+		t.Error("CoopSignal should be false when coop server unreachable")
 	}
 }
