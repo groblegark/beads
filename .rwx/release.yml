@@ -202,7 +202,7 @@ tasks:
     use: [code, build-linux-amd64, build-darwin-amd64, build-darwin-arm64, gh-cli]
     cache: false
     run: |
-      set -ex
+      set -e
       TAG="${REF_NAME#refs/tags/}"
       TAG="${TAG#refs/heads/}"
       IS_SNAPSHOT=false
