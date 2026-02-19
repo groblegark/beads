@@ -312,3 +312,24 @@ func EnsureStreams(js nats.JetStreamContext) error {
 
 	return nil
 }
+
+// AgentBaseName strips a trailing "-N" continuation suffix from an agent name.
+// Continuation sessions append a numeric suffix (e.g., "sharp-seal-1") when
+// the original session runs out of context. This helper normalizes back to the
+// base name for NATS subject matching and decision lookup. (bd-6vtx4)
+//
+//	"sharp-seal-1" → "sharp-seal"
+//	"sharp-seal"   → "sharp-seal"
+//	"stout-fish-23" → "stout-fish"
+func AgentBaseName(name string) string {
+	idx := len(name) - 1
+	// Walk backwards past digits.
+	for idx >= 0 && name[idx] >= '0' && name[idx] <= '9' {
+		idx--
+	}
+	// If we walked past at least one digit and hit a hyphen, strip the suffix.
+	if idx >= 0 && idx < len(name)-1 && name[idx] == '-' {
+		return name[:idx]
+	}
+	return name
+}

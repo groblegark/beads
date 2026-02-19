@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/steveyegge/beads/internal/eventbus"
 	"github.com/steveyegge/beads/internal/gate"
 	"github.com/steveyegge/beads/internal/rpc"
 	"github.com/steveyegge/beads/internal/types"
@@ -133,6 +134,8 @@ func yieldGateCheck() string {
 }
 
 // yieldPendingDecisions returns pending (unresolved) decisions for the agent.
+// Matches both exact agent name and continuation variants (e.g., "sharp-seal"
+// matches decisions from "sharp-seal-1", "sharp-seal-2", etc.). (bd-6vtx4)
 func yieldPendingDecisions(agent string) []*types.DecisionPoint {
 	resp, err := daemonClient.DecisionList(&rpc.DecisionListArgs{})
 	if err != nil {
@@ -145,11 +148,64 @@ func yieldPendingDecisions(agent string) []*types.DecisionPoint {
 			continue
 		}
 		dp := d.Decision
-		if dp.RequestedBy == agent && dp.SelectedOption == "" && dp.ResponseText == "" {
+		if matchesAgentVariant(agent, dp.RequestedBy) && dp.SelectedOption == "" && dp.ResponseText == "" {
 			pending = append(pending, dp)
 		}
 	}
 	return pending
+}
+
+// matchesAgentVariant returns true if requestedBy matches the agent name or
+// is a continuation variant. Handles both directions:
+//   - agent="sharp-seal", requestedBy="sharp-seal-1" → true (base matches variant)
+//   - agent="sharp-seal-1", requestedBy="sharp-seal-1" → true (exact match)
+//   - agent="sharp-seal-1", requestedBy="sharp-seal" → true (variant matches base)
+//
+// (bd-6vtx4)
+func matchesAgentVariant(agent, requestedBy string) bool {
+	if agent == requestedBy {
+		return true
+	}
+	return eventbus.AgentBaseName(agent) == eventbus.AgentBaseName(requestedBy)
+}
+
+// yieldResolveAgentFromDecisions checks if there are pending decisions under a
+// variant of the agent name (e.g., "sharp-seal-1" when agent is "sharp-seal").
+// Returns the variant name if found, otherwise the original agent name. (bd-6vtx4)
+func yieldResolveAgentFromDecisions(agent string) string {
+	resp, err := daemonClient.DecisionList(&rpc.DecisionListArgs{})
+	if err != nil {
+		return agent
+	}
+
+	// First check: exact match — if found, no override needed.
+	for _, d := range resp.Decisions {
+		if d.Decision == nil {
+			continue
+		}
+		dp := d.Decision
+		if dp.RequestedBy == agent && dp.SelectedOption == "" && dp.ResponseText == "" {
+			return agent // Exact match found, use as-is.
+		}
+	}
+
+	// Second check: look for a variant match (same base name, different suffix).
+	for _, d := range resp.Decisions {
+		if d.Decision == nil {
+			continue
+		}
+		dp := d.Decision
+		if dp.SelectedOption != "" || dp.ResponseText != "" {
+			continue // Already resolved.
+		}
+		if matchesAgentVariant(agent, dp.RequestedBy) && dp.RequestedBy != agent {
+			fmt.Fprintf(os.Stderr, "yield: agent identity override %q → %q (from pending decision %s)\n",
+				agent, dp.RequestedBy, dp.IssueID)
+			return dp.RequestedBy
+		}
+	}
+
+	return agent
 }
 
 // countDecisionOptions parses the JSON options array and returns the count.
@@ -170,6 +226,15 @@ func runYield(cmd *cobra.Command, args []string) error {
 	agent := yieldAgent
 	if agent == "" {
 		agent = getActor()
+	}
+
+	// Auto-detect correct agent identity from pending decisions.
+	// When a continuation session creates a decision with --requested-by=sharp-seal-1
+	// but BD_ACTOR is "sharp-seal", the yield would listen on the wrong name.
+	// Fix: if no pending decisions match the resolved agent name but a variant does,
+	// use the variant so NATS subscriptions and inbox polls match. (bd-6vtx4)
+	if yieldAgent == "" { // Only auto-detect when --agent wasn't explicitly set.
+		agent = yieldResolveAgentFromDecisions(agent)
 	}
 
 	// Handle Ctrl+C gracefully — agent should exit cleanly.
