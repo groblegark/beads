@@ -157,7 +157,8 @@ const (
 	OpAgentStop    = "agent_stop"
 	OpAgentRestart = "agent_restart"
 	OpAgentSignal  = "agent_signal"
-	OpAgentRoster  = "agent_roster" // bd-3d5m2
+	OpAgentRoster       = "agent_roster"        // bd-3d5m2
+	OpAgentRecentEvents = "agent_recent_events" // bd-9y9ba
 
 	// VCS operations (bd-ma0s.2)
 	OpVcsCommit        = "vcs_commit"
@@ -2000,6 +2001,26 @@ type UnclaimedTask struct {
 	ID       string `json:"id"`
 	Title    string `json:"title"`
 	Priority int    `json:"priority"`
+}
+
+// AgentRecentEventsArgs requests recent events for a specific agent. (bd-9y9ba)
+type AgentRecentEventsArgs struct {
+	Actor string `json:"actor"`           // Actor name (required)
+	Limit int    `json:"limit,omitempty"` // Max events to return (default 20, max 50)
+}
+
+// AgentRecentEventsResult is the response from agent_recent_events. (bd-9y9ba)
+type AgentRecentEventsResult struct {
+	Actor  string       `json:"actor"`
+	Events []AgentEvent `json:"events"` // Newest first
+}
+
+// AgentEvent represents a single event in an agent's recent activity timeline. (bd-9y9ba)
+type AgentEvent struct {
+	Timestamp string `json:"timestamp"`            // RFC3339
+	EventType string `json:"event_type"`           // e.g., "PreToolUse", "PostToolUse", "SessionStart"
+	ToolName  string `json:"tool_name,omitempty"`   // Tool name for tool events
+	Summary   string `json:"summary,omitempty"`     // Human-readable: command, file path, etc.
 }
 
 // ===== Agent Lifecycle Operations (beads-2qz5) =====

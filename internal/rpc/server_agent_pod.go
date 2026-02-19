@@ -347,6 +347,53 @@ func (s *Server) handleAgentRoster(req *Request) Response {
 	return Response{Success: true, Data: data}
 }
 
+// handleAgentRecentEvents returns recent events for a specific agent from the
+// presence tracker's ring buffer. (bd-9y9ba)
+func (s *Server) handleAgentRecentEvents(req *Request) Response {
+	if s.bus == nil {
+		return Response{Error: "event bus not configured"}
+	}
+
+	pt := s.bus.Presence()
+	if pt == nil {
+		return Response{Error: "presence tracker not running (NATS may not be enabled)"}
+	}
+
+	var args AgentRecentEventsArgs
+	if req.Args != nil {
+		_ = json.Unmarshal(req.Args, &args)
+	}
+
+	if args.Actor == "" {
+		return Response{Success: false, Error: "actor is required"}
+	}
+
+	limit := args.Limit
+	if limit <= 0 {
+		limit = 20
+	}
+	if limit > 50 {
+		limit = 50
+	}
+
+	events := pt.RecentEvents(args.Actor, limit)
+	result := AgentRecentEventsResult{
+		Actor:  args.Actor,
+		Events: make([]AgentEvent, len(events)),
+	}
+	for i, e := range events {
+		result.Events[i] = AgentEvent{
+			Timestamp: e.Timestamp.Format(time.RFC3339),
+			EventType: e.EventType,
+			ToolName:  e.ToolName,
+			Summary:   e.Summary,
+		}
+	}
+
+	data, _ := json.Marshal(result)
+	return Response{Success: true, Data: data}
+}
+
 // enrichRosterWithTasks looks up in_progress beads and matches them to roster
 // actors via created_by or assignee. Also walks parent-child deps to find epics.
 // Returns unclaimed in_progress beads (no assignee) for visibility. (bd-oenjf)

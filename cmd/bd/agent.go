@@ -204,6 +204,26 @@ Examples:
 	RunE: runAgentRoster,
 }
 
+var agentRecentEventsCmd = &cobra.Command{
+	Use:   "recent-events <actor>",
+	Short: "Show recent events for an agent from the live presence tracker",
+	Long: `Show recent tool use and lifecycle events for a specific agent.
+
+Events are captured from real-time NATS hook events and stored in a per-agent
+ring buffer (last 50 events). Each event shows the timestamp, event type,
+tool name, and a human-readable summary (e.g., the bash command, file path).
+
+This command requires the daemon (BD_DAEMON_HOST).
+
+Examples:
+  bd agent recent-events sharp-seal           # Last 20 events
+  bd agent recent-events sharp-seal --limit=5 # Last 5 events`,
+	Args: cobra.ExactArgs(1),
+	RunE: runAgentRecentEvents,
+}
+
+var recentEventsLimit int
+
 var agentCleanupStatusCmd = &cobra.Command{
 	Use:   "cleanup-status",
 	Short: "Write cleanup_status to agent bead (git state for GC)",
@@ -293,6 +313,8 @@ func init() {
 
 	agentOrphansCmd.Flags().StringVar(&orphansRig, "rig", "", "Filter by rig name")
 
+	agentRecentEventsCmd.Flags().IntVar(&recentEventsLimit, "limit", 20, "Max events to return (1-50)")
+
 	agentCmd.AddCommand(agentStateCmd)
 	agentCmd.AddCommand(agentHeartbeatCmd)
 	agentCmd.AddCommand(agentShowCmd)
@@ -303,6 +325,7 @@ func init() {
 	agentCmd.AddCommand(agentPodStatusCmd)
 	agentCmd.AddCommand(agentPodListCmd)
 	agentCmd.AddCommand(agentRosterCmd)
+	agentCmd.AddCommand(agentRecentEventsCmd)
 	agentCmd.AddCommand(agentCleanupStatusCmd)
 	agentCmd.AddCommand(agentOrphansCmd)
 	rootCmd.AddCommand(agentCmd)
@@ -914,6 +937,60 @@ func runAgentRoster(cmd *cobra.Command, args []string) error {
 			}
 			printRosterEntry(a)
 		}
+	}
+
+	return nil
+}
+
+func runAgentRecentEvents(cmd *cobra.Command, args []string) error {
+	if daemonClient == nil {
+		return fmt.Errorf("agent recent-events requires the daemon (set BD_DAEMON_HOST)")
+	}
+
+	actorName := args[0]
+	limit := recentEventsLimit
+	if limit <= 0 {
+		limit = 20
+	}
+	if limit > 50 {
+		limit = 50
+	}
+
+	result, err := daemonClient.AgentRecentEvents(&rpc.AgentRecentEventsArgs{
+		Actor: actorName,
+		Limit: limit,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to get recent events: %w", err)
+	}
+
+	if jsonOutput {
+		encoder := json.NewEncoder(os.Stdout)
+		encoder.SetIndent("", "  ")
+		return encoder.Encode(result)
+	}
+
+	if len(result.Events) == 0 {
+		fmt.Printf("No recent events for %s\n", actorName)
+		return nil
+	}
+
+	fmt.Printf("Recent events for %s (%d events):\n\n", actorName, len(result.Events))
+	for _, e := range result.Events {
+		ts, _ := time.Parse(time.RFC3339, e.Timestamp)
+		ago := time.Since(ts).Round(time.Second)
+		line := fmt.Sprintf("  %s ago  %-15s", ago, e.EventType)
+		if e.ToolName != "" {
+			line += fmt.Sprintf("  %s", e.ToolName)
+		}
+		if e.Summary != "" {
+			summary := e.Summary
+			if len(summary) > 80 {
+				summary = summary[:77] + "..."
+			}
+			line += fmt.Sprintf("  %s", summary)
+		}
+		fmt.Println(line)
 	}
 
 	return nil

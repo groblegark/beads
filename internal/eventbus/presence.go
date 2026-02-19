@@ -50,7 +50,19 @@ type actorState struct {
 	taskIDs    map[string]bool // in_progress bead IDs for this actor (bd-tlckc)
 	reaped     bool            // true if reaper marked this actor dead (bd-khlpu)
 	reapedAt   time.Time       // when reaped (bd-khlpu)
+	recentEvents []RecentEvent // ring buffer of recent events, newest last (bd-9y9ba)
 }
+
+// RecentEvent records a single event for the recent activity timeline. (bd-9y9ba)
+type RecentEvent struct {
+	Timestamp time.Time `json:"timestamp"`
+	EventType string    `json:"event_type"`           // e.g., "PreToolUse", "PostToolUse", "SessionStart"
+	ToolName  string    `json:"tool_name,omitempty"`
+	Summary   string    `json:"summary,omitempty"`     // human-readable summary extracted from tool input
+}
+
+// maxRecentEvents is the per-actor ring buffer capacity. (bd-9y9ba)
+const maxRecentEvents = 50
 
 // ReaperConfig configures the dead-agent reaper goroutine. (bd-khlpu)
 type ReaperConfig struct {
@@ -286,6 +298,33 @@ func (pt *PresenceTracker) Roster(staleThreshold time.Duration) []PresenceEntry 
 	return entries
 }
 
+// RecentEvents returns the last N events for a given actor, newest first. (bd-9y9ba)
+func (pt *PresenceTracker) RecentEvents(actor string, limit int) []RecentEvent {
+	if limit <= 0 {
+		limit = 20
+	}
+
+	pt.mu.RLock()
+	defer pt.mu.RUnlock()
+
+	state, ok := pt.actors[actor]
+	if !ok || len(state.recentEvents) == 0 {
+		return nil
+	}
+
+	events := state.recentEvents
+	if len(events) > limit {
+		events = events[len(events)-limit:]
+	}
+
+	// Return newest first (reverse order).
+	result := make([]RecentEvent, len(events))
+	for i, e := range events {
+		result[len(events)-1-i] = e
+	}
+	return result
+}
+
 // Uptime returns how long the tracker has been running.
 func (pt *PresenceTracker) Uptime() time.Duration {
 	return time.Since(pt.started)
@@ -335,11 +374,12 @@ func (pt *PresenceTracker) BackfillTasks(seeds []TaskSeed) int {
 
 func (pt *PresenceTracker) handleHookEvent(msg *nats.Msg) {
 	var event struct {
-		Actor     string `json:"actor"`
-		EventType string `json:"hook_event_name"`
-		ToolName  string `json:"tool_name"`
-		SessionID string `json:"session_id"`
-		CWD       string `json:"cwd"`
+		Actor     string                 `json:"actor"`
+		EventType string                 `json:"hook_event_name"`
+		ToolName  string                 `json:"tool_name"`
+		SessionID string                 `json:"session_id"`
+		CWD       string                 `json:"cwd"`
+		ToolInput map[string]any `json:"tool_input"`
 	}
 	if err := json.Unmarshal(msg.Data, &event); err != nil {
 		return
@@ -375,6 +415,80 @@ func (pt *PresenceTracker) handleHookEvent(msg *nats.Msg) {
 	if event.CWD != "" {
 		state.cwd = event.CWD // (bd-z6958)
 	}
+
+	// Record into recent events ring buffer. (bd-9y9ba)
+	re := RecentEvent{
+		Timestamp: now,
+		EventType: event.EventType,
+		ToolName:  event.ToolName,
+		Summary:   extractToolSummary(event.ToolName, event.ToolInput),
+	}
+	appendRecentEvent(state, re)
+}
+
+// appendRecentEvent adds an event to the actor's ring buffer, evicting the oldest
+// if capacity is exceeded. (bd-9y9ba)
+func appendRecentEvent(state *actorState, re RecentEvent) {
+	state.recentEvents = append(state.recentEvents, re)
+	if len(state.recentEvents) > maxRecentEvents {
+		// Drop the oldest entry.
+		state.recentEvents = state.recentEvents[1:]
+	}
+}
+
+// extractToolSummary returns a human-readable summary from tool input. (bd-9y9ba)
+func extractToolSummary(toolName string, input map[string]any) string {
+	if input == nil {
+		return ""
+	}
+	switch toolName {
+	case "Bash":
+		if cmd, ok := input["command"].(string); ok {
+			if len(cmd) > 120 {
+				return cmd[:120] + "..."
+			}
+			return cmd
+		}
+	case "Read":
+		if fp, ok := input["file_path"].(string); ok {
+			return fp
+		}
+	case "Write":
+		if fp, ok := input["file_path"].(string); ok {
+			return fp
+		}
+	case "Edit":
+		if fp, ok := input["file_path"].(string); ok {
+			return fp
+		}
+	case "Grep":
+		if pat, ok := input["pattern"].(string); ok {
+			if path, ok2 := input["path"].(string); ok2 {
+				return pat + " in " + path
+			}
+			return pat
+		}
+	case "Glob":
+		if pat, ok := input["pattern"].(string); ok {
+			return pat
+		}
+	case "Task":
+		if desc, ok := input["description"].(string); ok {
+			if len(desc) > 80 {
+				return desc[:80] + "..."
+			}
+			return desc
+		}
+	case "WebFetch":
+		if u, ok := input["url"].(string); ok {
+			return u
+		}
+	case "WebSearch":
+		if q, ok := input["query"].(string); ok {
+			return q
+		}
+	}
+	return ""
 }
 
 // HasTask returns true if the given actor has at least one in_progress bead
@@ -486,4 +600,11 @@ func (pt *PresenceTracker) handleAgentEvent(msg *nats.Msg) {
 	if payload.SessionID != "" {
 		state.sessionID = payload.SessionID
 	}
+
+	// Record into recent events ring buffer. (bd-9y9ba)
+	re := RecentEvent{
+		Timestamp: now,
+		EventType: eventType,
+	}
+	appendRecentEvent(state, re)
 }

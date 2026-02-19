@@ -1456,6 +1456,21 @@ func (c *Client) AgentRoster(args *AgentRosterArgs) (*AgentRosterResult, error) 
 	return &result, nil
 }
 
+// AgentRecentEvents returns recent events for a specific agent. (bd-9y9ba)
+func (c *Client) AgentRecentEvents(args *AgentRecentEventsArgs) (*AgentRecentEventsResult, error) {
+	resp, err := c.Execute(OpAgentRecentEvents, args)
+	if err != nil {
+		return nil, err
+	}
+
+	var result AgentRecentEventsResult
+	if err := json.Unmarshal(resp.Data, &result); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal agent_recent_events response: %w", err)
+	}
+
+	return &result, nil
+}
+
 // Agent lifecycle operations (beads-2qz5)
 
 // AgentStop requests a graceful stop of an agent.
