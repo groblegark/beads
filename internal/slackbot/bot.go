@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/slack-go/slack"
 	"github.com/slack-go/slack/slackevents"
@@ -2453,33 +2454,64 @@ func (b *Bot) handlePeekButton(callback slack.InteractionCallback, decisionID st
 		return
 	}
 
-	// Show decision details instead of terminal peek (bd doesn't have gt peek)
-	blocks := []slack.Block{
-		slack.NewHeaderBlock(
-			slack.NewTextBlockObject("plain_text",
-				fmt.Sprintf("Decision Details: %s", decisionID), false, false)),
-		slack.NewSectionBlock(
-			slack.NewTextBlockObject("mrkdwn",
-				fmt.Sprintf("*Agent:* %s\n*Urgency:* %s\n*Question:* %s",
-					decision.RequestedBy, decision.Urgency, decision.Question),
-				false, false),
-			nil, nil),
-	}
+	// Try to capture the agent's live terminal via Coop sidecar.
+	peekCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
+	defer cancel()
 
-	if decision.Context != "" {
-		contextDisplay := decision.Context
-		var jsonObj interface{}
-		if err := json.Unmarshal([]byte(decision.Context), &jsonObj); err == nil {
-			if prettyJSON, err := json.MarshalIndent(jsonObj, "", "  "); err == nil {
-				contextDisplay = string(prettyJSON)
-			}
-		}
-		contextDisplay = truncateForSlack(contextDisplay, 2900)
-		blocks = append(blocks,
+	terminalText, peekErr := b.decisions.PeekAgent(peekCtx, decision.RequestedBy)
+
+	var blocks []slack.Block
+
+	if peekErr == nil && terminalText != "" {
+		// Terminal peek succeeded — show live terminal output.
+		terminalText = truncateForSlack(terminalText, 2900)
+		blocks = []slack.Block{
+			slack.NewHeaderBlock(
+				slack.NewTextBlockObject("plain_text",
+					fmt.Sprintf("Terminal: %s", decision.RequestedBy), false, false)),
 			slack.NewSectionBlock(
 				slack.NewTextBlockObject("mrkdwn",
-					fmt.Sprintf("*Context:*\n```%s```", contextDisplay), false, false),
-				nil, nil))
+					fmt.Sprintf("```%s```", terminalText), false, false),
+				nil, nil),
+		}
+	} else {
+		// Peek failed — fall back to decision details.
+		log.Printf("slackbot: peek failed for %s: %v", decision.RequestedBy, peekErr)
+
+		blocks = []slack.Block{
+			slack.NewHeaderBlock(
+				slack.NewTextBlockObject("plain_text",
+					fmt.Sprintf("Decision Details: %s", decisionID), false, false)),
+			slack.NewSectionBlock(
+				slack.NewTextBlockObject("mrkdwn",
+					fmt.Sprintf("*Agent:* %s\n*Urgency:* %s\n*Question:* %s",
+						decision.RequestedBy, decision.Urgency, decision.Question),
+					false, false),
+				nil, nil),
+		}
+
+		if peekErr != nil {
+			blocks = append(blocks,
+				slack.NewContextBlock("",
+					slack.NewTextBlockObject("mrkdwn",
+						fmt.Sprintf("_Terminal peek unavailable: %v_", peekErr), false, false)))
+		}
+
+		if decision.Context != "" {
+			contextDisplay := decision.Context
+			var jsonObj interface{}
+			if err := json.Unmarshal([]byte(decision.Context), &jsonObj); err == nil {
+				if prettyJSON, err := json.MarshalIndent(jsonObj, "", "  "); err == nil {
+					contextDisplay = string(prettyJSON)
+				}
+			}
+			contextDisplay = truncateForSlack(contextDisplay, 2900)
+			blocks = append(blocks,
+				slack.NewSectionBlock(
+					slack.NewTextBlockObject("mrkdwn",
+						fmt.Sprintf("*Context:*\n```%s```", contextDisplay), false, false),
+					nil, nil))
+		}
 	}
 
 	_, _, err = b.client.PostMessage(msgInfo.channelID,

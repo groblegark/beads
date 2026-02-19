@@ -320,6 +320,14 @@ func (m *mockDecisionProvider) AddComment(_ context.Context, issueID, author, te
 	return nil
 }
 
+func (m *mockDecisionProvider) PeekAgent(_ context.Context, agentName string) (string, error) {
+	// Mock returns a stub terminal output for testing.
+	if agentName == "" {
+		return "", fmt.Errorf("no agent name")
+	}
+	return fmt.Sprintf("[mock terminal for %s]\n$ bd ready\nNo pending work.", agentName), nil
+}
+
 func (m *mockDecisionProvider) getComments(issueID string) []commentCall {
 	m.mu.Lock()
 	defer m.mu.Unlock()

@@ -425,3 +425,68 @@ func TestConvertDecisionResponse(t *testing.T) {
 		})
 	}
 }
+
+func TestStripSessionSuffix(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"obsidian-5", "obsidian"},
+		{"furiosa-274", "furiosa"},
+		{"mayor-113", "mayor"},
+		{"sharp-seal", "sharp-seal"},    // Not a numeric suffix
+		{"vivid-kite", "vivid-kite"},    // Not a numeric suffix
+		{"obsidian", "obsidian"},         // No suffix
+		{"mayor", "mayor"},              // No suffix
+		{"agent-1-2", "agent-1"},        // Only strips last numeric segment
+	}
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			got := stripSessionSuffix(tt.input)
+			if got != tt.want {
+				t.Errorf("stripSessionSuffix(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestMatchAgentPod(t *testing.T) {
+	agents := []rpc.AgentPodInfo{
+		{AgentID: "bd-beads-polecat-obsidian", PodIP: "10.0.1.1", PodStatus: "running"},
+		{AgentID: "bd-beads-polecat-jade", PodIP: "10.0.1.2", PodStatus: "running"},
+		{AgentID: "gt-gastown-polecat-furiosa", PodIP: "10.0.2.1", PodStatus: "running"},
+		{AgentID: "hq-mayor", PodIP: "10.0.3.1", PodStatus: "running"},
+	}
+
+	tests := []struct {
+		name     string
+		agentArg string
+		wantID   string
+		wantNil  bool
+	}{
+		{"exact match", "bd-beads-polecat-obsidian", "bd-beads-polecat-obsidian", false},
+		{"session suffix stripped", "obsidian-5", "bd-beads-polecat-obsidian", false},
+		{"session suffix stripped furiosa", "furiosa-274", "gt-gastown-polecat-furiosa", false},
+		{"base name match", "jade", "bd-beads-polecat-jade", false},
+		{"mayor match", "mayor-113", "hq-mayor", false},
+		{"no match", "nonexistent-99", "", true},
+		{"hyphenated name no suffix", "sharp-seal", "", true}, // Not in list
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := matchAgentPod(tt.agentArg, agents)
+			if tt.wantNil {
+				if result != nil {
+					t.Errorf("matchAgentPod(%q) = %v, want nil", tt.agentArg, result.AgentID)
+				}
+				return
+			}
+			if result == nil {
+				t.Fatalf("matchAgentPod(%q) = nil, want %q", tt.agentArg, tt.wantID)
+			}
+			if result.AgentID != tt.wantID {
+				t.Errorf("matchAgentPod(%q).AgentID = %q, want %q", tt.agentArg, result.AgentID, tt.wantID)
+			}
+		})
+	}
+}

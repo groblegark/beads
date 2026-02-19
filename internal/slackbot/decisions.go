@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/steveyegge/beads/internal/coop"
 	"github.com/steveyegge/beads/internal/rpc"
 	"github.com/steveyegge/beads/internal/types"
 )
@@ -274,6 +275,95 @@ func (dc *DecisionClient) AddComment(ctx context.Context, issueID, author, text 
 		return fmt.Errorf("add comment %s: %w", issueID, err)
 	}
 	return nil
+}
+
+// PeekAgent captures terminal output from the agent's Coop sidecar.
+// It resolves the agent name to a pod IP via AgentPodList, then calls Coop's
+// screen/text endpoint to capture the terminal. (beads-tsk-port_agent_terminal_peek_activity_go)
+func (dc *DecisionClient) PeekAgent(ctx context.Context, agentName string) (string, error) {
+	if agentName == "" {
+		return "", fmt.Errorf("no agent name provided")
+	}
+
+	client := dc.getClient()
+	if client == nil {
+		return "", fmt.Errorf("daemon not connected")
+	}
+
+	// Get all agents with active pods.
+	result, err := client.AgentPodList(&rpc.AgentPodListArgs{})
+	if err != nil && isBrokenPipe(err) {
+		if rerr := dc.reconnect(); rerr != nil {
+			return "", fmt.Errorf("agent pod list (reconnect failed): %w", rerr)
+		}
+		client = dc.getClient()
+		result, err = client.AgentPodList(&rpc.AgentPodListArgs{})
+	}
+	if err != nil {
+		return "", fmt.Errorf("agent pod list: %w", err)
+	}
+
+	// Find the agent by matching the name against pod list entries.
+	podInfo := matchAgentPod(agentName, result.Agents)
+	if podInfo == nil {
+		return "", fmt.Errorf("agent %q not found in pod list (%d agents registered)", agentName, len(result.Agents))
+	}
+	if podInfo.PodIP == "" {
+		return "", fmt.Errorf("agent %q (%s) has no pod IP", agentName, podInfo.AgentID)
+	}
+	if podInfo.PodStatus != "" && podInfo.PodStatus != "running" {
+		return "", fmt.Errorf("agent %q (%s) pod is %s", agentName, podInfo.AgentID, podInfo.PodStatus)
+	}
+
+	// Connect to Coop sidecar and capture terminal.
+	coopURL := fmt.Sprintf("http://%s:3000", podInfo.PodIP)
+	coopClient := coop.NewClient(coopURL, coop.WithTimeout(5*time.Second))
+
+	text, err := coopClient.CapturePane(ctx)
+	if err != nil {
+		return "", fmt.Errorf("coop capture for %s: %w", podInfo.AgentID, err)
+	}
+	return text, nil
+}
+
+// matchAgentPod finds the best matching agent from the pod list.
+// Tries: exact match on AgentID, then suffix match (e.g., "obsidian-5" matches
+// "bd-beads-polecat-obsidian"), then substring match on base name.
+func matchAgentPod(name string, agents []rpc.AgentPodInfo) *rpc.AgentPodInfo {
+	// 1. Exact match.
+	for i := range agents {
+		if agents[i].AgentID == name {
+			return &agents[i]
+		}
+	}
+
+	// Strip numeric session suffix (e.g., "obsidian-5" → "obsidian").
+	baseName := stripSessionSuffix(name)
+
+	// 2. Agent ID ends with the base name (e.g., "bd-beads-polecat-obsidian" ends with "obsidian").
+	for i := range agents {
+		id := agents[i].AgentID
+		if strings.HasSuffix(id, "-"+baseName) || strings.HasSuffix(id, "/"+baseName) || id == baseName {
+			return &agents[i]
+		}
+	}
+
+	// 3. Substring match on base name within AgentID.
+	for i := range agents {
+		if strings.Contains(agents[i].AgentID, baseName) {
+			return &agents[i]
+		}
+	}
+
+	return nil
+}
+
+// stripSessionSuffix removes a trailing "-N" numeric suffix from agent names.
+// e.g., "obsidian-5" → "obsidian", "furiosa-274" → "furiosa", "mayor-113" → "mayor"
+var sessionSuffixPattern = regexp.MustCompile(`-\d+$`)
+
+func stripSessionSuffix(name string) string {
+	return sessionSuffixPattern.ReplaceAllString(name, "")
 }
 
 // convertDecisionResponse maps an rpc.DecisionResponse to the unified Decision type.

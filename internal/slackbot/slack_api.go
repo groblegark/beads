@@ -40,4 +40,10 @@ type DecisionProvider interface {
 	ResolveWithText(ctx context.Context, issueID, text, resolvedBy string) (*Decision, error)
 	Cancel(ctx context.Context, issueID string) error
 	AddComment(ctx context.Context, issueID, author, text string) error
+
+	// PeekAgent captures the terminal output of the agent identified by agentName.
+	// It resolves the agent's pod IP via AgentPodList, connects to the Coop sidecar,
+	// and returns the terminal text. Returns an error if the agent is not found or
+	// unreachable.
+	PeekAgent(ctx context.Context, agentName string) (string, error)
 }
