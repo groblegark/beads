@@ -463,3 +463,228 @@ func TestHTTPMappingCompleteness(t *testing.T) {
 		}
 	})
 }
+
+// TestHTTPServerCORS tests the CORS middleware (bd-gnymr)
+func TestHTTPServerCORS(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "http-cors-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	socketPath := filepath.Join(tmpDir, "bd.sock")
+	store := teststore.New(t)
+
+	server := NewServer(socketPath, store, tmpDir, filepath.Join(tmpDir, "beads.db"))
+	server.SetHTTPAddr("127.0.0.1:0")
+	server.SetCORSOrigins([]string{"http://localhost:5173", "https://beads3d.example.com"})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	errChan := make(chan error, 1)
+	go func() {
+		errChan <- server.Start(ctx)
+	}()
+
+	select {
+	case <-server.WaitReady():
+	case err := <-errChan:
+		t.Fatalf("server failed to start: %v", err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("timeout waiting for server to start")
+	}
+
+	httpServer := server.HTTPServer()
+	if httpServer == nil {
+		t.Fatal("HTTP server should be active")
+	}
+	httpAddr := httpServer.Addr()
+	client := &http.Client{}
+
+	t.Run("preflight_allowed_origin", func(t *testing.T) {
+		req, _ := http.NewRequest("OPTIONS", "http://"+httpAddr+"/bd.v1.BeadsService/List", nil)
+		req.Header.Set("Origin", "http://localhost:5173")
+
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatalf("failed to send OPTIONS: %v", err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusNoContent {
+			t.Errorf("expected 204, got %d", resp.StatusCode)
+		}
+		if got := resp.Header.Get("Access-Control-Allow-Origin"); got != "http://localhost:5173" {
+			t.Errorf("expected ACAO=http://localhost:5173, got %q", got)
+		}
+		if got := resp.Header.Get("Access-Control-Allow-Methods"); got == "" {
+			t.Error("expected Access-Control-Allow-Methods header")
+		}
+	})
+
+	t.Run("preflight_disallowed_origin", func(t *testing.T) {
+		req, _ := http.NewRequest("OPTIONS", "http://"+httpAddr+"/bd.v1.BeadsService/List", nil)
+		req.Header.Set("Origin", "http://evil.com")
+
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatalf("failed to send OPTIONS: %v", err)
+		}
+		defer resp.Body.Close()
+
+		if got := resp.Header.Get("Access-Control-Allow-Origin"); got != "" {
+			t.Errorf("expected no ACAO for disallowed origin, got %q", got)
+		}
+	})
+
+	t.Run("actual_request_has_cors_headers", func(t *testing.T) {
+		resp, err := http.Get("http://" + httpAddr + "/health")
+		if err != nil {
+			t.Fatalf("failed to GET: %v", err)
+		}
+		defer resp.Body.Close()
+
+		// No Origin header sent, so no CORS headers expected
+		if got := resp.Header.Get("Access-Control-Allow-Origin"); got != "" {
+			t.Errorf("expected no ACAO without Origin header, got %q", got)
+		}
+	})
+
+	t.Run("actual_request_with_allowed_origin", func(t *testing.T) {
+		req, _ := http.NewRequest("GET", "http://"+httpAddr+"/health", nil)
+		req.Header.Set("Origin", "https://beads3d.example.com")
+
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatalf("failed to GET: %v", err)
+		}
+		defer resp.Body.Close()
+
+		if got := resp.Header.Get("Access-Control-Allow-Origin"); got != "https://beads3d.example.com" {
+			t.Errorf("expected ACAO=https://beads3d.example.com, got %q", got)
+		}
+		// Specific origins should have Vary: Origin
+		if got := resp.Header.Get("Vary"); got != "Origin" {
+			t.Errorf("expected Vary=Origin, got %q", got)
+		}
+	})
+
+	if err := server.Stop(); err != nil {
+		t.Errorf("failed to stop server: %v", err)
+	}
+}
+
+// TestHTTPServerCORSWildcard tests CORS with wildcard origin (bd-gnymr)
+func TestHTTPServerCORSWildcard(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "http-cors-wild-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	socketPath := filepath.Join(tmpDir, "bd.sock")
+	store := teststore.New(t)
+
+	server := NewServer(socketPath, store, tmpDir, filepath.Join(tmpDir, "beads.db"))
+	server.SetHTTPAddr("127.0.0.1:0")
+	server.SetCORSOrigins([]string{"*"})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	errChan := make(chan error, 1)
+	go func() {
+		errChan <- server.Start(ctx)
+	}()
+
+	select {
+	case <-server.WaitReady():
+	case err := <-errChan:
+		t.Fatalf("server failed to start: %v", err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("timeout waiting for server to start")
+	}
+
+	httpServer := server.HTTPServer()
+	httpAddr := httpServer.Addr()
+	client := &http.Client{}
+
+	t.Run("wildcard_allows_any_origin", func(t *testing.T) {
+		req, _ := http.NewRequest("GET", "http://"+httpAddr+"/health", nil)
+		req.Header.Set("Origin", "http://anything.example.com")
+
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatalf("failed to GET: %v", err)
+		}
+		defer resp.Body.Close()
+
+		if got := resp.Header.Get("Access-Control-Allow-Origin"); got != "*" {
+			t.Errorf("expected ACAO=*, got %q", got)
+		}
+		// Wildcard should NOT have Vary: Origin
+		if got := resp.Header.Get("Vary"); got == "Origin" {
+			t.Error("wildcard CORS should not set Vary: Origin")
+		}
+	})
+
+	if err := server.Stop(); err != nil {
+		t.Errorf("failed to stop server: %v", err)
+	}
+}
+
+// TestHTTPServerNoCORS verifies no CORS headers when not configured (bd-gnymr)
+func TestHTTPServerNoCORS(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "http-nocors-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	socketPath := filepath.Join(tmpDir, "bd.sock")
+	store := teststore.New(t)
+
+	server := NewServer(socketPath, store, tmpDir, filepath.Join(tmpDir, "beads.db"))
+	server.SetHTTPAddr("127.0.0.1:0")
+	// No SetCORSOrigins call — CORS should be disabled
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	errChan := make(chan error, 1)
+	go func() {
+		errChan <- server.Start(ctx)
+	}()
+
+	select {
+	case <-server.WaitReady():
+	case err := <-errChan:
+		t.Fatalf("server failed to start: %v", err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("timeout waiting for server to start")
+	}
+
+	httpServer := server.HTTPServer()
+	httpAddr := httpServer.Addr()
+	client := &http.Client{}
+
+	t.Run("no_cors_headers_when_disabled", func(t *testing.T) {
+		req, _ := http.NewRequest("GET", "http://"+httpAddr+"/health", nil)
+		req.Header.Set("Origin", "http://localhost:5173")
+
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatalf("failed to GET: %v", err)
+		}
+		defer resp.Body.Close()
+
+		if got := resp.Header.Get("Access-Control-Allow-Origin"); got != "" {
+			t.Errorf("expected no ACAO when CORS disabled, got %q", got)
+		}
+	})
+
+	if err := server.Stop(); err != nil {
+		t.Errorf("failed to stop server: %v", err)
+	}
+}

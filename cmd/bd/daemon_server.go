@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"os/signal"
+	"strings"
 	"time"
 
 	"github.com/steveyegge/beads/internal/daemon"
@@ -67,6 +68,17 @@ func startRPCServer(ctx context.Context, socketPath string, store storage.Storag
 	// Configure HTTP listener if address provided (Connect-RPC style API)
 	if httpAddr != "" {
 		server.SetHTTPAddr(httpAddr)
+	}
+
+	// Configure CORS if BD_CORS_ORIGINS is set (bd-gnymr)
+	// Comma-separated list of allowed origins, or "*" for all.
+	if corsEnv := os.Getenv("BD_CORS_ORIGINS"); corsEnv != "" {
+		origins := strings.Split(corsEnv, ",")
+		for i := range origins {
+			origins[i] = strings.TrimSpace(origins[i])
+		}
+		server.SetCORSOrigins(origins)
+		log.Info("CORS enabled", "origins", origins)
 	}
 
 	serverErrChan := make(chan error, 1)

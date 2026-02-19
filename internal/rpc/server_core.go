@@ -66,6 +66,7 @@ type Server struct {
 	auditLog      bool        // Enable RPC audit logging (gt-f6ya1g.5)
 	httpAddr      string      // HTTP address to listen on (e.g., ":9080")
 	httpServer    *HTTPServer // HTTP server (wraps RPC in HTTP POST endpoints)
+	corsOrigins   []string    // Allowed CORS origins for HTTP server (bd-gnymr)
 	mu            sync.RWMutex
 	shutdown      bool
 	shutdownChan  chan struct{}
@@ -596,6 +597,14 @@ func (s *Server) HTTPAddr() string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.httpAddr
+}
+
+// SetCORSOrigins sets the allowed origins for CORS on the HTTP server (bd-gnymr).
+// Pass ["*"] to allow all origins. Must be called before Start().
+func (s *Server) SetCORSOrigins(origins []string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.corsOrigins = origins
 }
 
 // HTTPServer returns the HTTP server instance, or nil if not configured.

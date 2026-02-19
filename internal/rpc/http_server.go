@@ -16,15 +16,16 @@ import (
 
 // HTTPServer wraps the RPC server with HTTP endpoints
 type HTTPServer struct {
-	rpcServer  *Server
-	httpServer *http.Server
-	listener   net.Listener
-	addr       string
-	token      string      // Bearer token for authentication (legacy single token)
-	authPolicy *AuthPolicy // Per-rig API key authorization (bd-65bc)
-	auditLog   bool        // Enable RPC audit logging
-	mu         sync.RWMutex
-	readyChan  chan struct{} // closed when listener is bound
+	rpcServer   *Server
+	httpServer  *http.Server
+	listener    net.Listener
+	addr        string
+	token       string      // Bearer token for authentication (legacy single token)
+	authPolicy  *AuthPolicy // Per-rig API key authorization (bd-65bc)
+	auditLog    bool        // Enable RPC audit logging
+	corsOrigins []string    // Allowed CORS origins (bd-gnymr); empty = no CORS headers
+	mu          sync.RWMutex
+	readyChan   chan struct{} // closed when listener is bound
 }
 
 // NewHTTPServer creates a new HTTP wrapper around an RPC server
@@ -55,8 +56,13 @@ func (h *HTTPServer) Start(ctx context.Context) error {
 	// Connect-RPC style endpoints (auth required)
 	mux.HandleFunc("/bd.v1.BeadsService/", h.handleRPC)
 
+	var handler http.Handler = mux
+	if len(h.corsOrigins) > 0 {
+		handler = h.corsMiddleware(mux)
+	}
+
 	h.httpServer = &http.Server{
-		Handler:      mux,
+		Handler:      handler,
 		ReadTimeout:  30 * time.Second,
 		WriteTimeout: 0, // Disabled for SSE long-lived connections; per-handler timeouts used instead
 		IdleTimeout:  120 * time.Second,
@@ -102,6 +108,45 @@ func (h *HTTPServer) Listener() net.Listener {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	return h.listener
+}
+
+// corsMiddleware wraps an http.Handler to add CORS headers for allowed origins (bd-gnymr).
+// Handles OPTIONS preflight requests and sets Access-Control-Allow-* headers on all responses.
+func (h *HTTPServer) corsMiddleware(next http.Handler) http.Handler {
+	// Build set for O(1) lookup
+	allowed := make(map[string]bool, len(h.corsOrigins))
+	allowAll := false
+	for _, o := range h.corsOrigins {
+		if o == "*" {
+			allowAll = true
+		}
+		allowed[o] = true
+	}
+
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		origin := r.Header.Get("Origin")
+		if origin != "" && (allowAll || allowed[origin]) {
+			respOrigin := origin
+			if allowAll {
+				respOrigin = "*"
+			}
+			w.Header().Set("Access-Control-Allow-Origin", respOrigin)
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, Connect-Protocol-Version, X-BD-Actor, X-BD-Client-Version, X-BD-Cwd, X-BD-Expected-DB")
+			w.Header().Set("Access-Control-Max-Age", "86400")
+			if !allowAll {
+				w.Header().Set("Vary", "Origin")
+			}
+		}
+
+		// Handle preflight
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
 }
 
 // handleHealth handles GET /health and /healthz
