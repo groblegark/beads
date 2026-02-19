@@ -425,11 +425,4 @@ func copyFile(src, dst string) error {
 func init() {
 	migrateHashIDsCmd.Flags().Bool("dry-run", false, "Show what would be done without making changes")
 	migrateCmd.AddCommand(migrateHashIDsCmd)
-
-	// Backwards compatibility alias at root level (hidden)
-	migrateHashIDsAliasCmd := *migrateHashIDsCmd
-	migrateHashIDsAliasCmd.Use = "migrate-hash-ids"
-	migrateHashIDsAliasCmd.Hidden = true
-	migrateHashIDsAliasCmd.Deprecated = "use 'bd migrate hash-ids' instead (will be removed in v1.0.0)"
-	rootCmd.AddCommand(&migrateHashIDsAliasCmd)
 }

@@ -704,10 +704,4 @@ func init() {
 	_ = migrateIssuesCmd.MarkFlagRequired("from") // Only fails if flag missing (caught in tests)
 	_ = migrateIssuesCmd.MarkFlagRequired("to")   // Only fails if flag missing (caught in tests)
 
-	// Backwards compatibility alias at root level (hidden)
-	migrateIssuesAliasCmd := *migrateIssuesCmd
-	migrateIssuesAliasCmd.Use = "migrate-issues"
-	migrateIssuesAliasCmd.Hidden = true
-	migrateIssuesAliasCmd.Deprecated = "use 'bd migrate issues' instead (will be removed in v1.0.0)"
-	rootCmd.AddCommand(&migrateIssuesAliasCmd)
 }

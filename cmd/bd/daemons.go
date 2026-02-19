@@ -66,19 +66,6 @@ type DaemonHealthResponse struct {
 	Daemons      []DaemonHealthReport `json:"daemons"`
 }
 
-var daemonsCmd = &cobra.Command{
-	Use:     "daemons",
-	GroupID: "sync",
-	Short:   "Manage multiple bd daemons",
-	Long: `Manage bd daemon processes across all repositories and worktrees.
-Subcommands:
-  list    - Show all running daemons
-  health  - Check health of all daemons
-  stop    - Stop a specific daemon by workspace path or PID
-  logs    - View daemon logs
-  killall - Stop all running daemons
-  restart - Restart a specific daemon (not yet implemented)`,
-}
 var daemonsListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List all running bd daemons",
@@ -623,18 +610,6 @@ func init() {
 	daemonCmd.AddCommand(daemonsLogsCmd)
 	daemonCmd.AddCommand(daemonsKillallCmd)
 	daemonCmd.AddCommand(daemonsRestartCmd)
-
-	// Also add to daemonsCmd for backwards compatibility
-	// Make daemonsCmd a hidden alias that shows deprecation
-	daemonsCmd.Hidden = true
-	daemonsCmd.Deprecated = "use 'bd daemon <subcommand>' instead (will be removed in v1.0.0)"
-	daemonsCmd.AddCommand(daemonsListCmd)
-	daemonsCmd.AddCommand(daemonsHealthCmd)
-	daemonsCmd.AddCommand(daemonsStopCmd)
-	daemonsCmd.AddCommand(daemonsLogsCmd)
-	daemonsCmd.AddCommand(daemonsKillallCmd)
-	daemonsCmd.AddCommand(daemonsRestartCmd)
-	rootCmd.AddCommand(daemonsCmd)
 
 	// Flags for list command
 	daemonsListCmd.Flags().StringSlice("search", nil, "Directories to search for daemons (default: home, /tmp, cwd)")

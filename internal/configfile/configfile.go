@@ -37,9 +37,6 @@ type Config struct {
 	// nil/missing = enabled (for backwards compatibility), explicit false = disabled
 	RoutingEnabled *bool `json:"routing_enabled,omitempty"`
 
-	// Deprecated fields kept for JSON backwards compatibility when reading old configs.
-	DoltRemoteURL string `json:"dolt_remote_url,omitempty"` // Never referenced in code
-	LastBdVersion string `json:"last_bd_version,omitempty"` // Superseded by .local_version
 }
 
 func DefaultConfig() *Config {
