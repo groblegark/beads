@@ -24,11 +24,45 @@ builds:
       - -X main.Build={{.ShortCommit}}
       - -X main.Commit={{.Commit}}
 
-  # Darwin builds disabled temporarily — gozstd duplicate symbol with internal
-  # linker and libresolv missing with external linker (zig 0.14.0).
-  # Tracked as beads-2tkj. Linux binary is the deploy target.
-  # - id: bd-darwin-amd64
-  # - id: bd-darwin-arm64
+  - id: bd-darwin-amd64
+    main: ./cmd/bd
+    binary: bd
+    env:
+      - CGO_ENABLED=1
+      - CC=/tmp/zigcc/cc-x86_64-macos
+      - CGO_CFLAGS=-DZSTD_DISABLE_ASM -DDEACTIVATE_SIMD
+    tags:
+      - gms_pure_go
+      - netgo
+    goos:
+      - darwin
+    goarch:
+      - amd64
+    ldflags:
+      - -s -w -extldflags '-Wl,-undefined,dynamic_lookup'
+      - -X main.Version={{.Version}}
+      - -X main.Build={{.ShortCommit}}
+      - -X main.Commit={{.Commit}}
+
+  - id: bd-darwin-arm64
+    main: ./cmd/bd
+    binary: bd
+    env:
+      - CGO_ENABLED=1
+      - CC=/tmp/zigcc/cc-aarch64-macos
+      - CGO_CFLAGS=-DZSTD_DISABLE_ASM -DDEACTIVATE_SIMD
+    tags:
+      - gms_pure_go
+      - netgo
+    goos:
+      - darwin
+    goarch:
+      - arm64
+    ldflags:
+      - -s -w -extldflags '-Wl,-undefined,dynamic_lookup'
+      - -X main.Version={{.Version}}
+      - -X main.Build={{.ShortCommit}}
+      - -X main.Commit={{.Commit}}
 
 archives:
   - id: bd-archive
