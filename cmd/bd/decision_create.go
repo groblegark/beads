@@ -77,11 +77,18 @@ func init() {
 func runDecisionCreate(cmd *cobra.Command, args []string) {
 	CheckReadonly("decision create")
 
-	// Clear old decision gate markers so the next stop hook will block again
-	// after this decision is responded to and the agent acts on it.
-	// Without this, the permanent marker from the previous decision persists
-	// and the gate never blocks again.
-	gate.ClearGateAllSessions(getWorkDir(), "decision")
+	// Clear old decision gate marker for THIS session so the next stop hook
+	// will block again after this decision is responded to and the agent acts
+	// on it. Without this, the permanent marker from the previous decision
+	// persists and the gate never blocks again.
+	// IMPORTANT: only clear the current session's marker, not all sessions.
+	// ClearGateAllSessions was causing a cross-agent race: when multiple
+	// agents create checkpoint decisions concurrently, each agent's
+	// bd decision create nuked every other agent's "decision" marker,
+	// causing their Stop hooks to re-fire in a loop. (bd-oqqiun)
+	if sid := getSessionID(); sid != "" {
+		gate.ClearGate(getWorkDir(), sid, "decision")
+	}
 
 	// Clear Stop hook debounce marker so the next checkpoint cycle can
 	// fire normally after this new decision is created. (bd-ss2lc)
