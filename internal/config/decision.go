@@ -16,6 +16,7 @@ const (
 	KeyDecisionMaxReminders      = "decision.settings.max-reminders"
 	KeyDecisionMaxIterations     = "decision.settings.max-iterations"
 	KeyDecisionAutoAcceptOnMax   = "decision.settings.auto-accept-on-max"
+	KeyDecisionDedupWindow       = "decision.settings.dedup-window"
 )
 
 // DecisionSettings contains all decision point configuration.
@@ -56,6 +57,11 @@ type DecisionBehavior struct {
 	// If true, the last text guidance is accepted automatically when max iterations reached.
 	// If false (default), the user must select an option.
 	AutoAcceptOnMax bool `json:"auto_accept_on_max" yaml:"auto-accept-on-max"`
+
+	// DedupWindow is the time window for deduplicating decisions from the same agent.
+	// If an agent already has a pending decision, the old one is auto-superseded.
+	// Set to 0 to disable dedup entirely. (bd-ni0br)
+	DedupWindow time.Duration `json:"dedup_window" yaml:"dedup-window"`
 }
 
 // RegisterDecisionDefaults registers default values for decision configuration.
@@ -75,6 +81,7 @@ func RegisterDecisionDefaults() {
 	v.SetDefault(KeyDecisionMaxReminders, 3)
 	v.SetDefault(KeyDecisionMaxIterations, 3)
 	v.SetDefault(KeyDecisionAutoAcceptOnMax, false)
+	v.SetDefault(KeyDecisionDedupWindow, "5m")
 }
 
 // GetDecisionSettings returns the current decision point configuration.
@@ -90,6 +97,7 @@ func GetDecisionSettings() DecisionSettings {
 			MaxReminders:    GetInt(KeyDecisionMaxReminders),
 			MaxIterations:   GetInt(KeyDecisionMaxIterations),
 			AutoAcceptOnMax: GetBool(KeyDecisionAutoAcceptOnMax),
+			DedupWindow:     GetDuration(KeyDecisionDedupWindow),
 		},
 	}
 }
@@ -117,6 +125,11 @@ func GetDecisionMaxReminders() int {
 // GetDecisionAutoAcceptOnMax returns whether to auto-accept on max iterations.
 func GetDecisionAutoAcceptOnMax() bool {
 	return GetBool(KeyDecisionAutoAcceptOnMax)
+}
+
+// GetDecisionDedupWindow returns the dedup window for same-agent decisions.
+func GetDecisionDedupWindow() time.Duration {
+	return GetDuration(KeyDecisionDedupWindow)
 }
 
 // GetDecisionRoutes returns notification routes for the given priority.
