@@ -92,11 +92,21 @@ func isRemoteDaemon() bool {
 
 // needsRouting checks if an ID would be routed to a different beads directory.
 // This is used to decide whether to bypass the daemon for cross-repo lookups.
+// Uses FindProjectBeadsDir() (ignoring BEADS_DIR env var) so that routing
+// decisions are based on the project the user is in, not a global override.
+// See: bd-65bc.
 func needsRouting(id string) bool {
-	// Find the .beads metadata directory (not the database path, which may be external with Dolt)
-	beadsDir := beads.FindBeadsDir()
+	// Find the project-local .beads metadata directory.
+	// We intentionally skip BEADS_DIR here: when BEADS_DIR points to a global
+	// database (e.g. ~/.beads), routing comparisons against project-local dirs
+	// would always differ, causing incorrect routing detection.
+	beadsDir := beads.FindProjectBeadsDir()
 	if beadsDir == "" {
-		return false
+		// No project-local .beads — fall back to FindBeadsDir for BEADS_DIR-only setups
+		beadsDir = beads.FindBeadsDir()
+		if beadsDir == "" {
+			return false
+		}
 	}
 
 	targetDir, routed, err := routing.ResolveBeadsDirForID(context.Background(), id, beadsDir)
@@ -118,9 +128,13 @@ func needsRouting(id string) bool {
 //
 // The caller is responsible for closing the returned client.
 func connectToRoutedDaemon(id string) (*rpc.Client, error) {
-	beadsDir := beads.FindBeadsDir()
+	// Use project-local beads dir for routing (same reasoning as needsRouting).
+	beadsDir := beads.FindProjectBeadsDir()
 	if beadsDir == "" {
-		return nil, nil
+		beadsDir = beads.FindBeadsDir()
+		if beadsDir == "" {
+			return nil, nil
+		}
 	}
 
 	targetDir, routed, err := routing.ResolveBeadsDirForID(context.Background(), id, beadsDir)

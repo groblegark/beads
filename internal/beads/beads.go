@@ -616,6 +616,62 @@ func FindBeadsDir() string {
 	return ""
 }
 
+// FindProjectBeadsDir finds the project-local .beads/ directory by walking the
+// directory tree from CWD, ignoring the BEADS_DIR environment variable.
+// This is used for routing decisions where we need to know which project the
+// user is currently in, not which database they've configured globally.
+// Returns empty string if no project-local .beads/ is found.
+func FindProjectBeadsDir() string {
+	// For worktrees, check main repository root first
+	var mainRepoRoot string
+	if git.IsWorktree() {
+		var err error
+		mainRepoRoot, err = git.GetMainRepoRoot()
+		if err == nil && mainRepoRoot != "" {
+			beadsDir := filepath.Join(mainRepoRoot, ".beads")
+			if info, err := os.Stat(beadsDir); err == nil && info.IsDir() {
+				beadsDir = FollowRedirect(beadsDir)
+				if hasBeadsProjectFiles(beadsDir) {
+					return beadsDir
+				}
+			}
+		}
+	}
+
+	// Search for .beads/ in current directory and ancestors
+	cwd, err := os.Getwd()
+	if err != nil {
+		return ""
+	}
+
+	gitRoot := findGitRoot()
+	if git.IsWorktree() && mainRepoRoot != "" {
+		gitRoot = mainRepoRoot
+	}
+
+	for dir := cwd; dir != "/" && dir != "."; {
+		beadsDir := filepath.Join(dir, ".beads")
+		if info, err := os.Stat(beadsDir); err == nil && info.IsDir() {
+			beadsDir = FollowRedirect(beadsDir)
+			if hasBeadsProjectFiles(beadsDir) {
+				return beadsDir
+			}
+		}
+
+		if gitRoot != "" && dir == gitRoot {
+			break
+		}
+
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
+
+	return ""
+}
+
 // FindJSONLPath returns the expected JSONL file path for the given database path.
 // It searches for existing *.jsonl files in the database directory and returns
 // the first one found, preferring issues.jsonl over beads.jsonl.

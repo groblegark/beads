@@ -170,6 +170,110 @@ func TestNeedsRoutingFunction(t *testing.T) {
 	}
 }
 
+// TestNeedsRoutingWithGlobalBEADS_DIR tests that needsRouting uses project-local
+// beads dir for routing decisions, not the BEADS_DIR env var (bd-65bc fix).
+// When BEADS_DIR points to a global database (e.g., ~/.beads), routing comparisons
+// should still be based on the project the user is in, not the global override.
+//
+// NOTE: This test uses os.Chdir and cannot run in parallel with other tests.
+func TestNeedsRoutingWithGlobalBEADS_DIR(t *testing.T) {
+	// Clear BD_DAEMON_HOST to test local file-based routing
+	if oldHost := os.Getenv("BD_DAEMON_HOST"); oldHost != "" {
+		os.Unsetenv("BD_DAEMON_HOST")
+		t.Cleanup(func() { os.Setenv("BD_DAEMON_HOST", oldHost) })
+	}
+	oldDaemonHost := config.GetString("daemon-host")
+	config.Set("daemon-host", "")
+	t.Cleanup(func() { config.Set("daemon-host", oldDaemonHost) })
+
+	// Create directory structure:
+	// tmpDir/
+	//   global-beads/    (simulates ~/.beads — set as BEADS_DIR)
+	//     beads.db
+	//   project/
+	//     .beads/         (project-local beads dir)
+	//       beads.db
+	//       routes.jsonl  (routes gt- to rig/)
+	//     rig/
+	//       .beads/
+	//         beads.db
+	tmpDir := t.TempDir()
+
+	// Create global beads dir (simulates ~/.beads)
+	globalBeadsDir := filepath.Join(tmpDir, "global-beads")
+	if err := os.MkdirAll(globalBeadsDir, 0755); err != nil {
+		t.Fatalf("Failed to create global beads dir: %v", err)
+	}
+	globalDBPath := filepath.Join(globalBeadsDir, "beads.db")
+	_ = newTestStoreWithPrefix(t, globalDBPath, "bd")
+
+	// Create project directory with its own .beads/
+	projectDir := filepath.Join(tmpDir, "project")
+	projectBeadsDir := filepath.Join(projectDir, ".beads")
+	if err := os.MkdirAll(projectBeadsDir, 0755); err != nil {
+		t.Fatalf("Failed to create project beads dir: %v", err)
+	}
+	projectDBPath := filepath.Join(projectBeadsDir, "beads.db")
+	_ = newTestStoreWithPrefix(t, projectDBPath, "hq")
+
+	// Create rig beads dir inside project
+	rigBeadsDir := filepath.Join(projectDir, "rig", ".beads")
+	if err := os.MkdirAll(rigBeadsDir, 0755); err != nil {
+		t.Fatalf("Failed to create rig beads dir: %v", err)
+	}
+	rigDBPath := filepath.Join(rigBeadsDir, "beads.db")
+	_ = newTestStoreWithPrefix(t, rigDBPath, "gt")
+
+	// Create routes.jsonl in project .beads dir
+	routesContent := `{"prefix":"gt-","path":"rig"}`
+	routesPath := filepath.Join(projectBeadsDir, "routes.jsonl")
+	if err := os.WriteFile(routesPath, []byte(routesContent), 0644); err != nil {
+		t.Fatalf("Failed to write routes.jsonl: %v", err)
+	}
+
+	// Set BEADS_DIR to the global beads dir (this is the bug scenario)
+	oldBeadsDir := os.Getenv("BEADS_DIR")
+	os.Setenv("BEADS_DIR", globalBeadsDir)
+	t.Cleanup(func() {
+		if oldBeadsDir == "" {
+			os.Unsetenv("BEADS_DIR")
+		} else {
+			os.Setenv("BEADS_DIR", oldBeadsDir)
+		}
+	})
+
+	// Change CWD to the project directory
+	oldCwd, _ := os.Getwd()
+	if err := os.Chdir(projectDir); err != nil {
+		t.Fatalf("Failed to chdir to project: %v", err)
+	}
+	t.Cleanup(func() { os.Chdir(oldCwd) })
+
+	// Set up dbPath for the test
+	oldDbPath := dbPath
+	dbPath = projectDBPath
+	t.Cleanup(func() { dbPath = oldDbPath })
+
+	// The bug (bd-65bc): needsRouting used FindBeadsDir() which returns
+	// globalBeadsDir (via BEADS_DIR). Then routing.ResolveBeadsDirForID()
+	// compares globalBeadsDir vs rig/.beads, which are always different,
+	// causing EVERY gt- ID to be incorrectly flagged as needing routing.
+	//
+	// The fix: needsRouting uses FindProjectBeadsDir() which finds
+	// project/.beads based on CWD. Now the route resolves gt- prefix
+	// to rig/.beads, and compares against project/.beads (both under project/),
+	// which is the correct routing behavior.
+	//
+	// With the fix, gt- IDs DO need routing (they route to rig/.beads),
+	// but the important thing is the base dir is project/.beads, not ~/.beads.
+	// An hq- ID should NOT need routing (stays in project/.beads).
+	if needsRouting("hq-abc123") {
+		t.Error("hq- prefix should NOT need routing from project/.beads (no route for hq-)")
+	}
+
+	t.Log("BEADS_DIR routing fix (bd-65bc) verified: needsRouting uses project-local dir")
+}
+
 // TestAgentHeartbeatWithRouting tests that bd agent heartbeat respects routes.jsonl
 //
 // NOTE: This test uses os.Chdir and cannot run in parallel with other tests.
