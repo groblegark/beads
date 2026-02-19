@@ -181,11 +181,31 @@ func ExtractIssueIDFromArgs(args json.RawMessage) string {
 // isReadOnlyOperation returns true for operations that only read data.
 func isReadOnlyOperation(operation string) bool {
 	switch operation {
-	case "show", "list", "stats", "ready", "news", "blocked",
-		"resolve_id", "get_mutations", "health", "info",
-		"activity", "search", "dep_list", "dep_show",
-		"get_labels", "show_config", "bus_status",
-		"slot_get", "slot_list":
+	case "show", "list", "count", "stats", "ready", "news", "blocked", "stale",
+		"resolve_id", "get_mutations", "health", "info", "ping", "status",
+		"activity", "search", "dep_list", "dep_show", "dep_tree",
+		"get_labels", "show_config", "bus_status", "bus_handlers",
+		"slot_get", "slot_list",
+		"graph", "epic_status", "epic_overview", "epic_orphaned_children",
+		"compact_stats", "export", "types", "dirty_count",
+		"gate_list", "gate_show",
+		"session_gate_check", "session_gate_list",
+		"decision_get", "decision_list", "decision_list_recent",
+		"mol_current", "mol_progress_stats", "mol_ready_gated",
+		"config_list",
+		"sync_status",
+		"formula_list", "formula_get", "runbook_list", "runbook_get",
+		"agent_pod_status", "agent_pod_list", "agent_roster", "agent_recent_events",
+		"vcs_active_branch", "vcs_status", "vcs_has_uncommitted",
+		"vcs_branches", "vcs_current_commit", "vcs_commit_exists", "vcs_log",
+		"fed_list_remotes", "fed_sync_status",
+		"inbox_list",
+		"session_list",
+		"history_issue", "history_diff", "history_issue_diff",
+		"history_conflicts", "versioned_diff",
+		"sql",
+		"batch_query_workers",
+		"burndown", "velocity", "cycle_time":
 		return true
 	}
 	return strings.HasPrefix(operation, "get_") ||

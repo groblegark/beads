@@ -227,6 +227,11 @@ const (
 
 	// Graph visualization (bd-hpk9f)
 	OpGraph = "graph"
+
+	// Analytics endpoints (beads-cqpj)
+	OpBurndown  = "burndown"
+	OpVelocity  = "velocity"
+	OpCycleTime = "cycle_time"
 )
 
 // Request represents an RPC request from client to daemon

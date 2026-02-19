@@ -498,6 +498,11 @@ func operationToHTTPMethod(operation string) string {
 
 		// Graph visualization (bd-hpk9f)
 		OpGraph: "Graph",
+
+		// Analytics (beads-cqpj)
+		OpBurndown:  "Burndown",
+		OpVelocity:  "Velocity",
+		OpCycleTime: "CycleTime",
 	}
 
 	return methodMap[operation]

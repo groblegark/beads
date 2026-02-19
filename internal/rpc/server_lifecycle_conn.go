@@ -74,6 +74,8 @@ func (s *Server) Start(_ context.Context) error {
 		httpServer.authPolicy = s.authPolicy
 		httpServer.auditLog = s.auditLog
 		httpServer.corsOrigins = s.corsOrigins
+		httpServer.readOnly = s.readOnly
+		httpServer.apiVersion = s.apiVersion
 		s.mu.RUnlock()
 		s.mu.Lock()
 		s.httpServer = httpServer

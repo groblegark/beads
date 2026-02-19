@@ -251,6 +251,12 @@ func (s *Server) executeOperation(req *Request) Response {
 		resp = s.handleStale(req)
 	case OpStats:
 		resp = s.handleStats(req)
+	case OpBurndown:
+		resp = s.handleBurndown(req)
+	case OpVelocity:
+		resp = s.handleVelocity(req)
+	case OpCycleTime:
+		resp = s.handleCycleTime(req)
 	case OpDepAdd:
 		resp = s.handleDepAdd(req)
 	case OpDepRemove:

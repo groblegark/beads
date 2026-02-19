@@ -145,8 +145,36 @@ func TestExtractRigFromArgs(t *testing.T) {
 }
 
 func TestIsReadOnlyOperation(t *testing.T) {
-	readOps := []string{"show", "list", "stats", "ready", "news", "blocked", "resolve_id", "get_mutations", "health"}
-	writeOps := []string{"create", "update", "delete", "close", "comment", "move"}
+	readOps := []string{
+		"show", "list", "count", "stats", "ready", "news", "blocked", "stale",
+		"resolve_id", "get_mutations", "health", "info", "ping", "status",
+		"activity", "search", "dep_list", "dep_show", "dep_tree",
+		"get_labels", "show_config", "bus_status", "bus_handlers",
+		"graph", "epic_status", "epic_overview", "epic_orphaned_children",
+		"compact_stats", "export", "types", "dirty_count",
+		"gate_list", "gate_show",
+		"session_gate_check", "session_gate_list",
+		"decision_get", "decision_list", "decision_list_recent",
+		"mol_current", "mol_progress_stats", "mol_ready_gated",
+		"config_list",
+		"formula_list", "formula_get", "runbook_list", "runbook_get",
+		"agent_pod_status", "agent_pod_list", "agent_roster", "agent_recent_events",
+		"vcs_active_branch", "vcs_status", "vcs_branches", "vcs_log",
+		"history_issue", "history_diff", "history_issue_diff",
+		"batch_query_workers",
+		// Prefix-based matches
+		"get_worker_status", "get_config", "get_molecule_progress",
+		"list_watch", "show_something",
+	}
+	writeOps := []string{
+		"create", "update", "delete", "close", "comment_add", "move",
+		"dep_add", "dep_remove", "label_add", "label_remove",
+		"gate_create", "gate_close",
+		"decision_create", "decision_resolve", "decision_cancel",
+		"config_set", "config_unset",
+		"import", "compact", "shutdown", "rename",
+		"vcs_commit", "vcs_push", "vcs_pull",
+	}
 
 	for _, op := range readOps {
 		if !isReadOnlyOperation(op) {

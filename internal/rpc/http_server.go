@@ -24,6 +24,8 @@ type HTTPServer struct {
 	authPolicy  *AuthPolicy // Per-rig API key authorization (bd-65bc)
 	auditLog    bool        // Enable RPC audit logging
 	corsOrigins []string    // Allowed CORS origins (bd-gnymr); empty = no CORS headers
+	readOnly    bool        // Read-only mode: reject all write operations (beads-0w05)
+	apiVersion  string      // API version for X-BD-API-Version response header
 	mu          sync.RWMutex
 	readyChan   chan struct{} // closed when listener is bound
 }
@@ -371,6 +373,13 @@ func (h *HTTPServer) handleRPC(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Read-only mode: reject write operations (beads-0w05)
+	if h.readOnly && !isReadOnlyOperation(operation) {
+		h.writeError(w, http.StatusForbidden,
+			fmt.Sprintf("server is in read-only mode: operation %q is not allowed", operation))
+		return
+	}
+
 	// Build RPC request
 	req := &Request{
 		Operation:     operation,
@@ -393,6 +402,9 @@ func (h *HTTPServer) handleRPC(w http.ResponseWriter, r *http.Request) {
 
 	// Write response
 	w.Header().Set("Content-Type", "application/json")
+	if h.apiVersion != "" {
+		w.Header().Set("X-BD-API-Version", h.apiVersion)
+	}
 	if !resp.Success {
 		w.WriteHeader(http.StatusInternalServerError)
 	}
@@ -630,6 +642,11 @@ func httpMethodToOperation(method string) string {
 
 		// Graph visualization (bd-hpk9f)
 		"Graph": OpGraph,
+
+		// Analytics (beads-cqpj)
+		"Burndown":  OpBurndown,
+		"Velocity":  OpVelocity,
+		"CycleTime": OpCycleTime,
 	}
 
 	return methodMap[method]

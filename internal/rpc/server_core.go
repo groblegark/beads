@@ -67,6 +67,8 @@ type Server struct {
 	httpAddr      string      // HTTP address to listen on (e.g., ":9080")
 	httpServer    *HTTPServer // HTTP server (wraps RPC in HTTP POST endpoints)
 	corsOrigins   []string    // Allowed CORS origins for HTTP server (bd-gnymr)
+	readOnly      bool        // Read-only mode: reject write operations (beads-0w05)
+	apiVersion    string      // API version for response header (beads-0w05)
 	mu            sync.RWMutex
 	shutdown      bool
 	shutdownChan  chan struct{}
@@ -605,6 +607,23 @@ func (s *Server) SetCORSOrigins(origins []string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.corsOrigins = origins
+}
+
+// SetReadOnly enables read-only mode on the HTTP server (beads-0w05).
+// When enabled, all write operations are rejected with 403 Forbidden.
+// Set via BD_READ_ONLY=1 env var. Must be called before Start().
+func (s *Server) SetReadOnly(enabled bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.readOnly = enabled
+}
+
+// SetAPIVersion sets the API version string for X-BD-API-Version response header.
+// Must be called before Start().
+func (s *Server) SetAPIVersion(version string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.apiVersion = version
 }
 
 // HTTPServer returns the HTTP server instance, or nil if not configured.

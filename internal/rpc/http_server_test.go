@@ -412,6 +412,8 @@ func TestHTTPMappingCompleteness(t *testing.T) {
 		OpSessionRegister, OpSessionList,
 		// Graph visualization (bd-hpk9f)
 		OpGraph,
+		// Analytics (beads-cqpj)
+		OpBurndown, OpVelocity, OpCycleTime,
 	}
 
 	t.Run("client_operationToHTTPMethod_covers_all_handled_ops", func(t *testing.T) {
@@ -681,6 +683,102 @@ func TestHTTPServerNoCORS(t *testing.T) {
 
 		if got := resp.Header.Get("Access-Control-Allow-Origin"); got != "" {
 			t.Errorf("expected no ACAO when CORS disabled, got %q", got)
+		}
+	})
+
+	if err := server.Stop(); err != nil {
+		t.Errorf("failed to stop server: %v", err)
+	}
+}
+
+// TestHTTPServerReadOnlyMode tests that read-only mode rejects write operations (beads-0w05)
+func TestHTTPServerReadOnlyMode(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "bd-test-readonly")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	socketPath := filepath.Join(tmpDir, "bd.sock")
+	store := teststore.New(t)
+
+	server := NewServer(socketPath, store, tmpDir, filepath.Join(tmpDir, "beads.db"))
+	server.SetHTTPAddr("127.0.0.1:0")
+	server.SetReadOnly(true)
+	server.SetAPIVersion("2026.218.5")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	errChan := make(chan error, 1)
+	go func() {
+		errChan <- server.Start(ctx)
+	}()
+
+	select {
+	case <-server.WaitReady():
+	case err := <-errChan:
+		t.Fatalf("server failed to start: %v", err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("timeout waiting for server to start")
+	}
+
+	httpServer := server.HTTPServer()
+	httpAddr := httpServer.Addr()
+	client := &http.Client{}
+
+	t.Run("read_operations_allowed", func(t *testing.T) {
+		body := []byte(`{}`)
+		req, _ := http.NewRequest("POST", "http://"+httpAddr+"/bd.v1.BeadsService/Stats", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatalf("failed to POST: %v", err)
+		}
+		defer resp.Body.Close()
+
+		// Should succeed (200 or 500 depending on store state, but NOT 403)
+		if resp.StatusCode == http.StatusForbidden {
+			t.Errorf("read operation should not be forbidden in read-only mode")
+		}
+	})
+
+	t.Run("write_operations_rejected", func(t *testing.T) {
+		body := []byte(`{"title":"test","issue_type":"task"}`)
+		req, _ := http.NewRequest("POST", "http://"+httpAddr+"/bd.v1.BeadsService/Create", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatalf("failed to POST: %v", err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusForbidden {
+			t.Errorf("write operation should be forbidden, got status %d", resp.StatusCode)
+		}
+
+		var result map[string]string
+		_ = json.NewDecoder(resp.Body).Decode(&result)
+		if result["error"] == "" {
+			t.Error("expected error message in response")
+		}
+	})
+
+	t.Run("api_version_header", func(t *testing.T) {
+		body := []byte(`{}`)
+		req, _ := http.NewRequest("POST", "http://"+httpAddr+"/bd.v1.BeadsService/Stats", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatalf("failed to POST: %v", err)
+		}
+		defer resp.Body.Close()
+
+		if got := resp.Header.Get("X-BD-API-Version"); got != "2026.218.5" {
+			t.Errorf("expected X-BD-API-Version=2026.218.5, got %q", got)
 		}
 	})
 

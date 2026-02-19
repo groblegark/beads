@@ -81,6 +81,16 @@ func startRPCServer(ctx context.Context, socketPath string, store storage.Storag
 		log.Info("CORS enabled", "origins", origins)
 	}
 
+	// Configure read-only mode if BD_READ_ONLY is set (beads-0w05)
+	// Rejects all write operations with 403 Forbidden.
+	if os.Getenv("BD_READ_ONLY") == "1" || os.Getenv("BD_READ_ONLY") == "true" {
+		server.SetReadOnly(true)
+		log.Info("read-only mode enabled: write operations will be rejected")
+	}
+
+	// Set API version header (beads-0w05)
+	server.SetAPIVersion(Version)
+
 	serverErrChan := make(chan error, 1)
 
 	go func() {
