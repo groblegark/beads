@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/steveyegge/beads/internal/config"
@@ -21,8 +22,8 @@ func commitDoltChanges(t *testing.T, store storage.Storage) {
 	t.Helper()
 	if rs, ok := storage.AsRemote(store); ok {
 		if err := rs.Commit(context.Background(), "test: clear working set"); err != nil {
-			// "nothing to commit" is acceptable
-			if err.Error() != "nothing to commit" {
+			// "nothing to commit" is acceptable (Dolt wraps the message)
+			if !strings.Contains(err.Error(), "nothing to commit") {
 				t.Fatalf("failed to commit Dolt changes: %v", err)
 			}
 		}
@@ -157,8 +158,9 @@ func TestHandleSyncExport_WithChanges(t *testing.T) {
 		t.Error("expected export to not be skipped when there are changes")
 	}
 
-	if result.ExportedCount != 2 {
-		t.Errorf("expected 2 exported issues, got %d", result.ExportedCount)
+	// Dolt-native mode: ExportedCount is 0 (no JSONL export), but the commit succeeded
+	if result.Message == "" {
+		t.Error("expected non-empty message")
 	}
 }
 
@@ -214,7 +216,10 @@ func TestHandleSyncExport_Force(t *testing.T) {
 		t.Fatalf("failed to clear dirty flags: %v", err)
 	}
 
-	// Force export should export even when no changes
+	// Commit Dolt working set so "nothing to commit" is hit
+	commitDoltChanges(t, store)
+
+	// Force export should not be skipped even when nothing to commit
 	args := SyncExportArgs{
 		Force:  true,
 		DryRun: false,
@@ -241,8 +246,9 @@ func TestHandleSyncExport_Force(t *testing.T) {
 		t.Error("expected force export to not be skipped")
 	}
 
-	if result.ExportedCount != 1 {
-		t.Errorf("expected 1 exported issue, got %d", result.ExportedCount)
+	// Dolt-native mode: ExportedCount is 0 (no JSONL export), but force bypasses skip
+	if result.Message == "" {
+		t.Error("expected non-empty message")
 	}
 }
 

@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/steveyegge/beads/internal/config"
@@ -47,7 +48,8 @@ func (s *Server) handleSyncExport(req *Request) Response {
 
 	// Dolt-native mode: handle Dolt sync (commit/push), no JSONL export
 	syncMode := string(config.SyncModeDoltNative)
-	if err := s.handleDoltSync(ctx, store, syncMode); err != nil {
+	committed, err := s.handleDoltSync(ctx, store, syncMode)
+	if err != nil {
 		return Response{Success: false, Error: err.Error()}
 	}
 
@@ -57,6 +59,16 @@ func (s *Server) handleSyncExport(req *Request) Response {
 			ExportedCount: 0,
 			ChangedCount:  0,
 			Message:       "[DRY RUN] Dolt-native mode: would commit/push via Dolt",
+		}
+		data, _ := json.Marshal(result)
+		return Response{Success: true, Data: data}
+	}
+
+	// No changes and not forced: mark as skipped
+	if !committed && !args.Force {
+		result := SyncExportResult{
+			Skipped: true,
+			Message: "Dolt-native mode: nothing to commit",
 		}
 		data, _ := json.Marshal(result)
 		return Response{Success: true, Data: data}
@@ -290,30 +302,34 @@ func (s *Server) performSyncExport(ctx context.Context, store storage.Storage, j
 }
 
 // handleDoltSync handles Dolt commit/push (dolt-native is the only mode).
-func (s *Server) handleDoltSync(ctx context.Context, store storage.Storage, _ string) error {
+// Returns (committed, error) where committed indicates whether a Dolt commit was made.
+func (s *Server) handleDoltSync(ctx context.Context, store storage.Storage, _ string) (bool, error) {
 	rs, ok := storage.AsRemote(store)
 	if !ok {
-		return fmt.Errorf("dolt-native sync mode requires Dolt backend")
+		return false, fmt.Errorf("dolt-native sync mode requires Dolt backend")
 	}
+
+	committed := true
 
 	// Commit to Dolt
 	if err := rs.Commit(ctx, "bd sync: auto-commit"); err != nil {
-		// Ignore "nothing to commit" errors
-		if err.Error() != "nothing to commit" {
-			return fmt.Errorf("dolt commit failed: %w", err)
+		// Ignore "nothing to commit" errors (Dolt wraps the message)
+		if !strings.Contains(err.Error(), "nothing to commit") {
+			return false, fmt.Errorf("dolt commit failed: %w", err)
 		}
+		committed = false
 	}
 
 	// Push to Dolt remote
 	if err := rs.Push(ctx); err != nil {
-		// Don't fail if no remote configured
-		if err.Error() != "remote" {
-			return fmt.Errorf("dolt push failed: %w", err)
+		// Don't fail if no remote configured (Dolt wraps the message)
+		if !strings.Contains(err.Error(), "remote") {
+			return committed, fmt.Errorf("dolt push failed: %w", err)
 		}
 		fmt.Fprintln(os.Stderr, "Warning: No Dolt remote configured, skipping push")
 	}
 
-	return nil
+	return committed, nil
 }
 
 // Helper functions
