@@ -164,12 +164,56 @@ func yieldPendingDecisions(agent string) []*types.DecisionPoint {
 //   - agent="sharp-seal-1", requestedBy="sharp-seal-1" → true (exact match)
 //   - agent="sharp-seal-1", requestedBy="sharp-seal" → true (variant matches base)
 //
-// (bd-6vtx4)
+// Uses the daemon's session registry for accurate base name resolution when
+// available. Falls back to regex-based AgentBaseName() stripping if the daemon
+// is unreachable. The registry-aware path correctly handles agents with
+// naturally-numbered names (e.g., "obsidian-3" is a real agent, not a
+// continuation of "obsidian"). (bd-6vtx4, bd-s0x1m)
 func matchesAgentVariant(agent, requestedBy string) bool {
 	if agent == requestedBy {
 		return true
 	}
-	return eventbus.AgentBaseName(agent) == eventbus.AgentBaseName(requestedBy)
+	return resolveBaseName(agent) == resolveBaseName(requestedBy)
+}
+
+// sessionBaseNames caches the assignedName→baseName mapping from the daemon's
+// session registry. Populated once per process by resolveBaseName(). (bd-s0x1m)
+var sessionBaseNames map[string]string
+var sessionBaseNamesLoaded bool
+
+// resolveBaseName returns the base name for an agent, using the daemon's session
+// registry when available. If "obsidian-3" is registered with baseName="obsidian-3",
+// it returns "obsidian-3" (not "obsidian"). Falls back to AgentBaseName() regex
+// stripping if the daemon is unreachable. (bd-s0x1m)
+func resolveBaseName(name string) string {
+	if !sessionBaseNamesLoaded {
+		sessionBaseNamesLoaded = true
+		sessionBaseNames = loadSessionBaseNames()
+	}
+	if sessionBaseNames != nil {
+		if base, ok := sessionBaseNames[name]; ok {
+			return base
+		}
+	}
+	// Fallback: regex-based stripping (works when daemon is unavailable)
+	return eventbus.AgentBaseName(name)
+}
+
+// loadSessionBaseNames fetches the session registry from the daemon and builds
+// an assignedName→baseName map. Returns nil if the daemon is unreachable. (bd-s0x1m)
+func loadSessionBaseNames() map[string]string {
+	if daemonClient == nil {
+		return nil
+	}
+	resp, err := daemonClient.SessionList(&rpc.SessionListArgs{})
+	if err != nil || resp == nil {
+		return nil
+	}
+	m := make(map[string]string, len(resp.Sessions))
+	for _, s := range resp.Sessions {
+		m[s.AssignedName] = s.BaseName
+	}
+	return m
 }
 
 // yieldResolveAgentFromDecisions checks if there are pending decisions under a
