@@ -735,20 +735,35 @@ func outputRosterSection(w io.Writer) {
 			youTag = " ← you"
 		}
 
+		// Build repo/branch context tag. (bd-0u2uw)
+		repoTag := ""
+		if a.Repo != "" {
+			repoTag = " [" + a.Repo
+			if a.Branch != "" && a.Branch != "main" && a.Branch != "master" {
+				repoTag += "@" + a.Branch
+			}
+			repoTag += "]"
+		}
+
 		if a.TaskID != "" {
 			epicStr := ""
 			if a.EpicTitle != "" {
 				epicStr = fmt.Sprintf(" (epic: %s)", a.EpicTitle)
 			}
-			fmt.Fprintf(w, "- **%s**%s — working on %s: %s%s (idle %s)\n",
-				a.Actor, youTag, a.TaskID, a.TaskTitle, epicStr, idleStr)
+			fmt.Fprintf(w, "- **%s**%s%s — working on %s: %s%s (idle %s)\n",
+				a.Actor, youTag, repoTag, a.TaskID, a.TaskTitle, epicStr, idleStr)
 		} else {
+			// For idle agents, show last tool activity for context. (bd-0u2uw)
+			activityHint := ""
+			if a.ToolName != "" {
+				activityHint = fmt.Sprintf(", last: %s", a.ToolName)
+			}
 			readyHint := ""
 			if readyCount > 0 {
 				readyHint = fmt.Sprintf(" — %d ready tasks available", readyCount)
 			}
-			fmt.Fprintf(w, "- **%s**%s — active, no claimed task%s (idle %s)\n",
-				a.Actor, youTag, readyHint, idleStr)
+			fmt.Fprintf(w, "- **%s**%s%s — active, no claimed task%s (idle %s%s)\n",
+				a.Actor, youTag, repoTag, readyHint, idleStr, activityHint)
 		}
 	}
 

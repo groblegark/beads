@@ -736,8 +736,13 @@ func buildRosterSummaryForHook(self string) string {
 			sb.WriteString(fmt.Sprintf("  %s%s%s → %s: %s (idle %s)\n",
 				a.Actor, youTag, repoTag, a.TaskID, a.TaskTitle, formatIdleDuration(a.IdleSecs)))
 		} else {
-			sb.WriteString(fmt.Sprintf("  %s%s%s → no task (idle %s)\n",
-				a.Actor, youTag, repoTag, formatIdleDuration(a.IdleSecs)))
+			// Show last tool for idle agents so the roster is more informative. (bd-0u2uw)
+			toolHint := ""
+			if a.ToolName != "" {
+				toolHint = fmt.Sprintf(", last: %s", a.ToolName)
+			}
+			sb.WriteString(fmt.Sprintf("  %s%s%s → no task (idle %s%s)\n",
+				a.Actor, youTag, repoTag, formatIdleDuration(a.IdleSecs), toolHint))
 		}
 	}
 
