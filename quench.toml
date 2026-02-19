@@ -1,0 +1,104 @@
+# Quench configuration for beads (Go)
+# Run `quench config` for reference documentation
+version = 1
+
+[git]
+baseline = "notes"
+
+[git.commit]
+check = "error"
+
+[ratchet]
+check = "error"
+coverage = true
+escapes = true
+
+# --- Checks ---
+
+[check.cloc]
+check = "warn"
+# Baseline: grandfather current large files, ratchet prevents new ones
+max_lines = 5100        # server_issues_epics.go is 5095
+max_lines_test = 3500   # slackbot/uat_test.go is 3451
+max_tokens = 40000
+exclude = [
+  "docs/**",
+  "examples/**",
+  "website/**",
+  "helm/**",
+  "deploy/**",
+  "scripts/**",
+]
+
+[check.escapes]
+check = "warn"
+
+[[check.escapes.patterns]]
+name = "panic"
+pattern = "\\bpanic\\("
+action = "comment"
+comment = "// PANIC:"
+in_tests = "allow"
+advice = "Add a // PANIC: comment explaining why panic is acceptable here."
+
+[check.agents]
+check = "warn"
+files = ["CLAUDE.md"]
+required = ["CLAUDE.md"]
+max_lines = false
+max_tokens = false
+sync = false
+
+[check.docs]
+check = "warn"
+
+[check.docs.toc]
+check = "warn"
+include = ["**/*.md"]
+exclude = ["docs/**", "examples/**", "website/**", "plans/**", "plan.md", "claude-plugin/**"]
+
+[check.docs.links]
+check = "warn"
+include = ["**/*.md"]
+exclude = ["docs/**", "examples/**", "website/**", "plans/**", "plan.md", "claude-plugin/**"]
+
+[check.tests]
+check = "warn"
+auto = true
+
+[check.tests.commit]
+check = "warn"
+scope = "branch"
+exclude = ["**/main.go", "docs/**", "scripts/**", "helm/**"]
+
+[[check.tests.suite]]
+runner = "go"
+
+[check.tests.time]
+check = "warn"
+
+[check.license]
+check = "off"
+
+# --- Languages ---
+
+[golang]
+source = ["**/*.go"]
+tests = ["**/*_test.go"]
+ignore = ["vendor/", "examples/"]
+
+[golang.cloc]
+check = "warn"
+
+[golang.suppress]
+check = "comment"
+
+[golang.suppress.test]
+check = "allow"
+
+[golang.policy]
+check = "error"
+lint_config = [".golangci.yml"]
+
+[shell]
+cloc.check = "warn"
