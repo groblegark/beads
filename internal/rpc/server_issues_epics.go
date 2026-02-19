@@ -3774,6 +3774,44 @@ func (s *Server) handleDecisionCreate(req *Request) Response {
 		args.RequestedBy = actor
 	}
 
+	// Auto-supersede: cancel any pending decisions from the same agent before
+	// creating a new one. This prevents checkpoint storm where the mayor (or
+	// any agent) accumulates 4-8 stale pending decisions that confuse humans
+	// and flood Slack. Only the latest decision matters. (bd-ni0br)
+	if args.RequestedBy != "" {
+		if pending, err := store.ListPendingDecisions(ctx); err == nil {
+			for _, old := range pending {
+				if old.RequestedBy != args.RequestedBy {
+					continue
+				}
+				// Cancel the stale decision
+				now := time.Now()
+				old.RespondedAt = &now
+				old.RespondedBy = "system:superseded"
+				old.SelectedOption = "_superseded"
+				old.ResponseText = fmt.Sprintf("Superseded by new decision from %s", args.RequestedBy)
+				if err := store.UpdateDecisionPoint(ctx, old); err != nil {
+					fmt.Fprintf(os.Stderr, "decision-dedup: update %s: %v\n", old.IssueID, err)
+					continue
+				}
+				if err := store.CloseIssue(ctx, old.IssueID,
+					fmt.Sprintf("Superseded by new decision from %s", args.RequestedBy),
+					"system:superseded", ""); err != nil {
+					fmt.Fprintf(os.Stderr, "decision-dedup: close %s: %v\n", old.IssueID, err)
+				}
+				s.emitDecisionEvent(eventbus.EventDecisionExpired, eventbus.DecisionEventPayload{
+					DecisionID:  old.IssueID,
+					Question:    old.Prompt,
+					Urgency:     old.Urgency,
+					RequestedBy: old.RequestedBy,
+				})
+				s.emitMutation(MutationUpdate, old.IssueID, "", "")
+				fmt.Fprintf(os.Stderr, "decision-dedup: superseded %s from %s (prompt: %s)\n",
+					old.IssueID, old.RequestedBy, old.Prompt)
+			}
+		}
+	}
+
 	var issue *types.Issue
 
 	// Validate urgency if provided.

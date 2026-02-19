@@ -1041,3 +1041,147 @@ func TestDecisionCreate_ExplicitRequestedByPreserved(t *testing.T) {
 		t.Errorf("Expected requested_by=%q (explicit), got %q", "keen-raven", result.Decision.RequestedBy)
 	}
 }
+
+// TestDecisionCreate_AutoSupersede verifies that creating a new decision from
+// the same agent automatically cancels any pending decisions from that agent.
+// This prevents the "checkpoint storm" where the mayor accumulates 4-8 stale
+// pending decisions. (bd-ni0br)
+func TestDecisionCreate_AutoSupersede(t *testing.T) {
+	_, client, store, cleanup := setupTestServerWithStore(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	// Create first decision from agent "mayor-1"
+	result1, err := client.DecisionCreate(&DecisionCreateArgs{
+		Prompt:      "Checkpoint 1: what next?",
+		Options:     StringOptions("A", "B"),
+		RequestedBy: "mayor-1",
+	})
+	if err != nil {
+		t.Fatalf("First DecisionCreate failed: %v", err)
+	}
+	firstID := result1.Decision.IssueID
+
+	// Verify first decision is pending
+	dp1, err := store.GetDecisionPoint(ctx, firstID)
+	if err != nil {
+		t.Fatalf("Failed to get first decision: %v", err)
+	}
+	if dp1.RespondedAt != nil {
+		t.Fatal("First decision should be pending")
+	}
+
+	// Create second decision from the same agent
+	result2, err := client.DecisionCreate(&DecisionCreateArgs{
+		Prompt:      "Checkpoint 2: what next?",
+		Options:     StringOptions("C", "D"),
+		RequestedBy: "mayor-1",
+	})
+	if err != nil {
+		t.Fatalf("Second DecisionCreate failed: %v", err)
+	}
+	secondID := result2.Decision.IssueID
+
+	// Verify the first decision was auto-superseded
+	dp1After, err := store.GetDecisionPoint(ctx, firstID)
+	if err != nil {
+		t.Fatalf("Failed to get first decision after supersede: %v", err)
+	}
+	if dp1After.RespondedAt == nil {
+		t.Error("First decision should have been auto-superseded (responded_at should be set)")
+	}
+	if dp1After.SelectedOption != "_superseded" {
+		t.Errorf("Expected selected_option='_superseded', got %q", dp1After.SelectedOption)
+	}
+	if dp1After.RespondedBy != "system:superseded" {
+		t.Errorf("Expected responded_by='system:superseded', got %q", dp1After.RespondedBy)
+	}
+
+	// Verify the second decision is still pending
+	dp2, err := store.GetDecisionPoint(ctx, secondID)
+	if err != nil {
+		t.Fatalf("Failed to get second decision: %v", err)
+	}
+	if dp2.RespondedAt != nil {
+		t.Error("Second decision should still be pending")
+	}
+
+	// Verify only one pending decision exists
+	pending, err := store.ListPendingDecisions(ctx)
+	if err != nil {
+		t.Fatalf("ListPendingDecisions failed: %v", err)
+	}
+	count := 0
+	for _, p := range pending {
+		if p.RequestedBy == "mayor-1" {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Errorf("Expected exactly 1 pending decision from mayor-1, got %d", count)
+	}
+}
+
+// TestDecisionCreate_SupersedeDoesNotAffectOtherAgents verifies that
+// auto-supersede only cancels decisions from the same agent, not from
+// different agents. (bd-ni0br)
+func TestDecisionCreate_SupersedeDoesNotAffectOtherAgents(t *testing.T) {
+	_, client, store, cleanup := setupTestServerWithStore(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	// Create decisions from two different agents
+	_, err := client.DecisionCreate(&DecisionCreateArgs{
+		Prompt:      "Agent A checkpoint",
+		Options:     StringOptions("X", "Y"),
+		RequestedBy: "agent-a",
+	})
+	if err != nil {
+		t.Fatalf("Agent A DecisionCreate failed: %v", err)
+	}
+
+	_, err = client.DecisionCreate(&DecisionCreateArgs{
+		Prompt:      "Agent B checkpoint",
+		Options:     StringOptions("P", "Q"),
+		RequestedBy: "agent-b",
+	})
+	if err != nil {
+		t.Fatalf("Agent B DecisionCreate failed: %v", err)
+	}
+
+	// Create a new decision from agent-a (should supersede agent-a's old one only)
+	_, err = client.DecisionCreate(&DecisionCreateArgs{
+		Prompt:      "Agent A checkpoint 2",
+		Options:     StringOptions("M", "N"),
+		RequestedBy: "agent-a",
+	})
+	if err != nil {
+		t.Fatalf("Agent A second DecisionCreate failed: %v", err)
+	}
+
+	// Verify: agent-b's decision should still be pending
+	pending, err := store.ListPendingDecisions(ctx)
+	if err != nil {
+		t.Fatalf("ListPendingDecisions failed: %v", err)
+	}
+
+	agentBPending := false
+	agentACount := 0
+	for _, p := range pending {
+		if p.RequestedBy == "agent-b" {
+			agentBPending = true
+		}
+		if p.RequestedBy == "agent-a" {
+			agentACount++
+		}
+	}
+
+	if !agentBPending {
+		t.Error("Agent B's decision should NOT have been superseded")
+	}
+	if agentACount != 1 {
+		t.Errorf("Expected exactly 1 pending decision from agent-a, got %d", agentACount)
+	}
+}
