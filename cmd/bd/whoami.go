@@ -19,7 +19,8 @@ The identity resolution chain (highest priority first):
   2. BD_ACTOR env var
   3. BEADS_ACTOR env var
   4. GT_ROLE env var (gastown-managed agents)
-  5. Daemon session registry (auto-generated agent name, e.g., "swift-fox")
+  5. Persistent claimed name (bd config set actor <name>)
+  6. Daemon session registry (auto-generated agent name, e.g., "swift-fox")
 
 Examples:
   bd whoami
@@ -55,7 +56,12 @@ func runWhoami(cmd *cobra.Command, args []string) {
 	} else if os.Getenv("GT_ROLE") != "" {
 		result.Source = "env (GT_ROLE)"
 	} else if sessionAssignedName != "" {
-		result.Source = "daemon session registry (auto-generated)"
+		// Check if this name came from a persistent claimed config
+		if claimed := getClaimedActorName(daemonClient); claimed != "" {
+			result.Source = "config (bd config set actor)"
+		} else {
+			result.Source = "daemon session registry (auto-generated)"
+		}
 		projectRoot := ""
 		if dbPath != "" {
 			projectRoot = filepath.Dir(filepath.Dir(dbPath))

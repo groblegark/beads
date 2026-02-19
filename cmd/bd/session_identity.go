@@ -102,6 +102,17 @@ func registerSession(client *rpc.Client, projectRoot string) string {
 	sessionKey := deriveSessionKey(projectRoot)
 	baseName := getBaseActorName(sessionKey)
 
+	// Check for a persistent claimed name (bd config set actor <name>).
+	// This survives compaction and session key changes because it's stored
+	// in the database, not derived from the session key. (bd-lqw3p)
+	// Only use it if no env var explicitly sets the actor identity.
+	if getStableActorIdentity() == "" {
+		if claimed := getClaimedActorName(client); claimed != "" {
+			debug.Logf("registerSession: using claimed actor name %q (from config)", claimed)
+			baseName = claimed
+		}
+	}
+
 	debug.Logf("registerSession: sessionKey=%q baseName=%q projectRoot=%q", sessionKey, baseName, projectRoot)
 	result, err := client.SessionRegister(&rpc.SessionRegisterArgs{
 		SessionKey:  sessionKey,
@@ -117,6 +128,20 @@ func registerSession(client *rpc.Client, projectRoot string) string {
 
 	debug.Logf("registerSession: assigned=%q isNew=%v", result.AssignedName, result.IsNew)
 	return result.AssignedName
+}
+
+// getClaimedActorName queries the daemon for a persistent actor name set via
+// `bd config set actor <name>`. Returns empty string if not set or on error.
+// This allows a name to survive compaction and session key rotation. (bd-lqw3p)
+func getClaimedActorName(client *rpc.Client) string {
+	if client == nil {
+		return ""
+	}
+	result, err := client.GetConfig(&rpc.GetConfigArgs{Key: "actor"})
+	if err != nil || result == nil || result.Value == "" {
+		return ""
+	}
+	return result.Value
 }
 
 // getBaseActorName returns the base actor name before session numbering.
