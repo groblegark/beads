@@ -29,8 +29,13 @@ func (m *Model) renderView() string {
 
 	// Summary stats
 	if m.roster != nil && len(m.roster.Actors) > 0 {
-		b.WriteString(mutedStyle.Render(fmt.Sprintf("  %d active, %d working, %d idle, uptime %s",
-			len(m.roster.Actors), m.roster.Working, m.roster.Idle, m.roster.Uptime)))
+		stats := fmt.Sprintf("  %d active, %d working, %d idle",
+			len(m.roster.Actors), m.roster.Working, m.roster.Idle)
+		if len(m.roster.UnclaimedTasks) > 0 {
+			stats += fmt.Sprintf(", %d unclaimed", len(m.roster.UnclaimedTasks))
+		}
+		stats += fmt.Sprintf(", uptime %s", m.roster.Uptime)
+		b.WriteString(mutedStyle.Render(stats))
 	}
 	b.WriteString("\n")
 
@@ -255,6 +260,58 @@ func (m *Model) renderAgentDetail(a rpc.AgentRosterEntry) string {
 	}
 	idle := formatDuration(a.IdleSecs)
 	b.WriteString(fmt.Sprintf("  %s %s\n", detailLabelStyle.Render("Idle:"), agentStateStyle(a.IdleSecs).Render(idle)))
+
+	// Section 6: Unclaimed Tasks (bd-s6fiy)
+	if m.roster != nil && len(m.roster.UnclaimedTasks) > 0 {
+		b.WriteString("\n")
+		b.WriteString(m.renderUnclaimedTasks(detailWidth))
+	}
+
+	return b.String()
+}
+
+// renderUnclaimedTasks renders the unclaimed tasks section for the detail panel. (bd-s6fiy)
+func (m *Model) renderUnclaimedTasks(width int) string {
+	var b strings.Builder
+
+	count := len(m.roster.UnclaimedTasks)
+	header := fmt.Sprintf("  ── Unclaimed Tasks (%d) ", count)
+	sepLen := width - len(header) + 4 // account for ANSI in header
+	if sepLen < 0 {
+		sepLen = 0
+	}
+	b.WriteString(sectionHeaderStyle.Render(header))
+	b.WriteString(mutedStyle.Render(strings.Repeat("─", sepLen)))
+	b.WriteString("\n")
+
+	maxTitleLen := width - 18 // room for priority + ID + padding
+	if maxTitleLen < 15 {
+		maxTitleLen = 15
+	}
+
+	for _, t := range m.roster.UnclaimedTasks {
+		title := t.Title
+		if len(title) > maxTitleLen {
+			title = title[:maxTitleLen-1] + "…"
+		}
+
+		prio := fmt.Sprintf("P%d", t.Priority)
+		var prioStyle lipgloss.Style
+		switch {
+		case t.Priority <= 1:
+			prioStyle = staleStyle // red for P0/P1
+		case t.Priority == 2:
+			prioStyle = idleStyle // yellow/warn for P2
+		default:
+			prioStyle = mutedStyle // muted for P3+
+		}
+
+		b.WriteString(fmt.Sprintf("  %s %s %s\n",
+			prioStyle.Render(prio),
+			accentStyle.Render(t.ID),
+			detailValueStyle.Render(title),
+		))
+	}
 
 	return b.String()
 }
