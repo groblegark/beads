@@ -295,4 +295,31 @@ func TestIsAgentEvent(t *testing.T) {
 	}
 }
 
+// TestAgentBaseName verifies continuation suffix stripping. (bd-6vtx4)
+func TestAgentBaseName(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"sharp-seal", "sharp-seal"},
+		{"sharp-seal-1", "sharp-seal"},
+		{"sharp-seal-23", "sharp-seal"},
+		{"stout-fish-0", "stout-fish"},
+		{"mayor-113", "mayor"},
+		{"furiosa-274", "furiosa"},
+		{"hq-mayor", "hq-mayor"},       // Not a numeric suffix
+		{"toolbox-3", "toolbox"},        // Numeric suffix
+		{"a-1", "a"},                    // Minimal case
+		{"noHyphens", "noHyphens"},      // No hyphen at all
+		{"trailing-", "trailing-"},      // Trailing hyphen, no digits
+		{"abc-def-1", "abc-def"},        // Multiple hyphens, last is numeric
+	}
+	for _, tt := range tests {
+		got := AgentBaseName(tt.input)
+		if got != tt.want {
+			t.Errorf("AgentBaseName(%q) = %q, want %q", tt.input, got, tt.want)
+		}
+	}
+}
+
 // TestEnsureStreamsIdempotent lives in bus_test.go (more thorough version).
