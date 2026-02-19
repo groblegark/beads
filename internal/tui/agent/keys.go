@@ -17,6 +17,13 @@ type KeyMap struct {
 	FocusLeft  key.Binding // Switch focus to list pane
 	FocusRight key.Binding // Switch focus to detail pane
 
+	// Agent navigation (bd-edx55)
+	NextWorking key.Binding // Jump to next working agent
+	PrevWorking key.Binding // Jump to previous working agent
+	Sort        key.Binding // Cycle sort mode
+	Filter      key.Binding // Start agent name filter
+	ShowTask    key.Binding // Show selected agent's task details
+
 	// Actions
 	Refresh key.Binding
 
@@ -30,11 +37,11 @@ func DefaultKeyMap() KeyMap {
 	return KeyMap{
 		Up: key.NewBinding(
 			key.WithKeys("up", "k"),
-			key.WithHelp("\u2191/k", "up"),
+			key.WithHelp("↑/k", "up"),
 		),
 		Down: key.NewBinding(
 			key.WithKeys("down", "j"),
-			key.WithHelp("\u2193/j", "down"),
+			key.WithHelp("↓/j", "down"),
 		),
 		PageUp: key.NewBinding(
 			key.WithKeys("pgup", "ctrl+u"),
@@ -60,6 +67,26 @@ func DefaultKeyMap() KeyMap {
 			key.WithKeys("l", "right"),
 			key.WithHelp("l/→", "detail pane"),
 		),
+		NextWorking: key.NewBinding(
+			key.WithKeys("n"),
+			key.WithHelp("n", "next working"),
+		),
+		PrevWorking: key.NewBinding(
+			key.WithKeys("N"),
+			key.WithHelp("N", "prev working"),
+		),
+		Sort: key.NewBinding(
+			key.WithKeys("s"),
+			key.WithHelp("s", "sort"),
+		),
+		Filter: key.NewBinding(
+			key.WithKeys("/"),
+			key.WithHelp("/", "filter"),
+		),
+		ShowTask: key.NewBinding(
+			key.WithKeys("o"),
+			key.WithHelp("o", "show task"),
+		),
 		Refresh: key.NewBinding(
 			key.WithKeys("r", "R"),
 			key.WithHelp("r", "refresh"),
@@ -77,7 +104,7 @@ func DefaultKeyMap() KeyMap {
 
 // ShortHelp returns key bindings for the short help view.
 func (k KeyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.Up, k.Down, k.FocusLeft, k.FocusRight, k.ToggleView, k.Expand, k.Refresh, k.Help, k.Quit}
+	return []key.Binding{k.Up, k.Down, k.FocusLeft, k.FocusRight, k.NextWorking, k.Sort, k.Filter, k.ShowTask, k.Help, k.Quit}
 }
 
 // FullHelp returns key bindings for the full help view.
@@ -85,6 +112,7 @@ func (k KeyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{k.Up, k.Down, k.PageUp, k.PageDown},
 		{k.FocusLeft, k.FocusRight, k.ToggleView, k.Expand},
+		{k.NextWorking, k.PrevWorking, k.Sort, k.Filter, k.ShowTask},
 		{k.Refresh, k.Help, k.Quit},
 	}
 }

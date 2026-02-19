@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os/exec"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/charmbracelet/bubbles/help"
@@ -40,6 +41,17 @@ const (
 
 // splitBreakpoint is the minimum terminal width for split-pane layout. (bd-i19bt)
 const splitBreakpoint = 100
+
+// SortMode determines how agents are ordered in the list. (bd-edx55)
+type SortMode int
+
+const (
+	SortDefault  SortMode = iota // Server order (by last_seen)
+	SortName                     // Alphabetical by actor name
+	SortIdle                     // By idle time (most active first)
+	SortRate                     // By event rate (highest first)
+	sortModeCount                // Sentinel for cycling
+)
 
 // EpicGroup holds an epic and its agents.
 type EpicGroup struct {
@@ -86,6 +98,18 @@ type Model struct {
 
 	// Detail pane scroll
 	detailViewport viewport.Model
+
+	// Sort and filter (bd-edx55)
+	sortMode SortMode
+	filter   string // Name filter text (empty = show all)
+	filtering bool  // True when filter input is active
+
+	// Sorted/filtered view of actors
+	displayActors []rpc.AgentRosterEntry
+
+	// Overlay for bd show output (bd-edx55)
+	overlay        string // Non-empty = overlay text visible
+	overlayViewport viewport.Model
 }
 
 // epicViewRow represents one navigable row in the epic view.
@@ -101,13 +125,14 @@ func New() *Model {
 	h.ShowAll = false
 
 	return &Model{
-		keys:           DefaultKeyMap(),
-		help:           h,
-		viewport:       viewport.New(0, 0),
-		detailViewport: viewport.New(0, 0),
-		done:           make(chan struct{}),
-		staleThreshold: 3600,
-		expandedIdx:    -1,
+		keys:            DefaultKeyMap(),
+		help:            h,
+		viewport:        viewport.New(0, 0),
+		detailViewport:  viewport.New(0, 0),
+		overlayViewport: viewport.New(0, 0),
+		done:            make(chan struct{}),
+		staleThreshold:  3600,
+		expandedIdx:     -1,
 	}
 }
 
@@ -133,6 +158,12 @@ func (m *Model) Init() tea.Cmd {
 // fetchRosterMsg is sent when roster data arrives.
 type fetchRosterMsg struct {
 	roster *rpc.AgentRosterResult
+	err    error
+}
+
+// fetchTaskMsg is sent when task detail arrives. (bd-edx55)
+type fetchTaskMsg struct {
+	output string
 	err    error
 }
 
@@ -194,6 +225,44 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.updatePaneGeometry()
 
 	case tea.KeyMsg:
+		// Overlay mode: any key dismisses the overlay
+		if m.overlay != "" {
+			if key.Matches(msg, m.keys.Quit) {
+				m.overlay = ""
+			} else if key.Matches(msg, m.keys.Up) || key.Matches(msg, m.keys.PageUp) {
+				m.overlayViewport.ScrollUp(3)
+			} else if key.Matches(msg, m.keys.Down) || key.Matches(msg, m.keys.PageDown) {
+				m.overlayViewport.ScrollDown(3)
+			} else {
+				m.overlay = ""
+			}
+			return m, nil
+		}
+
+		// Filter input mode: capture keystrokes for filter text
+		if m.filtering {
+			switch {
+			case key.Matches(msg, m.keys.Quit):
+				m.filtering = false
+				m.filter = ""
+				m.rebuildDisplayActors()
+			case msg.Type == tea.KeyEnter:
+				m.filtering = false
+				// Keep filter active
+			case msg.Type == tea.KeyBackspace:
+				if len(m.filter) > 0 {
+					m.filter = m.filter[:len(m.filter)-1]
+					m.rebuildDisplayActors()
+				}
+			default:
+				if msg.Type == tea.KeyRunes {
+					m.filter += string(msg.Runes)
+					m.rebuildDisplayActors()
+				}
+			}
+			return m, nil
+		}
+
 		switch {
 		case key.Matches(msg, m.keys.Quit):
 			close(m.done)
@@ -260,9 +329,41 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.focusPane = PaneDetail
 			}
 
+		case key.Matches(msg, m.keys.NextWorking):
+			m.jumpToWorking(1)
+
+		case key.Matches(msg, m.keys.PrevWorking):
+			m.jumpToWorking(-1)
+
+		case key.Matches(msg, m.keys.Sort):
+			m.sortMode = (m.sortMode + 1) % sortModeCount
+			m.rebuildDisplayActors()
+			m.status = fmt.Sprintf("Sort: %s", m.sortLabel())
+
+		case key.Matches(msg, m.keys.Filter):
+			m.filtering = true
+			m.filter = ""
+
+		case key.Matches(msg, m.keys.ShowTask):
+			if a := m.selectedAgent(); a != nil && a.TaskID != "" {
+				cmds = append(cmds, m.fetchTaskDetail(a.TaskID))
+				m.status = fmt.Sprintf("Loading %s...", a.TaskID)
+			}
+
 		case key.Matches(msg, m.keys.Refresh):
 			cmds = append(cmds, m.fetchRoster())
 			m.status = "Refreshing..."
+		}
+
+	case fetchTaskMsg:
+		if msg.err != nil {
+			m.status = fmt.Sprintf("Error: %v", msg.err)
+		} else {
+			m.overlay = msg.output
+			m.overlayViewport.SetContent(msg.output)
+			m.overlayViewport.Width = m.width - 4
+			m.overlayViewport.Height = m.height - 4
+			m.overlayViewport.GotoTop()
 		}
 
 	case fetchRosterMsg:
@@ -272,8 +373,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.err = nil
 			m.roster = msg.roster
+			m.rebuildDisplayActors()
 			m.buildEpicGroups()
-			m.status = fmt.Sprintf("Updated: %d agents", len(msg.roster.Actors))
+			m.status = fmt.Sprintf("Updated: %d agents", len(m.displayActors))
 		}
 
 	case tickMsg:
@@ -296,10 +398,10 @@ func (m *Model) maxSelectable() int {
 		}
 		return len(m.epicViewRows) - 1
 	default:
-		if len(m.roster.Actors) == 0 {
+		if len(m.displayActors) == 0 {
 			return 0
 		}
-		return len(m.roster.Actors) - 1
+		return len(m.displayActors) - 1
 	}
 }
 
@@ -382,6 +484,109 @@ func (m *Model) rebuildEpicViewRows() {
 	// Clamp selected
 	if m.selected >= len(rows) {
 		m.selected = max(0, len(rows)-1)
+	}
+}
+
+// rebuildDisplayActors applies sort and filter to build the display list. (bd-edx55)
+func (m *Model) rebuildDisplayActors() {
+	if m.roster == nil {
+		m.displayActors = nil
+		return
+	}
+
+	// Filter
+	actors := m.roster.Actors
+	if m.filter != "" {
+		var filtered []rpc.AgentRosterEntry
+		lower := strings.ToLower(m.filter)
+		for _, a := range actors {
+			if strings.Contains(strings.ToLower(a.Actor), lower) {
+				filtered = append(filtered, a)
+			}
+		}
+		actors = filtered
+	}
+
+	// Sort
+	sorted := make([]rpc.AgentRosterEntry, len(actors))
+	copy(sorted, actors)
+
+	switch m.sortMode {
+	case SortName:
+		sort.Slice(sorted, func(i, j int) bool {
+			return sorted[i].Actor < sorted[j].Actor
+		})
+	case SortIdle:
+		sort.Slice(sorted, func(i, j int) bool {
+			return sorted[i].IdleSecs < sorted[j].IdleSecs
+		})
+	case SortRate:
+		sort.Slice(sorted, func(i, j int) bool {
+			return sorted[i].EventsPerMin > sorted[j].EventsPerMin
+		})
+	}
+
+	m.displayActors = sorted
+
+	// Clamp selection
+	if m.selected >= len(m.displayActors) {
+		m.selected = max(0, len(m.displayActors)-1)
+	}
+}
+
+// sortLabel returns a human-readable label for the current sort mode. (bd-edx55)
+func (m *Model) sortLabel() string {
+	switch m.sortMode {
+	case SortName:
+		return "name"
+	case SortIdle:
+		return "idle (active first)"
+	case SortRate:
+		return "event rate"
+	default:
+		return "default"
+	}
+}
+
+// selectedAgent returns the currently selected agent, or nil. (bd-edx55)
+func (m *Model) selectedAgent() *rpc.AgentRosterEntry {
+	if len(m.displayActors) == 0 || m.selected >= len(m.displayActors) {
+		return nil
+	}
+	return &m.displayActors[m.selected]
+}
+
+// jumpToWorking jumps to the next (dir=1) or previous (dir=-1) working agent. (bd-edx55)
+func (m *Model) jumpToWorking(dir int) {
+	if len(m.displayActors) == 0 {
+		return
+	}
+	start := m.selected
+	for i := 1; i < len(m.displayActors); i++ {
+		idx := (start + i*dir + len(m.displayActors)) % len(m.displayActors)
+		a := m.displayActors[idx]
+		if a.TaskID != "" && a.IdleSecs < 30 && !a.Reaped && a.LastEvent != "AgentCrashed" {
+			m.selected = idx
+			return
+		}
+	}
+}
+
+// fetchTaskDetail runs bd show <taskID> and returns the output. (bd-edx55)
+func (m *Model) fetchTaskDetail(taskID string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		cmd := exec.CommandContext(ctx, "bd", "show", taskID)
+		var stdout, stderr bytes.Buffer
+		cmd.Stdout = &stdout
+		cmd.Stderr = &stderr
+
+		if err := cmd.Run(); err != nil {
+			return fetchTaskMsg{err: fmt.Errorf("bd show %s: %v (%s)", taskID, err, stderr.String())}
+		}
+		return fetchTaskMsg{output: stdout.String()}
 	}
 }
 

@@ -14,6 +14,11 @@ const maxToolNameLen = 40
 
 // renderView renders the entire view.
 func (m *Model) renderView() string {
+	// Overlay mode: show task detail overlay (bd-edx55)
+	if m.overlay != "" {
+		return m.renderOverlay()
+	}
+
 	var b strings.Builder
 
 	if m.width < 40 || m.height < 10 {
@@ -75,15 +80,24 @@ func (m *Model) renderView() string {
 		b.WriteString("\n")
 	}
 
+	// Filter indicator (bd-edx55)
+	if m.filtering {
+		b.WriteString(accentStyle.Render(fmt.Sprintf("Filter: %s█", m.filter)))
+		b.WriteString("\n")
+	} else if m.filter != "" {
+		b.WriteString(mutedStyle.Render(fmt.Sprintf("Filter: %s (press / to edit, esc to clear)", m.filter)))
+		b.WriteString("\n")
+	}
+
 	// Help
 	if m.showHelp {
 		b.WriteString("\n")
 		b.WriteString(m.help.View(m.keys))
 	} else {
 		if m.collapsed {
-			b.WriteString(helpStyle.Render("j/k: navigate  enter: expand  tab: view  r: refresh  ?: help  q: quit"))
+			b.WriteString(helpStyle.Render("j/k ↑↓  enter: expand  n/N: working  s: sort  /: filter  o: task  ?: help  q: quit"))
 		} else {
-			b.WriteString(helpStyle.Render("j/k: navigate  h/l: panes  tab: view  r: refresh  ?: help  q: quit"))
+			b.WriteString(helpStyle.Render("j/k ↑↓  h/l: panes  n/N: working  s: sort  /: filter  o: task  ?: help  q: quit"))
 		}
 	}
 	b.WriteString("\n")
@@ -114,9 +128,10 @@ func (m *Model) renderListPane() string {
 	}
 	maxAgents := contentHeight / 2
 
-	for i, a := range m.roster.Actors {
+	actors := m.displayActors
+	for i, a := range actors {
 		if i >= maxAgents {
-			remaining := len(m.roster.Actors) - maxAgents
+			remaining := len(actors) - maxAgents
 			b.WriteString(mutedStyle.Render(fmt.Sprintf("  ... +%d more", remaining)))
 			b.WriteString("\n")
 			break
@@ -138,7 +153,7 @@ func (m *Model) renderCollapsedAgentList() string {
 	b.WriteString(mutedStyle.Render(sep))
 	b.WriteString("\n")
 
-	for i, a := range m.roster.Actors {
+	for i, a := range m.displayActors {
 		selected := i == m.selected
 		b.WriteString(m.renderCompactAgent(a, selected))
 		b.WriteString("\n")
@@ -158,12 +173,11 @@ func (m *Model) renderCollapsedAgentList() string {
 
 // renderDetailPane renders the right-side detail panel for the selected agent. (bd-i19bt, bd-czaca)
 func (m *Model) renderDetailPane() string {
-	if m.roster == nil || len(m.roster.Actors) == 0 || m.selected >= len(m.roster.Actors) {
+	a := m.selectedAgent()
+	if a == nil {
 		return mutedStyle.Render("  No agent selected")
 	}
-
-	a := m.roster.Actors[m.selected]
-	return m.renderAgentDetail(a)
+	return m.renderAgentDetail(*a)
 }
 
 // renderAgentDetail renders the full detail view for a single agent. (bd-czaca)
@@ -623,6 +637,23 @@ func (m *Model) renderCompactAgent(a rpc.AgentRosterEntry, selected bool) string
 		return selectedStyle.Render(line1) + "\n" + selectedStyle.Render(line2)
 	}
 	return line1 + "\n" + line2
+}
+
+// renderOverlay renders the full-screen task detail overlay. (bd-edx55)
+func (m *Model) renderOverlay() string {
+	var b strings.Builder
+
+	b.WriteString(titleStyle.Render("Task Detail"))
+	b.WriteString(mutedStyle.Render("  (press any key to close)"))
+	b.WriteString("\n")
+	b.WriteString(mutedStyle.Render(strings.Repeat("─", max(0, m.width-2))))
+	b.WriteString("\n")
+
+	// Use the overlay viewport for scrollable content
+	b.WriteString(m.overlayViewport.View())
+	b.WriteString("\n")
+
+	return b.String()
 }
 
 // formatDuration formats seconds into human-readable duration.
