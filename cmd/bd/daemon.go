@@ -873,6 +873,7 @@ func runDaemonLoop(interval time.Duration, autoCommit, autoPush, autoPull, local
 	}
 
 	server.SetBus(bus)
+	server.SetGateBackend(gate.ActiveBackend)
 
 	// Wire NATS health into RPC status reporting
 	if natsServer != nil {

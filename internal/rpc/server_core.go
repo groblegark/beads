@@ -13,6 +13,7 @@ import (
 
 	"github.com/steveyegge/beads/internal/config"
 	"github.com/steveyegge/beads/internal/eventbus"
+	"github.com/steveyegge/beads/internal/gate"
 	"github.com/steveyegge/beads/internal/storage"
 	"github.com/steveyegge/beads/internal/types"
 )
@@ -118,6 +119,8 @@ type Server struct {
 	// Session identity registry (bd-zp6v9)
 	sessionReg     *sessionRegistry
 	sessionRegOnce sync.Once
+	// Session gate backend for NATS KV (bd-vecxd, bd-rabpy)
+	gateBackend gate.GateBackend
 }
 
 // Mutation event types
@@ -487,6 +490,13 @@ func (s *Server) SetBus(bus *eventbus.Bus) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.bus = bus
+}
+
+// SetGateBackend sets the session gate backend for NATS KV operations. (bd-rabpy)
+func (s *Server) SetGateBackend(backend gate.GateBackend) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.gateBackend = backend
 }
 
 // GetBus returns the event bus, or nil if not configured.
