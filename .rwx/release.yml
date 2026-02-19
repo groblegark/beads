@@ -65,11 +65,14 @@ tasks:
       zig version
 
       # Create zig CC wrapper scripts for darwin cross-compilation.
-      # The wrappers strip -lresolv, -framework CoreFoundation, and
-      # -framework Security from link commands — zig 0.14.0 can't
-      # find these macOS system libs. Go's runtime resolves them via
-      # dyld lazy binding at runtime instead.
-      # flock serializes zig calls per target to prevent AccessDenied races.
+      # Zig 0.14.0 can't find macOS system libraries (libresolv) or
+      # frameworks (CoreFoundation, Security). The wrappers:
+      # 1. Strip -lresolv (Go resolves via dyld lazy binding)
+      # 2. Convert -framework X to -Wl,-framework,X so zig passes
+      #    them through to the Mach-O linker as weak references
+      # 3. Add -Wl,-undefined,dynamic_lookup FIRST to allow all
+      #    unresolved symbols (resolved by dyld at runtime)
+      # flock serializes zig calls per target to prevent races.
       mkdir -p /tmp/zigcc
       for pair in \
         "cc-x86_64-macos:x86_64-macos" \
@@ -77,26 +80,38 @@ tasks:
         name="${pair%%:*}"
         target="${pair##*:}"
         cat > "/tmp/zigcc/$name" << 'WRAPPER'
-      #!/bin/sh
-      # Filter out macOS system libs that zig can't resolve.
-      # Go's runtime handles these via dyld lazy binding.
-      args=""
+#!/bin/sh
+# Detect if this is a link command (has -o flag with .out or no -c flag)
+is_link=false
+for arg in "$@"; do
+  case "$arg" in
+    *.out) is_link=true ;;
+  esac
+done
+
+if $is_link; then
+  # Link phase: strip problematic flags, add dynamic_lookup
+  args="-Wl,-undefined,dynamic_lookup"
+  skip_next=false
+  for arg in "$@"; do
+    if $skip_next; then
       skip_next=false
-      for arg in "$@"; do
-        if $skip_next; then
-          skip_next=false
-          continue
-        fi
-        case "$arg" in
-          -lresolv|-lpthread) continue ;;
-          -framework)
-            skip_next=true
-            continue ;;
-        esac
-        args="$args $arg"
-      done
-      exec flock /tmp/zigcc/lock-TARGET zig cc -target TARGET $args
-      WRAPPER
+      continue
+    fi
+    case "$arg" in
+      -lresolv) continue ;;
+      -framework)
+        skip_next=true
+        continue ;;
+    esac
+    args="$args $arg"
+  done
+  exec flock /tmp/zigcc/lock-TARGET zig cc -target TARGET $args
+else
+  # Compile phase: pass through unchanged
+  exec flock /tmp/zigcc/lock-TARGET zig cc -target TARGET "$@"
+fi
+WRAPPER
         sed -i "s/TARGET/$target/g" "/tmp/zigcc/$name"
         chmod +x "/tmp/zigcc/$name"
       done
