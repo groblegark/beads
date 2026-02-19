@@ -1,6 +1,10 @@
 package agent
 
-import "github.com/charmbracelet/lipgloss"
+import (
+	"github.com/charmbracelet/lipgloss"
+
+	"github.com/steveyegge/beads/internal/rpc"
+)
 
 // Ayu-themed adaptive colors (matching internal/ui/styles.go)
 var (
@@ -72,6 +76,29 @@ var (
 	detailTitleStyle = lipgloss.NewStyle().
 				Bold(true).
 				Foreground(colorAccent)
+
+	// Compact list state dot styles (bd-4be5t)
+	crashedStyle = lipgloss.NewStyle().
+			Foreground(colorFail).
+			Faint(true)
+
+	// Pane border for split layout (bd-i19bt)
+	listPaneBorder = lipgloss.NewStyle().
+			Border(lipgloss.NormalBorder(), false, true, false, false).
+			BorderForeground(colorMuted)
+
+	sectionHeaderStyle = lipgloss.NewStyle().
+				Foreground(colorMuted).
+				Bold(true)
+)
+
+// State dot strings for compact list items. (bd-4be5t)
+var (
+	dotWorking = lipgloss.NewStyle().Foreground(colorPass).Render("●")
+	dotActive  = lipgloss.NewStyle().Foreground(colorAccent).Render("●")
+	dotIdle    = lipgloss.NewStyle().Foreground(colorWarn).Render("○")
+	dotStale   = lipgloss.NewStyle().Foreground(colorFail).Render("◌")
+	dotCrashed = lipgloss.NewStyle().Foreground(colorFail).Faint(true).Render("✕")
 )
 
 // agentStateStyle returns the style for an agent's idle duration.
@@ -83,5 +110,22 @@ func agentStateStyle(idleSecs float64) lipgloss.Style {
 		return idleStyle
 	default:
 		return staleStyle
+	}
+}
+
+// agentStateDot returns the colored state indicator dot for an agent. (bd-4be5t)
+func agentStateDot(a rpc.AgentRosterEntry) string {
+	if a.Reaped || a.LastEvent == "AgentCrashed" {
+		return dotCrashed
+	}
+	switch {
+	case a.IdleSecs < 30 && a.TaskID != "":
+		return dotWorking
+	case a.IdleSecs < 30:
+		return dotActive
+	case a.IdleSecs < 300:
+		return dotIdle
+	default:
+		return dotStale
 	}
 }

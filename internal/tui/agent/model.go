@@ -30,6 +30,17 @@ const (
 	ViewEpics                  // Epic-grouped view
 )
 
+// Pane identifies which pane has keyboard focus in split layout. (bd-i19bt)
+type Pane int
+
+const (
+	PaneList   Pane = iota // Agent list (left)
+	PaneDetail             // Detail panel (right)
+)
+
+// splitBreakpoint is the minimum terminal width for split-pane layout. (bd-i19bt)
+const splitBreakpoint = 100
+
 // EpicGroup holds an epic and its agents.
 type EpicGroup struct {
 	EpicID    string
@@ -66,6 +77,15 @@ type Model struct {
 
 	// Visible rows for navigation in epic view
 	epicViewRows []epicViewRow
+
+	// Split pane layout (bd-i19bt)
+	focusPane   Pane // Which pane has keyboard focus
+	listWidth   int  // Computed list pane width
+	collapsed   bool // True when terminal < splitBreakpoint
+	expandedIdx int  // Which agent expanded in collapsed mode (-1 = none)
+
+	// Detail pane scroll
+	detailViewport viewport.Model
 }
 
 // epicViewRow represents one navigable row in the epic view.
@@ -84,8 +104,10 @@ func New() *Model {
 		keys:           DefaultKeyMap(),
 		help:           h,
 		viewport:       viewport.New(0, 0),
+		detailViewport: viewport.New(0, 0),
 		done:           make(chan struct{}),
 		staleThreshold: 3600,
+		expandedIdx:    -1,
 	}
 }
 
@@ -168,8 +190,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		m.viewport.Width = msg.Width - 2
-		m.viewport.Height = msg.Height - 8
+		m.collapsed = msg.Width < splitBreakpoint
+		m.updatePaneGeometry()
 
 	case tea.KeyMsg:
 		switch {
@@ -211,15 +233,31 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.viewMode = ViewAgents
 			}
 			m.selected = 0
+			m.focusPane = PaneList
 			m.buildEpicGroups()
 
 		case key.Matches(msg, m.keys.Expand):
-			if m.viewMode == ViewEpics && len(m.epicViewRows) > 0 && m.selected < len(m.epicViewRows) {
+			if m.collapsed {
+				// Toggle inline expansion in collapsed mode
+				if m.expandedIdx == m.selected {
+					m.expandedIdx = -1
+				} else {
+					m.expandedIdx = m.selected
+				}
+			} else if m.viewMode == ViewEpics && len(m.epicViewRows) > 0 && m.selected < len(m.epicViewRows) {
 				row := m.epicViewRows[m.selected]
 				if row.isEpic {
 					m.epicGroups[row.epicIdx].Expanded = !m.epicGroups[row.epicIdx].Expanded
 					m.rebuildEpicViewRows()
 				}
+			}
+
+		case key.Matches(msg, m.keys.FocusLeft):
+			m.focusPane = PaneList
+
+		case key.Matches(msg, m.keys.FocusRight):
+			if !m.collapsed {
+				m.focusPane = PaneDetail
 			}
 
 		case key.Matches(msg, m.keys.Refresh):
@@ -344,6 +382,32 @@ func (m *Model) rebuildEpicViewRows() {
 	// Clamp selected
 	if m.selected >= len(rows) {
 		m.selected = max(0, len(rows)-1)
+	}
+}
+
+// updatePaneGeometry recalculates pane dimensions after resize. (bd-i19bt)
+func (m *Model) updatePaneGeometry() {
+	if m.collapsed {
+		// Single pane: full width
+		m.viewport.Width = m.width - 2
+		m.viewport.Height = m.height - 8
+		m.listWidth = m.width
+	} else {
+		// Split pane: list on left, detail on right
+		if m.width >= 150 {
+			m.listWidth = 40
+		} else {
+			m.listWidth = 35
+		}
+		detailWidth := m.width - m.listWidth - 3 // 3 for border + padding
+		if detailWidth < 20 {
+			detailWidth = 20
+		}
+		contentHeight := m.height - 6 // title + stats + help + status
+		m.viewport.Width = m.listWidth
+		m.viewport.Height = contentHeight
+		m.detailViewport.Width = detailWidth
+		m.detailViewport.Height = contentHeight
 	}
 }
 

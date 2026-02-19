@@ -5,6 +5,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/lipgloss"
+
 	"github.com/steveyegge/beads/internal/rpc"
 )
 
@@ -48,12 +50,18 @@ func (m *Model) renderView() string {
 		return b.String()
 	}
 
-	// Main content
-	switch m.viewMode {
-	case ViewAgents:
-		b.WriteString(m.renderAgentList())
-	case ViewEpics:
-		b.WriteString(m.renderEpicView())
+	// Main content: split or collapsed layout (bd-i19bt)
+	if m.collapsed || m.viewMode == ViewEpics {
+		// Collapsed mode or epic view: single pane
+		switch m.viewMode {
+		case ViewAgents:
+			b.WriteString(m.renderCollapsedAgentList())
+		case ViewEpics:
+			b.WriteString(m.renderEpicView())
+		}
+	} else {
+		// Split layout: list on left, detail on right
+		b.WriteString(m.renderSplitView())
 	}
 
 	// Status line
@@ -67,15 +75,45 @@ func (m *Model) renderView() string {
 		b.WriteString("\n")
 		b.WriteString(m.help.View(m.keys))
 	} else {
-		b.WriteString(helpStyle.Render("j/k: navigate  tab: toggle view  r: refresh  ?: help  q: quit"))
+		if m.collapsed {
+			b.WriteString(helpStyle.Render("j/k: navigate  enter: expand  tab: view  r: refresh  ?: help  q: quit"))
+		} else {
+			b.WriteString(helpStyle.Render("j/k: navigate  h/l: panes  tab: view  r: refresh  ?: help  q: quit"))
+		}
 	}
 	b.WriteString("\n")
 
 	return b.String()
 }
 
-// renderAgentList renders the flat agent list view.
-func (m *Model) renderAgentList() string {
+// renderSplitView renders the split-pane layout: list on left, detail on right. (bd-i19bt)
+func (m *Model) renderSplitView() string {
+	listContent := m.renderListPane()
+	detailContent := m.renderDetailPane()
+
+	// Join horizontally with a border between
+	return lipgloss.JoinHorizontal(lipgloss.Top,
+		listPaneBorder.Width(m.listWidth).Render(listContent),
+		detailContent,
+	) + "\n"
+}
+
+// renderListPane renders the compact agent list for the left pane. (bd-i19bt)
+func (m *Model) renderListPane() string {
+	var b strings.Builder
+
+	for i, a := range m.roster.Actors {
+		selected := i == m.selected
+		b.WriteString(m.renderCompactAgent(a, selected))
+		b.WriteString("\n")
+	}
+
+	return b.String()
+}
+
+// renderCollapsedAgentList renders the agent list in collapsed mode with
+// inline expansion for the selected agent. (bd-i19bt)
+func (m *Model) renderCollapsedAgentList() string {
 	var b strings.Builder
 
 	sep := strings.Repeat("─", max(0, m.width-2))
@@ -84,14 +122,198 @@ func (m *Model) renderAgentList() string {
 
 	for i, a := range m.roster.Actors {
 		selected := i == m.selected
-		b.WriteString(m.renderAgent(a, selected, ""))
+		b.WriteString(m.renderCompactAgent(a, selected))
 		b.WriteString("\n")
+
+		// Inline expansion in collapsed mode
+		if m.expandedIdx == i {
+			b.WriteString(m.renderInlineDetail(a))
+			b.WriteString("\n")
+		}
 	}
 
 	b.WriteString(mutedStyle.Render(sep))
 	b.WriteString("\n")
 
 	return b.String()
+}
+
+// renderDetailPane renders the right-side detail panel for the selected agent. (bd-i19bt, bd-czaca)
+func (m *Model) renderDetailPane() string {
+	if m.roster == nil || len(m.roster.Actors) == 0 || m.selected >= len(m.roster.Actors) {
+		return mutedStyle.Render("  No agent selected")
+	}
+
+	a := m.roster.Actors[m.selected]
+	return m.renderAgentDetail(a)
+}
+
+// renderAgentDetail renders the full detail view for a single agent. (bd-czaca)
+func (m *Model) renderAgentDetail(a rpc.AgentRosterEntry) string {
+	var b strings.Builder
+	detailWidth := m.width - m.listWidth - 5
+	if detailWidth < 20 {
+		detailWidth = 20
+	}
+
+	// Section 1: Identity header
+	b.WriteString("  ")
+	b.WriteString(detailTitleStyle.Render(a.Actor))
+	b.WriteString("\n\n")
+
+	// Section 2: Status bar
+	stateLabel, stateDot := agentStateLabel(a)
+	b.WriteString(fmt.Sprintf("  %s %s", stateDot, stateLabel))
+	rate := fmt.Sprintf("  %.1f/min", a.EventsPerMin)
+	events := fmt.Sprintf("  %d events", a.EventCount)
+	b.WriteString(mutedStyle.Render(rate))
+	b.WriteString(mutedStyle.Render(events))
+	b.WriteString("\n")
+
+	dur := formatDuration(a.SessionDurationSecs)
+	sessionLine := fmt.Sprintf("  Session: %s", dur)
+	if a.SessionID != "" {
+		sid := a.SessionID
+		if len(sid) > 8 {
+			sid = sid[:8] + "..."
+		}
+		sessionLine += fmt.Sprintf("  ID: %s", sid)
+	}
+	b.WriteString(mutedStyle.Render(sessionLine))
+	b.WriteString("\n")
+
+	// Section 3: Current Work
+	if a.TaskID != "" {
+		b.WriteString("\n")
+		b.WriteString(sectionHeaderStyle.Render("  ── Current Work "))
+		sep := strings.Repeat("─", max(0, detailWidth-18))
+		b.WriteString(mutedStyle.Render(sep))
+		b.WriteString("\n")
+
+		b.WriteString(fmt.Sprintf("  %s %s\n", detailLabelStyle.Render("Task:"), accentStyle.Render(a.TaskID)))
+		if a.TaskTitle != "" {
+			// Wrap title to detail width
+			b.WriteString(fmt.Sprintf("  %s\n", detailValueStyle.Render(wrapText(a.TaskTitle, detailWidth-4))))
+		}
+
+		if a.EpicID != "" {
+			b.WriteString(fmt.Sprintf("\n  %s %s\n", detailLabelStyle.Render("Epic:"), epicStyle.Render(a.EpicID)))
+			if a.EpicTitle != "" {
+				b.WriteString(fmt.Sprintf("  %s\n", epicStyle.Render(wrapText(a.EpicTitle, detailWidth-4))))
+			}
+		}
+	}
+
+	// Section 4: Git Context
+	if a.Repo != "" || a.Branch != "" || a.ProjectRoot != "" {
+		b.WriteString("\n")
+		b.WriteString(sectionHeaderStyle.Render("  ── Git "))
+		sep := strings.Repeat("─", max(0, detailWidth-9))
+		b.WriteString(mutedStyle.Render(sep))
+		b.WriteString("\n")
+
+		if a.Branch != "" {
+			b.WriteString(fmt.Sprintf("  %s %s\n", detailLabelStyle.Render("Branch:"), detailValueStyle.Render(a.Branch)))
+		}
+		if a.Repo != "" {
+			b.WriteString(fmt.Sprintf("  %s %s\n", detailLabelStyle.Render("Repo:"), detailValueStyle.Render(a.Repo)))
+		}
+		if a.ProjectRoot != "" {
+			root := a.ProjectRoot
+			if len(root) > detailWidth-10 {
+				root = "..." + root[len(root)-(detailWidth-13):]
+			}
+			b.WriteString(fmt.Sprintf("  %s %s\n", detailLabelStyle.Render("Root:"), mutedStyle.Render(root)))
+		}
+	}
+
+	// Section 5: Activity
+	b.WriteString("\n")
+	b.WriteString(sectionHeaderStyle.Render("  ── Activity "))
+	sep := strings.Repeat("─", max(0, detailWidth-14))
+	b.WriteString(mutedStyle.Render(sep))
+	b.WriteString("\n")
+
+	if a.ToolName != "" {
+		b.WriteString(fmt.Sprintf("  %s %s\n", detailLabelStyle.Render("Tool:"), toolStyle.Render(a.ToolName)))
+	}
+	if a.LastEvent != "" {
+		b.WriteString(fmt.Sprintf("  %s %s\n", detailLabelStyle.Render("Last event:"), detailValueStyle.Render(a.LastEvent)))
+	}
+	idle := formatDuration(a.IdleSecs)
+	b.WriteString(fmt.Sprintf("  %s %s\n", detailLabelStyle.Render("Idle:"), agentStateStyle(a.IdleSecs).Render(idle)))
+
+	return b.String()
+}
+
+// renderInlineDetail renders a condensed detail for collapsed-mode inline expansion. (bd-i19bt)
+func (m *Model) renderInlineDetail(a rpc.AgentRosterEntry) string {
+	var b strings.Builder
+
+	stateLabel, stateDot := agentStateLabel(a)
+	rate := fmt.Sprintf("%.1f/min", a.EventsPerMin)
+	events := fmt.Sprintf("%d events", a.EventCount)
+	dur := formatDuration(a.SessionDurationSecs)
+	b.WriteString(fmt.Sprintf("   %s %s · %s · %s · %s\n", stateDot, stateLabel, rate, events, dur))
+
+	if a.TaskID != "" {
+		b.WriteString(fmt.Sprintf("   %s %s %s\n", detailLabelStyle.Render("Task:"), accentStyle.Render(a.TaskID), detailValueStyle.Render(a.TaskTitle)))
+	}
+	if a.EpicID != "" {
+		b.WriteString(fmt.Sprintf("   %s %s %s\n", detailLabelStyle.Render("Epic:"), epicStyle.Render(a.EpicID), epicStyle.Render(a.EpicTitle)))
+	}
+	if a.Repo != "" || a.Branch != "" {
+		b.WriteString(fmt.Sprintf("   %s %s", detailLabelStyle.Render("Repo:"), detailValueStyle.Render(a.Repo)))
+		if a.Branch != "" {
+			b.WriteString(fmt.Sprintf("  %s %s", detailLabelStyle.Render("Branch:"), detailValueStyle.Render(a.Branch)))
+		}
+		b.WriteString("\n")
+	}
+	if a.ToolName != "" {
+		b.WriteString(fmt.Sprintf("   %s %s  %s %s\n",
+			detailLabelStyle.Render("Tool:"), toolStyle.Render(a.ToolName),
+			detailLabelStyle.Render("Last:"), detailValueStyle.Render(a.LastEvent)))
+	}
+
+	return b.String()
+}
+
+// agentStateLabel returns a human-readable state label and its colored dot. (bd-4be5t)
+func agentStateLabel(a rpc.AgentRosterEntry) (string, string) {
+	if a.Reaped || a.LastEvent == "AgentCrashed" {
+		return crashedStyle.Render("Crashed"), dotCrashed
+	}
+	switch {
+	case a.IdleSecs < 30 && a.TaskID != "":
+		return workingStyle.Render("Working"), dotWorking
+	case a.IdleSecs < 30:
+		return accentStyle.Render("Active"), dotActive
+	case a.IdleSecs < 300:
+		return idleStyle.Render("Idle"), dotIdle
+	default:
+		return staleStyle.Render("Stale"), dotStale
+	}
+}
+
+// wrapText wraps text at the given width, breaking on spaces.
+func wrapText(text string, width int) string {
+	if width <= 0 || len(text) <= width {
+		return text
+	}
+	var lines []string
+	for len(text) > width {
+		// Find last space before width
+		idx := strings.LastIndex(text[:width], " ")
+		if idx <= 0 {
+			idx = width
+		}
+		lines = append(lines, text[:idx])
+		text = strings.TrimLeft(text[idx:], " ")
+	}
+	if text != "" {
+		lines = append(lines, text)
+	}
+	return strings.Join(lines, "\n  ")
 }
 
 // renderEpicView renders the epic-grouped view.
@@ -236,6 +458,51 @@ func (m *Model) renderAgent(a rpc.AgentRosterEntry, selected bool, indent string
 	}
 
 	return b.String()
+}
+
+// renderCompactAgent renders a compact 2-line agent entry for the list pane. (bd-4be5t)
+// Line 1: state-dot + name (padded) + idle time (right-aligned)
+// Line 2: indented task snippet or state label
+func (m *Model) renderCompactAgent(a rpc.AgentRosterEntry, selected bool) string {
+	const nameWidth = 18
+
+	dot := agentStateDot(a)
+
+	// Truncate or pad name to fixed width.
+	name := a.Actor
+	if len(name) > nameWidth {
+		name = name[:nameWidth-3] + "..."
+	}
+
+	idle := formatDuration(a.IdleSecs)
+
+	// Line 1: dot + name + idle time
+	// Compute padding between name and idle time.
+	line1 := fmt.Sprintf(" %s %-*s  %s", dot, nameWidth, accentStyle.Render(name), agentStateStyle(a.IdleSecs).Render(idle))
+
+	// Line 2: task snippet or state label
+	var line2 string
+	maxSnippet := m.width - 6
+	if maxSnippet < 10 {
+		maxSnippet = 10
+	}
+	switch {
+	case a.Reaped || a.LastEvent == "AgentCrashed":
+		line2 = fmt.Sprintf("   %s", crashedStyle.Render("(crashed)"))
+	case a.TaskID != "":
+		snippet := a.TaskTitle
+		if len(snippet) > maxSnippet {
+			snippet = snippet[:maxSnippet-3] + "..."
+		}
+		line2 = fmt.Sprintf("   %s", detailValueStyle.Render(snippet))
+	default:
+		line2 = fmt.Sprintf("   %s", mutedStyle.Render("(idle, no task)"))
+	}
+
+	if selected {
+		return selectedStyle.Render(line1) + "\n" + selectedStyle.Render(line2)
+	}
+	return line1 + "\n" + line2
 }
 
 // formatDuration formats seconds into human-readable duration.
