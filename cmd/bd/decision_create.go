@@ -283,7 +283,7 @@ func runDecisionCreate(cmd *cobra.Command, args []string) {
 	// With --no-wait, return immediately after creation (gt-lquqdp).
 	// The caller handles awaiting/notification separately.
 	// Write the "decision" gate marker so the stop hook won't re-fire
-	// while the agent waits for a response via bd done.
+	// while the agent waits for a response via bd yield.
 	if noWait {
 		if sid := getSessionID(); sid != "" {
 			_ = gate.MarkGate(getWorkDir(), sid, "decision")

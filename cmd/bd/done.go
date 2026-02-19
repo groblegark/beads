@@ -4,260 +4,122 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/signal"
-	"strings"
-	"syscall"
-	"time"
 
 	"github.com/spf13/cobra"
-	"github.com/steveyegge/beads/internal/gate"
 	"github.com/steveyegge/beads/internal/rpc"
-	"github.com/steveyegge/beads/internal/types"
+	"github.com/steveyegge/beads/internal/ui"
 )
 
 var (
-	doneTimeout        int
-	doneOn             string
-	doneAgent          string
-	doneRequireDecison bool
+	doneReason string
 )
 
 func init() {
 	rootCmd.AddCommand(doneCmd)
-	doneCmd.Flags().IntVar(&doneTimeout, "timeout", 1800, "Timeout in seconds (default 30m, max 1h)")
-	doneCmd.Flags().StringVar(&doneOn, "on", "", "Event types to wait for (comma-separated: inbox,decision; default: all)")
-	doneCmd.Flags().StringVar(&doneAgent, "agent", "", "Agent name (default: BD_ACTOR)")
-	doneCmd.Flags().BoolVar(&doneRequireDecison, "require-decision", false, "Fail immediately if no pending decision exists for this agent")
+	doneCmd.Flags().StringVar(&doneReason, "reason", "", "Close reason (optional)")
 }
 
-// doneCmd is the "bd done" command — blocks until a notification arrives.
+// doneCmd is the "bd done" command — canonical teardown for finishing work.
+// Closes the agent's current in-progress issue and optionally writes cleanup
+// status. This replaces the old "bd done" (now "bd yield"). (hq-h80x9n)
 var doneCmd = &cobra.Command{
-	Use:   "done",
-	Short: "Block until an inbox message or decision response arrives",
-	Long: `Block the calling process until a meaningful event arrives for this agent.
+	Use:   "done [issue-id...]",
+	Short: "Mark issues as done and close them",
+	Long: `Close one or more issues, marking them as done.
 
-This is the yield command: agents call "bd done" when they have no work, and
-the process blocks until something happens — an inbox message, a decision
-response, or a timeout.
+This is the canonical teardown command: agents call "bd done" when they finish
+their current task. It closes the specified issues (or the agent's in-progress
+issue if none specified).
 
-When the event arrives, the payload is printed to stdout and the command exits 0.
-On timeout, exits 1. On interrupt (Ctrl+C), exits 0 silently.
+If no issue IDs are given and BD_ACTOR is set, it finds and closes the agent's
+current in-progress issue automatically.
 
-This is designed to be called as a tool from Claude Code. The agent calls
-"bd done" via Bash, which blocks the tool call. When the event arrives,
-the tool returns with the event payload and the agent wakes up with context.
-
-Pair with "bd nudge" to send events: nudge sends, done receives.
+For blocking/yielding (waiting for events), use "bd yield" instead.
 
 Examples:
-  bd done                              # Wait for any event (30m timeout)
-  bd done --timeout=600                # Wait 10 minutes
-  bd done --on=inbox                   # Only wait for inbox messages
-  bd done --on=decision                # Only wait for decision responses
-  bd done --agent=hq-mayor             # Wait for events to mayor`,
+  bd done                                # Close agent's current in-progress issue
+  bd done bd-abc123                      # Close a specific issue
+  bd done bd-abc bd-def --reason="done"  # Close multiple with reason`,
 	GroupID: "issues",
 	RunE:    runDone,
 }
 
-// donePreflightCheck validates agent state before blocking. Returns true if
-// blocking is safe, false if the agent should not wait. Integrates gate checks
-// and decision validation. (bd-r4ni3, bd-oowwa, bd-2r20u, bd-ihpb0)
-func donePreflightCheck(agent string, requireDecision bool) bool {
-	ok := true
-
-	// Gate check: evaluate Stop gates to catch unsatisfied conditions.
-	// Uses the same gate infrastructure as the Stop hook itself. (bd-2r20u)
-	gateCheck := doneGateCheck()
-	if gateCheck != "" {
-		fmt.Fprintf(os.Stderr, "%s\n", gateCheck)
-	}
-
-	// Decision check: warn or fail if no pending decision exists.
-	pending := donePendingDecisions(agent)
-	if len(pending) == 0 {
-		if requireDecision {
-			fmt.Fprintf(os.Stderr, "Error: --require-decision set but no pending decision found for agent %q.\n", agent)
-			fmt.Fprintf(os.Stderr, "  Create one first: bd decision create --no-wait --requested-by=%s ...?\n", agent)
-			ok = false
-		} else {
-			fmt.Fprintf(os.Stderr, "⚠ Warning: no pending decision found for agent %q — bd done may block indefinitely.\n", agent)
-			fmt.Fprintf(os.Stderr, "  Did you forget to run: bd decision create --no-wait --requested-by=%s ...?\n", agent)
-		}
-	} else {
-		// Show what we're waiting for. (bd-oowwa)
-		for _, dp := range pending {
-			prompt := dp.Prompt
-			if len(prompt) > 60 {
-				prompt = prompt[:57] + "..."
-			}
-			optCount := countDecisionOptions(dp.Options)
-			age := time.Since(dp.CreatedAt).Truncate(time.Second)
-			fmt.Fprintf(os.Stderr, "  Pending: %s %q (%d options, created %s ago)\n",
-				dp.IssueID, prompt, optCount, age)
-		}
-	}
-
-	return ok
-}
-
-// doneGateCheck evaluates Stop gates and returns warning text for unsatisfied
-// gates, or empty string if all gates are satisfied (or no session available).
-// This uses the same gate infrastructure as the Stop hook. (bd-2r20u)
-func doneGateCheck() string {
-	sessionID := getSessionID()
-	if sessionID == "" {
-		return "" // No session — can't check gates
-	}
-
-	workDir := getWorkDir()
-	results, err := gate.CheckGatesForHook(workDir, sessionID, gate.HookStop, sessionGateRegistry)
-	if err != nil || len(results) == 0 {
-		return ""
-	}
-
-	var warnings []string
-	for _, r := range results {
-		if !r.Satisfied {
-			hint := ""
-			if r.Hint != "" {
-				hint = " → " + r.Hint
-			}
-			warnings = append(warnings, fmt.Sprintf("  ⚠ Gate %s: %s%s", r.GateID, r.Message, hint))
-		}
-	}
-
-	if len(warnings) == 0 {
-		return ""
-	}
-	return strings.Join(warnings, "\n")
-}
-
-// donePendingDecisions returns pending (unresolved) decisions for the agent.
-func donePendingDecisions(agent string) []*types.DecisionPoint {
-	resp, err := daemonClient.DecisionList(&rpc.DecisionListArgs{})
-	if err != nil {
-		return nil
-	}
-
-	var pending []*types.DecisionPoint
-	for _, d := range resp.Decisions {
-		if d.Decision == nil {
-			continue
-		}
-		dp := d.Decision
-		if dp.RequestedBy == agent && dp.SelectedOption == "" && dp.ResponseText == "" {
-			pending = append(pending, dp)
-		}
-	}
-	return pending
-}
-
-// countDecisionOptions parses the JSON options array and returns the count.
-func countDecisionOptions(optionsJSON string) int {
-	if optionsJSON == "" {
-		return 0
-	}
-	var opts []types.DecisionOption
-	if err := json.Unmarshal([]byte(optionsJSON), &opts); err != nil {
-		return 0
-	}
-	return len(opts)
-}
-
 func runDone(cmd *cobra.Command, args []string) error {
-	requireDaemon("done")
+	CheckReadonly("done")
 
-	agent := doneAgent
+	// If issue IDs are given, close them directly.
+	if len(args) > 0 {
+		return doneCloseIssues(args, doneReason)
+	}
+
+	// No args: find agent's current in-progress issue.
+	agent := getActor()
 	if agent == "" {
-		agent = getActor()
+		return fmt.Errorf("no issue IDs specified and BD_ACTOR not set — specify issues to close or set BD_ACTOR")
 	}
 
-	// Handle Ctrl+C gracefully — agent should exit cleanly.
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-	go func() {
-		<-sigCh
-		os.Exit(0)
-	}()
-
-	// Pre-flight checks: gate validation, decision check, waiting summary.
-	// Catches common mistakes before entering the blocking wait. (bd-r4ni3, bd-2r20u, bd-ihpb0)
-	if !quietFlag {
-		if !donePreflightCheck(agent, doneRequireDecison) {
-			return fmt.Errorf("pre-flight check failed (see above)")
-		}
-	} else if doneRequireDecison {
-		// Even in quiet mode, --require-decision must be enforced.
-		pending := donePendingDecisions(agent)
-		if len(pending) == 0 {
-			return fmt.Errorf("--require-decision: no pending decision for agent %q", agent)
-		}
-	}
-
-	if !quietFlag {
-		onDesc := doneOn
-		if onDesc == "" {
-			onDesc = "inbox,decision"
-		}
-		fmt.Fprintf(os.Stderr, "Waiting for events (agent=%s, timeout=%ds, on=%s)...\n",
-			agent, doneTimeout, onDesc)
-	}
-
-	// Retry loop: each server poll is capped at maxPollSec to stay under
-	// proxy timeouts (typically 60s). The client retries until the overall
-	// doneTimeout expires or an event arrives. (bd-wccdf)
-	const maxPollSec = 50
-	deadline := time.Now().Add(time.Duration(doneTimeout) * time.Second)
-
-	for {
-		remaining := int(time.Until(deadline).Seconds())
-		if remaining <= 0 {
-			fmt.Fprintf(os.Stderr, "Timed out after %ds waiting for events\n", doneTimeout)
-			os.Exit(1)
-		}
-
-		pollSec := maxPollSec
-		if remaining < pollSec {
-			pollSec = remaining
-		}
-
-		// Set request timeout with buffer for this poll iteration.
-		daemonClient.SetRequestTimeout((pollSec + 15) * 1000)
-
-		result, err := daemonClient.DoneWait(&rpc.DoneWaitArgs{
-			AgentName:  agent,
-			TimeoutSec: remaining,
-			On:         doneOn,
-			MaxPollSec: pollSec,
+	// Find in-progress issues assigned to this agent.
+	if daemonClient != nil {
+		resp, err := daemonClient.List(&rpc.ListArgs{
+			Status:   "in_progress",
+			Assignee: agent,
 		})
-
-		daemonClient.SetRequestTimeout(0)
-
 		if err != nil {
-			// On HTTP errors (504, timeout), retry if we have time left.
-			if time.Now().Before(deadline) {
-				time.Sleep(2 * time.Second)
-				continue
-			}
-			return fmt.Errorf("done_wait: %w", err)
+			return fmt.Errorf("listing in-progress issues: %w", err)
 		}
 
-		if result.TimedOut {
-			// Server poll expired — retry if overall deadline not reached.
-			if time.Now().Before(deadline) {
-				continue
+		var issues []struct {
+			ID    string `json:"id"`
+			Title string `json:"title"`
+		}
+		if resp.Data != nil {
+			if err := json.Unmarshal(resp.Data, &issues); err != nil {
+				return fmt.Errorf("parsing issues: %w", err)
 			}
-			fmt.Fprintf(os.Stderr, "Timed out after %ds waiting for events\n", doneTimeout)
-			os.Exit(1)
 		}
 
-		// Got a real event — print and exit.
-		if result.Content != "" {
-			fmt.Println(result.Content)
+		if len(issues) == 0 {
+			fmt.Fprintf(os.Stderr, "No in-progress issues found for agent %q\n", agent)
+			return nil
 		}
-		if result.Source != "" {
-			fmt.Fprintf(os.Stderr, "event=%s source=%s\n", result.EventType, result.Source)
+
+		ids := make([]string, len(issues))
+		for i, issue := range issues {
+			ids[i] = issue.ID
 		}
-		return nil
+		return doneCloseIssues(ids, doneReason)
 	}
+
+	return fmt.Errorf("bd done requires the daemon when no issue IDs specified")
+}
+
+// doneCloseIssues closes one or more issues via the daemon or local store.
+func doneCloseIssues(ids []string, reason string) error {
+	for _, id := range ids {
+		if daemonClient != nil {
+			closeReason := reason
+			if closeReason == "" {
+				closeReason = "done"
+			}
+			_, err := daemonClient.CloseIssue(&rpc.CloseArgs{
+				ID:     id,
+				Reason: closeReason,
+			})
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: failed to close %s: %v\n", id, err)
+				continue
+			}
+		} else {
+			if err := store.CloseIssue(rootCtx, id, reason, getActor(), ""); err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: failed to close %s: %v\n", id, err)
+				continue
+			}
+		}
+		fmt.Printf("%s Closed %s", ui.RenderPass("✓"), id)
+		if reason != "" {
+			fmt.Printf(": %s", reason)
+		}
+		fmt.Println()
+	}
+	return nil
 }

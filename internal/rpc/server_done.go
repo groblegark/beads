@@ -14,7 +14,7 @@ import (
 )
 
 // handleDoneWait blocks until an inbox message or decision response arrives
-// for the specified agent, or until timeout. This is the core of "bd done" —
+// for the specified agent, or until timeout. This is the core of "bd yield" —
 // it allows agents to yield their session and wake when something happens.
 //
 // Uses NATS JetStream for sub-second latency when available, falls back to
@@ -167,7 +167,7 @@ func (s *Server) doneWaitViaNATS(ctx context.Context, js nats.JetStreamContext, 
 		if store != nil {
 			items, err := store.InboxDrain(ctx, agentName)
 			if err == nil && len(items) > 0 {
-				// Mark as delivered so they don't re-appear on the next bd done call.
+				// Mark as delivered so they don't re-appear on the next bd yield call.
 				ids := make([]string, len(items))
 				for i, item := range items {
 					ids[i] = item.ID
@@ -219,7 +219,7 @@ func (s *Server) doneWaitViaNATS(ctx context.Context, js nats.JetStreamContext, 
 			case "inbox":
 				var item types.InboxItem
 				if err := json.Unmarshal(msg.Data, &item); err == nil {
-					// Mark as delivered so it doesn't re-appear on next bd done call.
+					// Mark as delivered so it doesn't re-appear on next bd yield call.
 					if item.ID != "" {
 						s.mu.RLock()
 						st := s.storage

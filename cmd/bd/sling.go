@@ -22,7 +22,7 @@ import (
 var slingCmd = &cobra.Command{
 	Use:   "sling <bead-id> [target-agent]",
 	Short: "Dispatch a bead to an agent (wakes if idle)",
-	Long: `Dispatch a bead to an agent, assigning it and waking the agent if blocked on "bd done".
+	Long: `Dispatch a bead to an agent, assigning it and waking the agent if blocked on "bd yield".
 
 The target agent can be specified explicitly by name, or omitted to auto-select
 the least-busy idle agent from the roster.

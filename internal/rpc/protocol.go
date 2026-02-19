@@ -1082,7 +1082,7 @@ type DoneWaitArgs struct {
 	MaxPollSec int    `json:"max_poll_sec,omitempty"` // Max seconds per server poll (default 50, for proxy timeout compat) (bd-wccdf)
 }
 
-// DoneWaitResult is returned when bd done unblocks.
+// DoneWaitResult is returned when bd yield unblocks.
 type DoneWaitResult struct {
 	EventType string `json:"event_type"`          // What triggered the wake: "inbox", "decision", "timeout"
 	Content   string `json:"content,omitempty"`   // Event payload/message content

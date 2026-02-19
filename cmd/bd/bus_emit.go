@@ -130,7 +130,7 @@ func runBusEmit(cmd *cobra.Command, args []string) error {
 	// If the stop hook fires too many times within the window (even across
 	// decision create/respond cycles), auto-satisfy the gate to break the
 	// loop. This catches the bd-done wake loop where broadcast mail keeps
-	// waking the agent, triggering stop → checkpoint → bd done → wake → stop.
+	// waking the agent, triggering stop → checkpoint → bd yield → wake → stop.
 	// Unlike debounce (which resets on decision create), this persists across
 	// the full window. (hq-86ygth)
 	if resolvedType == "Stop" {
