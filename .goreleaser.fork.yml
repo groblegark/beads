@@ -30,6 +30,7 @@ builds:
     env:
       - CGO_ENABLED=1
       - CC=/tmp/zigcc/cc-x86_64-macos
+      - CGO_CFLAGS=-DZSTD_DISABLE_ASM -DDEACTIVATE_SIMD
     tags:
       - gms_pure_go
       - netgo
@@ -49,6 +50,7 @@ builds:
     env:
       - CGO_ENABLED=1
       - CC=/tmp/zigcc/cc-aarch64-macos
+      - CGO_CFLAGS=-DZSTD_DISABLE_ASM -DDEACTIVATE_SIMD
     tags:
       - gms_pure_go
       - netgo
