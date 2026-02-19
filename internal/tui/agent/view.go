@@ -102,9 +102,22 @@ func (m *Model) renderSplitView() string {
 func (m *Model) renderListPane() string {
 	var b strings.Builder
 
+	// Limit entries to fit within available height (2 lines per agent)
+	contentHeight := m.height - 6
+	if contentHeight < 4 {
+		contentHeight = 4
+	}
+	maxAgents := contentHeight / 2
+
 	for i, a := range m.roster.Actors {
+		if i >= maxAgents {
+			remaining := len(m.roster.Actors) - maxAgents
+			b.WriteString(mutedStyle.Render(fmt.Sprintf("  ... +%d more", remaining)))
+			b.WriteString("\n")
+			break
+		}
 		selected := i == m.selected
-		b.WriteString(m.renderCompactAgent(a, selected))
+		b.WriteString(m.renderCompactAgentInList(a, selected, m.listWidth))
 		b.WriteString("\n")
 	}
 
@@ -460,7 +473,61 @@ func (m *Model) renderAgent(a rpc.AgentRosterEntry, selected bool, indent string
 	return b.String()
 }
 
-// renderCompactAgent renders a compact 2-line agent entry for the list pane. (bd-4be5t)
+// renderCompactAgentInList renders a compact 2-line agent entry for the split list pane
+// with a width parameter so snippets don't overflow the pane. (bd-i19bt)
+// Line 1: [▸] ● agent-name        5s
+// Line 2:      tool hint or task snippet
+func (m *Model) renderCompactAgentInList(a rpc.AgentRosterEntry, selected bool, paneWidth int) string {
+	const nameWidth = 18
+
+	dot := agentStateDot(a)
+
+	name := a.Actor
+	if len(name) > nameWidth {
+		name = name[:nameWidth-1] + "…"
+	}
+
+	idle := formatDuration(a.IdleSecs)
+
+	selector := " "
+	if selected {
+		selector = "▸"
+	}
+
+	line1 := fmt.Sprintf("%s %s %-*s  %s", selector, dot, nameWidth, accentStyle.Render(name), agentStateStyle(a.IdleSecs).Render(idle))
+
+	// Line 2: tool hint, task snippet, or state
+	maxSnippet := paneWidth - 6
+	if maxSnippet < 10 {
+		maxSnippet = 10
+	}
+	var line2 string
+	switch {
+	case a.Reaped || a.LastEvent == "AgentCrashed":
+		line2 = fmt.Sprintf("    %s", crashedStyle.Render("(crashed)"))
+	case a.ToolName != "":
+		tool := a.ToolName
+		if len(tool) > maxSnippet {
+			tool = tool[:maxSnippet-1] + "…"
+		}
+		line2 = fmt.Sprintf("    %s", toolStyle.Render(tool))
+	case a.TaskID != "":
+		snippet := a.TaskTitle
+		if len(snippet) > maxSnippet {
+			snippet = snippet[:maxSnippet-1] + "…"
+		}
+		line2 = fmt.Sprintf("    %s", detailValueStyle.Render(snippet))
+	default:
+		line2 = fmt.Sprintf("    %s", mutedStyle.Render("(no task)"))
+	}
+
+	if selected {
+		return selectedStyle.Width(paneWidth).Render(line1) + "\n" + selectedStyle.Width(paneWidth).Render(line2)
+	}
+	return line1 + "\n" + line2
+}
+
+// renderCompactAgent renders a compact 2-line agent entry for collapsed/full-width mode. (bd-4be5t)
 // Line 1: state-dot + name (padded) + idle time (right-aligned)
 // Line 2: indented task snippet or state label
 func (m *Model) renderCompactAgent(a rpc.AgentRosterEntry, selected bool) string {
@@ -468,7 +535,6 @@ func (m *Model) renderCompactAgent(a rpc.AgentRosterEntry, selected bool) string
 
 	dot := agentStateDot(a)
 
-	// Truncate or pad name to fixed width.
 	name := a.Actor
 	if len(name) > nameWidth {
 		name = name[:nameWidth-3] + "..."
@@ -476,11 +542,8 @@ func (m *Model) renderCompactAgent(a rpc.AgentRosterEntry, selected bool) string
 
 	idle := formatDuration(a.IdleSecs)
 
-	// Line 1: dot + name + idle time
-	// Compute padding between name and idle time.
 	line1 := fmt.Sprintf(" %s %-*s  %s", dot, nameWidth, accentStyle.Render(name), agentStateStyle(a.IdleSecs).Render(idle))
 
-	// Line 2: task snippet or state label
 	var line2 string
 	maxSnippet := m.width - 6
 	if maxSnippet < 10 {
