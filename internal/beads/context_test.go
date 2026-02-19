@@ -449,6 +449,8 @@ func TestGetRepoContextForWorkspace_RedirectToUnsafeLocation(t *testing.T) {
 // TestGetRepoContextForWorkspace_RedirectWithinRepo tests that redirects
 // staying within the same repo or user's directories are allowed.
 func TestGetRepoContextForWorkspace_RedirectWithinRepo(t *testing.T) {
+	t.Setenv("BD_DAEMON_HOST", "") // Ensure local mode (bd-iyscn)
+
 	originalBeadsDir := os.Getenv("BEADS_DIR")
 	t.Cleanup(func() {
 		if originalBeadsDir != "" {
@@ -610,6 +612,8 @@ func TestRole_NoConfig(t *testing.T) {
 // TestRole_BEADS_DIR_ImpliesContributor tests that BEADS_DIR redirect
 // implicitly returns Contributor role without requiring git config.
 func TestRole_BEADS_DIR_ImpliesContributor(t *testing.T) {
+	t.Setenv("BD_DAEMON_HOST", "") // Ensure local mode (bd-iyscn)
+
 	// Save original env var
 	originalBeadsDir := os.Getenv("BEADS_DIR")
 	t.Cleanup(func() {

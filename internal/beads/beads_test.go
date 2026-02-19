@@ -60,6 +60,7 @@ func TestFindDatabasePathInTree(t *testing.T) {
 
 	// Clear env vars
 	os.Unsetenv("BEADS_DB")
+	t.Setenv("BD_DAEMON_HOST", "") // Ensure local mode (bd-iyscn)
 
 	// Create temporary directory structure
 	tmpDir, err := os.MkdirTemp("", "beads-test-*")
@@ -504,6 +505,8 @@ func TestFindDatabasePathHomeDefault(t *testing.T) {
 
 // TestFollowRedirect tests the redirect file functionality
 func TestFollowRedirect(t *testing.T) {
+	t.Setenv("BD_DAEMON_HOST", "") // Ensure local mode (bd-iyscn)
+
 	tests := []struct {
 		name           string
 		setupFunc      func(t *testing.T, tmpDir string) (stubDir, targetDir string)
@@ -693,6 +696,8 @@ func TestFollowRedirect(t *testing.T) {
 
 // TestFindDatabasePathWithRedirect tests that FindDatabasePath follows redirects
 func TestFindDatabasePathWithRedirect(t *testing.T) {
+	t.Setenv("BD_DAEMON_HOST", "") // Ensure local mode (bd-iyscn)
+
 	// Save original state
 	originalEnv := os.Getenv("BEADS_DIR")
 	defer func() {
@@ -751,6 +756,8 @@ func TestFindDatabasePathWithRedirect(t *testing.T) {
 
 // TestFindBeadsDirWithRedirect tests that FindBeadsDir follows redirects
 func TestFindBeadsDirWithRedirect(t *testing.T) {
+	t.Setenv("BD_DAEMON_HOST", "") // Ensure local mode (bd-iyscn)
+
 	// Save original state
 	originalEnv := os.Getenv("BEADS_DIR")
 	defer func() {
@@ -1074,6 +1081,8 @@ func TestFindGitRoot_NotGitRepo(t *testing.T) {
 // directory within a git worktree, respecting the worktree boundary and not
 // searching into the main repository. This is critical for bd-745.
 func TestFindBeadsDir_Worktree(t *testing.T) {
+	t.Setenv("BD_DAEMON_HOST", "") // Ensure local mode (bd-iyscn)
+
 	// Save original state
 	originalEnv := os.Getenv("BEADS_DIR")
 	defer func() {
@@ -1182,6 +1191,8 @@ func TestFindBeadsDir_Worktree(t *testing.T) {
 // shared database in the main repository when accessed from a git worktree. This is the
 // key test for bd-745 - worktrees should share the same .beads database.
 func TestFindDatabasePath_Worktree(t *testing.T) {
+	t.Setenv("BD_DAEMON_HOST", "") // Ensure local mode (bd-iyscn)
+
 	// Save original state
 	originalEnvDir := os.Getenv("BEADS_DIR")
 	originalEnvDB := os.Getenv("BEADS_DB")
@@ -1287,6 +1298,8 @@ func TestFindDatabasePath_Worktree(t *testing.T) {
 // its own .beads directory, FindDatabasePath finds the shared database in the main
 // repository. This tests the "shared database" behavior for worktrees.
 func TestFindDatabasePath_WorktreeNoLocalDB(t *testing.T) {
+	t.Setenv("BD_DAEMON_HOST", "") // Ensure local mode (bd-iyscn)
+
 	// Save original state
 	originalEnvDir := os.Getenv("BEADS_DIR")
 	originalEnvDB := os.Getenv("BEADS_DB")
