@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/atotto/clipboard"
@@ -27,6 +28,7 @@ const (
 	inputNone inputTarget = iota
 	inputActor
 	inputKeyword
+	inputSearch // search navigation (doesn't filter, just highlights + n/N)
 )
 
 // Model is the Bubbletea model for the bus watch TUI.
@@ -55,6 +57,11 @@ type Model struct {
 	inputMode   inputTarget // what we're editing (none = normal mode)
 	inputBuf    string      // current text being typed
 	inputPrompt string      // prompt shown to user
+
+	// Search state (/ search with n/N navigation)
+	searchTerm    string // active search term
+	searchMatches []int  // indices into filtered view that match search
+	searchPos     int    // current position in searchMatches (-1 = none)
 
 	// Connection
 	sseOpts  rpc.BusSSEClientOptions
@@ -303,13 +310,22 @@ func (m *Model) handleTimelineKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.inputPrompt = "Actor filter: "
 
 	case key.Matches(msg, m.keys.FilterSearch):
-		m.inputMode = inputKeyword
-		m.inputBuf = m.filter.Keyword
+		m.inputMode = inputSearch
+		m.inputBuf = m.searchTerm
 		m.inputPrompt = "Search: "
+
+	case key.Matches(msg, m.keys.NextMatch):
+		m.jumpToMatch(1)
+
+	case key.Matches(msg, m.keys.PrevMatch):
+		m.jumpToMatch(-1)
 
 	case key.Matches(msg, m.keys.FilterClear):
 		m.filter.Clear()
 		m.streamPick = 0
+		m.searchTerm = ""
+		m.searchMatches = nil
+		m.searchPos = -1
 		m.rebuildFiltered()
 
 	case key.Matches(msg, m.keys.Refresh):
@@ -352,13 +368,24 @@ func (m *Model) handleInputKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		switch m.inputMode {
 		case inputActor:
 			m.filter.SetActor(m.inputBuf)
+			m.rebuildFiltered()
 		case inputKeyword:
 			m.filter.SetKeyword(m.inputBuf)
+			m.rebuildFiltered()
+		case inputSearch:
+			m.searchTerm = m.inputBuf
+			m.rebuildSearchMatches()
+			// Jump to first match
+			if len(m.searchMatches) > 0 {
+				m.searchPos = 0
+				m.selected = m.searchMatches[0]
+				m.atBottom = false
+				m.paused = true
+			}
 		}
 		m.inputMode = inputNone
 		m.inputBuf = ""
 		m.inputPrompt = ""
-		m.rebuildFiltered()
 
 	case tea.KeyEscape:
 		// Cancel without saving
@@ -423,6 +450,66 @@ func (m *Model) filteredGet(i int) rpc.BusSSEEvent {
 		return m.history.Get(i)
 	}
 	return m.history.Get(m.filtered[i])
+}
+
+// rebuildSearchMatches scans the filtered view for events matching the search term.
+func (m *Model) rebuildSearchMatches() {
+	m.searchMatches = m.searchMatches[:0]
+	m.searchPos = -1
+
+	if m.searchTerm == "" {
+		return
+	}
+
+	term := strings.ToLower(m.searchTerm)
+	count := m.filteredLen()
+	for i := 0; i < count; i++ {
+		evt := m.filteredGet(i)
+		// Search in payload, type, stream, and subject
+		payload := strings.ToLower(string(evt.Payload))
+		if strings.Contains(payload, term) ||
+			strings.Contains(strings.ToLower(evt.Type), term) ||
+			strings.Contains(strings.ToLower(evt.Stream), term) ||
+			strings.Contains(strings.ToLower(evt.Subject), term) {
+			m.searchMatches = append(m.searchMatches, i)
+		}
+	}
+}
+
+// jumpToMatch navigates to the next (+1) or previous (-1) search match.
+func (m *Model) jumpToMatch(direction int) {
+	if len(m.searchMatches) == 0 {
+		return
+	}
+
+	m.searchPos += direction
+	if m.searchPos >= len(m.searchMatches) {
+		m.searchPos = 0 // wrap around
+	} else if m.searchPos < 0 {
+		m.searchPos = len(m.searchMatches) - 1 // wrap around
+	}
+
+	m.selected = m.searchMatches[m.searchPos]
+	m.atBottom = m.selected == m.filteredLen()-1
+	if !m.atBottom {
+		m.paused = true
+	}
+}
+
+// isSearchMatch returns true if the given filtered index is a search match.
+func (m *Model) isSearchMatch(filteredIdx int) bool {
+	if m.searchTerm == "" || len(m.searchMatches) == 0 {
+		return false
+	}
+	for _, idx := range m.searchMatches {
+		if idx == filteredIdx {
+			return true
+		}
+		if idx > filteredIdx {
+			break // searchMatches is sorted
+		}
+	}
+	return false
 }
 
 // copySelectedEvent copies the selected event's JSON payload to the system clipboard.

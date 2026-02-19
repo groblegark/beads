@@ -82,6 +82,14 @@ var (
 	copySuccessStyle = lipgloss.NewStyle().
 				Foreground(colorPass).
 				Bold(true)
+
+	searchMatchStyle = lipgloss.NewStyle().
+				Background(lipgloss.AdaptiveColor{Light: "#ffeebb", Dark: "#4a3800"}).
+				Foreground(lipgloss.AdaptiveColor{Light: "#5c6166", Dark: "#ffb454"})
+
+	searchInfoStyle = lipgloss.NewStyle().
+			Foreground(colorWarn).
+			Bold(true)
 )
 
 // eventTypeStyle returns a style for a given event type.

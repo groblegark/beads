@@ -37,7 +37,8 @@ Key bindings:
   g/G        Jump to first/last event
   f          Cycle stream filter (toggle each stream)
   a          Set actor filter (text input)
-  /          Set keyword search filter (text input)
+  /          Search through events (text input, then n/N to navigate)
+  n/N        Jump to next/previous search match
   c          Clear all filters
   y          Copy selected event JSON to clipboard
   r          Reconnect to SSE endpoint

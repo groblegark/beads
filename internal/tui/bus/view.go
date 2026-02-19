@@ -88,7 +88,8 @@ func (m *Model) renderView() string {
 		for i := start; i < end; i++ {
 			evt := m.filteredGet(i)
 			selected := i == m.selected
-			b.WriteString(m.renderEventLine(evt, selected))
+			isMatch := m.isSearchMatch(i)
+			b.WriteString(m.renderEventLine(evt, selected, isMatch))
 			b.WriteString("\n")
 		}
 	}
@@ -101,6 +102,17 @@ func (m *Model) renderView() string {
 	if m.copyStatus != "" {
 		b.WriteString(copySuccessStyle.Render(m.copyStatus))
 		m.copyStatus = ""
+		b.WriteString("  ")
+	}
+	if m.searchTerm != "" {
+		pos := ""
+		if len(m.searchMatches) > 0 && m.searchPos >= 0 {
+			pos = fmt.Sprintf(" [%d/%d]", m.searchPos+1, len(m.searchMatches))
+		}
+		b.WriteString(searchInfoStyle.Render(fmt.Sprintf("/%s%s", m.searchTerm, pos)))
+		if len(m.searchMatches) == 0 {
+			b.WriteString(mutedStyle.Render(" (no matches)"))
+		}
 		b.WriteString("  ")
 	}
 	if m.status != "" {
@@ -118,7 +130,7 @@ func (m *Model) renderView() string {
 		b.WriteString("\n")
 		b.WriteString(m.help.View(m.keys))
 	} else {
-		b.WriteString(helpStyle.Render("j/k: scroll  f: filter stream  /: search  a: actor  c: clear  ?: help  q: quit"))
+		b.WriteString(helpStyle.Render("j/k: scroll  /: search  n/N: next/prev  f: stream  a: actor  c: clear  ?: help  q: quit"))
 	}
 	b.WriteString("\n")
 
@@ -126,7 +138,7 @@ func (m *Model) renderView() string {
 }
 
 // renderEventLine renders a single event in the timeline.
-func (m *Model) renderEventLine(evt rpc.BusSSEEvent, selected bool) string {
+func (m *Model) renderEventLine(evt rpc.BusSSEEvent, selected bool, isMatch bool) string {
 	ts := formatTS(evt.TS)
 	stream := evt.Stream
 	evtType := evt.Type
@@ -159,6 +171,9 @@ func (m *Model) renderEventLine(evt rpc.BusSSEEvent, selected bool) string {
 
 	if selected {
 		return selectedStyle.Render(line)
+	}
+	if isMatch {
+		return searchMatchStyle.Render(line)
 	}
 	return line
 }

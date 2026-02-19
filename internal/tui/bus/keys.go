@@ -22,6 +22,10 @@ type KeyMap struct {
 	FilterSearch key.Binding // Set keyword search filter
 	FilterClear  key.Binding // Clear all filters
 
+	// Search navigation
+	NextMatch key.Binding // Jump to next search match
+	PrevMatch key.Binding // Jump to previous search match
+
 	// Clipboard
 	Copy key.Binding // Copy selected event JSON to clipboard
 
@@ -85,6 +89,14 @@ func DefaultKeyMap() KeyMap {
 			key.WithKeys("c"),
 			key.WithHelp("c", "clear filters"),
 		),
+		NextMatch: key.NewBinding(
+			key.WithKeys("n"),
+			key.WithHelp("n", "next match"),
+		),
+		PrevMatch: key.NewBinding(
+			key.WithKeys("N"),
+			key.WithHelp("N", "prev match"),
+		),
 		Copy: key.NewBinding(
 			key.WithKeys("y"),
 			key.WithHelp("y", "copy event JSON"),
@@ -111,6 +123,7 @@ func (k KeyMap) FullHelp() [][]key.Binding {
 		{k.Up, k.Down, k.PageUp, k.PageDown},
 		{k.Home, k.End, k.Pause, k.Detail},
 		{k.FilterStream, k.FilterActor, k.FilterSearch, k.FilterClear},
-		{k.Copy, k.Refresh, k.Help, k.Quit},
+		{k.NextMatch, k.PrevMatch, k.Copy, k.Refresh},
+		{k.Help, k.Quit},
 	}
 }
