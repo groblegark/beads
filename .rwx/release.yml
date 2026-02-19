@@ -91,7 +91,7 @@ tasks:
 
   # ── Build: linux/amd64 (native gcc) ───────────────────────────────
   - key: build-linux-amd64
-    use: [go-deps]
+    use: [code, go-deps]
     filter:
       - "**/*.go"
       - go.mod
@@ -120,7 +120,7 @@ tasks:
 
   # ── Build: darwin/amd64 (zig cross-compile) ────────────────────────
   - key: build-darwin-amd64
-    use: [go-deps, zig]
+    use: [code, go-deps, zig]
     filter:
       - "**/*.go"
       - go.mod
@@ -152,7 +152,7 @@ tasks:
 
   # ── Build: darwin/arm64 (zig cross-compile) ────────────────────────
   - key: build-darwin-arm64
-    use: [go-deps, zig]
+    use: [code, go-deps, zig]
     filter:
       - "**/*.go"
       - go.mod
@@ -196,7 +196,7 @@ tasks:
 
   # ── Release: archive, checksum, publish ────────────────────────────
   - key: release
-    use: [build-linux-amd64, build-darwin-amd64, build-darwin-arm64, gh-cli]
+    use: [code, build-linux-amd64, build-darwin-amd64, build-darwin-arm64, gh-cli]
     cache: false
     run: |
       TAG="${REF_NAME#refs/tags/}"
