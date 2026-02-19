@@ -1,4 +1,5 @@
-# Optimized release workflow with caching
+# Release workflow — parallel builds on separate compute, then publish.
+# Replaces sequential GoReleaser with RWX-native DAG parallelism.
 on:
   github:
     push:
@@ -19,22 +20,22 @@ tasks:
   # ── System deps (cached until lock changes) ─────────────────────────
   - key: system-deps
     filter:
-      - .rwx/release-deps.lock  # Touch monthly to update
+      - .rwx/release-deps.lock
     run: |
-      echo "Installing release dependencies (should be cached)..."
+      echo "Installing release dependencies..."
       sudo apt-get update
       sudo apt-get install -y libicu-dev gcc g++
 
-  # ── Full clone with history (required for GoReleaser) ───────────────
+  # ── Full clone with history (needed for changelog) ─────────────────
   - key: code
     call: git/clone 2.0.3
     with:
       repository: https://github.com/groblegark/beads.git
       ref: ${{ init.commit-sha }}
-      fetch-full-depth: true  # Full history needed for GoReleaser changelog
-      preserve-git-dir: true  # GoReleaser needs .git to detect tags/changelog
+      fetch-full-depth: true
+      preserve-git-dir: true
 
-  # ── Go toolchain (cached by version, see .go-version) ───────────────
+  # ── Go toolchain ───────────────────────────────────────────────────
   - key: go
     call: golang/install 1.2.0
     with:
@@ -42,21 +43,10 @@ tasks:
     filter:
       - .go-version
 
-  # ── GoReleaser (cached by version) ──────────────────────────────────
-  - key: goreleaser
-    use: go
-    filter:
-      - .rwx/goreleaser-version.lock  # Touch to update version
-    run: |
-      echo "Installing GoReleaser (should be cached)..."
-      mkdir -p $(go env GOPATH)/bin
-      curl -fsSL "https://github.com/goreleaser/goreleaser/releases/download/v2.8.2/goreleaser_Linux_x86_64.tar.gz" \
-        | tar -xz -C $(go env GOPATH)/bin goreleaser
-
-  # ── Zig cross-compiler for darwin builds (cached by version) ───────
+  # ── Zig cross-compiler for darwin builds ───────────────────────────
   - key: zig
     filter:
-      - .rwx/zig-version.lock  # Touch to update zig version
+      - .rwx/zig-version.lock
     run: |
       echo "Installing Zig 0.14.0 for cross-compilation..."
       curl -fsSL "https://ziglang.org/download/0.14.0/zig-linux-x86_64-0.14.0.tar.xz" \
@@ -64,13 +54,9 @@ tasks:
       sudo ln -sf /tmp/zig-linux-x86_64-0.14.0/zig /usr/local/bin/zig
       zig version
 
-      # Create zig CC wrapper scripts for darwin cross-compilation.
-      # Zig 0.14.0 can't find macOS system libraries (libresolv) or
-      # frameworks (CoreFoundation, Security). The wrappers:
-      # - Detect link phase (has .out in args)
-      # - Strip -lresolv and -framework flags zig can't resolve
-      # - Add -Wl,-undefined,dynamic_lookup so all symbols resolve via dyld
-      # flock serializes zig calls per target to prevent races.
+      # Zig CC wrappers for darwin cross-compilation.
+      # Strip macOS system libs zig can't resolve, use dynamic_lookup.
+      # No flock needed — each darwin target runs on separate RWX compute.
       mkdir -p /tmp/zigcc
       for pair in \
         "cc-x86_64-macos:x86_64-macos" \
@@ -88,16 +74,14 @@ tasks:
           '    case "$arg" in -lresolv) continue ;; -framework) skip_next=true; continue ;; esac' \
           '    args="$args $arg"' \
           '  done' \
-          "  exec flock /tmp/zigcc/lock-${target} zig cc -target ${target} \$args" \
+          "  exec zig cc -target ${target} \$args" \
           'else' \
-          "  exec flock /tmp/zigcc/lock-${target} zig cc -target ${target} \"\$@\"" \
+          "  exec zig cc -target ${target} \"\$@\"" \
           'fi' > "/tmp/zigcc/$name"
         chmod +x "/tmp/zigcc/$name"
       done
-      echo "Zig wrappers created:"
-      cat /tmp/zigcc/cc-x86_64-macos
 
-  # ── Go deps (cached by lockfiles) ───────────────────────────────────
+  # ── Go deps (cached by lockfiles) ──────────────────────────────────
   - key: go-deps
     use: [code, go, system-deps]
     filter:
@@ -105,34 +89,185 @@ tasks:
       - go.sum
     run: go mod download
 
-  # ── Run GoReleaser ──────────────────────────────────────────────────
-  - key: release
-    use: [go-deps, goreleaser, zig]
-    cache: false
-    timeout: 20m
+  # ── Build: linux/amd64 (native gcc) ───────────────────────────────
+  - key: build-linux-amd64
+    use: [go-deps]
+    filter:
+      - "**/*.go"
+      - go.mod
+      - go.sum
+      - "!**/*_test.go"
     run: |
       TAG="${REF_NAME#refs/tags/}"
       TAG="${TAG#refs/heads/}"
+      COMMIT=$(git rev-parse HEAD)
+      SHORT=$(git rev-parse --short HEAD)
 
-      # Configure git for GoReleaser
-      git config --global user.name "CI Bot"
-      git config --global user.email "ci@beads.test"
+      CGO_ENABLED=1 GOOS=linux GOARCH=amd64 \
+        go build -ldflags "-s -w \
+          -X main.Version=${TAG} \
+          -X main.Build=${SHORT} \
+          -X main.Commit=${COMMIT}" \
+        -o bd ./cmd/bd
 
-      # Fetch tags — git/clone may not include them, and GoReleaser needs them
-      git fetch --tags origin 2>/dev/null || true
-
-      if [[ "$TAG" == "dev" ]]; then
-        echo "Running snapshot release for dev..."
-        goreleaser release --clean --snapshot --parallelism 1 --config .goreleaser.fork.yml
-      else
-        echo "Running full release for $TAG..."
-        goreleaser release --clean --parallelism 1 --config .goreleaser.fork.yml
-      fi
+      file bd
     env:
-      GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
+      REF_NAME: ${{ init.ref-name }}
+    outputs:
+      artifacts:
+        - key: binary
+          path: bd
+
+  # ── Build: darwin/amd64 (zig cross-compile) ────────────────────────
+  - key: build-darwin-amd64
+    use: [go-deps, zig]
+    filter:
+      - "**/*.go"
+      - go.mod
+      - go.sum
+      - "!**/*_test.go"
+    run: |
+      TAG="${REF_NAME#refs/tags/}"
+      TAG="${TAG#refs/heads/}"
+      COMMIT=$(git rev-parse HEAD)
+      SHORT=$(git rev-parse --short HEAD)
+
+      CGO_ENABLED=1 GOOS=darwin GOARCH=amd64 \
+        CC=/tmp/zigcc/cc-x86_64-macos \
+        CGO_CFLAGS="-DZSTD_DISABLE_ASM -DDEACTIVATE_SIMD" \
+        go build -tags "gms_pure_go,netgo" \
+        -ldflags "-s -w \
+          -X main.Version=${TAG} \
+          -X main.Build=${SHORT} \
+          -X main.Commit=${COMMIT}" \
+        -o bd ./cmd/bd
+
+      file bd
+    env:
+      REF_NAME: ${{ init.ref-name }}
+    outputs:
+      artifacts:
+        - key: binary
+          path: bd
+
+  # ── Build: darwin/arm64 (zig cross-compile) ────────────────────────
+  - key: build-darwin-arm64
+    use: [go-deps, zig]
+    filter:
+      - "**/*.go"
+      - go.mod
+      - go.sum
+      - "!**/*_test.go"
+    run: |
+      TAG="${REF_NAME#refs/tags/}"
+      TAG="${TAG#refs/heads/}"
+      COMMIT=$(git rev-parse HEAD)
+      SHORT=$(git rev-parse --short HEAD)
+
+      CGO_ENABLED=1 GOOS=darwin GOARCH=arm64 \
+        CC=/tmp/zigcc/cc-aarch64-macos \
+        CGO_CFLAGS="-DZSTD_DISABLE_ASM -DDEACTIVATE_SIMD" \
+        go build -tags "gms_pure_go,netgo" \
+        -ldflags "-s -w \
+          -X main.Version=${TAG} \
+          -X main.Build=${SHORT} \
+          -X main.Commit=${COMMIT}" \
+        -o bd ./cmd/bd
+
+      file bd
+    env:
+      REF_NAME: ${{ init.ref-name }}
+    outputs:
+      artifacts:
+        - key: binary
+          path: bd
+
+  # ── GitHub CLI (cached, for creating releases) ─────────────────────
+  - key: gh-cli
+    filter:
+      - .rwx/release-deps.lock
+    run: |
+      curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+        | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
+      echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
+        | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null
+      sudo apt-get update
+      sudo apt-get install -y gh
+
+  # ── Release: archive, checksum, publish ────────────────────────────
+  - key: release
+    use: [build-linux-amd64, build-darwin-amd64, build-darwin-arm64, gh-cli]
+    cache: false
+    run: |
+      TAG="${REF_NAME#refs/tags/}"
+      TAG="${TAG#refs/heads/}"
+      IS_SNAPSHOT=false
+      if [[ "$TAG" == "dev" ]]; then
+        TAG="$(git describe --tags --abbrev=0 2>/dev/null || echo '0.0.0')-next"
+        IS_SNAPSHOT=true
+      fi
+
+      PROJECT="beads"
+      DIST="dist"
+      mkdir -p "$DIST"
+
+      # Package each target into a tar.gz archive
+      for target in linux_amd64 darwin_amd64 darwin_arm64; do
+        case "$target" in
+          linux_amd64)  BINARY="${{ tasks.build-linux-amd64.artifacts.binary }}" ;;
+          darwin_amd64) BINARY="${{ tasks.build-darwin-amd64.artifacts.binary }}" ;;
+          darwin_arm64) BINARY="${{ tasks.build-darwin-arm64.artifacts.binary }}" ;;
+        esac
+
+        ARCHIVE="${PROJECT}_${TAG}_${target}.tar.gz"
+        STAGING=$(mktemp -d)
+        cp "$BINARY" "$STAGING/bd"
+        chmod +x "$STAGING/bd"
+        cp LICENSE README.md "$STAGING/" 2>/dev/null || true
+
+        tar -czf "$DIST/$ARCHIVE" -C "$STAGING" .
+        rm -rf "$STAGING"
+        echo "Created: $DIST/$ARCHIVE"
+      done
+
+      # Generate checksums
+      cd "$DIST"
+      sha256sum *.tar.gz > checksums.txt
+      cat checksums.txt
+      cd ..
+
+      if $IS_SNAPSHOT; then
+        echo "Snapshot build — skipping GitHub release"
+        ls -la "$DIST/"
+        exit 0
+      fi
+
+      # Generate changelog from previous tag
+      PREV_TAG=$(git tag --sort=-v:refname | grep -E '^20' | head -2 | tail -1)
+      if [[ -n "$PREV_TAG" ]]; then
+        CHANGELOG=$(git log --oneline "${PREV_TAG}..HEAD" \
+          --no-merges \
+          --grep='^docs:' --grep='^test:' --grep='^chore:' --grep='Merge pull request' --grep='Merge branch' \
+          --invert-grep \
+          --format='* %H %s')
+      else
+        CHANGELOG=$(git log --oneline HEAD~20..HEAD \
+          --no-merges \
+          --format='* %H %s')
+      fi
+
+      # Create GitHub release
+      BODY="## Changelog"$'\n'"${CHANGELOG}"
+      gh release create "$TAG" \
+        --repo groblegark/beads \
+        --title "$TAG" \
+        --notes "$BODY" \
+        $DIST/*.tar.gz $DIST/checksums.txt
+    env:
+      GH_TOKEN: ${{ secrets.GH_TOKEN }}
       REF_NAME: ${{ init.ref-name }}
 
-  # ── Dispatch to gastown (only for real releases) ────────────────────
+  # ── Dispatch to gastown (only for real releases) ───────────────────
   - key: dispatch-gastown
     use: release
     if: ${{ init.ref-name != 'dev' }}
@@ -140,7 +275,6 @@ tasks:
       TAG="${REF_NAME#refs/tags/}"
       TAG="${TAG#refs/heads/}"
 
-      # Only dispatch if this is a CalVer tag (YYYY.MDD.N — no leading zero in month)
       if [[ "$TAG" =~ ^20[0-9]{2}\.[0-9]{3,4}\.[0-9]+$ ]]; then
         echo "Dispatching to gastown for rebuild (CalVer: $TAG)..."
         curl -fsSL -X POST https://api.rwx.com/v1/dispatches \

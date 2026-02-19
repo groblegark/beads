@@ -127,11 +127,11 @@ All releasing goes through gastown's `platform-versions.env` — do NOT cut sepa
 |------|---------|----------|-----------|
 | `ci.yml` | Main CI | **CLI only** (manual) | build, lint, test, version-check, beads-guard |
 | `image.yml` | OCI image builds | push(main/tags), PR(build only) | build-bd (Go), build-oj (Rust), image-bd, image-toolchain |
-| `release.yml` | GoReleaser releases | push(CalVer tags `20*`), CLI | release, dispatch-gastown |
+| `release.yml` | Parallel builds + gh release | push(CalVer tags `20*`), CLI | build-{linux,darwin}-*, release, dispatch-gastown |
 | `helm.yml` | Helm chart lint only | **CalVer tags `20*` + CLI** (manual) | helm-lint |
 
 **Versioning: CalVer (all-in)**
-- All deployed images and charts use CalVer: `YYYY.MDD.N` (e.g., `2026.218.0`) — 3-part for semver/GoReleaser compatibility
+- All deployed images and charts use CalVer: `YYYY.MDD.N` (e.g., `2026.218.0`) — 3-part for semver compatibility
 - CalVer is driven by gastown's `platform-versions.env` — single source of truth
 - Gastown `docker.yml` publishes CalVer images (push-bd, push-agent, push-controller) and CalVer charts (helm-publish-charts)
 - Beads `release.yml` now creates GitHub releases with CalVer tags (`2026.218.0`) — binary versions match image tags
@@ -158,8 +158,7 @@ rwx run .rwx/helm.yml --init commit-sha=$(git rev-parse HEAD) --wait
 - `rust-version.lock` — Rust toolchain (touch monthly)
 - `oj-version.lock` — OJ binary rebuild
 - `helm-version.lock` — Helm CLI version
-- `goreleaser-version.lock` — GoReleaser version
-- `release-deps.lock` — release dependencies (touch monthly)
+- `release-deps.lock` — release dependencies + gh CLI (touch monthly)
 - `toolchain-version.lock` — toolchain image deps
 - `system-deps.lock` — CI system packages
 

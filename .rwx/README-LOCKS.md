@@ -17,8 +17,7 @@ These lock files control when cached dependencies are rebuilt:
 - **rust-version.lock** - Rust toolchain (touch monthly)
 - **oj-version.lock** - OJ binary from oddjobs (touch when updating)
 - **helm-version.lock** - Helm CLI (touch to update version)
-- **goreleaser-version.lock** - GoReleaser (touch to update)
-- **release-deps.lock** - Release dependencies (touch monthly)
+- **release-deps.lock** - Release dependencies + gh CLI (touch monthly)
 - **toolchain-version.lock** - Toolchain image deps (touch to update)
 
 To force a cache rebuild, simply touch the corresponding lock file:
