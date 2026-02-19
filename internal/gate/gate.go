@@ -350,9 +350,15 @@ func checkGatesCore(workDir, sessionID string, hookType HookType, reg *Registry,
 
 		// Try auto-check
 		if g.AutoCheck != nil && g.AutoCheck(ctx) {
-			// Auto-satisfied — record in both file system and NATS backend
+			// Auto-satisfied — record in both file system and NATS backend.
+			// If the filesystem write fails but NATS backend is available,
+			// fall back to NATS-only (daemon sidecar may lack filesystem
+			// write permissions for .runtime/). (bd-e4vde)
 			if err := MarkGate(workDir, sessionID, g.ID); err != nil {
-				return nil, fmt.Errorf("auto-marking gate %s: %w", g.ID, err)
+				if ActiveBackend == nil || ctx.AgentName == "" {
+					return nil, fmt.Errorf("auto-marking gate %s: %w", g.ID, err)
+				}
+				fmt.Fprintf(os.Stderr, "gate: MarkGate filesystem failed for %s (falling back to NATS): %v\n", g.ID, err)
 			}
 			if ActiveBackend != nil && ctx.AgentName != "" {
 				_ = ActiveBackend.Mark(ctx.AgentName, g.ID, MarkOpts{

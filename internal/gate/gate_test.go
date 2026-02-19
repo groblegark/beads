@@ -681,6 +681,76 @@ func TestCheckGatesWithOpts_FallbackToFile(t *testing.T) {
 	}
 }
 
+// TestAutoCheck_FilesystemFailFallsBackToNATS verifies that when the filesystem
+// MarkGate fails (e.g., permission denied in daemon sidecar) but a NATS backend
+// is available, the auto-check still succeeds and marks via NATS. (bd-e4vde)
+func TestAutoCheck_FilesystemFailFallsBackToNATS(t *testing.T) {
+	// Use a read-only directory to simulate permission denied on MarkGate.
+	workDir := t.TempDir()
+	runtimeDir := filepath.Join(workDir, ".runtime")
+	if err := os.MkdirAll(runtimeDir, 0o555); err != nil {
+		t.Fatal(err)
+	}
+
+	reg := NewRegistry()
+	reg.Register(&Gate{
+		ID:        "commit-push",
+		Hook:      HookStop,
+		Mode:      GateModeSoft,
+		AutoCheck: func(_ GateContext) bool { return true },
+	})
+
+	backendDir := t.TempDir()
+	backend := NewFileBackend(backendDir)
+	oldBackend := ActiveBackend
+	ActiveBackend = backend
+	defer func() { ActiveBackend = oldBackend }()
+
+	opts := CheckOpts{AgentName: "test-agent"}
+	results, err := CheckGatesWithOpts(workDir, "session-x", HookStop, reg, opts)
+	if err != nil {
+		t.Fatalf("expected no error with NATS fallback, got: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(results))
+	}
+	if !results[0].Satisfied {
+		t.Error("auto-check gate should be satisfied via NATS fallback when filesystem fails")
+	}
+	// Verify the NATS backend received the mark.
+	if !backend.IsSatisfied("test-agent", "commit-push") {
+		t.Error("NATS backend should have the auto-check mark")
+	}
+}
+
+// TestAutoCheck_FilesystemFailNoBackendErrors verifies that when the filesystem
+// MarkGate fails and no NATS backend is available, the error is returned. (bd-e4vde)
+func TestAutoCheck_FilesystemFailNoBackendErrors(t *testing.T) {
+	workDir := t.TempDir()
+	runtimeDir := filepath.Join(workDir, ".runtime")
+	if err := os.MkdirAll(runtimeDir, 0o555); err != nil {
+		t.Fatal(err)
+	}
+
+	reg := NewRegistry()
+	reg.Register(&Gate{
+		ID:        "commit-push",
+		Hook:      HookStop,
+		Mode:      GateModeSoft,
+		AutoCheck: func(_ GateContext) bool { return true },
+	})
+
+	oldBackend := ActiveBackend
+	ActiveBackend = nil
+	defer func() { ActiveBackend = oldBackend }()
+
+	results, err := CheckGatesWithOpts(workDir, "session-x", HookStop, reg, CheckOpts{})
+	if err == nil {
+		t.Fatal("expected error when filesystem fails and no NATS backend available")
+	}
+	_ = results // unused
+}
+
 // TestCheckGatesWithOpts_NoAgentName verifies that without agent name,
 // the NATS backend is skipped (backward compat). (bd-vecxd)
 func TestCheckGatesWithOpts_NoAgentName(t *testing.T) {
