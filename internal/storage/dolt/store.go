@@ -537,6 +537,25 @@ func splitStatements(script string) []string {
 			continue
 		}
 
+		// Skip SQL block comments (/* ... */) to avoid parsing quotes inside them (bd-78cob).
+		if c == '/' && i+1 < len(script) && script[i+1] == '*' {
+			current.WriteByte(c)
+			i++
+			current.WriteByte(script[i]) // write the *
+			i++
+			for i < len(script) {
+				if script[i] == '*' && i+1 < len(script) && script[i+1] == '/' {
+					current.WriteByte(script[i])
+					i++
+					current.WriteByte(script[i]) // write the /
+					break
+				}
+				current.WriteByte(script[i])
+				i++
+			}
+			continue
+		}
+
 		if c == '\'' || c == '"' || c == '`' {
 			inString = true
 			stringChar = c

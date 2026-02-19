@@ -58,3 +58,44 @@ CREATE TABLE t2 (id INT);`
 		t.Fatalf("expected 2 statements, got %d", len(stmts))
 	}
 }
+
+func TestSplitStatements_BlockComment(t *testing.T) {
+	// Block comments /* ... */ must not enter string mode (bd-78cob).
+	sql := `/* This is a block comment with an apostrophe: it's fine */
+CREATE TABLE t1 (id INT);
+/* Another block comment: don't split here; or here */
+CREATE TABLE t2 (id INT);`
+
+	stmts := splitStatements(sql)
+	if len(stmts) != 2 {
+		t.Fatalf("expected 2 statements, got %d", len(stmts))
+	}
+}
+
+func TestSplitStatements_BlockCommentWithSemicolon(t *testing.T) {
+	// Semicolons inside block comments must NOT split statements.
+	sql := `/* comment with ; semicolon */
+CREATE TABLE t1 (id INT);
+CREATE TABLE t2 (id INT);`
+
+	stmts := splitStatements(sql)
+	if len(stmts) != 2 {
+		t.Fatalf("expected 2 statements, got %d", len(stmts))
+	}
+}
+
+func TestSplitStatements_MultiLineBlockComment(t *testing.T) {
+	// Multi-line block comments spanning several lines.
+	sql := `/*
+ * This is a multi-line comment
+ * with apostrophe's and "quotes" and ` + "`backticks`" + `
+ * and semicolons; everywhere;
+ */
+CREATE TABLE t1 (id INT);
+CREATE TABLE t2 (id INT);`
+
+	stmts := splitStatements(sql)
+	if len(stmts) != 2 {
+		t.Fatalf("expected 2 statements, got %d", len(stmts))
+	}
+}
