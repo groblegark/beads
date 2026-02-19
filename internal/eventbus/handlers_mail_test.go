@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"sync/atomic"
 	"testing"
 
@@ -99,6 +100,103 @@ func TestMailAddressToAgentID(t *testing.T) {
 		if got != tt.want {
 			t.Errorf("mailAddressToAgentID(%q) = %q, want %q", tt.address, got, tt.want)
 		}
+	}
+}
+
+func TestMailAddressToLabels(t *testing.T) {
+	tests := []struct {
+		address string
+		want    []string
+	}{
+		// Town-level agents
+		{"mayor", []string{"gt:agent", "role_type:mayor"}},
+		{"mayor/", []string{"gt:agent", "role_type:mayor"}},
+		{"deacon", []string{"gt:agent", "role_type:deacon"}},
+
+		// Rig-scoped: known singleton roles
+		{"gastown/witness", []string{"gt:agent", "rig:gastown", "role_type:witness"}},
+		{"gastown/refinery", []string{"gt:agent", "rig:gastown", "role_type:refinery"}},
+
+		// Rig-scoped: default to polecat
+		{"gastown/Toast", []string{"gt:agent", "rig:gastown", "role_type:polecat"}},
+
+		// Three-part: explicit polecats
+		{"gastown/polecats/Toast", []string{"gt:agent", "rig:gastown", "role_type:polecat"}},
+
+		// Three-part: crew
+		{"gastown/crew/max", []string{"gt:agent", "rig:gastown", "role_type:crew"}},
+
+		// Empty / invalid
+		{"", nil},
+		{"a/b/c/d", nil},
+		{"gastown/unknown/foo", nil},
+	}
+
+	for _, tt := range tests {
+		got := mailAddressToLabels(tt.address)
+		if len(got) != len(tt.want) {
+			t.Errorf("mailAddressToLabels(%q) = %v, want %v", tt.address, got, tt.want)
+			continue
+		}
+		for i := range got {
+			if got[i] != tt.want[i] {
+				t.Errorf("mailAddressToLabels(%q)[%d] = %q, want %q", tt.address, i, got[i], tt.want[i])
+			}
+		}
+	}
+}
+
+// mockLabelNudgeStore extends mockNudgeStore with label query support for
+// testing label-based mail routing. (bd-p1mt)
+type mockLabelNudgeStore struct {
+	mockNudgeStore
+	labels map[string][]string // issueID → labels
+}
+
+func (m *mockLabelNudgeStore) GetIssuesByLabel(_ context.Context, label string) ([]*types.Issue, error) {
+	var results []*types.Issue
+	for id, labels := range m.labels {
+		if slices.Contains(labels, label) {
+			if issue, ok := m.issues[id]; ok {
+				results = append(results, issue)
+			}
+		}
+	}
+	return results, nil
+}
+
+func (m *mockLabelNudgeStore) GetLabels(_ context.Context, issueID string) ([]string, error) {
+	if labels, ok := m.labels[issueID]; ok {
+		return labels, nil
+	}
+	return nil, nil
+}
+
+func TestResolveCoopURLFromStore_LabelFallback(t *testing.T) {
+	// Agent bead ID doesn't match the hardcoded pattern, but labels match.
+	store := &mockLabelNudgeStore{
+		mockNudgeStore: mockNudgeStore{
+			issues: map[string]*types.Issue{
+				"custom-gastown-scout": {
+					ID:    "custom-gastown-scout",
+					Notes: "coop_url: http://10.0.0.7:3000",
+				},
+			},
+		},
+		labels: map[string][]string{
+			"custom-gastown-scout": {"gt:agent", "rig:gastown", "role_type:witness"},
+		},
+	}
+
+	// "gastown/witness" would normally resolve to "gt-gastown-witness" via
+	// mailAddressToAgentID, but that bead doesn't exist. The label-based
+	// fallback should find "custom-gastown-scout" by label match.
+	url, err := resolveCoopURLFromStore(context.Background(), store, "gastown/witness")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if url != "http://10.0.0.7:3000" {
+		t.Errorf("got %q, want %q", url, "http://10.0.0.7:3000")
 	}
 }
 

@@ -20,6 +20,14 @@ type NudgeStore interface {
 	GetIssue(ctx context.Context, id string) (*types.Issue, error)
 }
 
+// labelQueryStore is an optional extension of NudgeStore for label-based
+// agent resolution. If the underlying store implements this interface,
+// the mail router can resolve agents by label. (bd-p1mt)
+type labelQueryStore interface {
+	GetIssuesByLabel(ctx context.Context, label string) ([]*types.Issue, error)
+	GetLabels(ctx context.Context, issueID string) ([]string, error)
+}
+
 // MailNudgeHandler pushes mail notifications to the recipient's inbox and
 // nudges them via Coop HTTP API. Inbox is the reliable delivery path (Phase 4);
 // the HTTP nudge ensures idle agents wake up to drain it. (bd-cdp8, bd-xtahx.5)
@@ -161,6 +169,7 @@ func mailAddressToAgentID(address string) string {
 // storage access, avoiding subprocess overhead. Tries:
 //  1. Direct ID lookup (agentID might already be a bead ID)
 //  2. Convert agent name to bead ID via mailAddressToAgentID, then lookup
+//  3. Label-based resolution: parse address into labels and query (bd-p1mt)
 //
 // (gt-2md5kf)
 func resolveCoopURLFromStore(ctx context.Context, store NudgeStore, agentID string) (string, error) {
@@ -171,7 +180,7 @@ func resolveCoopURLFromStore(ctx context.Context, store NudgeStore, agentID stri
 		}
 	}
 
-	// Strategy 2: convert agent name to bead ID.
+	// Strategy 2: convert agent name to bead ID via pattern matching.
 	beadID := mailAddressToAgentID(agentID)
 	if beadID != "" && beadID != agentID {
 		if issue, err := store.GetIssue(ctx, beadID); err == nil && issue != nil {
@@ -181,7 +190,114 @@ func resolveCoopURLFromStore(ctx context.Context, store NudgeStore, agentID stri
 		}
 	}
 
+	// Strategy 3: label-based resolution. Parse the mail address into labels
+	// (rig:X, role_type:Y) and find a matching agent bead. This handles new
+	// roles and rigs without code changes. (bd-p1mt)
+	if lqs, ok := store.(labelQueryStore); ok {
+		if labels := mailAddressToLabels(agentID); len(labels) > 0 {
+			if issue, err := findAgentByLabels(ctx, lqs, labels); err == nil && issue != nil {
+				if url := extractCoopURLFromNotes(issue.Notes); url != "" {
+					return url, nil
+				}
+			}
+		}
+	}
+
 	return "", fmt.Errorf("no coop_url for agent %q (store-based)", agentID)
+}
+
+// findAgentByLabels queries the store for agent beads matching ALL given labels.
+// Returns the first match, or nil if none found. (bd-p1mt)
+func findAgentByLabels(ctx context.Context, store labelQueryStore, wantLabels []string) (*types.Issue, error) {
+	if len(wantLabels) == 0 {
+		return nil, nil
+	}
+
+	// Query by the first label, then filter by remaining labels.
+	candidates, err := store.GetIssuesByLabel(ctx, wantLabels[0])
+	if err != nil {
+		return nil, err
+	}
+
+	for _, issue := range candidates {
+		labels, err := store.GetLabels(ctx, issue.ID)
+		if err != nil {
+			continue
+		}
+		labelSet := make(map[string]bool, len(labels))
+		for _, l := range labels {
+			labelSet[l] = true
+		}
+		// Check that all wanted labels are present.
+		allMatch := true
+		for _, want := range wantLabels {
+			if !labelSet[want] {
+				allMatch = false
+				break
+			}
+		}
+		if allMatch {
+			return issue, nil
+		}
+	}
+
+	return nil, nil
+}
+
+// mailAddressToLabels converts a mail address to a set of labels for
+// label-based agent resolution. Returns nil if the address can't be parsed.
+//
+// Examples:
+//
+//	"mayor"                  → ["gt:agent", "role_type:mayor"]
+//	"gastown/witness"        → ["gt:agent", "rig:gastown", "role_type:witness"]
+//	"gastown/polecats/Toast" → ["gt:agent", "rig:gastown", "role_type:polecat"]
+//	"gastown/crew/max"       → ["gt:agent", "rig:gastown", "role_type:crew"]
+//
+// (bd-p1mt)
+func mailAddressToLabels(address string) []string {
+	address = strings.TrimSuffix(address, "/")
+	if address == "" {
+		return nil
+	}
+
+	labels := []string{"gt:agent"}
+
+	// Town-level agents: single-word address is a role_type.
+	parts := strings.Split(address, "/")
+	switch len(parts) {
+	case 1:
+		// "mayor", "deacon" → role_type:mayor
+		labels = append(labels, "role_type:"+parts[0])
+		return labels
+	case 2:
+		rig := parts[0]
+		role := parts[1]
+		labels = append(labels, "rig:"+rig)
+		// Known singleton roles keep their role name; others default to polecat.
+		switch role {
+		case "witness", "refinery":
+			labels = append(labels, "role_type:"+role)
+		default:
+			labels = append(labels, "role_type:polecat")
+		}
+		return labels
+	case 3:
+		rig := parts[0]
+		middle := parts[1]
+		labels = append(labels, "rig:"+rig)
+		switch middle {
+		case "polecats":
+			labels = append(labels, "role_type:polecat")
+		case "crew":
+			labels = append(labels, "role_type:crew")
+		default:
+			return nil // Unknown middle component
+		}
+		return labels
+	}
+
+	return nil
 }
 
 // resolveCoopURLFromBead looks up an agent bead and extracts coop_url from
