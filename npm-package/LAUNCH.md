@@ -17,7 +17,7 @@
 
 ### Package Contents
 
-```
+```text
 @beads/bd@0.21.5
 ├── bin/
 │   ├── bd              (17.1 MB - native binary)

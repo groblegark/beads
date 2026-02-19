@@ -467,7 +467,7 @@ func CheckFreshClone(repoPath string) DoctorCheck {
 
 // countJSONLIssuesAndPrefix counts issues in a JSONL file and detects the most common prefix.
 func countJSONLIssuesAndPrefix(jsonlPath string) (int, string) {
-	file, err := os.Open(jsonlPath) //nolint:gosec
+	file, err := os.Open(jsonlPath) //nolint:gosec // path is from internal beads directory, not user input
 	if err != nil {
 		return 0, ""
 	}

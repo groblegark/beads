@@ -82,7 +82,7 @@ func (s *DoltStore) runTransactionOnce(ctx context.Context, fn func(tx storage.T
 	defer func() {
 		if r := recover(); r != nil {
 			_ = sqlTx.Rollback()
-			panic(r)
+			panic(r) // PANIC: re-panic after rollback to propagate unexpected panics from transaction body
 		}
 	}()
 

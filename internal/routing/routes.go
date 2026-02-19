@@ -291,7 +291,7 @@ func lookupRigForgivingWithTown(input, beadsDir string) (Route, string, bool) {
 func readPrefixFromBeadsDir(beadsDir string) string {
 	// Try metadata.json first (for Dolt backends)
 	metadataPath := filepath.Join(beadsDir, "metadata.json")
-	if data, err := os.ReadFile(metadataPath); err == nil { //nolint:gosec
+	if data, err := os.ReadFile(metadataPath); err == nil { //nolint:gosec // path is constructed from known beads directory
 		var meta struct {
 			Prefix string `json:"prefix"`
 		}
@@ -302,7 +302,7 @@ func readPrefixFromBeadsDir(beadsDir string) string {
 
 	// Try config.yaml
 	configPath := filepath.Join(beadsDir, "config.yaml")
-	if data, err := os.ReadFile(configPath); err == nil { //nolint:gosec
+	if data, err := os.ReadFile(configPath); err == nil { //nolint:gosec // path is constructed from known beads directory
 		lines := strings.Split(string(data), "\n")
 		for _, line := range lines {
 			line = strings.TrimSpace(line)

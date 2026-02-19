@@ -41,8 +41,8 @@ func gitBranchHasUpstream(branch string) bool {
 		return false
 	}
 	ctx := context.Background()
-	remoteCmd := rc.GitCmd(ctx, "config", "--get", fmt.Sprintf("branch.%s.remote", branch)) //nolint:gosec
-	mergeCmd := rc.GitCmd(ctx, "config", "--get", fmt.Sprintf("branch.%s.merge", branch))   //nolint:gosec
+	remoteCmd := rc.GitCmd(ctx, "config", "--get", fmt.Sprintf("branch.%s.remote", branch)) //nolint:gosec // args are safe git config keys
+	mergeCmd := rc.GitCmd(ctx, "config", "--get", fmt.Sprintf("branch.%s.merge", branch))   //nolint:gosec // args are safe git config keys
 	return remoteCmd.Run() == nil && mergeCmd.Run() == nil
 }
 
@@ -192,7 +192,7 @@ func gitPull(ctx context.Context, configuredRemote string) error {
 	branch := strings.TrimSpace(string(branchOutput))
 	remote := configuredRemote
 	if remote == "" {
-		remoteCmd := rc.GitCmd(ctx, "config", "--get", fmt.Sprintf("branch.%s.remote", branch)) //nolint:gosec
+		remoteCmd := rc.GitCmd(ctx, "config", "--get", fmt.Sprintf("branch.%s.remote", branch)) //nolint:gosec // args are safe git config keys
 		remoteOutput, err := remoteCmd.Output()
 		if err != nil {
 			remote = "origin"
@@ -200,7 +200,7 @@ func gitPull(ctx context.Context, configuredRemote string) error {
 			remote = strings.TrimSpace(string(remoteOutput))
 		}
 	}
-	cmd := rc.GitCmd(ctx, "pull", remote, branch) //nolint:gosec
+	cmd := rc.GitCmd(ctx, "pull", remote, branch) //nolint:gosec // remote and branch from git config, not user input
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("git pull failed: %w\n%s", err, output)
@@ -224,7 +224,7 @@ func gitPush(ctx context.Context, configuredRemote string) error {
 			return fmt.Errorf("failed to get current branch: %w", err)
 		}
 		branch := strings.TrimSpace(string(branchOutput))
-		cmd := rc.GitCmd(ctx, "push", configuredRemote, branch) //nolint:gosec
+		cmd := rc.GitCmd(ctx, "push", configuredRemote, branch) //nolint:gosec // remote and branch from git config, not user input
 		output, err := cmd.CombinedOutput()
 		if err != nil {
 			outputStr := string(output)

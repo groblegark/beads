@@ -31,7 +31,7 @@ exclude = [
 ]
 
 [check.escapes]
-check = "warn"
+check = "error"
 
 [[check.escapes.patterns]]
 name = "panic"

@@ -19,9 +19,9 @@ func checkDiskSpace(path string) (uint64, bool) {
 
 	err = windows.GetDiskFreeSpaceEx(
 		pathPtr,
-		(*uint64)(unsafe.Pointer(&freeBytesAvailable)),
-		(*uint64)(unsafe.Pointer(&totalBytes)),
-		(*uint64)(unsafe.Pointer(&totalFreeBytes)),
+		(*uint64)(unsafe.Pointer(&freeBytesAvailable)), // SAFETY: stack-allocated uint64, valid alignment for Windows API
+		(*uint64)(unsafe.Pointer(&totalBytes)),          // SAFETY: stack-allocated uint64, valid alignment for Windows API
+		(*uint64)(unsafe.Pointer(&totalFreeBytes)),      // SAFETY: stack-allocated uint64, valid alignment for Windows API
 	)
 	if err != nil {
 		return 0, false

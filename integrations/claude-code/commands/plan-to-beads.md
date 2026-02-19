@@ -43,7 +43,7 @@ The agent should:
    - `bd dep add <epic> <task>` for each task
 
 7. **Return a concise summary** (not raw output):
-   ```
+   ```text
    Created from: [filename]
 
    Epic: [title] ([epic-id])

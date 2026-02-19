@@ -18,7 +18,7 @@ func checkDiskSpace(path string) (uint64, bool) {
 		return 0, true
 	}
 
-	availableBytes := uint64(stat.Bavail) * stat.Bsize //nolint:gosec
+	availableBytes := uint64(stat.Bavail) * stat.Bsize //nolint:gosec // Bavail is checked non-negative above
 	availableMB := availableBytes / (1024 * 1024)
 
 	return availableMB, true

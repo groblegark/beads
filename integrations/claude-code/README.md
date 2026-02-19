@@ -41,7 +41,7 @@ Converts a Claude Code plan file into a beads epic with tasks.
 - Uses Task agent delegation for context efficiency
 
 **Example output:**
-```
+```text
 Created from: peaceful-munching-spark.md
 
 Epic: Standardize ID Generation (bd-abc)
