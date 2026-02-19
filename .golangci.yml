@@ -137,7 +137,7 @@ linters:
           - errcheck
         text: "opts\\.Stdout\\.Write|opts\\.Stderr|fmt\\.Fprintf"
       # errcheck: HTTP response body Close in deferred cleanup
-      - path: 'internal/coop/client\.go|internal/rpc/http_client\.go|internal/rpc/http_client_sse\.go|internal/eventbus/handlers_mail\.go|internal/slackbot/cred_watcher\.go'
+      - path: 'internal/coop/client\.go|internal/rpc/http_client\.go|internal/rpc/http_client_sse\.go|internal/eventbus/handlers_mail\.go'
         linters:
           - errcheck
         text: "resp\\.Body\\.Close"
