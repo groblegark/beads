@@ -488,6 +488,77 @@ func TestBeadNudgeHandler_CooldownReducedTo3Min(t *testing.T) {
 	}
 }
 
+// ===== SessionStart nudge tests (bd-4csuk) =====
+
+func TestBeadNudgeHandler_HandlesSessionStart(t *testing.T) {
+	// Verify that the handler's Handles() includes EventSessionStart.
+	h := &BeadNudgeHandler{}
+	handles := h.Handles()
+	found := false
+	for _, et := range handles {
+		if et == EventSessionStart {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("expected BeadNudgeHandler to handle EventSessionStart")
+	}
+}
+
+func TestBeadNudgeHandler_NudgesOnSessionStart(t *testing.T) {
+	store := &mockBeadAssignmentStore{
+		issues: []*types.Issue{}, // no in_progress beads
+	}
+
+	h := &BeadNudgeHandler{cooldown: time.Millisecond}
+	h.SetBeadAssignmentStore(store)
+
+	event := &Event{
+		Type:  EventSessionStart,
+		Actor: "idle-agent",
+	}
+	result := &Result{}
+
+	if err := h.Handle(context.Background(), event, result); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(result.Warnings) == 0 {
+		t.Fatal("expected a nudge warning on SessionStart for agent without tasks")
+	}
+}
+
+func TestBeadNudgeHandler_NoNudgeOnSessionStartWhenAssigned(t *testing.T) {
+	store := &mockBeadAssignmentStore{
+		issues: []*types.Issue{
+			{
+				ID:       "bd-789",
+				Title:    "Active task",
+				Status:   types.StatusInProgress,
+				Assignee: "busy-agent",
+			},
+		},
+	}
+
+	h := &BeadNudgeHandler{cooldown: time.Millisecond}
+	h.SetBeadAssignmentStore(store)
+
+	event := &Event{
+		Type:  EventSessionStart,
+		Actor: "busy-agent",
+	}
+	result := &Result{}
+
+	if err := h.Handle(context.Background(), event, result); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(result.Warnings) != 0 {
+		t.Fatalf("expected no warnings on SessionStart when agent has task, got %d", len(result.Warnings))
+	}
+}
+
 // ===== Auto-sling tests (bd-s9giy) =====
 
 // mockAutoSlingStore implements AutoSlingStore for testing.

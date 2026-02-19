@@ -27,7 +27,8 @@ type AutoSlingStore interface {
 }
 
 // BeadNudgeHandler nudges agents that are actively working but don't have
-// any in_progress bead assigned to them. Fires on PostToolUse events.
+// any in_progress bead assigned to them. Fires on PostToolUse and SessionStart
+// events so agents get nudged both during active work and on startup. (bd-4csuk)
 // Priority 40 (runs after inbox drain — low priority, informational only).
 //
 // Uses PresenceTracker for O(1) in-memory task checks when available (bd-tlckc).
@@ -55,7 +56,9 @@ type BeadNudgeHandler struct {
 }
 
 func (h *BeadNudgeHandler) ID() string          { return "bead-nudge" }
-func (h *BeadNudgeHandler) Handles() []EventType { return []EventType{EventPostToolUse} }
+func (h *BeadNudgeHandler) Handles() []EventType {
+	return []EventType{EventPostToolUse, EventSessionStart}
+}
 func (h *BeadNudgeHandler) Priority() int        { return 40 }
 
 // SetBeadAssignmentStore wires in direct storage access for in-process bead lookups.
