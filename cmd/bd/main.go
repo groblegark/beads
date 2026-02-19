@@ -644,10 +644,18 @@ var rootCmd = &cobra.Command{
 									daemonStatus.Health = health.Status
 									debug.Logf("connected to restarted daemon (version: %s)", health.Version)
 									warnWorktreeDaemon(dbPath)
+									// Initialize hook runner (hq-s2wwl3)
+									if dbPath != "" {
+										hookRunner = hooks.NewRunner(filepath.Join(filepath.Dir(dbPath), "hooks"))
+									} else if wd, wdErr := os.Getwd(); wdErr == nil {
+										hookRunner = hooks.NewRunner(filepath.Join(wd, ".beads", "hooks"))
+									}
 									// Register session identity (bd-zp6v9)
 									projectRoot := ""
 									if dbPath != "" {
 										projectRoot = filepath.Dir(filepath.Dir(dbPath))
+									} else if wd, wdErr := os.Getwd(); wdErr == nil {
+										projectRoot = wd
 									}
 									if name := registerSession(daemonClient, projectRoot); name != "" {
 										sessionAssignedName = name
@@ -672,19 +680,35 @@ var rootCmd = &cobra.Command{
 						debug.Logf("connected to daemon at %s (health: %s)", socketPath, health.Status)
 						// Warn if using daemon with git worktrees
 						warnWorktreeDaemon(dbPath)
-						// Initialize hook runner (hooks run on client side, not daemon)
+						// Initialize hook runner (hooks run on client side, not daemon).
+						// When dbPath is available, derive hooksDir from it.
+						// In daemon-only mode (no local .beads/ db), use CWD as
+						// workspace root. The runner gracefully no-ops if the hooks
+						// directory doesn't exist. (hq-s2wwl3)
 						if dbPath != "" {
 							beadsDir := filepath.Dir(dbPath)
 							hooksDir := filepath.Join(beadsDir, "hooks")
 							debug.Logf("initializing hook runner: dbPath=%s, hooksDir=%s", dbPath, hooksDir)
 							hookRunner = hooks.NewRunner(hooksDir)
 						} else {
-							debug.Logf("hook runner not initialized: dbPath is empty")
+							// Daemon-only mode: no local db, but hooks may still
+							// exist at <cwd>/.beads/hooks/. Initialize the runner
+							// so decision hooks and other lifecycle hooks work.
+							wd, wdErr := os.Getwd()
+							if wdErr == nil {
+								hooksDir := filepath.Join(wd, ".beads", "hooks")
+								debug.Logf("initializing hook runner (daemon-only): hooksDir=%s", hooksDir)
+								hookRunner = hooks.NewRunner(hooksDir)
+							} else {
+								debug.Logf("hook runner not initialized: dbPath empty and getwd failed: %v", wdErr)
+							}
 						}
 						// Register session identity with daemon (bd-zp6v9)
 						projectRoot := ""
 						if dbPath != "" {
 							projectRoot = filepath.Dir(filepath.Dir(dbPath)) // .beads/ parent
+						} else if wd, wdErr := os.Getwd(); wdErr == nil {
+							projectRoot = wd // daemon-only: use CWD (hq-s2wwl3)
 						}
 						if name := registerSession(daemonClient, projectRoot); name != "" {
 							sessionAssignedName = name
@@ -827,6 +851,9 @@ var rootCmd = &cobra.Command{
 		if dbPath != "" {
 			beadsDir := filepath.Dir(dbPath)
 			hookRunner = hooks.NewRunner(filepath.Join(beadsDir, "hooks"))
+		} else if wd, wdErr := os.Getwd(); wdErr == nil {
+			// Fallback: use CWD as workspace root (hq-s2wwl3)
+			hookRunner = hooks.NewRunner(filepath.Join(wd, ".beads", "hooks"))
 		}
 
 		// Warn if multiple databases detected in directory hierarchy
