@@ -111,8 +111,6 @@ tasks:
           -X main.Build=${SHORT} \
           -X main.Commit=${COMMIT}" \
         -o bd ./cmd/bd
-
-      file bd
     env:
       REF_NAME: ${{ init.ref-name }}
       COMMIT_SHA: ${{ init.commit-sha }}
@@ -146,8 +144,6 @@ tasks:
           -X main.Build=${SHORT} \
           -X main.Commit=${COMMIT}" \
         -o bd ./cmd/bd
-
-      file bd
     env:
       REF_NAME: ${{ init.ref-name }}
       COMMIT_SHA: ${{ init.commit-sha }}
@@ -181,8 +177,6 @@ tasks:
           -X main.Build=${SHORT} \
           -X main.Commit=${COMMIT}" \
         -o bd ./cmd/bd
-
-      file bd
     env:
       REF_NAME: ${{ init.ref-name }}
       COMMIT_SHA: ${{ init.commit-sha }}
