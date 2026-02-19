@@ -60,10 +60,21 @@ func TryConnectHTTPWithTimeout(baseURL string, token string, timeout time.Durati
 	// Normalize URL - remove trailing slash
 	baseURL = strings.TrimSuffix(baseURL, "/")
 
+	// Operational timeout for RPC requests after connection is established.
+	// Must be >= server-side requestTimeout (default 60s) to avoid client
+	// giving up before the server finishes processing under load.
+	// Configurable via BEADS_CLIENT_TIMEOUT env var (e.g. "90s").
+	operationalTimeout := 60 * time.Second
+	if env := os.Getenv("BEADS_CLIENT_TIMEOUT"); env != "" {
+		if parsed, err := time.ParseDuration(env); err == nil && parsed > 0 {
+			operationalTimeout = parsed
+		}
+	}
+
 	client := &HTTPClient{
 		baseURL: baseURL,
 		token:   token,
-		timeout: 30 * time.Second,
+		timeout: operationalTimeout,
 		httpClient: &http.Client{
 			Timeout: timeout,
 			Transport: &http.Transport{
@@ -99,6 +110,11 @@ func TryConnectHTTPWithTimeout(baseURL string, token string, timeout time.Durati
 	rpcDebugLog("HTTP connection successful (health check: %v, status: %s, uptime: %.1fs)",
 		healthDuration, health.Status, health.Uptime)
 
+	// After health check, switch to the operational timeout for subsequent requests.
+	// The health check uses a shorter timeout to fail fast on unreachable daemons,
+	// but normal RPC operations (especially Dolt writes) need more time.
+	client.httpClient.Timeout = client.timeout
+
 	return client, nil
 }
 
@@ -110,6 +126,7 @@ func (c *HTTPClient) Close() error {
 // SetTimeout sets the request timeout duration
 func (c *HTTPClient) SetTimeout(timeout time.Duration) {
 	c.timeout = timeout
+	c.httpClient.Timeout = timeout
 }
 
 // SetDatabasePath sets the expected database path for validation
