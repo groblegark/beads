@@ -620,7 +620,7 @@ func (s *DoltStore) GCTombstones(ctx context.Context, olderThan time.Duration, i
 	// Collect IDs to delete in batches
 	const batchSize = 500
 	for {
-		query := fmt.Sprintf("SELECT id FROM issues WHERE %s%s%s LIMIT %d",
+		query := fmt.Sprintf("SELECT id FROM issues WHERE %s%s%s LIMIT %d", //nolint:gosec // G201: conditions built from hardcoded strings, not user input
 			statusCond, ageCond, pinnedCond, batchSize)
 		rows, err := s.db.QueryContext(ctx, query, ageArgs...)
 		if err != nil {

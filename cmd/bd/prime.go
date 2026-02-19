@@ -860,7 +860,7 @@ func saveRosterSnapshot(actors []rpc.AgentRosterEntry) {
 	if err != nil {
 		return
 	}
-	_ = os.WriteFile(filepath.Join(dir, sessionID+".json"), data, 0644)
+	_ = os.WriteFile(filepath.Join(dir, sessionID+".json"), data, 0o600)
 }
 
 // countReadyTasks fetches the count of ready (unblocked, open) tasks. (bd-oenjf)

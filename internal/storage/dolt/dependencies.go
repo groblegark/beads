@@ -29,10 +29,9 @@ const issueColumns = `id, content_hash, title, description, design, acceptance_c
        quality_score, work_type, source_system, metadata,
        advice_hook_command, advice_hook_trigger, advice_hook_timeout, advice_hook_on_failure`
 
-// prefixColumns adds the "i." table alias prefix to each column in the issueColumns list.
-// Used for JOIN queries where columns need to be qualified with a table alias.
-func prefixColumns(columns string) string {
-	cols := strings.Split(columns, ",")
+// prefixedIssueColumns returns issueColumns with each column prefixed by "i." for JOIN queries.
+func prefixedIssueColumns() string {
+	cols := strings.Split(issueColumns, ",")
 	for i, col := range cols {
 		cols[i] = "i." + strings.TrimSpace(col)
 	}
@@ -63,7 +62,7 @@ func (s *DoltStore) GetDependencies(ctx context.Context, issueID string) ([]*typ
 		JOIN dependencies d ON i.id = d.depends_on_id
 		WHERE d.issue_id = ?
 		ORDER BY i.priority ASC, i.created_at DESC
-	`, prefixColumns(issueColumns))
+	`, prefixedIssueColumns())
 
 	rows, err := s.queryContext(ctx, query, issueID)
 	if err != nil {
@@ -90,7 +89,7 @@ func (s *DoltStore) GetDependents(ctx context.Context, issueID string) ([]*types
 		JOIN dependencies d ON i.id = d.issue_id
 		WHERE d.depends_on_id = ?
 		ORDER BY i.priority ASC, i.created_at DESC
-	`, prefixColumns(issueColumns))
+	`, prefixedIssueColumns())
 
 	rows, err := s.queryContext(ctx, query, issueID)
 	if err != nil {
@@ -507,7 +506,7 @@ func (s *DoltStore) GetNewlyUnblockedByClose(ctx context.Context, closedIssueID 
 			  AND d2.depends_on_id != ?
 			  AND blocker.status IN ('open', 'in_progress', 'blocked', 'deferred', 'hooked')
 		  )
-	`, prefixColumns(issueColumns))
+	`, prefixedIssueColumns())
 
 	rows, err := s.queryContext(ctx, query, closedIssueID, closedIssueID)
 	if err != nil {

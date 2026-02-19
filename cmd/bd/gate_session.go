@@ -968,7 +968,7 @@ func buildSessionActivityDiff(active, crashed []rpc.AgentRosterEntry) string {
 
 	wd := getWorkDir()
 	snapPath := filepath.Join(wd, ".runtime", "roster-snapshot", sessionID+".json")
-	data, err := os.ReadFile(snapPath)
+	data, err := os.ReadFile(snapPath) //nolint:gosec // G304: path from controlled .runtime/ directory
 	if err != nil {
 		return "" // no snapshot — first session or file missing
 	}
