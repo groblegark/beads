@@ -188,6 +188,15 @@ func (c *Client) IsAgentRunning(ctx context.Context) (bool, error) {
 	return resp.State != StateExited && resp.State != "crashed", nil
 }
 
+// --- Session lifecycle ---
+
+// SwitchSession triggers a session switch (restart with merged env vars).
+// If force is true, the switch happens immediately even if the agent is busy.
+func (c *Client) SwitchSession(ctx context.Context, credentials map[string]string, force bool) error {
+	body := SwitchRequest{Credentials: credentials, Force: force}
+	return c.postJSON(ctx, "/api/v1/session/switch", body, nil)
+}
+
 // --- Environment & CWD ---
 
 // GetEnvironment reads a single environment variable. Checks pending

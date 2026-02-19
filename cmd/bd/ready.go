@@ -133,6 +133,14 @@ This is useful for agents executing molecules to see which steps can run next.`,
 				os.Exit(1)
 			}
 
+			// Client-side defense: filter non-work types that older daemons may not exclude.
+			// The server-side GetReadyWork already excludes these, but daemons running
+			// older versions (pre-292fcb79) may return them. Only filter when no explicit
+			// --type was requested (matching server-side logic).
+			if issueType == "" {
+				issues = filterNonWorkTypes(issues)
+			}
+
 			// Apply skill filtering if requested (requires direct store access)
 			// TODO: Add skill filtering RPC support per gt-as9kdm
 			if withSkills {
@@ -553,4 +561,37 @@ func filterByAgentSkills(issues []*types.Issue, agentID string) ([]*types.Issue,
 	}
 
 	return filtered, nil
+}
+
+// readyNonWorkTypes is the set of issue types excluded from bd ready by default.
+// These are infrastructure/workflow items, not actionable work.
+// Must match the NOT IN list in storage/sqlite/ready.go and storage/dolt/queries.go.
+var readyNonWorkTypes = map[types.IssueType]bool{
+	"merge-request": true,
+	"gate":          true,
+	"molecule":      true,
+	"message":       true,
+	"agent":         true,
+	"role":          true,
+	"rig":           true,
+	"formula":       true,
+	"config":        true,
+	"advice":        true,
+	"runbook":       true,
+	"convoy":        true,
+	"slot":          true,
+	"event":         true,
+}
+
+// filterNonWorkTypes removes non-work issue types from a list of issues.
+// Used as client-side defense when the daemon may be running an older version
+// that doesn't exclude all non-work types in its GetReadyWork query.
+func filterNonWorkTypes(issues []*types.Issue) []*types.Issue {
+	filtered := make([]*types.Issue, 0, len(issues))
+	for _, issue := range issues {
+		if !readyNonWorkTypes[issue.IssueType] {
+			filtered = append(filtered, issue)
+		}
+	}
+	return filtered
 }

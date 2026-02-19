@@ -405,3 +405,74 @@ func TestCoopSessionBackendSendKeysRaw(t *testing.T) {
 		t.Error("Enter should be false for raw keys")
 	}
 }
+
+func TestCoopSessionBackendRespawnPane(t *testing.T) {
+	var gotBody SwitchRequest
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Errorf("method = %s, want POST", r.Method)
+		}
+		if r.URL.Path != "/api/v1/session/switch" {
+			t.Errorf("path = %q, want /api/v1/session/switch", r.URL.Path)
+		}
+		json.NewDecoder(r.Body).Decode(&gotBody)
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	defer srv.Close()
+
+	backend := NewCoopSessionBackend(srv.URL)
+	err := backend.RespawnPane(context.Background(), "ignored")
+	if err != nil {
+		t.Fatalf("RespawnPane error: %v", err)
+	}
+	if !gotBody.Force {
+		t.Error("force should be true for RespawnPane")
+	}
+}
+
+func TestCoopSessionBackendGetPaneID(t *testing.T) {
+	backend := NewCoopSessionBackend("http://localhost:3000")
+	id, err := backend.GetPaneID(context.Background(), "ignored")
+	if err != nil {
+		t.Fatalf("GetPaneID error: %v", err)
+	}
+	if id != "" {
+		t.Errorf("GetPaneID = %q, want empty (coop has 1:1 mapping)", id)
+	}
+}
+
+func TestCoopSessionBackendSwitchSession(t *testing.T) {
+	var gotBody SwitchRequest
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Errorf("method = %s, want POST", r.Method)
+		}
+		if r.URL.Path != "/api/v1/session/switch" {
+			t.Errorf("path = %q, want /api/v1/session/switch", r.URL.Path)
+		}
+		json.NewDecoder(r.Body).Decode(&gotBody)
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	defer srv.Close()
+
+	creds := map[string]string{"API_KEY": "new-key"}
+	backend := NewCoopSessionBackend(srv.URL)
+	err := backend.SwitchSession(context.Background(), "ignored", creds, false)
+	if err != nil {
+		t.Fatalf("SwitchSession error: %v", err)
+	}
+	if gotBody.Credentials["API_KEY"] != "new-key" {
+		t.Errorf("credentials = %v, want API_KEY=new-key", gotBody.Credentials)
+	}
+	if gotBody.Force {
+		t.Error("force should be false")
+	}
+}
+
+func TestTmuxBackendSwitchSessionNotSupported(t *testing.T) {
+	backend := &TmuxBackend{}
+	err := backend.SwitchSession(context.Background(), "test", nil, false)
+	if !errors.Is(err, ErrNotSupported) {
+		t.Errorf("SwitchSession error = %v, want ErrNotSupported", err)
+	}
+}

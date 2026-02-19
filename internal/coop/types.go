@@ -145,6 +145,12 @@ type CwdResponse struct {
 	Cwd string `json:"cwd"`
 }
 
+// SwitchRequest is the body for POST /api/v1/session/switch.
+type SwitchRequest struct {
+	Credentials map[string]string `json:"credentials,omitempty"`
+	Force       bool              `json:"force"`
+}
+
 // SessionInfo contains metadata about an agent session.
 type SessionInfo struct {
 	SessionID string `json:"session_id"`

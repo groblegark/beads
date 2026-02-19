@@ -71,6 +71,18 @@ type SessionBackend interface {
 	// For tmux: tmux send-keys -l. For coop: POST /api/v1/input.
 	SendKeysRaw(ctx context.Context, session, text string) error
 
+	// RespawnPane restarts the agent process in the same session.
+	// For tmux: tmux respawn-pane -k. For coop: POST /api/v1/session/switch (force=true).
+	RespawnPane(ctx context.Context, session string) error
+
+	// GetPaneID returns the terminal pane identifier.
+	// For tmux: tmux list-panes format. For coop: returns empty (1:1 mapping).
+	GetPaneID(ctx context.Context, session string) (string, error)
+
+	// SwitchSession triggers a credential swap / session restart.
+	// For tmux: returns ErrNotSupported. For coop: POST /api/v1/session/switch.
+	SwitchSession(ctx context.Context, session string, credentials map[string]string, force bool) error
+
 	// Name returns a human-readable backend name for status display.
 	Name() string
 }
@@ -216,6 +228,31 @@ func (b *TmuxBackend) SendKeysRaw(ctx context.Context, session, text string) err
 	return nil
 }
 
+func (b *TmuxBackend) RespawnPane(ctx context.Context, session string) error {
+	cmd := exec.CommandContext(ctx, "tmux", "respawn-pane", "-t", session, "-k")
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("tmux respawn-pane: %s", stderr.String())
+	}
+	return nil
+}
+
+func (b *TmuxBackend) GetPaneID(ctx context.Context, session string) (string, error) {
+	cmd := exec.CommandContext(ctx, "tmux", "list-panes", "-t", session, "-F", "#{pane_id}")
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return "", fmt.Errorf("tmux list-panes: %s", stderr.String())
+	}
+	return strings.TrimSpace(stdout.String()), nil
+}
+
+func (b *TmuxBackend) SwitchSession(_ context.Context, _ string, _ map[string]string, _ bool) error {
+	return ErrNotSupported
+}
+
 func (b *TmuxBackend) Name() string { return "tmux" }
 
 // CoopSessionBackend implements SessionBackend using the Coop HTTP API.
@@ -298,6 +335,18 @@ func (b *CoopSessionBackend) GetWorkingDirectory(ctx context.Context, _ string) 
 func (b *CoopSessionBackend) SendKeysRaw(ctx context.Context, _, text string) error {
 	_, err := b.client.SendInput(ctx, text, false)
 	return err
+}
+
+func (b *CoopSessionBackend) RespawnPane(ctx context.Context, _ string) error {
+	return b.client.SwitchSession(ctx, nil, true)
+}
+
+func (b *CoopSessionBackend) GetPaneID(_ context.Context, _ string) (string, error) {
+	return "", nil // Coop has 1:1 session-to-pane mapping
+}
+
+func (b *CoopSessionBackend) SwitchSession(ctx context.Context, _ string, credentials map[string]string, force bool) error {
+	return b.client.SwitchSession(ctx, credentials, force)
 }
 
 func (b *CoopSessionBackend) Name() string { return "coop" }
