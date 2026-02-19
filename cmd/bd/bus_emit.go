@@ -118,26 +118,28 @@ func runBusEmit(cmd *cobra.Command, args []string) error {
 	}
 
 	// Stop hook debounce: if the Stop hook already fired and blocked recently
-	// (within 60s), mark the decision gate as satisfied so it won't re-fire.
-	// This prevents the re-fire loop where the Stop hook fires faster than the
-	// agent can process the checkpoint prompt and call bd decision create.
-	// The marker is written after a successful block (see below). (bd-ss2lc)
+	// (within 60s), skip this event entirely. This prevents the re-fire loop
+	// where the Stop hook fires faster than the agent can process the
+	// checkpoint prompt and call bd decision create.
+	// IMPORTANT: we return early (exit 0, no block) rather than marking the
+	// gate as satisfied — marking creates permanent state that outlives the
+	// debounce window and permanently disables checkpoints. (bd-ss2lc, bd-s8zi7)
 	if resolvedType == "Stop" {
-		debounceStopHook(eventMeta.SessionID)
+		if debounceStopHook(eventMeta.SessionID) {
+			return outputEmitResult(&rpc.BusEmitResult{Block: false, Reason: "debounced"})
+		}
 	}
 
 	// Stop-loop detection: track stop hook activations in a sliding window.
 	// If the stop hook fires too many times within the window (even across
-	// decision create/respond cycles), auto-satisfy the gate to break the
-	// loop. This catches the bd-done wake loop where broadcast mail keeps
-	// waking the agent, triggering stop → checkpoint → bd yield → wake → stop.
-	// Unlike debounce (which resets on decision create), this persists across
-	// the full window. (hq-86ygth)
+	// decision create/respond cycles), skip this event to break the loop.
+	// This catches the bd-done wake loop where broadcast mail keeps waking
+	// the agent, triggering stop → checkpoint → bd yield → wake → stop.
+	// IMPORTANT: we return early rather than marking the gate — the loop
+	// will naturally resolve as timestamps age out of the window. (hq-86ygth, bd-s8zi7)
 	if resolvedType == "Stop" {
 		if detectStopLoop(eventMeta.SessionID) {
-			if eventMeta.SessionID != "" {
-				_ = gate.MarkGate(getWorkDir(), eventMeta.SessionID, "decision")
-			}
+			return outputEmitResult(&rpc.BusEmitResult{Block: false, Reason: "stop-loop detected"})
 		}
 	}
 
@@ -226,46 +228,49 @@ func runBusEmit(cmd *cobra.Command, args []string) error {
 const defaultStopRetryThreshold = 3
 
 // debounceStopHook checks if the Stop hook fired and blocked recently (within
-// 60s) and marks the decision gate as satisfied to prevent re-fire loops.
-// This handles the race where the Stop hook fires faster than the agent can
-// process the checkpoint prompt and call bd decision create. (bd-ss2lc)
+// 60s). Returns true if the caller should skip this stop event entirely (exit 0,
+// no block, no gate modification). This prevents the re-fire loop where the
+// Stop hook fires faster than the agent can process the checkpoint prompt.
+// (bd-ss2lc, bd-s8zi7)
 //
 // Also implements circuit breaker (bd-ywda): after N consecutive blocks without
-// the agent creating a decision, auto-satisfy the gate so the agent can continue.
-func debounceStopHook(sessionID string) {
+// the agent creating a decision, returns true to skip. Unlike the previous
+// implementation, this does NOT mark the gate as permanently satisfied — it only
+// skips the current event. The debounce marker is transient (60s TTL) and the
+// circuit breaker resets, so future stop hooks will fire normally once the
+// debounce window expires.
+func debounceStopHook(sessionID string) bool {
 	markerPath := stopDebounceMarkerPath(sessionID)
 	data, err := os.ReadFile(markerPath) //nolint:gosec // G304: path is constructed from controlled .runtime/ directory
 	if err != nil {
-		return
+		return false
 	}
 
 	// Parse "timestamp:retryCount" format.
 	ts, retries := parseDebounceMarker(string(data))
 	if ts == 0 {
-		return
+		return false
 	}
 
 	elapsed := time.Since(time.Unix(ts, 0))
 	if elapsed > 60*time.Second {
 		_ = os.Remove(markerPath)
-		return
+		return false
 	}
 
-	// Circuit breaker: after N consecutive blocks, auto-satisfy the gate. (bd-ywda)
+	// Circuit breaker: after N consecutive blocks, skip this event to break
+	// the loop. Do NOT mark the gate — the marker file will expire after 60s
+	// and future stop hooks will fire normally. (bd-ywda, bd-s8zi7)
 	threshold := stopRetryThreshold()
 	if retries >= threshold {
-		if sessionID != "" {
-			_ = gate.MarkGate(getWorkDir(), sessionID, "decision")
-		}
 		_ = os.Remove(markerPath) // Reset counter after circuit break
-		return
+		return true
 	}
 
-	// Recent Stop hook block — mark the decision gate as satisfied
-	// so the gate check won't re-fire the checkpoint prompt.
-	if sessionID != "" {
-		_ = gate.MarkGate(getWorkDir(), sessionID, "decision")
-	}
+	// Debounce marker exists and is recent (<60s) but under the circuit
+	// breaker threshold. Skip this event so the agent has time to process
+	// the checkpoint prompt from the previous block. (bd-iki79, bd-s8zi7)
+	return true
 }
 
 // writeStopDebounceMarker records that the Stop hook blocked at the current time.
