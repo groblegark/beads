@@ -141,6 +141,9 @@ func installClaude(env claudeEnv, project bool, stealth bool) error {
 		return err
 	}
 
+	// Install slash commands (e.g., /decision)
+	installSlashCommands(env, project)
+
 	_, _ = fmt.Fprintln(env.stdout, "\n✓ Claude Code integration installed")
 	_, _ = fmt.Fprintf(env.stdout, "  Settings: %s\n", settingsPath)
 	_, _ = fmt.Fprintln(env.stdout, "\nRestart Claude Code for changes to take effect.")
@@ -238,8 +241,32 @@ func removeClaude(env claudeEnv, project bool) error {
 		return err
 	}
 
+	// Remove slash commands
+	removeSlashCommands(env, project)
+
 	_, _ = fmt.Fprintln(env.stdout, "✓ Claude hooks removed")
 	return nil
+}
+
+// removeSlashCommands removes Claude Code slash commands installed by beads.
+func removeSlashCommands(env claudeEnv, project bool) {
+	var commandsDir string
+	if project {
+		commandsDir = filepath.Join(env.projectDir, ".claude", "commands")
+	} else {
+		commandsDir = filepath.Join(env.homeDir, ".claude", "commands")
+	}
+
+	for _, cmd := range slashCommands() {
+		cmdPath := filepath.Join(commandsDir, cmd.name+".md")
+		if err := os.Remove(cmdPath); err != nil {
+			if !os.IsNotExist(err) {
+				_, _ = fmt.Fprintf(env.stderr, "Warning: could not remove /%s command: %v\n", cmd.name, err)
+			}
+			continue
+		}
+		_, _ = fmt.Fprintf(env.stdout, "✓ Removed /%s command\n", cmd.name)
+	}
 }
 
 // addHookCommand adds a hook command to an event if not already present
@@ -395,6 +422,66 @@ func hasBeadsHooks(settingsPath string) bool {
 	}
 
 	return false
+}
+
+// slashCommand defines a Claude Code slash command to install.
+type slashCommand struct {
+	name    string // filename without .md
+	content string // markdown content
+}
+
+// slashCommands returns all slash commands that should be installed.
+func slashCommands() []slashCommand {
+	return []slashCommand{
+		{
+			name: "decision",
+			content: `---
+description: "Toggle decision checkpoint enforcement on or off"
+argument-hint: "[enable|disable]"
+---
+
+Toggle whether the stop hook enforces decision checkpoints.
+
+Run the appropriate ` + "`bd decision mode`" + ` command based on the user's request:
+
+- ` + "`/decision enable`" + ` → ` + "`bd decision mode enable`" + ` (global)
+- ` + "`/decision disable`" + ` → ` + "`bd decision mode disable`" + ` (global)
+- ` + "`/decision`" + ` (no args) → ` + "`bd decision mode`" + ` (show current state)
+- ` + "`/decision disable --agent=X`" + ` → ` + "`bd decision mode disable --agent=X`" + ` (per-agent)
+- ` + "`/decision enable --agent=X`" + ` → ` + "`bd decision mode enable --agent=X`" + ` (per-agent)
+- ` + "`/decision clear --agent=X`" + ` → ` + "`bd decision mode clear --agent=X`" + ` (remove override)
+
+Per-agent overrides take precedence over the global setting.
+
+After running the command, report the result to the user.
+`,
+		},
+	}
+}
+
+// installSlashCommands installs Claude Code slash commands into the
+// appropriate .claude/commands/ directory.
+func installSlashCommands(env claudeEnv, project bool) {
+	var commandsDir string
+	if project {
+		commandsDir = filepath.Join(env.projectDir, ".claude", "commands")
+	} else {
+		commandsDir = filepath.Join(env.homeDir, ".claude", "commands")
+	}
+
+	if err := env.ensureDir(commandsDir, 0o755); err != nil {
+		_, _ = fmt.Fprintf(env.stderr, "Warning: could not create commands dir: %v\n", err)
+		return
+	}
+
+	for _, cmd := range slashCommands() {
+		cmdPath := filepath.Join(commandsDir, cmd.name+".md")
+		if err := env.writeFile(cmdPath, []byte(cmd.content)); err != nil {
+			_, _ = fmt.Fprintf(env.stderr, "Warning: could not install /%s command: %v\n", cmd.name, err)
+			continue
+		}
+		_, _ = fmt.Fprintf(env.stdout, "✓ Installed /%s command\n", cmd.name)
+	}
 }
 
 // denyRules lists tools that should be denied to prevent interactive modals
