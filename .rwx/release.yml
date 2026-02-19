@@ -67,11 +67,9 @@ tasks:
       # Create zig CC wrapper scripts for darwin cross-compilation.
       # Zig 0.14.0 can't find macOS system libraries (libresolv) or
       # frameworks (CoreFoundation, Security). The wrappers:
-      # 1. Strip -lresolv (Go resolves via dyld lazy binding)
-      # 2. Convert -framework X to -Wl,-framework,X so zig passes
-      #    them through to the Mach-O linker as weak references
-      # 3. Add -Wl,-undefined,dynamic_lookup FIRST to allow all
-      #    unresolved symbols (resolved by dyld at runtime)
+      # - Detect link phase (has .out in args)
+      # - Strip -lresolv and -framework flags zig can't resolve
+      # - Add -Wl,-undefined,dynamic_lookup so all symbols resolve via dyld
       # flock serializes zig calls per target to prevent races.
       mkdir -p /tmp/zigcc
       for pair in \
@@ -79,43 +77,25 @@ tasks:
         "cc-aarch64-macos:aarch64-macos"; do
         name="${pair%%:*}"
         target="${pair##*:}"
-        cat > "/tmp/zigcc/$name" << 'WRAPPER'
-#!/bin/sh
-# Detect if this is a link command (has -o flag with .out or no -c flag)
-is_link=false
-for arg in "$@"; do
-  case "$arg" in
-    *.out) is_link=true ;;
-  esac
-done
-
-if $is_link; then
-  # Link phase: strip problematic flags, add dynamic_lookup
-  args="-Wl,-undefined,dynamic_lookup"
-  skip_next=false
-  for arg in "$@"; do
-    if $skip_next; then
-      skip_next=false
-      continue
-    fi
-    case "$arg" in
-      -lresolv) continue ;;
-      -framework)
-        skip_next=true
-        continue ;;
-    esac
-    args="$args $arg"
-  done
-  exec flock /tmp/zigcc/lock-TARGET zig cc -target TARGET $args
-else
-  # Compile phase: pass through unchanged
-  exec flock /tmp/zigcc/lock-TARGET zig cc -target TARGET "$@"
-fi
-WRAPPER
-        sed -i "s/TARGET/$target/g" "/tmp/zigcc/$name"
+        printf '%s\n' '#!/bin/sh' \
+          'is_link=false' \
+          'for arg in "$@"; do case "$arg" in *.out) is_link=true ;; esac; done' \
+          'if $is_link; then' \
+          '  args="-Wl,-undefined,dynamic_lookup"' \
+          '  skip_next=false' \
+          '  for arg in "$@"; do' \
+          '    if $skip_next; then skip_next=false; continue; fi' \
+          '    case "$arg" in -lresolv) continue ;; -framework) skip_next=true; continue ;; esac' \
+          '    args="$args $arg"' \
+          '  done' \
+          "  exec flock /tmp/zigcc/lock-${target} zig cc -target ${target} \$args" \
+          'else' \
+          "  exec flock /tmp/zigcc/lock-${target} zig cc -target ${target} \"\$@\"" \
+          'fi' > "/tmp/zigcc/$name"
         chmod +x "/tmp/zigcc/$name"
       done
-      echo "Zig wrappers created: $(ls /tmp/zigcc/cc-*)"
+      echo "Zig wrappers created:"
+      cat /tmp/zigcc/cc-x86_64-macos
 
   # ── Go deps (cached by lockfiles) ───────────────────────────────────
   - key: go-deps
