@@ -473,8 +473,11 @@ func runLocalGateCheck(hookType, sessionID string) map[string]interface{} {
 	}
 
 	workDir := getWorkDir()
-	termSID := os.Getenv("TERM_SESSION_ID")
-	results, err := gate.CheckGatesForHook(workDir, sessionID, ht, sessionGateRegistry, termSID)
+	opts := gate.CheckOpts{
+		TerminalSessionID: os.Getenv("TERM_SESSION_ID"),
+		AgentName:         eventbus.AgentBaseName(getActor()),
+	}
+	results, err := gate.CheckGatesWithOpts(workDir, sessionID, ht, sessionGateRegistry, opts)
 	if err != nil || len(results) == 0 {
 		return nil
 	}

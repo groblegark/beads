@@ -587,3 +587,126 @@ func TestEvaluateHook_OnlyChecksCorrectHook(t *testing.T) {
 		t.Errorf("PreToolUse should allow when only Stop gates registered, got %q", resp.Decision)
 	}
 }
+
+// TestCheckGatesWithOpts_NATSBackend verifies that CheckGatesWithOpts uses the
+// ActiveBackend when agent name is provided. (bd-vecxd)
+func TestCheckGatesWithOpts_NATSBackend(t *testing.T) {
+	workDir := t.TempDir()
+	reg := NewRegistry()
+	reg.Register(&Gate{
+		ID:   "decision",
+		Hook: HookStop,
+		Mode: GateModeStrict,
+	})
+
+	// Create an in-memory backend (using FileBackend as mock since it implements the interface).
+	backend := NewFileBackend(t.TempDir())
+	oldBackend := ActiveBackend
+	ActiveBackend = backend
+	defer func() { ActiveBackend = oldBackend }()
+
+	sessionID := "test-session-1"
+	opts := CheckOpts{
+		AgentName: "sharp-seal",
+	}
+
+	// Gate should NOT be satisfied initially.
+	results, err := CheckGatesWithOpts(workDir, sessionID, HookStop, reg, opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(results))
+	}
+	if results[0].Satisfied {
+		t.Error("gate should NOT be satisfied initially")
+	}
+
+	// Mark via the backend (using agent name as key).
+	_ = backend.Mark("sharp-seal", "decision", MarkOpts{Mechanism: "test"})
+
+	// Now should be satisfied via NATS backend.
+	results, err = CheckGatesWithOpts(workDir, sessionID, HookStop, reg, opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !results[0].Satisfied {
+		t.Error("gate should be satisfied via backend")
+	}
+	if results[0].Message != "marked satisfied (nats)" {
+		t.Errorf("message = %q, want %q", results[0].Message, "marked satisfied (nats)")
+	}
+}
+
+// TestCheckGatesWithOpts_FallbackToFile verifies that when ActiveBackend is set
+// but the gate is only satisfied via filesystem, it's mirrored to the backend. (bd-vecxd)
+func TestCheckGatesWithOpts_FallbackToFile(t *testing.T) {
+	workDir := t.TempDir()
+	reg := NewRegistry()
+	reg.Register(&Gate{
+		ID:   "decision",
+		Hook: HookStop,
+		Mode: GateModeStrict,
+	})
+
+	backendDir := t.TempDir()
+	backend := NewFileBackend(backendDir)
+	oldBackend := ActiveBackend
+	ActiveBackend = backend
+	defer func() { ActiveBackend = oldBackend }()
+
+	sessionID := "test-session-2"
+	opts := CheckOpts{
+		AgentName: "stout-fish",
+	}
+
+	// Mark only in filesystem (not backend).
+	_ = MarkGate(workDir, sessionID, "decision")
+
+	// Check should be satisfied via file marker AND mirrored to backend.
+	results, err := CheckGatesWithOpts(workDir, sessionID, HookStop, reg, opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !results[0].Satisfied {
+		t.Error("gate should be satisfied via file marker")
+	}
+	if results[0].Message != "marked satisfied" {
+		t.Errorf("message = %q, want %q", results[0].Message, "marked satisfied")
+	}
+
+	// Backend should now have the mirror.
+	if !backend.IsSatisfied("stout-fish", "decision") {
+		t.Error("backend should have mirrored the file marker")
+	}
+}
+
+// TestCheckGatesWithOpts_NoAgentName verifies that without agent name,
+// the NATS backend is skipped (backward compat). (bd-vecxd)
+func TestCheckGatesWithOpts_NoAgentName(t *testing.T) {
+	workDir := t.TempDir()
+	reg := NewRegistry()
+	reg.Register(&Gate{
+		ID:   "decision",
+		Hook: HookStop,
+		Mode: GateModeStrict,
+	})
+
+	backendDir := t.TempDir()
+	backend := NewFileBackend(backendDir)
+	oldBackend := ActiveBackend
+	ActiveBackend = backend
+	defer func() { ActiveBackend = oldBackend }()
+
+	// Mark in backend but NOT in filesystem.
+	_ = backend.Mark("agent-x", "decision", MarkOpts{Mechanism: "test"})
+
+	// Check without agent name — should NOT find it (backend skipped).
+	results, err := CheckGatesWithOpts(workDir, "session-x", HookStop, reg, CheckOpts{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if results[0].Satisfied {
+		t.Error("gate should NOT be satisfied without agent name (backend skipped)")
+	}
+}

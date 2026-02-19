@@ -55,6 +55,7 @@ const (
 type GateContext struct {
 	SessionID          string
 	TerminalSessionID  string // TERM_SESSION_ID — stable across session rotations
+	AgentName          string // agent base name for NATS backend key (bd-vecxd)
 	HookType           HookType
 	WorkDir            string
 	HookBead           string // current hooked bead if any
@@ -254,25 +255,43 @@ func WriteSessionTerminal(workDir, claudeSessionID, termSessionID string) error 
 	return os.WriteFile(filepath.Join(dir, claudeSessionID), []byte(termSessionID), 0o600)
 }
 
+// CheckOpts provides optional parameters for CheckGatesForHook. (bd-vecxd)
+type CheckOpts struct {
+	TerminalSessionID string // TERM_SESSION_ID for cross-session scoping (bd-gh0ik)
+	AgentName         string // agent base name for NATS KV backend (bd-vecxd)
+}
+
 // CheckGatesForHook evaluates all registered gates for the specified hook type.
-// A gate is satisfied if:
-//  1. Its marker file exists, OR
-//  2. Its AutoCheck function returns true (and the marker is set automatically)
-//
-// The optional terminalSessionID scopes cross-session fallback checks to the
-// same terminal/agent, preventing cross-agent gate leakage. (bd-gh0ik)
+// This is the backward-compatible entry point; it delegates to checkGatesCore.
+// The optional terminalSessionID scopes cross-session fallback checks. (bd-gh0ik)
 func CheckGatesForHook(workDir, sessionID string, hookType HookType, reg *Registry, terminalSessionID ...string) ([]GateResult, error) {
+	opts := CheckOpts{}
+	if len(terminalSessionID) > 0 {
+		opts.TerminalSessionID = terminalSessionID[0]
+	}
+	return checkGatesCore(workDir, sessionID, hookType, reg, opts)
+}
+
+// CheckGatesWithOpts evaluates gates with explicit options including agent name
+// for NATS KV backend support. Prefer this over CheckGatesForHook when the
+// agent name is available. (bd-vecxd)
+func CheckGatesWithOpts(workDir, sessionID string, hookType HookType, reg *Registry, opts CheckOpts) ([]GateResult, error) {
+	return checkGatesCore(workDir, sessionID, hookType, reg, opts)
+}
+
+// checkGatesCore is the internal gate evaluation engine.
+// A gate is satisfied if:
+//  1. The NATS KV backend says it's satisfied (when ActiveBackend is set), OR
+//  2. Its file marker exists (exact session or cross-session fallback), OR
+//  3. Its AutoCheck function returns true (and the satisfaction is recorded)
+func checkGatesCore(workDir, sessionID string, hookType HookType, reg *Registry, opts CheckOpts) ([]GateResult, error) {
 	gates := reg.GatesForHook(hookType)
 	results := make([]GateResult, 0, len(gates))
 
-	var termSID string
-	if len(terminalSessionID) > 0 {
-		termSID = terminalSessionID[0]
-	}
-
 	ctx := GateContext{
 		SessionID:         sessionID,
-		TerminalSessionID: termSID,
+		TerminalSessionID: opts.TerminalSessionID,
+		AgentName:         opts.AgentName,
 		HookType:          hookType,
 		WorkDir:           workDir,
 	}
@@ -285,10 +304,27 @@ func CheckGatesForHook(workDir, sessionID string, hookType HookType, reg *Regist
 			Hint:   g.Hint,
 		}
 
-		// Check marker first — exact session match
+		// Check NATS backend first when available and agent name is known. (bd-vecxd)
+		if ActiveBackend != nil && ctx.AgentName != "" {
+			if ActiveBackend.IsSatisfied(ctx.AgentName, g.ID) {
+				result.Satisfied = true
+				result.Message = "marked satisfied (nats)"
+				results = append(results, result)
+				continue
+			}
+		}
+
+		// Check file marker — exact session match
 		if IsGateSatisfied(workDir, sessionID, g.ID) {
 			result.Satisfied = true
 			result.Message = "marked satisfied"
+			// Mirror to NATS backend if available, so future checks hit KV. (bd-vecxd)
+			if ActiveBackend != nil && ctx.AgentName != "" {
+				_ = ActiveBackend.Mark(ctx.AgentName, g.ID, MarkOpts{
+					Mechanism: "file_marker_mirror",
+					SessionID: sessionID,
+				})
+			}
 			results = append(results, result)
 			continue
 		}
@@ -301,15 +337,29 @@ func CheckGatesForHook(workDir, sessionID string, hookType HookType, reg *Regist
 		if IsGateSatisfiedSameTerminal(workDir, g.ID, ctx.TerminalSessionID) {
 			result.Satisfied = true
 			result.Message = "marked satisfied (cross-session)"
+			// Mirror to NATS backend. (bd-vecxd)
+			if ActiveBackend != nil && ctx.AgentName != "" {
+				_ = ActiveBackend.Mark(ctx.AgentName, g.ID, MarkOpts{
+					Mechanism: "cross_session_mirror",
+					SessionID: sessionID,
+				})
+			}
 			results = append(results, result)
 			continue
 		}
 
 		// Try auto-check
 		if g.AutoCheck != nil && g.AutoCheck(ctx) {
-			// Auto-satisfied — set the marker for future checks
+			// Auto-satisfied — record in both file system and NATS backend
 			if err := MarkGate(workDir, sessionID, g.ID); err != nil {
 				return nil, fmt.Errorf("auto-marking gate %s: %w", g.ID, err)
+			}
+			if ActiveBackend != nil && ctx.AgentName != "" {
+				_ = ActiveBackend.Mark(ctx.AgentName, g.ID, MarkOpts{
+					Mechanism: "auto_check",
+					SessionID: sessionID,
+					TTL:       DefaultTTLFor(g.ID),
+				})
 			}
 			result.Satisfied = true
 			result.Message = "auto-satisfied"
@@ -330,7 +380,21 @@ func CheckGatesForHook(workDir, sessionID string, hookType HookType, reg *Regist
 // If any strict gate is unsatisfied, the decision is "block".
 // Soft unsatisfied gates produce warnings but allow the hook.
 func EvaluateHook(workDir, sessionID string, hookType HookType, reg *Registry, terminalSessionID ...string) (*CheckResponse, error) {
-	results, err := CheckGatesForHook(workDir, sessionID, hookType, reg, terminalSessionID...)
+	opts := CheckOpts{}
+	if len(terminalSessionID) > 0 {
+		opts.TerminalSessionID = terminalSessionID[0]
+	}
+	return evaluateHookCore(workDir, sessionID, hookType, reg, opts)
+}
+
+// EvaluateHookWithOpts is like EvaluateHook but takes explicit CheckOpts
+// for NATS backend support. (bd-vecxd)
+func EvaluateHookWithOpts(workDir, sessionID string, hookType HookType, reg *Registry, opts CheckOpts) (*CheckResponse, error) {
+	return evaluateHookCore(workDir, sessionID, hookType, reg, opts)
+}
+
+func evaluateHookCore(workDir, sessionID string, hookType HookType, reg *Registry, opts CheckOpts) (*CheckResponse, error) {
+	results, err := checkGatesCore(workDir, sessionID, hookType, reg, opts)
 	if err != nil {
 		return nil, err
 	}

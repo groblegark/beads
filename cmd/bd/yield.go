@@ -111,7 +111,10 @@ func yieldGateCheck() string {
 	}
 
 	workDir := getWorkDir()
-	results, err := gate.CheckGatesForHook(workDir, sessionID, gate.HookStop, sessionGateRegistry)
+	opts := gate.CheckOpts{
+		AgentName: eventbus.AgentBaseName(getActor()),
+	}
+	results, err := gate.CheckGatesWithOpts(workDir, sessionID, gate.HookStop, sessionGateRegistry, opts)
 	if err != nil || len(results) == 0 {
 		return ""
 	}

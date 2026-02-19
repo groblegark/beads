@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/steveyegge/beads/internal/eventbus"
 	"github.com/steveyegge/beads/internal/gate"
 	"github.com/steveyegge/beads/internal/rpc"
 	"github.com/steveyegge/beads/internal/types"
@@ -230,8 +231,11 @@ Examples:
 			reg = softCopyRegistry(reg, hookType)
 		}
 
-		termSID := os.Getenv("TERM_SESSION_ID")
-		resp, err := gate.EvaluateHook(workDir, sessionID, hookType, reg, termSID)
+		opts := gate.CheckOpts{
+			TerminalSessionID: os.Getenv("TERM_SESSION_ID"),
+			AgentName:         eventbus.AgentBaseName(getActor()),
+		}
+		resp, err := gate.EvaluateHookWithOpts(workDir, sessionID, hookType, reg, opts)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error evaluating gates: %v\n", err)
 			os.Exit(1)
