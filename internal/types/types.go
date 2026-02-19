@@ -1337,6 +1337,11 @@ type DecisionOption struct {
 	// Description is optional rich content (markdown)
 	// Can contain full design documents, code snippets, etc.
 	Description string `json:"description,omitempty"`
+
+	// BeadID is an optional bead/issue ID this option references.
+	// When set and this option is selected, the system auto-assigns the
+	// referenced bead to the requesting agent. (bd-isufm)
+	BeadID string `json:"bead_id,omitempty"`
 }
 
 // DecisionPoint represents a human-in-the-loop decision gate.

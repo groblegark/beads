@@ -1185,3 +1185,155 @@ func TestDecisionCreate_SupersedeDoesNotAffectOtherAgents(t *testing.T) {
 		t.Errorf("Expected exactly 1 pending decision from agent-a, got %d", agentACount)
 	}
 }
+
+// TestDecisionResolve_AutoAssignBead verifies that when a decision option
+// has a bead_id, resolving that option auto-assigns the referenced bead
+// to the requesting agent. (bd-isufm)
+func TestDecisionResolve_AutoAssignBead(t *testing.T) {
+	_, client, store, cleanup := setupTestServerWithStore(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	// Create a target bead that will be auto-assigned
+	targetID := createTestIssueForDecision(t, client, "Fix expired GitLab token")
+
+	// Verify it starts as open with no assignee
+	target, err := store.GetIssue(ctx, targetID)
+	if err != nil {
+		t.Fatalf("GetIssue failed: %v", err)
+	}
+	if target.Assignee != "" {
+		t.Fatalf("Target bead should start unassigned, got %q", target.Assignee)
+	}
+
+	// Create a decision with options referencing the bead
+	options := []types.DecisionOption{
+		{ID: "fix-token", Short: "Fix token", Label: "Fix expired GitLab token", BeadID: targetID},
+		{ID: "skip", Short: "Skip", Label: "Skip for now"},
+	}
+	_, err = client.DecisionCreate(&DecisionCreateArgs{
+		Prompt:      "Checkpoint: what next?",
+		Options:     options,
+		RequestedBy: "obsidian-5",
+	})
+	if err != nil {
+		t.Fatalf("DecisionCreate failed: %v", err)
+	}
+
+	// Find the decision issue ID (it's auto-generated)
+	pending, err := store.ListPendingDecisions(ctx)
+	if err != nil || len(pending) == 0 {
+		t.Fatalf("No pending decisions found: %v", err)
+	}
+	decisionIssueID := pending[0].IssueID
+
+	// Resolve the decision selecting the option with bead_id
+	_, err = client.DecisionResolve(&DecisionResolveArgs{
+		IssueID:        decisionIssueID,
+		SelectedOption: "fix-token",
+		RespondedBy:    "human",
+	})
+	if err != nil {
+		t.Fatalf("DecisionResolve failed: %v", err)
+	}
+
+	// Verify the target bead was auto-assigned
+	target, err = store.GetIssue(ctx, targetID)
+	if err != nil {
+		t.Fatalf("GetIssue after resolve failed: %v", err)
+	}
+	if target.Assignee != "obsidian-5" {
+		t.Errorf("Target bead assignee = %q, want %q", target.Assignee, "obsidian-5")
+	}
+	if target.Status != types.StatusInProgress {
+		t.Errorf("Target bead status = %q, want %q", target.Status, types.StatusInProgress)
+	}
+}
+
+// TestDecisionResolve_AutoAssignSkipsClosedBead verifies that auto-assign
+// skips beads that are already closed. (bd-isufm)
+func TestDecisionResolve_AutoAssignSkipsClosedBead(t *testing.T) {
+	_, client, store, cleanup := setupTestServerWithStore(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	// Create and close a target bead
+	targetID := createTestIssueForDecision(t, client, "Already done")
+	if err := store.CloseIssue(ctx, targetID, "already done", "someone", ""); err != nil {
+		t.Fatalf("CloseIssue failed: %v", err)
+	}
+
+	// Create a decision referencing the closed bead
+	options := []types.DecisionOption{
+		{ID: "pick", Short: "Pick", Label: "Pick this", BeadID: targetID},
+	}
+	_, err := client.DecisionCreate(&DecisionCreateArgs{
+		Prompt:      "Checkpoint",
+		Options:     options,
+		RequestedBy: "agent-1",
+	})
+	if err != nil {
+		t.Fatalf("DecisionCreate failed: %v", err)
+	}
+
+	pending, _ := store.ListPendingDecisions(ctx)
+	if len(pending) == 0 {
+		t.Fatal("No pending decisions")
+	}
+
+	// Resolve — should NOT change the closed bead
+	_, err = client.DecisionResolve(&DecisionResolveArgs{
+		IssueID:        pending[0].IssueID,
+		SelectedOption: "pick",
+		RespondedBy:    "human",
+	})
+	if err != nil {
+		t.Fatalf("DecisionResolve failed: %v", err)
+	}
+
+	target, _ := store.GetIssue(ctx, targetID)
+	if target.Status != types.StatusClosed {
+		t.Errorf("Closed bead should remain closed, got status=%q", target.Status)
+	}
+}
+
+// TestDecisionResolve_NoAutoAssignWithoutBeadID verifies that options
+// without bead_id don't trigger auto-assignment. (bd-isufm)
+func TestDecisionResolve_NoAutoAssignWithoutBeadID(t *testing.T) {
+	_, client, store, cleanup := setupTestServerWithStore(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	// Create a decision without bead_id on options
+	options := []types.DecisionOption{
+		{ID: "a", Short: "A", Label: "Option A"},
+		{ID: "b", Short: "B", Label: "Option B"},
+	}
+	_, err := client.DecisionCreate(&DecisionCreateArgs{
+		Prompt:      "Simple choice",
+		Options:     options,
+		RequestedBy: "agent-1",
+	})
+	if err != nil {
+		t.Fatalf("DecisionCreate failed: %v", err)
+	}
+
+	pending, _ := store.ListPendingDecisions(ctx)
+	if len(pending) == 0 {
+		t.Fatal("No pending decisions")
+	}
+
+	// Resolve — should succeed without any auto-assign side effects
+	_, err = client.DecisionResolve(&DecisionResolveArgs{
+		IssueID:        pending[0].IssueID,
+		SelectedOption: "a",
+		RespondedBy:    "human",
+	})
+	if err != nil {
+		t.Fatalf("DecisionResolve failed: %v", err)
+	}
+	// No assertion needed — just verify it doesn't panic or error
+}

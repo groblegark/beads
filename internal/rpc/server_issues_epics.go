@@ -4102,6 +4102,13 @@ func (s *Server) handleDecisionResolve(req *Request) Response {
 		s.pushDecisionResponseToInbox(ctx, dp, args)
 	}
 
+	// Auto-assign bead when selected option has a bead_id. (bd-isufm)
+	// This avoids the manual "bd update <id> --status=in_progress" step
+	// after a checkpoint decision selects work for the agent.
+	if args.SelectedOption != "" && dp.RequestedBy != "" {
+		s.autoAssignBeadFromDecision(ctx, store, dp, args.SelectedOption)
+	}
+
 	resp := DecisionResponse{
 		Decision: dp,
 		Issue:    issue,
@@ -4230,6 +4237,65 @@ func (s *Server) pushGateClosedToInbox(ctx context.Context, gate *types.Issue, r
 			s.bus.PublishRaw(subject, data)
 		}
 	}
+}
+
+// autoAssignBeadFromDecision checks if the selected option has a bead_id field
+// and, if so, assigns that bead to the requesting agent. Best-effort: errors
+// are logged but don't fail the decision resolve. (bd-isufm)
+func (s *Server) autoAssignBeadFromDecision(ctx context.Context, store storage.Storage, dp *types.DecisionPoint, selectedOptionID string) {
+	// Parse options from the decision point
+	var options []types.DecisionOption
+	if err := json.Unmarshal([]byte(dp.Options), &options); err != nil {
+		return // Options are unparseable — nothing to do
+	}
+
+	// Find the selected option
+	var beadID string
+	for _, opt := range options {
+		if opt.ID == selectedOptionID && opt.BeadID != "" {
+			beadID = opt.BeadID
+			break
+		}
+	}
+	if beadID == "" {
+		return // No bead_id on this option
+	}
+
+	// Look up the referenced bead
+	bead, err := store.GetIssue(ctx, beadID)
+	if err != nil || bead == nil {
+		fmt.Fprintf(os.Stderr, "decision-auto-assign: bead %s not found: %v\n", beadID, err)
+		return
+	}
+
+	// Skip if already closed
+	if bead.Status == types.StatusClosed {
+		fmt.Fprintf(os.Stderr, "decision-auto-assign: bead %s already closed, skipping\n", beadID)
+		return
+	}
+
+	// Skip if already assigned to a different agent
+	if bead.Assignee != "" && bead.Assignee != dp.RequestedBy {
+		fmt.Fprintf(os.Stderr, "decision-auto-assign: bead %s already assigned to %s (not %s), skipping\n",
+			beadID, bead.Assignee, dp.RequestedBy)
+		return
+	}
+
+	// Build update map
+	updates := map[string]interface{}{
+		"assignee": dp.RequestedBy,
+	}
+	if bead.Status == types.StatusOpen {
+		updates["status"] = string(types.StatusInProgress)
+	}
+
+	if err := store.UpdateIssue(ctx, beadID, updates, "system:decision-auto-assign"); err != nil {
+		fmt.Fprintf(os.Stderr, "decision-auto-assign: update bead %s failed: %v\n", beadID, err)
+		return
+	}
+
+	s.emitMutation(MutationUpdate, beadID, "", "")
+	fmt.Fprintf(os.Stderr, "decision-auto-assign: assigned %s to %s\n", beadID, dp.RequestedBy)
 }
 
 func (s *Server) handleDecisionList(req *Request) Response {
