@@ -89,6 +89,14 @@ func TestMailAddressToAgentID(t *testing.T) {
 		{"gastown/crew/max", "gt-gastown-crew-max"},
 		{"hq/crew/test", "gt-hq-crew-test"},
 
+		// Already bead-style IDs (sent by beads3d) — pass through as-is (bd-sd39b)
+		{"hq-mayor", "hq-mayor"},
+		{"hq-deacon", "hq-deacon"},
+		{"gt-gastown-polecat-furiosa", "gt-gastown-polecat-furiosa"},
+		{"gt-gastown-crew-toolbox", "gt-gastown-crew-toolbox"},
+		{"gt-gastown-witness", "gt-gastown-witness"},
+		{"bd-beads-polecat-obsidian", "bd-beads-polecat-obsidian"},
+
 		// Unrecognized patterns
 		{"", ""},
 		{"a/b/c/d", ""},           // Too many parts

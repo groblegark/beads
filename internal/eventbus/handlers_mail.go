@@ -121,6 +121,15 @@ func mailAddressToAgentID(address string) string {
 	// Trim trailing slash
 	address = strings.TrimSuffix(address, "/")
 
+	// Already a bead-style ID (e.g., "hq-mayor", "gt-gastown-polecat-furiosa",
+	// "bd-beads-polecat-obsidian"). beads3d sends these directly from graph
+	// node IDs; pass them through as-is. (bd-sd39b)
+	if strings.HasPrefix(address, "hq-") ||
+		strings.HasPrefix(address, "gt-") ||
+		strings.HasPrefix(address, "bd-") {
+		return address
+	}
+
 	// Town-level agents — bead IDs use "hq-" prefix (e.g., "hq-mayor").
 	switch address {
 	case "mayor":
