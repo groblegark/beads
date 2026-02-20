@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/redis/go-redis/v9"
 	"github.com/steveyegge/beads/internal/daemon"
 	"github.com/steveyegge/beads/internal/rpc"
 	"github.com/steveyegge/beads/internal/storage"
@@ -47,6 +48,19 @@ func startRPCServer(ctx context.Context, socketPath string, store storage.Storag
 	}
 
 	server := rpc.NewServerWithWispStore(socketPath, store, wispStore, workspacePath, dbPath)
+
+	// Configure Redis query cache for expensive endpoints like Graph (bd-xlv1i).
+	// Reuses the same BD_REDIS_URL. Uses a separate DB (1) to avoid key collisions with wisps.
+	if redisURL := os.Getenv("BD_REDIS_URL"); redisURL != "" {
+		redisOpts, err := redis.ParseURL(redisURL)
+		if err == nil {
+			redisOpts.DB = 1 // Use DB 1 for query cache (DB 0 = wisps)
+			client := redis.NewClient(redisOpts)
+			cache := rpc.NewRedisQueryCache(client, 0) // 0 = use default 30s TTL
+			server.SetRedisCache(cache)
+			log.Info("Redis query cache enabled for expensive endpoints")
+		}
+	}
 
 	// Configure auth token if provided
 	if authToken != "" {

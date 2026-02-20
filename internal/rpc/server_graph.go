@@ -1,9 +1,11 @@
 package rpc
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"sort"
+	"sync"
 
 	"github.com/steveyegge/beads/internal/types"
 )
@@ -11,6 +13,12 @@ import (
 // handleGraph returns nodes and edges for graph visualization (bd-hpk9f).
 // Combines issue data with dependency edges in a single response optimized
 // for 3D force-directed graph rendering.
+//
+// Performance (bd-5nrqx): Uses concurrent queries for deps/labels/counts/blocked
+// and avoids the full-table GetBlockedIssues() scan.
+// Performance (bd-xlv1i): Redis cache with 30s TTL absorbs polling load from
+// beads3d frontend, reducing Dolt CPU saturation from ~800m to near-zero for
+// repeated identical queries.
 func (s *Server) handleGraph(req *Request) Response {
 	var args GraphArgs
 	if err := json.Unmarshal(req.Args, &args); err != nil {
@@ -30,6 +38,15 @@ func (s *Server) handleGraph(req *Request) Response {
 
 	ctx, cancel := s.reqCtx(req)
 	defer cancel()
+
+	// Redis cache fast-path (bd-xlv1i): check Redis before any Dolt queries.
+	// The Redis cache uses a 30s TTL and is NOT invalidated by writes,
+	// which is acceptable for a visualization endpoint.
+	if s.redisCache != nil {
+		if cached, ok := s.redisCache.Get(ctx, OpGraph, req.Args); ok {
+			return cached
+		}
+	}
 
 	// Defaults
 	if args.Limit == 0 {
@@ -140,44 +157,75 @@ func (s *Server) handleGraph(req *Request) Response {
 		issueIDs = append(issueIDs, id)
 	}
 
-	// Batch fetch dependency records for all matched issues
-	depRecords, err := store.GetDependencyRecordsForIssues(ctx, issueIDs)
-	if err != nil {
+	// Run independent batch queries concurrently (bd-5nrqx)
+	var (
+		depRecords map[string][]*types.Dependency
+		depCounts  map[string]*types.DependencyCounts
+		labelsMap  map[string][]string
+		blockedMap map[string][]string
+		graphStats *types.Statistics
+
+		depErr, countErr, labelErr, blockedErr, statsErr error
+		wg sync.WaitGroup
+	)
+
+	wg.Add(5)
+
+	// 1. Dependency records
+	go func() {
+		defer wg.Done()
+		depRecords, depErr = store.GetDependencyRecordsForIssues(ctx, issueIDs)
+	}()
+
+	// 2. Dependency counts
+	go func() {
+		defer wg.Done()
+		depCounts, countErr = store.GetDependencyCounts(ctx, issueIDs)
+	}()
+
+	// 3. Labels
+	go func() {
+		defer wg.Done()
+		labelsMap, labelErr = store.GetLabelsForIssues(ctx, issueIDs)
+		if labelErr != nil {
+			labelsMap = make(map[string][]string)
+		}
+	}()
+
+	// 4. Blocked-by (bd-5nrqx: targeted query instead of full GetBlockedIssues scan)
+	go func() {
+		defer wg.Done()
+		blockedMap, blockedErr = s.getBlockedByForIssues(ctx, issueIDs)
+		if blockedErr != nil {
+			blockedMap = make(map[string][]string)
+		}
+	}()
+
+	// 5. Stats
+	go func() {
+		defer wg.Done()
+		graphStats, statsErr = store.GetStatistics(ctx)
+	}()
+
+	wg.Wait()
+
+	if depErr != nil {
 		return Response{
 			Success: false,
-			Error:   fmt.Sprintf("failed to get dependencies: %v", err),
+			Error:   fmt.Sprintf("failed to get dependencies: %v", depErr),
 		}
 	}
-
-	// Get dependency counts (both directions)
-	depCounts, err := store.GetDependencyCounts(ctx, issueIDs)
-	if err != nil {
+	if countErr != nil {
 		return Response{
 			Success: false,
-			Error:   fmt.Sprintf("failed to get dependency counts: %v", err),
+			Error:   fmt.Sprintf("failed to get dependency counts: %v", countErr),
 		}
 	}
 
-	// Batch fetch labels
-	labelsMap, err := store.GetLabelsForIssues(ctx, issueIDs)
-	if err != nil {
-		labelsMap = make(map[string][]string)
-	}
-
-	// Batch fetch blocked-by info
-	blockedMap := make(map[string][]string)
-	blocked, err := store.GetBlockedIssues(ctx, types.WorkFilter{})
-	if err == nil {
-		for _, bi := range blocked {
-			if _, ok := issueMap[bi.ID]; ok {
-				blockedMap[bi.ID] = bi.BlockedBy
-			}
-		}
-	}
-
-	// Build edges and optionally pull in dep targets
+	// Build edges and collect missing dep target IDs for batch fetch
 	edges := make([]GraphEdge, 0)
 	seenEdges := make(map[string]bool)
+	missingDepIDs := make(map[string]bool)
 
 	for issueID, deps := range depRecords {
 		for _, dep := range deps {
@@ -193,14 +241,26 @@ func (s *Server) handleGraph(req *Request) Response {
 				Type:   string(dep.Type),
 			})
 
-			// If include_deps, fetch the target issue even if it doesn't match filters
+			// Collect missing dep targets for batch fetch (bd-5nrqx)
 			if args.IncludeDeps {
 				if _, exists := issueMap[dep.DependsOnID]; !exists {
-					depIssue, err := store.GetIssue(ctx, dep.DependsOnID)
-					if err == nil && depIssue != nil {
-						issueMap[dep.DependsOnID] = depIssue
-					}
+					missingDepIDs[dep.DependsOnID] = true
 				}
+			}
+		}
+	}
+
+	// Batch-fetch missing dep targets (bd-5nrqx: replaces N individual GetIssue calls)
+	if len(missingDepIDs) > 0 {
+		missingIDs := make([]string, 0, len(missingDepIDs))
+		for id := range missingDepIDs {
+			missingIDs = append(missingIDs, id)
+		}
+		depFilter := types.IssueFilter{IDs: missingIDs}
+		depIssues, err := store.SearchIssues(ctx, "", depFilter)
+		if err == nil {
+			for _, issue := range depIssues {
+				issueMap[issue.ID] = issue
 			}
 		}
 	}
@@ -242,16 +302,100 @@ func (s *Server) handleGraph(req *Request) Response {
 	result.Nodes = nodes
 	result.Edges = edges
 
-	stats, err := store.GetStatistics(ctx)
-	if err == nil {
-		result.Stats.TotalOpen = stats.OpenIssues
-		result.Stats.TotalInProgress = stats.InProgressIssues
-		result.Stats.TotalBlocked = stats.BlockedIssues
+	if statsErr == nil && graphStats != nil {
+		result.Stats.TotalOpen = graphStats.OpenIssues
+		result.Stats.TotalInProgress = graphStats.InProgressIssues
+		result.Stats.TotalBlocked = graphStats.BlockedIssues
 	}
 
 	data, _ := json.Marshal(result)
-	return Response{
+	resp := Response{
 		Success: true,
 		Data:    data,
 	}
+
+	// Store in Redis cache for next poll (bd-xlv1i)
+	if s.redisCache != nil {
+		s.redisCache.Set(ctx, OpGraph, req.Args, resp)
+	}
+
+	return resp
+}
+
+// getBlockedByForIssues returns a map of issueID -> blocker IDs for the given issues.
+// This is a targeted query that only checks the given issue IDs, unlike GetBlockedIssues()
+// which scans every issue in the database (bd-5nrqx).
+func (s *Server) getBlockedByForIssues(ctx context.Context, issueIDs []string) (map[string][]string, error) {
+	if len(issueIDs) == 0 {
+		return make(map[string][]string), nil
+	}
+
+	store := s.storage
+	if store == nil {
+		return nil, fmt.Errorf("storage not available")
+	}
+
+	db := store.UnderlyingDB()
+	if db == nil {
+		// Fallback: no direct SQL access (e.g., non-Dolt backend)
+		return make(map[string][]string), nil
+	}
+
+	// Build IN clause with placeholders
+	placeholders := make([]byte, 0, len(issueIDs)*2)
+	args := make([]interface{}, len(issueIDs))
+	for i, id := range issueIDs {
+		if i > 0 {
+			placeholders = append(placeholders, ',')
+		}
+		placeholders = append(placeholders, '?')
+		args[i] = id
+	}
+
+	query := fmt.Sprintf(`
+		SELECT d.issue_id, GROUP_CONCAT(d.depends_on_id) AS blocker_ids
+		FROM dependencies d
+		JOIN issues blocker ON d.depends_on_id = blocker.id
+		WHERE d.issue_id IN (%s)
+		  AND d.type = 'blocks'
+		  AND blocker.status IN ('open', 'in_progress', 'blocked', 'deferred', 'hooked')
+		GROUP BY d.issue_id`, string(placeholders))
+
+	rows, err := db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("blocked-by query failed: %w", err)
+	}
+	defer rows.Close()
+
+	result := make(map[string][]string)
+	for rows.Next() {
+		var issueID, blockerCSV string
+		if err := rows.Scan(&issueID, &blockerCSV); err != nil {
+			return nil, fmt.Errorf("scan error: %w", err)
+		}
+		if blockerCSV != "" {
+			// Split CSV blocker IDs
+			ids := splitCSV(blockerCSV)
+			result[issueID] = ids
+		}
+	}
+	return result, rows.Err()
+}
+
+// splitCSV splits a comma-separated string into a slice.
+func splitCSV(s string) []string {
+	var result []string
+	start := 0
+	for i := 0; i < len(s); i++ {
+		if s[i] == ',' {
+			if i > start {
+				result = append(result, s[start:i])
+			}
+			start = i + 1
+		}
+	}
+	if start < len(s) {
+		result = append(result, s[start:])
+	}
+	return result
 }

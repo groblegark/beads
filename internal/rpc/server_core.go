@@ -124,6 +124,9 @@ type Server struct {
 	sessionRegOnce sync.Once
 	// Session gate backend for NATS KV (bd-vecxd, bd-rabpy)
 	gateBackend gate.GateBackend
+	// Redis client for expensive query caching (bd-xlv1i)
+	// Separate from queryCache — not invalidated by writes, uses longer TTL.
+	redisCache *RedisQueryCache
 }
 
 // Mutation event types
@@ -624,6 +627,15 @@ func (s *Server) SetAPIVersion(version string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.apiVersion = version
+}
+
+// SetRedisCache configures a Redis-backed cache for expensive queries (bd-xlv1i).
+// Unlike the in-memory QueryCache, this is NOT invalidated by writes and uses a
+// longer TTL, making it suitable for visualization endpoints like Graph.
+func (s *Server) SetRedisCache(cache *RedisQueryCache) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.redisCache = cache
 }
 
 // HTTPServer returns the HTTP server instance, or nil if not configured.

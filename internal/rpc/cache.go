@@ -50,6 +50,10 @@ var CacheableOperations = map[string]bool{
 	OpGateList:      true,
 	OpGateShow:      true,
 	OpResolveID:     true,
+	OpGraph:         true, // bd-5nrqx: beads3d polling optimization
+	OpBurndown:      true, // beads-cqpj
+	OpVelocity:      true, // beads-cqpj
+	OpCycleTime:     true, // beads-cqpj
 }
 
 // NewQueryCache creates a new query cache with the given TTL.
