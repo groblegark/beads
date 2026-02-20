@@ -509,25 +509,35 @@ func (s *Server) handleGraph(req *Request) Response {
 			}
 		}
 
-		// Source 2: Issue assignees (catches agents not in roster,
-		// e.g. local dev without NATS)
+		// Source 2: Issue assignees — create fallback agent nodes for agents not
+		// found in Source 0 or Source 1 (e.g. local dev without NATS).
 		for _, issue := range issueMap {
 			if issue.Assignee == "" {
 				continue
 			}
-			agentNodeID := "agent:" + issue.Assignee
 			if _, exists := agentNodes[issue.Assignee]; !exists {
 				agentNodes[issue.Assignee] = &GraphNode{
-					ID:        agentNodeID,
+					ID:        "agent:" + issue.Assignee,
 					Title:     issue.Assignee,
 					IssueType: "agent",
 				}
 			}
-			edges = append(edges, GraphEdge{
-				Source: agentNodeID,
-				Target: issue.ID,
-				Type:   "assigned_to",
-			})
+		}
+
+		// Create assigned_to edges from agent nodes to their issues (bd-988ef).
+		// This is a separate pass over issueMap so that edges are created for ALL
+		// agents regardless of which source discovered them (Source 0/1/2).
+		for _, issue := range issueMap {
+			if issue.Assignee == "" {
+				continue
+			}
+			if _, exists := agentNodes[issue.Assignee]; exists {
+				edges = append(edges, GraphEdge{
+					Source: "agent:" + issue.Assignee,
+					Target: issue.ID,
+					Type:   "assigned_to",
+				})
+			}
 		}
 
 		for _, node := range agentNodes {
@@ -548,7 +558,8 @@ func (s *Server) handleGraph(req *Request) Response {
 	openActiveSet := make(map[string]bool)
 	neighbors := make(map[string][]string)
 	for _, n := range nodes {
-		if n.Status == "open" || n.Status == "in_progress" || n.Status == "blocked" || n.Status == "hooked" || n.Status == "deferred" {
+		if n.Status == "open" || n.Status == "in_progress" || n.Status == "blocked" || n.Status == "hooked" || n.Status == "deferred" ||
+			n.Status == "active" || n.Status == "idle" { // bd-988ef: treat live agents as active nodes
 			openActiveSet[n.ID] = true
 		}
 	}
