@@ -56,7 +56,7 @@ func (s *Server) handleGraph(req *Request) Response {
 		args.Status = []string{"open", "in_progress"}
 	}
 	if len(args.ExcludeTypes) == 0 {
-		args.ExcludeTypes = []string{"message", "config"}
+		args.ExcludeTypes = []string{"message", "config", "molecule"}
 	}
 
 	// Build base filter
@@ -416,8 +416,11 @@ func (s *Server) handleGraph(req *Request) Response {
 	}
 	filteredNodes := make([]GraphNode, 0, len(nodes))
 	for _, n := range nodes {
-		if (n.IssueType == "gate" || n.IssueType == "decision") && !connectedIDs[n.ID] {
-			continue // drop disconnected gates and decisions (bd-t25i1)
+		switch n.IssueType {
+		case "gate", "decision", "molecule":
+			if !connectedIDs[n.ID] {
+				continue // drop disconnected gates, decisions, and molecules (bd-t25i1)
+			}
 		}
 		filteredNodes = append(filteredNodes, n)
 	}

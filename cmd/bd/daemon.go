@@ -872,6 +872,50 @@ func runDaemonLoop(interval time.Duration, autoCommit, autoPush, autoPull, local
 				}
 			},
 		})
+
+		// Auto-create agent beads for new agents seen by the PresenceTracker. (bd-3zjmy)
+		// When a previously-unknown agent appears in NATS events, check if it has
+		// a bead in storage. If not, create one with gt:agent + role_type/rig labels.
+		if store != nil {
+			pt.OnNewAgent = func(actor string) {
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+
+				// Check if bead already exists.
+				if _, err := store.GetIssue(ctx, actor); err == nil {
+					return // already exists
+				}
+
+				roleType, rig := parseAgentIDFields(actor)
+				issue := &types.Issue{
+					ID:        actor,
+					Title:     fmt.Sprintf("Agent: %s", actor),
+					IssueType: types.TypeTask,
+					Status:    types.StatusOpen,
+					RoleType:  roleType,
+					Rig:       rig,
+					CreatedBy: "presence-tracker",
+				}
+				if err := store.CreateIssue(ctx, issue, "presence-tracker"); err != nil {
+					log.Warn("failed to auto-create agent bead", "agent", actor, "error", err)
+					return
+				}
+				// Add labels.
+				labels := []string{"gt:agent"}
+				if roleType != "" {
+					labels = append(labels, "role_type:"+roleType)
+				}
+				if rig != "" {
+					labels = append(labels, "rig:"+rig)
+				}
+				for _, lbl := range labels {
+					if err := store.AddLabel(ctx, actor, lbl, "presence-tracker"); err != nil {
+						log.Warn("failed to add label to agent bead", "agent", actor, "label", lbl, "error", err)
+					}
+				}
+				log.Info("auto-created agent bead", "agent", actor, "role_type", roleType, "rig", rig)
+			}
+		}
 	}
 
 	// Load persisted external handlers from config table (bd-4q86.1)

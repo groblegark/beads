@@ -34,6 +34,12 @@ type PresenceTracker struct {
 	subs    []*nats.Subscription
 	started time.Time
 
+	// OnNewAgent is called when the tracker first sees an agent that has
+	// no prior state. The callback receives the actor name. Use this to
+	// auto-create agent beads in storage. Called under NO lock — safe to
+	// make blocking calls. (bd-3zjmy)
+	OnNewAgent func(actor string)
+
 	// Reaper goroutine state (bd-khlpu).
 	reaperStop chan struct{}
 	reaperDone chan struct{}
@@ -396,13 +402,14 @@ func (pt *PresenceTracker) handleHookEvent(msg *nats.Msg) {
 	}
 
 	now := time.Now()
+	var isNew bool
 	pt.mu.Lock()
-	defer pt.mu.Unlock()
 
 	state, ok := pt.actors[event.Actor]
 	if !ok {
 		state = &actorState{firstSeen: now}
 		pt.actors[event.Actor] = state
+		isNew = true
 	}
 	// Resurrect reaped actors that come back to life. (bd-khlpu)
 	if state.reaped {
@@ -431,6 +438,12 @@ func (pt *PresenceTracker) handleHookEvent(msg *nats.Msg) {
 		Summary:   extractToolSummary(event.ToolName, event.ToolInput),
 	}
 	appendRecentEvent(state, re)
+	pt.mu.Unlock()
+
+	// Fire OnNewAgent callback outside the lock for new agents. (bd-3zjmy)
+	if isNew && pt.OnNewAgent != nil {
+		go pt.OnNewAgent(event.Actor)
+	}
 }
 
 // appendRecentEvent adds an event to the actor's ring buffer, evicting the oldest
@@ -587,13 +600,14 @@ func (pt *PresenceTracker) handleAgentEvent(msg *nats.Msg) {
 	eventType := EventTypeFromSubject(msg.Subject)
 
 	now := time.Now()
+	var isNew bool
 	pt.mu.Lock()
-	defer pt.mu.Unlock()
 
 	state, ok := pt.actors[actor]
 	if !ok {
 		state = &actorState{firstSeen: now}
 		pt.actors[actor] = state
+		isNew = true
 	}
 	// Resurrect reaped actors that come back to life. (bd-khlpu)
 	if state.reaped {
@@ -614,4 +628,10 @@ func (pt *PresenceTracker) handleAgentEvent(msg *nats.Msg) {
 		EventType: eventType,
 	}
 	appendRecentEvent(state, re)
+	pt.mu.Unlock()
+
+	// Fire OnNewAgent callback outside the lock for new agents. (bd-3zjmy)
+	if isNew && pt.OnNewAgent != nil {
+		go pt.OnNewAgent(actor)
+	}
 }
