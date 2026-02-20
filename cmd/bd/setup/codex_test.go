@@ -5,15 +5,6 @@ import (
 	"testing"
 )
 
-func stubCodexEnvProvider(t *testing.T, env agentsEnv) {
-	t.Helper()
-	orig := codexEnvProvider
-	codexEnvProvider = func() agentsEnv {
-		return env
-	}
-	t.Cleanup(func() { codexEnvProvider = orig })
-}
-
 func TestInstallCodexCreatesNewFile(t *testing.T) {
 	env, stdout, _ := newFactoryTestEnv(t)
 	if err := installCodex(env); err != nil {

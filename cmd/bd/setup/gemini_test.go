@@ -36,18 +36,6 @@ func newGeminiTestEnv(t *testing.T) (geminiEnv, *bytes.Buffer, *bytes.Buffer) {
 	return env, stdout, stderr
 }
 
-func stubGeminiEnvProvider(t *testing.T, env geminiEnv, err error) {
-	t.Helper()
-	orig := geminiEnvProvider
-	geminiEnvProvider = func() (geminiEnv, error) {
-		if err != nil {
-			return geminiEnv{}, err
-		}
-		return env, nil
-	}
-	t.Cleanup(func() { geminiEnvProvider = orig })
-}
-
 func writeGeminiSettings(t *testing.T, path string, settings map[string]interface{}) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
