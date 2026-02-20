@@ -354,9 +354,29 @@ func (s *Server) handleGraph(req *Request) Response {
 		nodes = append(nodes, node)
 	}
 
-	// Add agent nodes with assignment edges (bd-cd86r, bd-bpcqy)
+	// Add agent nodes with assignment edges (bd-cd86r, bd-bpcqy, bd-sym2a)
 	if args.IncludeAgents {
 		agentNodes := make(map[string]*GraphNode) // agent name -> node
+
+		// Source 0: Real agent beads from storage (gt:agent label). (bd-sym2a)
+		// These have rich metadata (labels, notes, rig, role_type) and are the
+		// preferred source. Synthetic nodes from roster/assignees are fallbacks.
+		agentBeads, beadErr := store.GetIssuesByLabel(ctx, "gt:agent")
+		if beadErr == nil {
+			for _, ab := range agentBeads {
+				if ab.Status == "tombstone" || ab.Status == "closed" {
+					continue
+				}
+				agentNodes[ab.ID] = &GraphNode{
+					ID:        "agent:" + ab.ID,
+					Title:     ab.ID,
+					IssueType: "agent",
+					Rig:       ab.Rig,
+					Labels:    ab.Labels,
+					CreatedAt: ab.CreatedAt.Format("2006-01-02T15:04:05Z"),
+				}
+			}
+		}
 
 		// Source 1: Live roster from presence tracker (shows ALL active agents,
 		// including ephemeral workers without assigned beads)
@@ -366,16 +386,20 @@ func (s *Server) handleGraph(req *Request) Response {
 					if e.Reaped {
 						continue
 					}
-					agentNodeID := "agent:" + e.Actor
 					status := "idle"
 					if e.IdleSecs < 30 {
 						status = "active"
 					}
-					agentNodes[e.Actor] = &GraphNode{
-						ID:        agentNodeID,
-						Title:     e.Actor,
-						IssueType: "agent",
-						Status:    status,
+					if existing, ok := agentNodes[e.Actor]; ok {
+						// Enrich real bead node with live status. (bd-sym2a)
+						existing.Status = status
+					} else {
+						agentNodes[e.Actor] = &GraphNode{
+							ID:        "agent:" + e.Actor,
+							Title:     e.Actor,
+							IssueType: "agent",
+							Status:    status,
+						}
 					}
 				}
 			}
