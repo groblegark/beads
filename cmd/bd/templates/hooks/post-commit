@@ -1,0 +1,19 @@
+#!/usr/bin/env sh
+# bd-shim v1
+# bd-hooks-version: 2026.218.5
+#
+# bd (beads) post-commit hook - thin shim
+#
+# This shim delegates to 'bd hooks run post-commit' which contains
+# the actual hook logic. This pattern ensures hook behavior is always
+# in sync with the installed bd version - no manual updates needed.
+#
+# The post-commit hook records the association between the commit
+# and any active molecule (task) for commit tracking.
+
+# Check if bd is available
+if ! command -v bd >/dev/null 2>&1; then
+    exit 0
+fi
+
+exec bd hooks run post-commit "$@"

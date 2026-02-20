@@ -13,6 +13,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/steveyegge/beads/internal/beads"
 	"github.com/steveyegge/beads/internal/git"
+	"github.com/steveyegge/beads/internal/rpc"
 )
 
 //go:embed templates/hooks/*
@@ -20,7 +21,7 @@ var hooksFS embed.FS
 
 func getEmbeddedHooks() (map[string]string, error) {
 	hooks := make(map[string]string)
-	hookNames := []string{"post-merge", "pre-push", "post-checkout", "prepare-commit-msg"}
+	hookNames := []string{"post-merge", "pre-push", "post-checkout", "prepare-commit-msg", "post-commit"}
 
 	for _, name := range hookNames {
 		content, err := hooksFS.ReadFile("templates/hooks/" + name)
@@ -51,7 +52,7 @@ type HookStatus struct {
 
 // CheckGitHooks checks the status of bd git hooks in .git/hooks/
 func CheckGitHooks() []HookStatus {
-	hooks := []string{"post-merge", "pre-push", "post-checkout", "prepare-commit-msg"}
+	hooks := []string{"post-merge", "pre-push", "post-checkout", "prepare-commit-msg", "post-commit"}
 	statuses := make([]HookStatus, 0, len(hooks))
 
 	// Get hooks directory from common git dir (hooks are shared across worktrees)
@@ -464,7 +465,7 @@ func uninstallHooks() error {
 	if err != nil {
 		return err
 	}
-	hookNames := []string{"post-merge", "pre-push", "post-checkout", "prepare-commit-msg"}
+	hookNames := []string{"post-merge", "pre-push", "post-checkout", "prepare-commit-msg", "post-commit"}
 
 	for _, hookName := range hookNames {
 		hookPath := filepath.Join(hooksDir, hookName)
@@ -746,6 +747,84 @@ func runPrepareCommitMsgHook(args []string) int {
 	return 0
 }
 
+// runPostCommitHook records the commit-bead association after a commit completes.
+// It detects the active molecule (task) and calls RecordCommit RPC. (bd-tm8dg)
+// Returns 0 on success (or if not applicable), non-zero on error.
+//
+//nolint:unparam // Always returns 0 by design - we don't block commits
+func runPostCommitHook(_ []string) int {
+	// Run chained hook first (if exists)
+	if exitCode := runChainedHook("post-commit", nil); exitCode != 0 {
+		return exitCode
+	}
+
+	// Need a daemon client to record the commit
+	client := getDaemonClient()
+	if client == nil {
+		return 0 // No daemon, nothing to record
+	}
+
+	// Detect agent identity to get molecule (current task)
+	identity := detectAgentIdentity()
+	if identity == nil || identity.Molecule == "" {
+		return 0 // No active molecule, nothing to link
+	}
+
+	// Get HEAD SHA
+	shaCmd := exec.Command("git", "rev-parse", "HEAD")
+	shaOut, err := shaCmd.Output()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: post-commit hook could not get HEAD SHA: %v\n", err)
+		return 0
+	}
+	commitSHA := strings.TrimSpace(string(shaOut))
+	if commitSHA == "" {
+		return 0
+	}
+
+	// Get branch name
+	branchCmd := exec.Command("git", "branch", "--show-current")
+	branchOut, _ := branchCmd.Output()
+	branch := strings.TrimSpace(string(branchOut))
+
+	// Get remote URL (best effort)
+	remoteCmd := exec.Command("git", "remote", "get-url", "origin")
+	remoteOut, _ := remoteCmd.Output()
+	repoURL := strings.TrimSpace(string(remoteOut))
+
+	// Get commit message (first line)
+	msgCmd := exec.Command("git", "log", "-1", "--format=%s", "HEAD")
+	msgOut, _ := msgCmd.Output()
+	message := strings.TrimSpace(string(msgOut))
+
+	// Get commit author
+	authorCmd := exec.Command("git", "log", "-1", "--format=%an <%ae>", "HEAD")
+	authorOut, _ := authorCmd.Output()
+	author := strings.TrimSpace(string(authorOut))
+
+	// Get commit timestamp
+	timeCmd := exec.Command("git", "log", "-1", "--format=%aI", "HEAD")
+	timeOut, _ := timeCmd.Output()
+	committedAt := strings.TrimSpace(string(timeOut))
+
+	// Record the commit-bead association
+	_, err = client.RecordCommit(&rpc.RecordCommitArgs{
+		IssueID:     identity.Molecule,
+		CommitSHA:   commitSHA,
+		RepoURL:     repoURL,
+		Branch:      branch,
+		Author:      author,
+		Message:     message,
+		CommittedAt: committedAt,
+	})
+	if err != nil {
+		// Don't block commits on recording failure — just warn
+		fmt.Fprintf(os.Stderr, "Warning: could not record commit-bead association: %v\n", err)
+	}
+
+	return 0
+}
+
 // agentIdentity holds detected agent context information.
 type agentIdentity struct {
 	FullIdentity string // e.g., "beads/crew/dave"
@@ -968,6 +1047,7 @@ Supported hooks:
   - pre-push: Prevent pushing stale JSONL
   - post-checkout: Import JSONL after branch checkout
   - prepare-commit-msg: Add agent identity trailers for forensics
+  - post-commit: Record commit-bead association for active molecules
 
 The thin shim pattern ensures hook logic is always in sync with the
 installed bd version - upgrading bd automatically updates hook behavior.
@@ -988,6 +1068,8 @@ Note: The pre-commit hook was removed because Dolt handles sync automatically.`,
 			exitCode = runPostCheckoutHook(hookArgs)
 		case "prepare-commit-msg":
 			exitCode = runPrepareCommitMsgHook(hookArgs)
+		case "post-commit":
+			exitCode = runPostCommitHook(hookArgs)
 		default:
 			fmt.Fprintf(os.Stderr, "Unknown hook: %s\n", hookName)
 			os.Exit(1)
