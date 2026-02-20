@@ -54,7 +54,11 @@ func (s *Server) handleGraph(req *Request) Response {
 		args.Limit = 500
 	}
 	if len(args.Status) == 0 {
-		args.Status = []string{"open", "in_progress"}
+		args.Status = []string{"open", "in_progress", "closed"}
+		// Default: show recently-closed items (24h) alongside active ones (bd-rkd71)
+		if args.MaxAgeDays == 0 {
+			args.MaxAgeDays = 1
+		}
 	}
 	if len(args.ExcludeTypes) == 0 {
 		args.ExcludeTypes = []string{"message", "config", "molecule", "formula", "advice", "role"}
@@ -301,6 +305,12 @@ func (s *Server) handleGraph(req *Request) Response {
 	}
 
 	// Batch-fetch missing dep targets (bd-5nrqx: replaces N individual GetIssue calls)
+	// Apply ExcludeTypes to prevent molecules and other excluded types from leaking
+	// into the graph via dependency edges (bd-rkd71).
+	excludeTypeSet := make(map[types.IssueType]bool, len(args.ExcludeTypes))
+	for _, t := range args.ExcludeTypes {
+		excludeTypeSet[types.IssueType(t)] = true
+	}
 	if len(missingDepIDs) > 0 {
 		missingIDs := make([]string, 0, len(missingDepIDs))
 		for id := range missingDepIDs {
@@ -310,6 +320,9 @@ func (s *Server) handleGraph(req *Request) Response {
 		depIssues, err := store.SearchIssues(ctx, "", depFilter)
 		if err == nil {
 			for _, issue := range depIssues {
+				if excludeTypeSet[issue.IssueType] {
+					continue
+				}
 				issueMap[issue.ID] = issue
 			}
 		}
@@ -348,6 +361,9 @@ func (s *Server) handleGraph(req *Request) Response {
 			candidates, err := store.SearchIssues(ctx, "", candidateFilter)
 			if err == nil {
 				for _, issue := range candidates {
+					if excludeTypeSet[issue.IssueType] {
+						continue
+					}
 					if issue.Status == types.StatusClosed {
 						// Apply age filter if set
 						if args.MaxAgeDays > 0 {
@@ -557,10 +573,14 @@ func (s *Server) handleGraph(req *Request) Response {
 
 	filteredNodes := make([]GraphNode, 0, len(nodes))
 	for _, n := range nodes {
+		// Always drop molecules — they clutter the graph (bd-rkd71)
+		if n.IssueType == "molecule" {
+			continue
+		}
 		switch n.IssueType {
-		case "gate", "decision", "molecule":
+		case "gate", "decision":
 			if !connectedIDs[n.ID] {
-				continue // drop disconnected gates, decisions, and molecules (bd-t25i1)
+				continue // drop disconnected gates and decisions (bd-t25i1)
 			}
 		}
 		// Drop closed nodes not connected to any open/active item (bd-71kcv)
