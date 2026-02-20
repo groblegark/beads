@@ -924,6 +924,12 @@ func (s *Server) handleUpdate(req *Request) Response {
 	actor := s.reqActor(req)
 
 	// Pre-validate claim before transaction (pure check against pre-fetched issue)
+	if updateArgs.Claim && issue.IssueType == types.TypeEpic && !updateArgs.ClaimForce {
+		return Response{
+			Success: false,
+			Error:   fmt.Sprintf("cannot claim epic %s directly — please create or assign a sub-task instead (use --force to override)", updateArgs.ID),
+		}
+	}
 	if updateArgs.Claim && issue.Assignee != "" {
 		return Response{
 			Success: false,
@@ -1452,6 +1458,25 @@ func (s *Server) handleClose(req *Request) Response {
 			return Response{
 				Success: false,
 				Error:   fmt.Sprintf("cannot close %s: blocked by open issues %v (use --force to override)", closeArgs.ID, blockers),
+			}
+		}
+	}
+
+	// Warn when closing an epic with open sub-tasks (bd-gzk0p)
+	if issue != nil && issue.IssueType == types.TypeEpic && !closeArgs.Force {
+		dependents, err := store.GetDependents(ctx, closeArgs.ID)
+		if err == nil {
+			var openChildren []string
+			for _, dep := range dependents {
+				if dep.Status != types.StatusClosed && dep.Status != types.StatusTombstone {
+					openChildren = append(openChildren, dep.ID)
+				}
+			}
+			if len(openChildren) > 0 {
+				return Response{
+					Success: false,
+					Error:   fmt.Sprintf("epic %s has %d open sub-tasks %v (use --force to close anyway)", closeArgs.ID, len(openChildren), openChildren),
+				}
 			}
 		}
 	}

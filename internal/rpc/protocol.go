@@ -373,7 +373,8 @@ type UpdateArgs struct {
 	EventTarget   *string `json:"event_target,omitempty"`   // Entity URI or bead ID affected
 	EventPayload  *string `json:"event_payload,omitempty"`  // Event-specific JSON data
 	// Work queue claim operation
-	Claim bool `json:"claim,omitempty"` // If true, atomically claim issue (set assignee+status, fail if already claimed)
+	Claim      bool `json:"claim,omitempty"`       // If true, atomically claim issue (set assignee+status, fail if already claimed)
+	ClaimForce bool `json:"claim_force,omitempty"` // If true, allow claiming epics (bd-gzk0p)
 	// Time-based scheduling fields (GH#820)
 	DueAt      *string `json:"due_at,omitempty"`      // Relative or ISO format due date
 	DeferUntil *string `json:"defer_until,omitempty"` // Relative or ISO format defer date

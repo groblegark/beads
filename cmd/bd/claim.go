@@ -50,11 +50,14 @@ Examples:
 
 		requireDaemon("claim")
 
+		force, _ := cmd.Flags().GetBool("force")
+
 		// Handle local IDs
 		for _, resolvedID := range batch.ResolvedIDs {
 			updateArgs := &rpc.UpdateArgs{
-				ID:    resolvedID,
-				Claim: true,
+				ID:         resolvedID,
+				Claim:      true,
+				ClaimForce: force,
 			}
 
 			resp, err := daemonClient.Update(updateArgs)
@@ -81,8 +84,9 @@ Examples:
 		forEachRoutedID(batch.RoutedArgs, func(resolvedID string, routedClient *rpc.Client) error {
 			routedClient.SetActor(actor)
 			updateArgs := &rpc.UpdateArgs{
-				ID:    resolvedID,
-				Claim: true,
+				ID:         resolvedID,
+				Claim:      true,
+				ClaimForce: force,
 			}
 
 			resp, updateErr := routedClient.Update(updateArgs)
@@ -109,5 +113,6 @@ Examples:
 }
 
 func init() {
+	claimCmd.Flags().BoolP("force", "f", false, "Force claim even for epics")
 	rootCmd.AddCommand(claimCmd)
 }
