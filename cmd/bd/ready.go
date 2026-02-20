@@ -190,6 +190,9 @@ This is useful for agents executing molecules to see which steps can run next.`,
 					if issue.Assignee != "" {
 						fmt.Printf("   Assignee: %s\n", issue.Assignee)
 					}
+					if issue.Rig != "" {
+						fmt.Printf("   Rig: %s\n", issue.Rig)
+					}
 				}
 				fmt.Println()
 			}

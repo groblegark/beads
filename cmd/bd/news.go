@@ -429,6 +429,12 @@ func printNewsIssue(issue *types.Issue) {
 		assigneeStr = fmt.Sprintf("@%s", issue.Assignee)
 	}
 
+	// Show rig context in brackets after assignee (bd-5zk2h)
+	rigStr := ""
+	if issue.Rig != "" {
+		rigStr = fmt.Sprintf(" %s", ui.RenderMuted("["+issue.Rig+"]"))
+	}
+
 	// Use closed_at for closed issues, updated_at otherwise
 	ageTime := issue.UpdatedAt
 	if issue.Status == types.StatusClosed && issue.ClosedAt != nil {
@@ -441,10 +447,11 @@ func printNewsIssue(issue *types.Issue) {
 		createdByStr = fmt.Sprintf(" by %s", ui.RenderMuted(issue.CreatedBy))
 	}
 
-	fmt.Printf("  %s %s  %s  %s%s  %s\n",
+	fmt.Printf("  %s %s  %s%s  %s%s  %s\n",
 		statusIcon,
 		ui.RenderID(issue.ID),
 		assigneeStr,
+		rigStr,
 		ui.RenderMuted(age),
 		createdByStr,
 		issue.Title)
