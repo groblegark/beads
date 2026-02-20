@@ -297,28 +297,56 @@ func (s *Server) handleGraph(req *Request) Response {
 		nodes = append(nodes, node)
 	}
 
-	// Add agent nodes with assignment edges (bd-cd86r)
+	// Add agent nodes with assignment edges (bd-cd86r, bd-bpcqy)
 	if args.IncludeAgents {
-		agentIssues := make(map[string][]string) // agent name -> list of assigned issue IDs
-		for _, issue := range issueMap {
-			if issue.Assignee != "" {
-				agentIssues[issue.Assignee] = append(agentIssues[issue.Assignee], issue.ID)
+		agentNodes := make(map[string]*GraphNode) // agent name -> node
+
+		// Source 1: Live roster from presence tracker (shows ALL active agents,
+		// including ephemeral workers without assigned beads)
+		if s.bus != nil {
+			if pt := s.bus.Presence(); pt != nil {
+				for _, e := range pt.Roster(0) {
+					if e.Reaped {
+						continue
+					}
+					agentNodeID := "agent:" + e.Actor
+					status := "idle"
+					if e.IdleSecs < 30 {
+						status = "active"
+					}
+					agentNodes[e.Actor] = &GraphNode{
+						ID:        agentNodeID,
+						Title:     e.Actor,
+						IssueType: "agent",
+						Status:    status,
+					}
+				}
 			}
 		}
-		for agent, assignedIDs := range agentIssues {
-			agentNodeID := "agent:" + agent
-			nodes = append(nodes, GraphNode{
-				ID:        agentNodeID,
-				Title:     agent,
-				IssueType: "agent",
-			})
-			for _, issueID := range assignedIDs {
-				edges = append(edges, GraphEdge{
-					Source: agentNodeID,
-					Target: issueID,
-					Type:   "assigned_to",
-				})
+
+		// Source 2: Issue assignees (catches agents not in roster,
+		// e.g. local dev without NATS)
+		for _, issue := range issueMap {
+			if issue.Assignee == "" {
+				continue
 			}
+			agentNodeID := "agent:" + issue.Assignee
+			if _, exists := agentNodes[issue.Assignee]; !exists {
+				agentNodes[issue.Assignee] = &GraphNode{
+					ID:        agentNodeID,
+					Title:     issue.Assignee,
+					IssueType: "agent",
+				}
+			}
+			edges = append(edges, GraphEdge{
+				Source: agentNodeID,
+				Target: issue.ID,
+				Type:   "assigned_to",
+			})
+		}
+
+		for _, node := range agentNodes {
+			nodes = append(nodes, *node)
 		}
 	}
 
