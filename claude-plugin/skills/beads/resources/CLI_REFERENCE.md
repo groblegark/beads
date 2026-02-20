@@ -11,6 +11,7 @@
 - [Dependencies & Labels](#dependencies--labels)
 - [Filtering & Search](#filtering--search)
 - [Visualization](#visualization)
+- [Commit Tracking](#commit-tracking)
 - [Advanced Operations](#advanced-operations)
 - [Database Management](#database-management)
 
@@ -169,6 +170,22 @@ bd edit <id> --design           # Edit design notes
 bd edit <id> --notes            # Edit notes
 bd edit <id> --acceptance       # Edit acceptance criteria
 ```
+
+### Claim/Unclaim Issues
+
+```bash
+# Claim an issue (atomically sets assignee + status=in_progress)
+bd claim <id>                  # Claim a specific issue
+bd claim                       # Claim the last touched issue
+bd claim <id> --force          # Force claim (bypass single-assignment check)
+
+# Release claimed work back to the available pool
+bd unclaim <id>                # Release one issue (sets open + clears assignee)
+bd unclaim <id1> <id2>         # Release multiple issues
+bd unclaim                     # Release the last touched issue
+```
+
+**Note:** `bd claim` auto-populates git branch and commit metadata on the issue, and enforces single-assignment (one in_progress task per agent). Use `--force` to override.
 
 ### Close/Reopen Issues
 
@@ -340,6 +357,40 @@ bd graph --all
 - Nodes in the same layer can run in parallel
 
 **Status icons:** ○ open  ◐ in_progress  ● blocked  ✓ closed  ❄ deferred
+
+## Commit Tracking
+
+### Automatic Tracking (Post-Commit Hook)
+
+When `bd hooks install` is run, a post-commit hook is installed that automatically links commits to the agent's active task (molecule). No manual action needed — commits are tracked as you work.
+
+### Manual Commit Linking
+
+```bash
+# Link a commit to a bead manually (escape hatch for pre-hook commits)
+bd commit link <issue-id> <commit-sha>
+bd commit link bd-abc 1f765486 --branch main --message "feat: add feature"
+bd commit link bd-abc 1f765486 --author "Alice <alice@example.com>" --repo https://github.com/org/repo
+```
+
+### View Commit History
+
+```bash
+# Show commits for a bead
+bd commit list <issue-id>                  # Full commit history
+bd commit list bd-abc --limit 5            # Limit results
+bd commit list bd-abc --json               # JSON output
+
+# Shorthand alias
+bd log <issue-id>                          # Same as 'bd commit list'
+bd log bd-abc --limit 10
+
+# Show beads linked to a commit
+bd commit show <commit-sha>                # Reverse lookup: commit → beads
+bd commit show 1f765486 --json
+```
+
+**Note:** Commits are also shown in `bd show <id>` output under the COMMITS section.
 
 ## Global Flags
 
@@ -634,13 +685,16 @@ bd ready
 # 1. Find available work
 bd ready --json
 
-# 2. Claim issue
-bd update bd-42 --status in_progress --json
+# 2. Claim issue (sets assignee + status=in_progress, records git branch)
+bd claim bd-42
 
-# 3. Work on it...
+# 3. Work on it... (commits auto-linked via post-commit hook)
 
 # 4. Close when done
 bd close bd-42 --reason "Implemented and tested" --json
+
+# If you can't finish, release back to pool
+bd unclaim bd-42
 ```
 
 ### Discover and Link Work
