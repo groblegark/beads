@@ -36,7 +36,7 @@ bd create "Found bug" --description="Details" --deps discovered-from:bd-42 --jso
 
 ### Working on Issues
 ` + "```bash" + `
-bd update <id> --status in_progress  # Claim work
+bd claim <id>                         # Claim work (sets assignee + in_progress)
 bd update <id> --priority 1          # Change priority
 bd close <id> --reason "Completed"   # Mark complete
 ` + "```" + `

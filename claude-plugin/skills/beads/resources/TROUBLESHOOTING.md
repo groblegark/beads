@@ -132,7 +132,7 @@ This is **expected behavior**, not a bug. Understanding requires knowing bd's ar
 **Option 1: Use daemon mode (recommended)**
 ```bash
 # Don't use --no-daemon for CRUD operations
-bd update issue-1 --status in_progress
+bd claim issue-1
 bd show issue-1
 # ✓ Status reflects immediately
 ```

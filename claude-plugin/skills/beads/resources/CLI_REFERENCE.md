@@ -731,8 +731,8 @@ bd ready --json  # Find work
 
 # During session
 bd create "..." -p 1 --json
-bd update bd-42 --status in_progress --json
-# ... work ...
+bd claim bd-42   # Sets assignee + in_progress, records git branch
+# ... work ... (commits auto-linked via post-commit hook)
 
 # End of session - Dolt handles sync automatically
 ```
