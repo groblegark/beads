@@ -326,7 +326,7 @@ func TestDoneWaitEventFilter(t *testing.T) {
 		t.Fatalf("InboxPush failed: %v", err)
 	}
 
-	// Decision-only wait with short timeout should timeout (no NATS = can't poll decisions).
+	// Decision-only wait with short timeout should timeout if no decisions are responded.
 	result, err := client.DoneWait(&DoneWaitArgs{
 		AgentName:  "filter-agent",
 		TimeoutSec: 2,
@@ -336,6 +336,289 @@ func TestDoneWaitEventFilter(t *testing.T) {
 		t.Fatalf("DoneWait error: %v", err)
 	}
 	if !result.TimedOut {
-		t.Errorf("expected timeout for decision-only with no NATS, got event=%s", result.EventType)
+		t.Errorf("expected timeout for decision-only with no responded decisions, got event=%s", result.EventType)
+	}
+}
+
+// TestDoneWaitDecisionPreCheck verifies that DoneWait returns immediately when
+// a decision was already responded to before the wait starts. This is the
+// regression test for bd-yvhxp (yield hangs forever when decision response
+// arrives before NATS subscription).
+func TestDoneWaitDecisionPreCheck(t *testing.T) {
+	_, client, store, cleanup := setupTestServerWithStore(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	// Create a decision point and respond to it BEFORE calling DoneWait.
+	dp := &types.DecisionPoint{
+		IssueID:     "bd-precheck-test",
+		Prompt:      "Pre-check test decision",
+		Options:     `[{"id":"a","label":"A"},{"id":"b","label":"B"}]`,
+		RequestedBy: "precheck-agent",
+		CreatedAt:   time.Now().UTC(),
+	}
+
+	// Need a gate issue for the decision.
+	issue := &types.Issue{
+		ID:        dp.IssueID,
+		Title:     "Pre-check gate",
+		Status:    types.StatusOpen,
+		IssueType: "gate",
+		Priority:  2,
+		CreatedAt: time.Now().UTC(),
+		UpdatedAt: time.Now().UTC(),
+	}
+	if err := store.CreateIssue(ctx, issue, "test"); err != nil {
+		t.Fatalf("CreateIssue failed: %v", err)
+	}
+	if err := store.CreateDecisionPoint(ctx, dp); err != nil {
+		t.Fatalf("CreateDecisionPoint failed: %v", err)
+	}
+
+	// Respond to the decision BEFORE calling DoneWait.
+	now := time.Now().UTC()
+	dp.SelectedOption = "a"
+	dp.ResponseText = "Chose A"
+	dp.RespondedBy = "human"
+	dp.RespondedAt = &now
+	if err := store.UpdateDecisionPoint(ctx, dp); err != nil {
+		t.Fatalf("UpdateDecisionPoint failed: %v", err)
+	}
+
+	// DoneWait should find the pre-responded decision immediately via DB pre-check.
+	start := time.Now()
+	result, err := client.DoneWait(&DoneWaitArgs{
+		AgentName:  "precheck-agent",
+		TimeoutSec: 10,
+		On:         "decision",
+	})
+	elapsed := time.Since(start)
+
+	if err != nil {
+		t.Fatalf("DoneWait error: %v", err)
+	}
+	if result == nil {
+		t.Fatal("DoneWait returned nil")
+	}
+	if result.TimedOut {
+		t.Fatal("expected decision event, got timeout — pre-check may have failed (bd-yvhxp regression)")
+	}
+	if result.EventType != "decision" {
+		t.Errorf("expected event_type=decision, got %s", result.EventType)
+	}
+	if result.Source != "human" {
+		t.Errorf("expected source=human, got %q", result.Source)
+	}
+	// Should be fast since the decision was pre-existing.
+	if elapsed > 5*time.Second {
+		t.Errorf("took too long for pre-existing decision: %v (expected <1s)", elapsed)
+	}
+}
+
+// TestDoneWaitDecisionPollWake verifies that DoneWait detects a decision response
+// that arrives during the poll loop (no NATS). This tests the polling fallback
+// path added in bd-yvhxp.
+func TestDoneWaitDecisionPollWake(t *testing.T) {
+	_, client, store, cleanup := setupTestServerWithStore(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	// Create a decision point (not yet responded).
+	dp := &types.DecisionPoint{
+		IssueID:     "bd-pollwake-test",
+		Prompt:      "Poll wake test decision",
+		Options:     `[{"id":"x","label":"X"},{"id":"y","label":"Y"}]`,
+		RequestedBy: "pollwake-agent",
+		CreatedAt:   time.Now().UTC(),
+	}
+	issue := &types.Issue{
+		ID:        dp.IssueID,
+		Title:     "Poll wake gate",
+		Status:    types.StatusOpen,
+		IssueType: "gate",
+		Priority:  2,
+		CreatedAt: time.Now().UTC(),
+		UpdatedAt: time.Now().UTC(),
+	}
+	if err := store.CreateIssue(ctx, issue, "test"); err != nil {
+		t.Fatalf("CreateIssue failed: %v", err)
+	}
+	if err := store.CreateDecisionPoint(ctx, dp); err != nil {
+		t.Fatalf("CreateDecisionPoint failed: %v", err)
+	}
+
+	// Start DoneWait in a goroutine.
+	type waitResult struct {
+		result *DoneWaitResult
+		err    error
+	}
+	resultCh := make(chan waitResult, 1)
+	go func() {
+		r, e := client.DoneWait(&DoneWaitArgs{
+			AgentName:  "pollwake-agent",
+			TimeoutSec: 30,
+			On:         "decision",
+		})
+		resultCh <- waitResult{r, e}
+	}()
+
+	// Wait for the server to start polling, then respond to the decision.
+	time.Sleep(3 * time.Second)
+
+	now := time.Now().UTC()
+	dp.SelectedOption = "x"
+	dp.ResponseText = "Chose X during poll"
+	dp.RespondedBy = "human"
+	dp.RespondedAt = &now
+	if err := store.UpdateDecisionPoint(ctx, dp); err != nil {
+		t.Fatalf("UpdateDecisionPoint failed: %v", err)
+	}
+
+	// Wait for result — should arrive within a few seconds (poll interval is 2s).
+	select {
+	case wr := <-resultCh:
+		if wr.err != nil {
+			t.Fatalf("DoneWait error: %v", wr.err)
+		}
+		if wr.result.TimedOut {
+			t.Fatal("expected decision event, got timeout — poll fallback may not check decisions (bd-yvhxp regression)")
+		}
+		if wr.result.EventType != "decision" {
+			t.Errorf("expected event_type=decision, got %s", wr.result.EventType)
+		}
+	case <-time.After(15 * time.Second):
+		t.Fatal("DoneWait did not return in time — poll fallback may be broken")
+	}
+}
+
+// TestDoneWaitDecisionAgentVariant verifies that DoneWait detects a decision
+// response even when the agent name is a base-name variant of the requesting
+// agent. E.g., decision created by "sharp-seal-1" but DoneWait called with
+// "sharp-seal". This is the regression test for bd-zr20k.
+func TestDoneWaitDecisionAgentVariant(t *testing.T) {
+	_, client, store, cleanup := setupTestServerWithStore(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	// Create a decision as "variant-agent-1" (continuation session name).
+	dp := &types.DecisionPoint{
+		IssueID:     "bd-variant-test",
+		Prompt:      "Agent variant test decision",
+		Options:     `[{"id":"go","label":"Go"},{"id":"stop","label":"Stop"}]`,
+		RequestedBy: "variant-agent-1", // Continuation variant name
+		CreatedAt:   time.Now().UTC(),
+	}
+	issue := &types.Issue{
+		ID:        dp.IssueID,
+		Title:     "Variant gate",
+		Status:    types.StatusOpen,
+		IssueType: "gate",
+		Priority:  2,
+		CreatedAt: time.Now().UTC(),
+		UpdatedAt: time.Now().UTC(),
+	}
+	if err := store.CreateIssue(ctx, issue, "test"); err != nil {
+		t.Fatalf("CreateIssue failed: %v", err)
+	}
+	if err := store.CreateDecisionPoint(ctx, dp); err != nil {
+		t.Fatalf("CreateDecisionPoint failed: %v", err)
+	}
+
+	// Respond to the decision.
+	now := time.Now().UTC()
+	dp.SelectedOption = "go"
+	dp.ResponseText = "Go for it"
+	dp.RespondedBy = "human"
+	dp.RespondedAt = &now
+	if err := store.UpdateDecisionPoint(ctx, dp); err != nil {
+		t.Fatalf("UpdateDecisionPoint failed: %v", err)
+	}
+
+	// DoneWait with the BASE name "variant-agent" (not "variant-agent-1").
+	// The findRecentDecisionForAgent helper should check both names. (bd-zr20k)
+	start := time.Now()
+	result, err := client.DoneWait(&DoneWaitArgs{
+		AgentName:  "variant-agent", // Base name, not the variant
+		TimeoutSec: 10,
+		On:         "decision",
+	})
+	elapsed := time.Since(start)
+
+	if err != nil {
+		t.Fatalf("DoneWait error: %v", err)
+	}
+	if result == nil {
+		t.Fatal("DoneWait returned nil")
+	}
+	if result.TimedOut {
+		t.Fatal("expected decision event, got timeout — agent variant matching failed (bd-zr20k regression)")
+	}
+	if result.EventType != "decision" {
+		t.Errorf("expected event_type=decision, got %s", result.EventType)
+	}
+	// Should be fast since the decision was pre-existing.
+	if elapsed > 5*time.Second {
+		t.Errorf("took too long: %v (expected <1s)", elapsed)
+	}
+}
+
+// TestFindRecentDecisionForAgent verifies the helper function that checks
+// both exact agent name and base name variant. (bd-zr20k)
+func TestFindRecentDecisionForAgent(t *testing.T) {
+	store := teststore.New(t)
+	ctx := context.Background()
+
+	// Create a decision from "test-seal-1" and respond to it.
+	dp := &types.DecisionPoint{
+		IssueID:     "bd-find-test",
+		Prompt:      "Find test",
+		Options:     `[{"id":"a","label":"A"}]`,
+		RequestedBy: "test-seal-1",
+		CreatedAt:   time.Now().UTC(),
+	}
+	issue := &types.Issue{
+		ID:        dp.IssueID,
+		Title:     "Find test gate",
+		Status:    types.StatusOpen,
+		IssueType: "gate",
+		Priority:  2,
+		CreatedAt: time.Now().UTC(),
+		UpdatedAt: time.Now().UTC(),
+	}
+	if err := store.CreateIssue(ctx, issue, "test"); err != nil {
+		t.Fatalf("CreateIssue: %v", err)
+	}
+	if err := store.CreateDecisionPoint(ctx, dp); err != nil {
+		t.Fatalf("CreateDecisionPoint: %v", err)
+	}
+	now := time.Now().UTC()
+	dp.SelectedOption = "a"
+	dp.RespondedBy = "human"
+	dp.RespondedAt = &now
+	if err := store.UpdateDecisionPoint(ctx, dp); err != nil {
+		t.Fatalf("UpdateDecisionPoint: %v", err)
+	}
+
+	since := time.Now().Add(-5 * time.Minute)
+
+	// Exact match should work.
+	found := findRecentDecisionForAgent(ctx, store, since, "test-seal-1")
+	if found == nil {
+		t.Error("expected to find decision by exact name 'test-seal-1'")
+	}
+
+	// Base name match should also work.
+	found = findRecentDecisionForAgent(ctx, store, since, "test-seal")
+	if found == nil {
+		t.Error("expected to find decision by base name 'test-seal' (bd-zr20k)")
+	}
+
+	// Completely different name should NOT match.
+	found = findRecentDecisionForAgent(ctx, store, since, "other-agent")
+	if found != nil {
+		t.Error("expected nil for unrelated agent name 'other-agent'")
 	}
 }
