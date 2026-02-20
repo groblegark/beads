@@ -73,6 +73,17 @@ func runBusEmit(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("either --hook or --event is required")
 	}
 
+	// Validate and re-encode eventData to ensure it's valid JSON.
+	// stdin may contain literal newlines or other raw bytes that
+	// json.RawMessage.MarshalJSON() rejects during the RPC call.
+	// Re-marshaling through a map normalizes the JSON. (hq-wbaeks)
+	if len(eventData) > 0 {
+		var raw map[string]interface{}
+		if err := json.Unmarshal(eventData, &raw); err == nil {
+			eventData, _ = json.Marshal(raw)
+		}
+	}
+
 	// Extract session_id from the event JSON if present.
 	// Fall back to TERM_SESSION_ID so handlers can track sessions
 	// even when Claude Code doesn't send session_id in the hook JSON.
