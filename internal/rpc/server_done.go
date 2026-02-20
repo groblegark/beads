@@ -99,8 +99,8 @@ func (s *Server) handleDoneWait(req *Request) Response {
 		fmt.Fprintf(os.Stderr, "done_wait: NATS failed (%v), falling back to polling\n", err)
 	}
 
-	// Fallback: poll inbox table.
-	result := s.doneWaitViaPoll(ctx, agentName, timeout, listenInbox)
+	// Fallback: poll inbox and decision tables.
+	result := s.doneWaitViaPoll(ctx, agentName, timeout, listenInbox, listenDecision)
 	data, _ := json.Marshal(result)
 	return Response{Success: true, Data: data}
 }
@@ -159,12 +159,16 @@ func (s *Server) doneWaitViaNATS(ctx context.Context, js nats.JetStreamContext, 
 
 	fmt.Fprintf(os.Stderr, "done_wait: listening on %d NATS subscriptions for %s\n", len(subs), agentName)
 
-	// Check for pre-existing undelivered inbox items (race: item arrived before subscription).
-	if listenInbox {
-		s.mu.RLock()
-		store := s.storage
-		s.mu.RUnlock()
-		if store != nil {
+	// Check for pre-existing events that arrived before NATS subscriptions were created.
+	// Without these checks, events published in the gap between the RPC call and
+	// subscription setup are lost, causing yield to hang forever. (bd-yvhxp)
+	s.mu.RLock()
+	store := s.storage
+	s.mu.RUnlock()
+
+	if store != nil {
+		// Check inbox items first (pre-existing undelivered messages).
+		if listenInbox {
 			items, err := store.InboxDrain(ctx, agentName)
 			if err == nil && len(items) > 0 {
 				// Mark as delivered so they don't re-appear on the next bd yield call.
@@ -177,6 +181,26 @@ func (s *Server) doneWaitViaNATS(ctx context.Context, js nats.JetStreamContext, 
 					EventType: "inbox",
 					Content:   formatInboxItems(items),
 					Source:    items[0].Source,
+				}, nil
+			}
+		}
+
+		// Check for decisions that were already responded to (race: response arrived
+		// before we subscribed to NATS). Look back 5 minutes to catch responses that
+		// arrived while the agent was between yield calls. (bd-yvhxp)
+		if listenDecision {
+			since := time.Now().Add(-5 * time.Minute)
+			responded, err := store.ListRecentlyRespondedDecisions(ctx, since, agentName)
+			if err == nil && len(responded) > 0 {
+				dp := responded[0] // Most recent first.
+				content := fmt.Sprintf("Decision %s resolved: %s", dp.IssueID, dp.SelectedOption)
+				if dp.Rationale != "" {
+					content += "\n" + dp.Rationale
+				}
+				return &DoneWaitResult{
+					EventType: "decision",
+					Content:   content,
+					Source:    dp.RespondedBy,
 				}, nil
 			}
 		}
@@ -261,10 +285,10 @@ func (s *Server) doneWaitViaNATS(ctx context.Context, js nats.JetStreamContext, 
 	}
 }
 
-// doneWaitViaPoll is the fallback when NATS is unavailable — polls inbox table.
-func (s *Server) doneWaitViaPoll(ctx context.Context, agentName string, timeout time.Duration, listenInbox bool) *DoneWaitResult {
-	if !listenInbox {
-		// Can't poll decisions without NATS — just wait and timeout.
+// doneWaitViaPoll is the fallback when NATS is unavailable — polls inbox table
+// and decision_points table. (bd-yvhxp: added decision polling)
+func (s *Server) doneWaitViaPoll(ctx context.Context, agentName string, timeout time.Duration, listenInbox, listenDecision bool) *DoneWaitResult {
+	if !listenInbox && !listenDecision {
 		select {
 		case <-time.After(timeout):
 		case <-ctx.Done():
@@ -281,21 +305,44 @@ func (s *Server) doneWaitViaPoll(ctx context.Context, agentName string, timeout 
 	}
 
 	deadline := time.Now().Add(timeout)
+	// Track when polling started so we only find decisions responded after this point.
+	pollStart := time.Now()
 
-	fmt.Fprintf(os.Stderr, "done_wait: polling inbox for %s (timeout=%s)\n", agentName, timeout)
+	fmt.Fprintf(os.Stderr, "done_wait: polling inbox=%v decision=%v for %s (timeout=%s)\n",
+		listenInbox, listenDecision, agentName, timeout)
 
 	// Check immediately for pre-existing items before entering the poll loop.
-	items, err := store.InboxDrain(ctx, agentName)
-	if err == nil && len(items) > 0 {
-		ids := make([]string, len(items))
-		for i, item := range items {
-			ids[i] = item.ID
+	if listenInbox {
+		items, err := store.InboxDrain(ctx, agentName)
+		if err == nil && len(items) > 0 {
+			ids := make([]string, len(items))
+			for i, item := range items {
+				ids[i] = item.ID
+			}
+			_ = store.InboxMarkDelivered(ctx, agentName, ids)
+			return &DoneWaitResult{
+				EventType: "inbox",
+				Content:   formatInboxItems(items),
+				Source:    items[0].Source,
+			}
 		}
-		_ = store.InboxMarkDelivered(ctx, agentName, ids)
-		return &DoneWaitResult{
-			EventType: "inbox",
-			Content:   formatInboxItems(items),
-			Source:    items[0].Source,
+	}
+
+	// Check for recently responded decisions (race: response arrived before poll started). (bd-yvhxp)
+	if listenDecision {
+		since := pollStart.Add(-5 * time.Minute)
+		responded, err := store.ListRecentlyRespondedDecisions(ctx, since, agentName)
+		if err == nil && len(responded) > 0 {
+			dp := responded[0]
+			content := fmt.Sprintf("Decision %s resolved: %s", dp.IssueID, dp.SelectedOption)
+			if dp.Rationale != "" {
+				content += "\n" + dp.Rationale
+			}
+			return &DoneWaitResult{
+				EventType: "decision",
+				Content:   content,
+				Source:    dp.RespondedBy,
+			}
 		}
 	}
 
@@ -311,20 +358,37 @@ func (s *Server) doneWaitViaPoll(ctx context.Context, agentName string, timeout 
 				return &DoneWaitResult{EventType: "timeout", TimedOut: true}
 			}
 
-			items, err := store.InboxDrain(ctx, agentName)
-			if err != nil {
-				continue
-			}
-			if len(items) > 0 {
-				ids := make([]string, len(items))
-				for i, item := range items {
-					ids[i] = item.ID
+			// Poll inbox.
+			if listenInbox {
+				items, err := store.InboxDrain(ctx, agentName)
+				if err == nil && len(items) > 0 {
+					ids := make([]string, len(items))
+					for i, item := range items {
+						ids[i] = item.ID
+					}
+					_ = store.InboxMarkDelivered(ctx, agentName, ids)
+					return &DoneWaitResult{
+						EventType: "inbox",
+						Content:   formatInboxItems(items),
+						Source:    items[0].Source,
+					}
 				}
-				_ = store.InboxMarkDelivered(ctx, agentName, ids)
-				return &DoneWaitResult{
-					EventType: "inbox",
-					Content:   formatInboxItems(items),
-					Source:    items[0].Source,
+			}
+
+			// Poll decisions. (bd-yvhxp)
+			if listenDecision {
+				responded, err := store.ListRecentlyRespondedDecisions(ctx, pollStart, agentName)
+				if err == nil && len(responded) > 0 {
+					dp := responded[0]
+					content := fmt.Sprintf("Decision %s resolved: %s", dp.IssueID, dp.SelectedOption)
+					if dp.Rationale != "" {
+						content += "\n" + dp.Rationale
+					}
+					return &DoneWaitResult{
+						EventType: "decision",
+						Content:   content,
+						Source:    dp.RespondedBy,
+					}
 				}
 			}
 		}
