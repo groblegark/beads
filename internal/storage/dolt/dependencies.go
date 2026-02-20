@@ -269,6 +269,23 @@ func (s *DoltStore) GetDependencyRecordsForIssues(ctx context.Context, issueIDs 
 	)
 }
 
+// GetReverseDepRecordsForIssues returns dependency records where depends_on_id is in the
+// given set — i.e., edges pointing AT these issues. Keyed by depends_on_id (the target).
+// This is the reverse of GetDependencyRecordsForIssues which finds edges FROM the issues.
+// Used by the Graph API to find all edges involving graph nodes (bd-j3pex).
+func (s *DoltStore) GetReverseDepRecordsForIssues(ctx context.Context, issueIDs []string) (map[string][]*types.Dependency, error) {
+	return BatchIN(ctx, s.db, issueIDs, DefaultBatchSize,
+		`SELECT issue_id, depends_on_id, type, created_at, created_by, metadata, thread_id FROM dependencies WHERE depends_on_id IN (%s) ORDER BY depends_on_id`,
+		func(rows *sql.Rows) (string, *types.Dependency, error) {
+			dep, err := scanDependencyRow(rows)
+			if err != nil {
+				return "", nil, err
+			}
+			return dep.DependsOnID, dep, nil
+		},
+	)
+}
+
 // GetDependencyCounts returns dependency counts for multiple issues.
 // Uses batched IN clauses to avoid oversized queries that crush Dolt CPU.
 func (s *DoltStore) GetDependencyCounts(ctx context.Context, issueIDs []string) (map[string]*types.DependencyCounts, error) {

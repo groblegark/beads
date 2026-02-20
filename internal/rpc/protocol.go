@@ -12,47 +12,47 @@ import (
 
 // Operation constants for all bd commands
 const (
-	OpPing            = "ping"
-	OpStatus          = "status"
-	OpHealth          = "health"
-	OpMetrics         = "metrics"
-	OpCreate          = "create"
-	OpUpdate            = "update"
-	OpUpdateWithComment = "update_with_comment"
-	OpClose             = "close"
-	OpList            = "list"
-	OpCount           = "count"
-	OpShow            = "show"
-	OpReady           = "ready"
-	OpBlocked         = "blocked"
-	OpStale           = "stale"
-	OpStats           = "stats"
-	OpDepAdd          = "dep_add"
-	OpDepRemove       = "dep_remove"
-	OpDepTree         = "dep_tree"
+	OpPing                   = "ping"
+	OpStatus                 = "status"
+	OpHealth                 = "health"
+	OpMetrics                = "metrics"
+	OpCreate                 = "create"
+	OpUpdate                 = "update"
+	OpUpdateWithComment      = "update_with_comment"
+	OpClose                  = "close"
+	OpList                   = "list"
+	OpCount                  = "count"
+	OpShow                   = "show"
+	OpReady                  = "ready"
+	OpBlocked                = "blocked"
+	OpStale                  = "stale"
+	OpStats                  = "stats"
+	OpDepAdd                 = "dep_add"
+	OpDepRemove              = "dep_remove"
+	OpDepTree                = "dep_tree"
 	OpDepAddBidirectional    = "dep_add_bidirectional"
 	OpDepRemoveBidirectional = "dep_remove_bidirectional"
-	OpLabelAdd        = "label_add"
-	OpLabelRemove     = "label_remove"
-	OpCommentList     = "comment_list"
-	OpCommentAdd      = "comment_add"
-	OpBatch           = "batch"
-	OpResolveID       = "resolve_id"
+	OpLabelAdd               = "label_add"
+	OpLabelRemove            = "label_remove"
+	OpCommentList            = "comment_list"
+	OpCommentAdd             = "comment_add"
+	OpBatch                  = "batch"
+	OpResolveID              = "resolve_id"
 
-	OpCompact         = "compact"
-	OpCompactStats    = "compact_stats"
-	OpExport          = "export"
-	OpImport          = "import"
+	OpCompact              = "compact"
+	OpCompactStats         = "compact_stats"
+	OpExport               = "export"
+	OpImport               = "import"
 	OpEpicStatus           = "epic_status"
 	OpEpicOverview         = "epic_overview"
 	OpEpicOrphanedChildren = "epic_orphaned_children"
-	OpGetMutations        = "get_mutations"
-	OpGetMoleculeProgress = "get_molecule_progress"
-	OpShutdown            = "shutdown"
-	OpDelete              = "delete"
-	OpRename              = "rename"
-	OpGetWorkerStatus     = "get_worker_status"
-	OpGetConfig           = "get_config"
+	OpGetMutations         = "get_mutations"
+	OpGetMoleculeProgress  = "get_molecule_progress"
+	OpShutdown             = "shutdown"
+	OpDelete               = "delete"
+	OpRename               = "rename"
+	OpGetWorkerStatus      = "get_worker_status"
+	OpGetConfig            = "get_config"
 
 	// Gate operations (formula gates)
 	OpGateCreate = "gate_create"
@@ -160,31 +160,31 @@ const (
 	OpAgentPodList       = "agent_pod_list"
 
 	// Agent lifecycle operations (beads-2qz5)
-	OpAgentStop    = "agent_stop"
-	OpAgentRestart = "agent_restart"
-	OpAgentSignal  = "agent_signal"
+	OpAgentStop         = "agent_stop"
+	OpAgentRestart      = "agent_restart"
+	OpAgentSignal       = "agent_signal"
 	OpAgentRoster       = "agent_roster"        // bd-3d5m2
 	OpAgentRecentEvents = "agent_recent_events" // bd-9y9ba
 
 	// VCS operations (bd-ma0s.2)
-	OpVcsCommit        = "vcs_commit"
-	OpVcsPush          = "vcs_push"
-	OpVcsPull          = "vcs_pull"
-	OpVcsMerge         = "vcs_merge"
-	OpVcsBranchCreate  = "vcs_branch_create"
-	OpVcsBranchDelete  = "vcs_branch_delete"
-	OpVcsCheckout      = "vcs_checkout"
-	OpVcsActiveBranch  = "vcs_active_branch"
-	OpVcsStatus        = "vcs_status"
+	OpVcsCommit         = "vcs_commit"
+	OpVcsPush           = "vcs_push"
+	OpVcsPull           = "vcs_pull"
+	OpVcsMerge          = "vcs_merge"
+	OpVcsBranchCreate   = "vcs_branch_create"
+	OpVcsBranchDelete   = "vcs_branch_delete"
+	OpVcsCheckout       = "vcs_checkout"
+	OpVcsActiveBranch   = "vcs_active_branch"
+	OpVcsStatus         = "vcs_status"
 	OpVcsHasUncommitted = "vcs_has_uncommitted"
-	OpVcsBranches      = "vcs_branches"
-	OpVcsCurrentCommit = "vcs_current_commit"
-	OpVcsCommitExists  = "vcs_commit_exists"
-	OpVcsLog           = "vcs_log"
+	OpVcsBranches       = "vcs_branches"
+	OpVcsCurrentCommit  = "vcs_current_commit"
+	OpVcsCommitExists   = "vcs_commit_exists"
+	OpVcsLog            = "vcs_log"
 
 	// Admin operations (bd-ma0s.5)
-	OpAdminGC          = "admin_gc"
-	OpGCTombstones     = "gc_tombstones"
+	OpAdminGC      = "admin_gc"
+	OpGCTombstones = "gc_tombstones"
 
 	// Federation operations (bd-ma0s.4)
 	OpFedListRemotes  = "fed_list_remotes"
@@ -265,7 +265,7 @@ type CreateArgs struct {
 	AcceptanceCriteria string   `json:"acceptance_criteria,omitempty"`
 	Notes              string   `json:"notes,omitempty"`
 	Assignee           string   `json:"assignee,omitempty"`
-	ExternalRef        string   `json:"external_ref,omitempty"`  // Link to external issue trackers
+	ExternalRef        string   `json:"external_ref,omitempty"`      // Link to external issue trackers
 	EstimatedMinutes   *int     `json:"estimated_minutes,omitempty"` // Time estimate in minutes
 	Labels             []string `json:"labels,omitempty"`
 	Dependencies       []string `json:"dependencies,omitempty"`
@@ -273,15 +273,15 @@ type CreateArgs struct {
 	WaitsFor     string `json:"waits_for,omitempty"`      // Spawner issue ID to wait for
 	WaitsForGate string `json:"waits_for_gate,omitempty"` // Gate type: all-children or any-children
 	// Messaging fields
-	Sender    string `json:"sender,omitempty"`    // Who sent this (for messages)
-	Ephemeral bool   `json:"ephemeral,omitempty"` // If true, not exported to JSONL; bulk-deleted when closed
-	Pinned    bool   `json:"pinned,omitempty"`    // If true, keeps visible (used for agent beads)
+	Sender    string `json:"sender,omitempty"`     // Who sent this (for messages)
+	Ephemeral bool   `json:"ephemeral,omitempty"`  // If true, not exported to JSONL; bulk-deleted when closed
+	Pinned    bool   `json:"pinned,omitempty"`     // If true, keeps visible (used for agent beads)
 	AutoClose bool   `json:"auto_close,omitempty"` // If true, epic auto-closes when all children close
 	RepliesTo string `json:"replies_to,omitempty"` // Issue ID for conversation threading
 	// ID generation
-	IDPrefix  string `json:"id_prefix,omitempty"`  // Override prefix for ID generation (mol, eph, etc.)
-	TargetRig string `json:"target_rig,omitempty"` // Create in different rig (resolves prefix from route beads)
-	Prefix    string `json:"prefix,omitempty"`     // Directly override issue prefix (from local config.yaml, gt-wnbjj8.3)
+	IDPrefix         string `json:"id_prefix,omitempty"`          // Override prefix for ID generation (mol, eph, etc.)
+	TargetRig        string `json:"target_rig,omitempty"`         // Create in different rig (resolves prefix from route beads)
+	Prefix           string `json:"prefix,omitempty"`             // Directly override issue prefix (from local config.yaml, gt-wnbjj8.3)
 	CreatedBy        string `json:"created_by,omitempty"`         // Who created the issue
 	CreatedBySession string `json:"created_by_session,omitempty"` // Claude Code session ID that created this issue (bd-5azzq)
 	Owner            string `json:"owner,omitempty"`              // Human owner for CV attribution (git author email)
@@ -334,15 +334,15 @@ type UpdateArgs struct {
 	AcceptanceCriteria *string  `json:"acceptance_criteria,omitempty"`
 	Notes              *string  `json:"notes,omitempty"`
 	Assignee           *string  `json:"assignee,omitempty"`
-	ExternalRef        *string  `json:"external_ref,omitempty"` // Link to external issue trackers
+	ExternalRef        *string  `json:"external_ref,omitempty"`      // Link to external issue trackers
 	EstimatedMinutes   *int     `json:"estimated_minutes,omitempty"` // Time estimate in minutes
 	IssueType          *string  `json:"issue_type,omitempty"`        // Issue type (bug|feature|task|epic|chore)
 	AddLabels          []string `json:"add_labels,omitempty"`
 	RemoveLabels       []string `json:"remove_labels,omitempty"`
 	SetLabels          []string `json:"set_labels,omitempty"`
 	// Messaging fields
-	Sender    *string `json:"sender,omitempty"`    // Who sent this (for messages)
-	Ephemeral *bool   `json:"ephemeral,omitempty"` // If true, not exported to JSONL; bulk-deleted when closed
+	Sender    *string `json:"sender,omitempty"`     // Who sent this (for messages)
+	Ephemeral *bool   `json:"ephemeral,omitempty"`  // If true, not exported to JSONL; bulk-deleted when closed
 	RepliesTo *string `json:"replies_to,omitempty"` // Issue ID for conversation threading
 	// Graph link fields
 	RelatesTo    *string `json:"relates_to,omitempty"`    // JSON array of related issue IDs
@@ -421,11 +421,11 @@ type CloseResult struct {
 
 // DeleteArgs represents arguments for the delete operation
 type DeleteArgs struct {
-	IDs        []string `json:"ids"`                  // Issue IDs to delete
-	Force      bool     `json:"force,omitempty"`      // Force deletion without confirmation
-	DryRun     bool     `json:"dry_run,omitempty"`    // Preview mode
-	Cascade    bool     `json:"cascade,omitempty"`    // Recursively delete dependents
-	Reason     string   `json:"reason,omitempty"`     // Reason for deletion
+	IDs        []string `json:"ids"`                   // Issue IDs to delete
+	Force      bool     `json:"force,omitempty"`       // Force deletion without confirmation
+	DryRun     bool     `json:"dry_run,omitempty"`     // Preview mode
+	Cascade    bool     `json:"cascade,omitempty"`     // Recursively delete dependents
+	Reason     string   `json:"reason,omitempty"`      // Reason for deletion
 	HardDelete bool     `json:"hard_delete,omitempty"` // Permanently delete (skip tombstones, cannot sync)
 }
 
@@ -437,8 +437,8 @@ type RenameArgs struct {
 
 // RenameResult represents the result of a rename operation
 type RenameResult struct {
-	OldID            string `json:"old_id"`             // Original issue ID
-	NewID            string `json:"new_id"`             // New issue ID
+	OldID             string `json:"old_id"`             // Original issue ID
+	NewID             string `json:"new_id"`             // New issue ID
 	ReferencesUpdated int    `json:"references_updated"` // Number of text references updated in other issues
 }
 
@@ -454,12 +454,12 @@ type ListArgs struct {
 	LabelsAny []string `json:"labels_any,omitempty"` // OR semantics
 	IDs       []string `json:"ids,omitempty"`        // Filter by specific issue IDs
 	Limit     int      `json:"limit,omitempty"`
-	
+
 	// Pattern matching
 	TitleContains       string `json:"title_contains,omitempty"`
 	DescriptionContains string `json:"description_contains,omitempty"`
 	NotesContains       string `json:"notes_contains,omitempty"`
-	
+
 	// Date ranges (ISO 8601 format)
 	CreatedAfter  string `json:"created_after,omitempty"`
 	CreatedBefore string `json:"created_before,omitempty"`
@@ -467,12 +467,12 @@ type ListArgs struct {
 	UpdatedBefore string `json:"updated_before,omitempty"`
 	ClosedAfter   string `json:"closed_after,omitempty"`
 	ClosedBefore  string `json:"closed_before,omitempty"`
-	
+
 	// Empty/null checks
 	EmptyDescription bool `json:"empty_description,omitempty"`
 	NoAssignee       bool `json:"no_assignee,omitempty"`
 	NoLabels         bool `json:"no_labels,omitempty"`
-	
+
 	// Priority range
 	PriorityMin *int `json:"priority_min,omitempty"`
 	PriorityMax *int `json:"priority_max,omitempty"`
@@ -572,14 +572,14 @@ type ResolveIDArgs struct {
 
 // ReadyArgs represents arguments for the ready operation
 type ReadyArgs struct {
-	Assignee   string   `json:"assignee,omitempty"`
-	Unassigned bool     `json:"unassigned,omitempty"`
-	Priority   *int     `json:"priority,omitempty"`
-	Type       string   `json:"type,omitempty"`
-	Limit      int      `json:"limit,omitempty"`
-	SortPolicy string   `json:"sort_policy,omitempty"`
-	Labels     []string `json:"labels,omitempty"`
-	LabelsAny  []string `json:"labels_any,omitempty"`
+	Assignee        string   `json:"assignee,omitempty"`
+	Unassigned      bool     `json:"unassigned,omitempty"`
+	Priority        *int     `json:"priority,omitempty"`
+	Type            string   `json:"type,omitempty"`
+	Limit           int      `json:"limit,omitempty"`
+	SortPolicy      string   `json:"sort_policy,omitempty"`
+	Labels          []string `json:"labels,omitempty"`
+	LabelsAny       []string `json:"labels_any,omitempty"`
 	ParentID        string   `json:"parent_id,omitempty"`        // Filter to descendants of this bead/epic
 	MolType         string   `json:"mol_type,omitempty"`         // Filter by molecule type: swarm, patrol, or work
 	IncludeDeferred bool     `json:"include_deferred,omitempty"` // Include issues with future defer_until (GH#820)
@@ -651,7 +651,7 @@ type BatchAddLabelsArgs struct {
 
 // BatchAddLabelsResult represents the result of a batch add labels operation
 type BatchAddLabelsResult struct {
-	IssueID    string `json:"issue_id"`    // Issue ID that was modified
+	IssueID     string `json:"issue_id"`     // Issue ID that was modified
 	LabelsAdded int    `json:"labels_added"` // Number of labels actually added (excludes duplicates)
 }
 
@@ -690,23 +690,23 @@ type PingResponse struct {
 
 // StatusResponse represents the daemon status metadata
 type StatusResponse struct {
-	Version              string  `json:"version"`                  // Server/daemon version
-	WorkspacePath        string  `json:"workspace_path"`           // Absolute path to workspace root
-	DatabasePath         string  `json:"database_path"`            // Absolute path to database file
-	SocketPath           string  `json:"socket_path"`              // Path to Unix socket
-	PID                  int     `json:"pid"`                      // Process ID
-	UptimeSeconds        float64 `json:"uptime_seconds"`           // Time since daemon started
-	LastActivityTime     string  `json:"last_activity_time"`       // ISO 8601 timestamp of last request
-	ExclusiveLockActive  bool    `json:"exclusive_lock_active"`    // Whether an exclusive lock is held
-	ExclusiveLockHolder  string  `json:"exclusive_lock_holder,omitempty"` // Lock holder name if active
+	Version             string  `json:"version"`                         // Server/daemon version
+	WorkspacePath       string  `json:"workspace_path"`                  // Absolute path to workspace root
+	DatabasePath        string  `json:"database_path"`                   // Absolute path to database file
+	SocketPath          string  `json:"socket_path"`                     // Path to Unix socket
+	PID                 int     `json:"pid"`                             // Process ID
+	UptimeSeconds       float64 `json:"uptime_seconds"`                  // Time since daemon started
+	LastActivityTime    string  `json:"last_activity_time"`              // ISO 8601 timestamp of last request
+	ExclusiveLockActive bool    `json:"exclusive_lock_active"`           // Whether an exclusive lock is held
+	ExclusiveLockHolder string  `json:"exclusive_lock_holder,omitempty"` // Lock holder name if active
 	// Daemon configuration
-	AutoCommit   bool   `json:"auto_commit"`            // Whether auto-commit is enabled
-	AutoPush     bool   `json:"auto_push"`              // Whether auto-push is enabled
-	AutoPull     bool   `json:"auto_pull"`              // Whether auto-pull is enabled (periodic remote sync)
-	LocalMode    bool   `json:"local_mode"`             // Whether running in local-only mode (no git)
-	SyncInterval string `json:"sync_interval"`          // Sync interval (e.g., "5s")
-	DaemonMode   string `json:"daemon_mode"`            // Sync mode: "poll" or "events"
-	HTTPAddr     string `json:"http_addr,omitempty"`    // HTTP listen address (for SSE, health endpoints)
+	AutoCommit   bool   `json:"auto_commit"`         // Whether auto-commit is enabled
+	AutoPush     bool   `json:"auto_push"`           // Whether auto-push is enabled
+	AutoPull     bool   `json:"auto_pull"`           // Whether auto-pull is enabled (periodic remote sync)
+	LocalMode    bool   `json:"local_mode"`          // Whether running in local-only mode (no git)
+	SyncInterval string `json:"sync_interval"`       // Sync interval (e.g., "5s")
+	DaemonMode   string `json:"daemon_mode"`         // Sync mode: "poll" or "events"
+	HTTPAddr     string `json:"http_addr,omitempty"` // HTTP listen address (for SSE, health endpoints)
 }
 
 // HealthResponse is the response for a health check operation
@@ -748,8 +748,8 @@ type BatchResult struct {
 
 // CompactArgs represents arguments for the compact operation
 type CompactArgs struct {
-	IssueID   string `json:"issue_id,omitempty"`   // Empty for --all
-	Tier      int    `json:"tier"`                 // 1 or 2
+	IssueID   string `json:"issue_id,omitempty"` // Empty for --all
+	Tier      int    `json:"tier"`               // 1 or 2
 	DryRun    bool   `json:"dry_run"`
 	Force     bool   `json:"force"`
 	All       bool   `json:"all"`
@@ -765,15 +765,15 @@ type CompactStatsArgs struct {
 
 // CompactResponse represents the response from a compact operation
 type CompactResponse struct {
-	Success      bool              `json:"success"`
-	IssueID      string            `json:"issue_id,omitempty"`
-	Results      []CompactResult   `json:"results,omitempty"`     // For batch operations
-	Stats        *CompactStatsData `json:"stats,omitempty"`       // For stats operation
-	OriginalSize int               `json:"original_size,omitempty"`
-	CompactedSize int              `json:"compacted_size,omitempty"`
-	Reduction    string            `json:"reduction,omitempty"`
-	Duration     string            `json:"duration,omitempty"`
-	DryRun       bool              `json:"dry_run,omitempty"`
+	Success       bool              `json:"success"`
+	IssueID       string            `json:"issue_id,omitempty"`
+	Results       []CompactResult   `json:"results,omitempty"` // For batch operations
+	Stats         *CompactStatsData `json:"stats,omitempty"`   // For stats operation
+	OriginalSize  int               `json:"original_size,omitempty"`
+	CompactedSize int               `json:"compacted_size,omitempty"`
+	Reduction     string            `json:"reduction,omitempty"`
+	Duration      string            `json:"duration,omitempty"`
+	DryRun        bool              `json:"dry_run,omitempty"`
 }
 
 // CompactResult represents the result of compacting a single issue
@@ -788,11 +788,11 @@ type CompactResult struct {
 
 // CompactStatsData represents compaction statistics
 type CompactStatsData struct {
-	Tier1Candidates int     `json:"tier1_candidates"`
-	Tier2Candidates int     `json:"tier2_candidates"`
-	TotalClosed     int     `json:"total_closed"`
-	Tier1MinAge     string  `json:"tier1_min_age"`
-	Tier2MinAge     string  `json:"tier2_min_age"`
+	Tier1Candidates  int    `json:"tier1_candidates"`
+	Tier2Candidates  int    `json:"tier2_candidates"`
+	TotalClosed      int    `json:"total_closed"`
+	Tier1MinAge      string `json:"tier1_min_age"`
+	Tier2MinAge      string `json:"tier2_min_age"`
 	EstimatedSavings string `json:"estimated_savings,omitempty"`
 }
 
@@ -867,9 +867,9 @@ type SessionGateMarkArgs struct {
 
 // SessionGateClearArgs clears a session gate.
 type SessionGateClearArgs struct {
-	Agent  string `json:"agent"`             // agent base name
-	GateID string `json:"gate_id,omitempty"` // specific gate, or empty = clear all
-	AllAgents bool `json:"all_agents,omitempty"` // clear this gate for ALL agents
+	Agent     string `json:"agent"`                // agent base name
+	GateID    string `json:"gate_id,omitempty"`    // specific gate, or empty = clear all
+	AllAgents bool   `json:"all_agents,omitempty"` // clear this gate for ALL agents
 }
 
 // SessionGateCheckArgs checks session gate satisfaction.
@@ -1002,14 +1002,14 @@ type DecisionCreateArgs struct {
 	IssueID       string                 `json:"issue_id"`                 // Issue ID to attach decision to
 	Prompt        string                 `json:"prompt"`                   // Question to ask
 	Options       []types.DecisionOption `json:"options"`                  // Available choices (structured)
-	DefaultOption string   `json:"default_option,omitempty"` // Default option if no response
-	MaxIterations int      `json:"max_iterations,omitempty"` // Max follow-up iterations (default 3)
-	RequestedBy   string   `json:"requested_by,omitempty"`   // Who requested this decision
-	Context       string   `json:"context,omitempty"`        // Background/analysis for the decision
-	Parent        string   `json:"parent,omitempty"`         // Parent issue (molecule) for parent-child dependency
-	Blocks        string   `json:"blocks,omitempty"`         // Issue ID this decision blocks
-	Predecessor   string   `json:"predecessor,omitempty"`    // Previous decision in chain
-	Urgency       string   `json:"urgency,omitempty"`        // Urgency level: high, medium, low
+	DefaultOption string                 `json:"default_option,omitempty"` // Default option if no response
+	MaxIterations int                    `json:"max_iterations,omitempty"` // Max follow-up iterations (default 3)
+	RequestedBy   string                 `json:"requested_by,omitempty"`   // Who requested this decision
+	Context       string                 `json:"context,omitempty"`        // Background/analysis for the decision
+	Parent        string                 `json:"parent,omitempty"`         // Parent issue (molecule) for parent-child dependency
+	Blocks        string                 `json:"blocks,omitempty"`         // Issue ID this decision blocks
+	Predecessor   string                 `json:"predecessor,omitempty"`    // Previous decision in chain
+	Urgency       string                 `json:"urgency,omitempty"`        // Urgency level: high, medium, low
 }
 
 // StringOptions converts a slice of label strings into DecisionOption objects.
@@ -1033,11 +1033,11 @@ type DecisionGetArgs struct {
 
 // DecisionResolveArgs represents arguments for resolving a decision point
 type DecisionResolveArgs struct {
-	IssueID        string `json:"issue_id"`                  // Issue ID
-	SelectedOption string `json:"selected_option"`           // Chosen option
-	ResponseText   string `json:"response_text,omitempty"`   // Additional response text
-	RespondedBy    string `json:"responded_by,omitempty"`    // Who responded
-	Guidance       string `json:"guidance,omitempty"`        // Follow-up guidance
+	IssueID        string `json:"issue_id"`                // Issue ID
+	SelectedOption string `json:"selected_option"`         // Chosen option
+	ResponseText   string `json:"response_text,omitempty"` // Additional response text
+	RespondedBy    string `json:"responded_by,omitempty"`  // Who responded
+	Guidance       string `json:"guidance,omitempty"`      // Follow-up guidance
 }
 
 // DecisionListArgs represents arguments for listing pending decisions
@@ -1073,7 +1073,7 @@ type DecisionListResponse struct {
 
 // DecisionRemindArgs represents arguments for the decision remind operation
 type DecisionRemindArgs struct {
-	IssueID string `json:"issue_id"` // Decision gate issue ID
+	IssueID string `json:"issue_id"`        // Decision gate issue ID
 	Force   bool   `json:"force,omitempty"` // Force reminder even if at max
 }
 
@@ -1105,20 +1105,20 @@ type DecisionCancelResult struct {
 
 // InboxPushArgs represents arguments for pushing a message to the inbox.
 type InboxPushArgs struct {
-	AgentName string `json:"agent_name"`            // Target agent (e.g., "mayor", "dog")
-	Rig       string `json:"rig,omitempty"`         // Target rig (empty = current)
-	Type      string `json:"type"`                  // "decision", "alert", "event", "agent", "mail", "gate", "system"
-	Source    string `json:"source"`                // Producer identity
-	Content   string `json:"content"`               // The message
-	Priority  int    `json:"priority,omitempty"`    // 0=critical, 2=normal(default), 4=low
-	DedupKey  string `json:"dedup_key,omitempty"`   // Dedup key (auto-generated if empty)
-	TTL       string `json:"ttl,omitempty"`         // Time-to-live (e.g., "10m", "1h")
+	AgentName string `json:"agent_name"`          // Target agent (e.g., "mayor", "dog")
+	Rig       string `json:"rig,omitempty"`       // Target rig (empty = current)
+	Type      string `json:"type"`                // "decision", "alert", "event", "agent", "mail", "gate", "system"
+	Source    string `json:"source"`              // Producer identity
+	Content   string `json:"content"`             // The message
+	Priority  int    `json:"priority,omitempty"`  // 0=critical, 2=normal(default), 4=low
+	DedupKey  string `json:"dedup_key,omitempty"` // Dedup key (auto-generated if empty)
+	TTL       string `json:"ttl,omitempty"`       // Time-to-live (e.g., "10m", "1h")
 }
 
 // InboxListArgs represents arguments for listing inbox items.
 type InboxListArgs struct {
-	AgentName        string `json:"agent_name"`                   // Target agent
-	IncludeDelivered bool   `json:"include_delivered,omitempty"`  // Include already-delivered items
+	AgentName        string `json:"agent_name"`                  // Target agent
+	IncludeDelivered bool   `json:"include_delivered,omitempty"` // Include already-delivered items
 }
 
 // InboxDrainArgs represents arguments for draining inbox items.
@@ -1143,9 +1143,9 @@ type InboxListResponse struct {
 
 // DoneWaitArgs represents arguments for the done.wait blocking operation (bd-3lheb).
 type DoneWaitArgs struct {
-	AgentName  string `json:"agent_name"`            // Agent to wait for events (defaults to request actor)
-	TimeoutSec int    `json:"timeout_sec,omitempty"` // Timeout in seconds (default 1800 = 30m)
-	On         string `json:"on,omitempty"`          // Comma-separated event filter: "inbox,decision" (default: "inbox,decision")
+	AgentName  string `json:"agent_name"`             // Agent to wait for events (defaults to request actor)
+	TimeoutSec int    `json:"timeout_sec,omitempty"`  // Timeout in seconds (default 1800 = 30m)
+	On         string `json:"on,omitempty"`           // Comma-separated event filter: "inbox,decision" (default: "inbox,decision")
 	MaxPollSec int    `json:"max_poll_sec,omitempty"` // Max seconds per server poll (default 50, for proxy timeout compat) (bd-wccdf)
 }
 
@@ -1159,8 +1159,8 @@ type DoneWaitResult struct {
 
 // SessionRegisterArgs represents arguments for registering a session identity (bd-zp6v9).
 type SessionRegisterArgs struct {
-	SessionKey  string `json:"session_key"`           // Hash identifying this session
-	BaseName    string `json:"base_name"`             // Base name (e.g., "matthewbaker")
+	SessionKey  string `json:"session_key"`            // Hash identifying this session
+	BaseName    string `json:"base_name"`              // Base name (e.g., "matthewbaker")
 	ProjectRoot string `json:"project_root,omitempty"` // Project root directory (bd-djohp)
 }
 
@@ -1178,11 +1178,11 @@ type SessionListArgs struct {
 
 // SessionListEntry represents a single registered session in the list response.
 type SessionListEntry struct {
-	AssignedName string    `json:"assigned_name"`            // Unique name (e.g., "swift-fox")
-	BaseName     string    `json:"base_name"`                // Base name before suffix
-	SessionKey   string    `json:"session_key"`              // Hash identifying this session
-	LastSeen     time.Time `json:"last_seen"`                // Last activity timestamp
-	ProjectRoot  string    `json:"project_root,omitempty"`   // Project directory (bd-djohp)
+	AssignedName string    `json:"assigned_name"`          // Unique name (e.g., "swift-fox")
+	BaseName     string    `json:"base_name"`              // Base name before suffix
+	SessionKey   string    `json:"session_key"`            // Hash identifying this session
+	LastSeen     time.Time `json:"last_seen"`              // Last activity timestamp
+	ProjectRoot  string    `json:"project_root,omitempty"` // Project directory (bd-djohp)
 }
 
 // SessionListResponse represents the result of listing sessions.
@@ -1195,9 +1195,9 @@ type SessionListResponse struct {
 
 // RenamePrefixArgs represents arguments for the rename-prefix operation
 type RenamePrefixArgs struct {
-	NewPrefix string `json:"new_prefix"`           // New prefix (e.g., "bd-")
-	DryRun    bool   `json:"dry_run,omitempty"`    // Preview changes only
-	Repair    bool   `json:"repair,omitempty"`     // Consolidate multiple prefixes
+	NewPrefix string `json:"new_prefix"`        // New prefix (e.g., "bd-")
+	DryRun    bool   `json:"dry_run,omitempty"` // Preview changes only
+	Repair    bool   `json:"repair,omitempty"`  // Consolidate multiple prefixes
 }
 
 // RenamePrefixResult represents the result of a rename-prefix operation
@@ -1210,10 +1210,10 @@ type RenamePrefixResult struct {
 
 // MoveArgs represents arguments for the move operation
 type MoveArgs struct {
-	IssueID   string `json:"issue_id"`             // Source issue ID
-	TargetRig string `json:"target_rig"`           // Target rig name or prefix
-	KeepOpen  bool   `json:"keep_open,omitempty"`  // Don't close source issue
-	SkipDeps  bool   `json:"skip_deps,omitempty"`  // Skip dependency remapping
+	IssueID   string `json:"issue_id"`            // Source issue ID
+	TargetRig string `json:"target_rig"`          // Target rig name or prefix
+	KeepOpen  bool   `json:"keep_open,omitempty"` // Don't close source issue
+	SkipDeps  bool   `json:"skip_deps,omitempty"` // Skip dependency remapping
 }
 
 // MoveResult represents the result of a move operation
@@ -1226,9 +1226,9 @@ type MoveResult struct {
 
 // RefileArgs represents arguments for the refile operation
 type RefileArgs struct {
-	IssueID   string `json:"issue_id"`             // Source issue ID
-	TargetRig string `json:"target_rig"`           // Target rig name or prefix
-	KeepOpen  bool   `json:"keep_open,omitempty"`  // Don't close source issue
+	IssueID   string `json:"issue_id"`            // Source issue ID
+	TargetRig string `json:"target_rig"`          // Target rig name or prefix
+	KeepOpen  bool   `json:"keep_open,omitempty"` // Don't close source issue
 }
 
 // RefileResult represents the result of a refile operation
@@ -1240,13 +1240,13 @@ type RefileResult struct {
 
 // CookArgs represents arguments for the cook operation
 type CookArgs struct {
-	FormulaName string            `json:"formula_name"`          // Formula file name or path
-	DryRun      bool              `json:"dry_run,omitempty"`     // Preview only
-	Persist     bool              `json:"persist,omitempty"`     // Write proto to database
-	Force       bool              `json:"force,omitempty"`       // Overwrite existing proto
-	Prefix      string            `json:"prefix,omitempty"`      // Proto ID prefix
-	Vars        map[string]string `json:"vars,omitempty"`        // Variable substitutions
-	Mode        string            `json:"mode,omitempty"`        // "compile" or "runtime"
+	FormulaName string            `json:"formula_name"`      // Formula file name or path
+	DryRun      bool              `json:"dry_run,omitempty"` // Preview only
+	Persist     bool              `json:"persist,omitempty"` // Write proto to database
+	Force       bool              `json:"force,omitempty"`   // Overwrite existing proto
+	Prefix      string            `json:"prefix,omitempty"`  // Proto ID prefix
+	Vars        map[string]string `json:"vars,omitempty"`    // Variable substitutions
+	Mode        string            `json:"mode,omitempty"`    // "compile" or "runtime"
 }
 
 // CookResult represents the result of a cook operation
@@ -1274,31 +1274,31 @@ type PourResult struct {
 	RootID   string   `json:"root_id"`
 	Created  int      `json:"created"`
 	Attached int      `json:"attached"`
-	Phase    string   `json:"phase"`               // "liquid"
-	Runbooks []string `json:"runbooks,omitempty"`   // Runbook refs to auto-materialize (od-dv0.6)
+	Phase    string   `json:"phase"`              // "liquid"
+	Runbooks []string `json:"runbooks,omitempty"` // Runbook refs to auto-materialize (od-dv0.6)
 }
 
 // Mol operations (gt-as9kdm)
 
 // MolBondArgs represents arguments for the mol bond operation
 type MolBondArgs struct {
-	IDa       string            `json:"id_a"`                  // First operand (proto/molecule ID or formula name)
-	IDb       string            `json:"id_b"`                  // Second operand
-	BondType  string            `json:"bond_type"`             // "sequential", "parallel", "conditional"
-	Title     string            `json:"title,omitempty"`       // Custom title for compound proto
-	Vars      map[string]string `json:"vars,omitempty"`        // Variable substitutions
-	ChildRef  string            `json:"child_ref,omitempty"`   // Custom child reference for dynamic bonding
-	Ephemeral bool              `json:"ephemeral,omitempty"`   // Force spawn as vapor (ephemeral)
-	Pour      bool              `json:"pour,omitempty"`        // Force spawn as liquid (persistent)
-	DryRun    bool              `json:"dry_run,omitempty"`     // Preview mode
+	IDa       string            `json:"id_a"`                // First operand (proto/molecule ID or formula name)
+	IDb       string            `json:"id_b"`                // Second operand
+	BondType  string            `json:"bond_type"`           // "sequential", "parallel", "conditional"
+	Title     string            `json:"title,omitempty"`     // Custom title for compound proto
+	Vars      map[string]string `json:"vars,omitempty"`      // Variable substitutions
+	ChildRef  string            `json:"child_ref,omitempty"` // Custom child reference for dynamic bonding
+	Ephemeral bool              `json:"ephemeral,omitempty"` // Force spawn as vapor (ephemeral)
+	Pour      bool              `json:"pour,omitempty"`      // Force spawn as liquid (persistent)
+	DryRun    bool              `json:"dry_run,omitempty"`   // Preview mode
 }
 
 // MolBondResult represents the result of a mol bond operation
 type MolBondResult struct {
 	ResultID   string            `json:"result_id"`
-	ResultType string            `json:"result_type"`         // "compound_proto" or "compound_molecule"
+	ResultType string            `json:"result_type"` // "compound_proto" or "compound_molecule"
 	BondType   string            `json:"bond_type"`
-	Spawned    int               `json:"spawned,omitempty"`   // Number of issues spawned
+	Spawned    int               `json:"spawned,omitempty"`    // Number of issues spawned
 	IDMapping  map[string]string `json:"id_mapping,omitempty"` // Old ID -> new ID mapping
 }
 
@@ -1347,8 +1347,8 @@ type MolCurrentArgs struct {
 type MolCurrentStepStatus struct {
 	IssueID   string `json:"issue_id"`
 	Title     string `json:"title"`
-	Status    string `json:"status"`      // "done", "current", "ready", "blocked", "pending"
-	IsCurrent bool   `json:"is_current"`  // true if this is the in_progress step
+	Status    string `json:"status"`     // "done", "current", "ready", "blocked", "pending"
+	IsCurrent bool   `json:"is_current"` // true if this is the in_progress step
 	IssueType string `json:"issue_type"`
 	Priority  int    `json:"priority"`
 }
@@ -1420,11 +1420,11 @@ type CloseContinueArgs struct {
 
 // CloseContinueResult represents the result of a close --continue operation
 type CloseContinueResult struct {
-	ClosedStep   *types.Issue `json:"closed_step"`             // The step that was closed
-	NextStep     *types.Issue `json:"next_step,omitempty"`     // The next ready step
-	AutoAdvanced bool         `json:"auto_advanced"`           // Whether next step was auto-claimed
-	MolComplete  bool         `json:"molecule_complete"`       // Whether the molecule is complete
-	MoleculeID   string       `json:"molecule_id,omitempty"`   // Parent molecule ID
+	ClosedStep   *types.Issue `json:"closed_step"`           // The step that was closed
+	NextStep     *types.Issue `json:"next_step,omitempty"`   // The next ready step
+	AutoAdvanced bool         `json:"auto_advanced"`         // Whether next step was auto-claimed
+	MolComplete  bool         `json:"molecule_complete"`     // Whether the molecule is complete
+	MoleculeID   string       `json:"molecule_id,omitempty"` // Parent molecule ID
 }
 
 // ListWatchArgs represents arguments for the list_watch operation (bd-la75)
@@ -1494,14 +1494,14 @@ type ListWatchArgs struct {
 	Overdue     bool   `json:"overdue,omitempty"`
 
 	// Watch-specific parameters
-	Since     int64 `json:"since"`               // Unix timestamp in milliseconds (0 = return immediately with initial data)
+	Since     int64 `json:"since"`                // Unix timestamp in milliseconds (0 = return immediately with initial data)
 	TimeoutMs int   `json:"timeout_ms,omitempty"` // Max wait time in milliseconds (default 30000, max 60000)
 }
 
 // ListWatchResult represents the result of a list_watch operation (bd-la75)
 type ListWatchResult struct {
 	Issues         []*types.Issue `json:"issues"`
-	LastMutationMs int64          `json:"last_mutation_ms"` // Unix timestamp in milliseconds of latest mutation
+	LastMutationMs int64          `json:"last_mutation_ms"`   // Unix timestamp in milliseconds of latest mutation
 	HasMore        bool           `json:"has_more,omitempty"` // True if more mutations occurred during wait
 }
 
@@ -1526,17 +1526,17 @@ type TypeInfo struct {
 
 // SyncExportArgs represents arguments for the sync export operation
 type SyncExportArgs struct {
-	Force  bool `json:"force,omitempty"`  // Force full export (skip incremental optimization)
+	Force  bool `json:"force,omitempty"`   // Force full export (skip incremental optimization)
 	DryRun bool `json:"dry_run,omitempty"` // Preview mode
 }
 
 // SyncExportResult represents the result of a sync export operation
 type SyncExportResult struct {
-	ExportedCount int    `json:"exported_count"`       // Number of issues exported
-	ChangedCount  int    `json:"changed_count"`        // Number of issues changed since last sync
-	JSONLPath     string `json:"jsonl_path"`           // Path to exported JSONL file
-	Skipped       bool   `json:"skipped,omitempty"`    // True if export was skipped (no changes)
-	Message       string `json:"message,omitempty"`    // Human-readable status message
+	ExportedCount int    `json:"exported_count"`    // Number of issues exported
+	ChangedCount  int    `json:"changed_count"`     // Number of issues changed since last sync
+	JSONLPath     string `json:"jsonl_path"`        // Path to exported JSONL file
+	Skipped       bool   `json:"skipped,omitempty"` // True if export was skipped (no changes)
+	Message       string `json:"message,omitempty"` // Human-readable status message
 }
 
 // SyncStatusArgs represents arguments for the sync status operation
@@ -1563,22 +1563,21 @@ type SyncStatusResult struct {
 
 // SetStateArgs represents arguments for the set_state operation
 type SetStateArgs struct {
-	IssueID   string `json:"issue_id"`             // Issue ID to set state on
-	Dimension string `json:"dimension"`            // State dimension (e.g., "patrol", "mode", "health")
-	NewValue  string `json:"new_value"`            // New value for the dimension
-	Reason    string `json:"reason,omitempty"`     // Optional reason for the state change
+	IssueID   string `json:"issue_id"`         // Issue ID to set state on
+	Dimension string `json:"dimension"`        // State dimension (e.g., "patrol", "mode", "health")
+	NewValue  string `json:"new_value"`        // New value for the dimension
+	Reason    string `json:"reason,omitempty"` // Optional reason for the state change
 }
 
 // SetStateResult represents the result of a set_state operation
 type SetStateResult struct {
-	IssueID   string  `json:"issue_id"`              // Full issue ID
-	Dimension string  `json:"dimension"`             // State dimension
-	OldValue  *string `json:"old_value"`             // Previous value (nil if none)
-	NewValue  string  `json:"new_value"`             // New value
-	EventID   string  `json:"event_id"`              // Created event bead ID
-	Changed   bool    `json:"changed"`               // Whether the state actually changed
+	IssueID   string  `json:"issue_id"`  // Full issue ID
+	Dimension string  `json:"dimension"` // State dimension
+	OldValue  *string `json:"old_value"` // Previous value (nil if none)
+	NewValue  string  `json:"new_value"` // New value
+	EventID   string  `json:"event_id"`  // Created event bead ID
+	Changed   bool    `json:"changed"`   // Whether the state actually changed
 }
-
 
 // CreateWithDeps operation (atomic issue creation with labels and dependencies)
 
@@ -1655,9 +1654,9 @@ type CreateMoleculeResult struct {
 
 // BatchDependency represents a single dependency to add in a batch
 type BatchDependency struct {
-	FromID  string `json:"from_id"`  // Issue ID that depends on another
-	ToID    string `json:"to_id"`    // Issue ID being depended on
-	Type    string `json:"type"`     // Dependency type (blocks, parent-child, etc.)
+	FromID string `json:"from_id"` // Issue ID that depends on another
+	ToID   string `json:"to_id"`   // Issue ID being depended on
+	Type   string `json:"type"`    // Dependency type (blocks, parent-child, etc.)
 }
 
 // BatchAddDependenciesArgs represents arguments for the batch_add_dependencies operation.
@@ -1680,10 +1679,10 @@ type BatchQueryWorkersArgs struct {
 
 // WorkerInfo represents worker assignment information for a single issue
 type WorkerInfo struct {
-	IssueID  string `json:"issue_id"`            // Issue ID
-	Assignee string `json:"assignee,omitempty"`  // Assigned worker (if any)
-	Owner    string `json:"owner,omitempty"`     // Human owner (if any)
-	Status   string `json:"status,omitempty"`    // Issue status
+	IssueID  string `json:"issue_id"`           // Issue ID
+	Assignee string `json:"assignee,omitempty"` // Assigned worker (if any)
+	Owner    string `json:"owner,omitempty"`    // Human owner (if any)
+	Status   string `json:"status,omitempty"`   // Issue status
 }
 
 // BatchQueryWorkersResult represents the result of a batch_query_workers operation.
@@ -1781,9 +1780,9 @@ type MigrateResult struct {
 
 // FormulaListArgs represents arguments for the formula_list operation
 type FormulaListArgs struct {
-	Type   string `json:"type,omitempty"`   // Filter by formula type (workflow, expansion, aspect)
-	Phase  string `json:"phase,omitempty"`  // Filter by phase (liquid, vapor)
-	Limit  int    `json:"limit,omitempty"`  // Max results to return
+	Type  string `json:"type,omitempty"`  // Filter by formula type (workflow, expansion, aspect)
+	Phase string `json:"phase,omitempty"` // Filter by phase (liquid, vapor)
+	Limit int    `json:"limit,omitempty"` // Max results to return
 }
 
 // FormulaSummary is a compact representation of a formula for list results
@@ -1811,24 +1810,24 @@ type FormulaGetArgs struct {
 
 // FormulaGetResult represents the result of a formula_get operation
 type FormulaGetResult struct {
-	ID       string          `json:"id"`                 // Issue ID
-	Name     string          `json:"name"`               // Formula name
-	Formula  json.RawMessage `json:"formula"`             // Full formula JSON content
-	Source   string          `json:"source,omitempty"`    // Where formula was loaded from
+	ID      string          `json:"id"`               // Issue ID
+	Name    string          `json:"name"`             // Formula name
+	Formula json.RawMessage `json:"formula"`          // Full formula JSON content
+	Source  string          `json:"source,omitempty"` // Where formula was loaded from
 }
 
 // FormulaSaveArgs represents arguments for the formula_save operation
 type FormulaSaveArgs struct {
-	Formula  json.RawMessage `json:"formula"`            // Full formula JSON content
+	Formula  json.RawMessage `json:"formula"`             // Full formula JSON content
 	IDPrefix string          `json:"id_prefix,omitempty"` // Override prefix for formula ID
 	Force    bool            `json:"force,omitempty"`     // Overwrite existing formula
 }
 
 // FormulaSaveResult represents the result of a formula_save operation
 type FormulaSaveResult struct {
-	ID      string `json:"id"`                // Issue ID assigned to formula
-	Name    string `json:"name"`              // Formula name
-	Created bool   `json:"created"`           // True if new, false if updated
+	ID      string `json:"id"`      // Issue ID assigned to formula
+	Name    string `json:"name"`    // Formula name
+	Created bool   `json:"created"` // True if new, false if updated
 }
 
 // FormulaDeleteArgs represents arguments for the formula_delete operation
@@ -1840,8 +1839,8 @@ type FormulaDeleteArgs struct {
 
 // FormulaDeleteResult represents the result of a formula_delete operation
 type FormulaDeleteResult struct {
-	ID      string `json:"id"`              // Issue ID that was deleted
-	Name    string `json:"name"`            // Formula name
+	ID   string `json:"id"`   // Issue ID that was deleted
+	Name string `json:"name"` // Formula name
 }
 
 // RunbookListArgs represents arguments for the runbook_list operation
@@ -1851,12 +1850,12 @@ type RunbookListArgs struct {
 
 // RunbookSummary is a compact representation of a runbook for list results
 type RunbookSummary struct {
-	Name     string `json:"name"`               // Runbook name
-	Format   string `json:"format"`             // File format (hcl, toml, json)
-	Source   string `json:"source,omitempty"`   // Where loaded from
-	Jobs     int    `json:"jobs"`               // Number of jobs
-	Commands int    `json:"commands"`           // Number of commands
-	Workers  int    `json:"workers"`            // Number of workers
+	Name     string `json:"name"`             // Runbook name
+	Format   string `json:"format"`           // File format (hcl, toml, json)
+	Source   string `json:"source,omitempty"` // Where loaded from
+	Jobs     int    `json:"jobs"`             // Number of jobs
+	Commands int    `json:"commands"`         // Number of commands
+	Workers  int    `json:"workers"`          // Number of workers
 }
 
 // RunbookListResult represents the result of a runbook_list operation
@@ -1873,9 +1872,9 @@ type RunbookGetArgs struct {
 
 // RunbookGetResult represents the result of a runbook_get operation
 type RunbookGetResult struct {
-	ID      string          `json:"id"`              // Issue ID
-	Name    string          `json:"name"`            // Runbook name
-	Content json.RawMessage `json:"content"`         // Full runbook metadata JSON
+	ID      string          `json:"id"`      // Issue ID
+	Name    string          `json:"name"`    // Runbook name
+	Content json.RawMessage `json:"content"` // Full runbook metadata JSON
 }
 
 // RunbookSaveArgs represents arguments for the runbook_save operation
@@ -1910,7 +1909,7 @@ type BusEmitResult struct {
 // BusStatusResult represents the result of a bus_status operation
 type BusStatusResult struct {
 	NATSEnabled  bool   `json:"nats_enabled"`
-	NATSStatus   string `json:"nats_status,omitempty"`   // "running", "stopped", "error"
+	NATSStatus   string `json:"nats_status,omitempty"` // "running", "stopped", "error"
 	NATSPort     int    `json:"nats_port,omitempty"`
 	Connections  int    `json:"connections,omitempty"`
 	JetStream    bool   `json:"jetstream,omitempty"`
@@ -1933,12 +1932,12 @@ type BusHandlerInfo struct {
 
 // BusRegisterArgs represents arguments for the bus_register operation (bd-4q86.1)
 type BusRegisterArgs struct {
-	ID       string   `json:"id"`                   // Unique handler ID
-	Command  string   `json:"command"`              // Shell command to run
-	Events   []string `json:"events"`               // Event types to handle
-	Priority int      `json:"priority,omitempty"`    // Default 50
-	Shell    string   `json:"shell,omitempty"`       // Default "sh"
-	Persist  bool     `json:"persist,omitempty"`     // Save to config table for daemon restart
+	ID       string   `json:"id"`                 // Unique handler ID
+	Command  string   `json:"command"`            // Shell command to run
+	Events   []string `json:"events"`             // Event types to handle
+	Priority int      `json:"priority,omitempty"` // Default 50
+	Shell    string   `json:"shell,omitempty"`    // Default "sh"
+	Persist  bool     `json:"persist,omitempty"`  // Save to config table for daemon restart
 }
 
 // BusRegisterResult represents the result of a bus_register operation
@@ -2085,10 +2084,10 @@ type AgentRecentEventsResult struct {
 
 // AgentEvent represents a single event in an agent's recent activity timeline. (bd-9y9ba)
 type AgentEvent struct {
-	Timestamp string `json:"timestamp"`            // RFC3339
-	EventType string `json:"event_type"`           // e.g., "PreToolUse", "PostToolUse", "SessionStart"
-	ToolName  string `json:"tool_name,omitempty"`   // Tool name for tool events
-	Summary   string `json:"summary,omitempty"`     // Human-readable: command, file path, etc.
+	Timestamp string `json:"timestamp"`           // RFC3339
+	EventType string `json:"event_type"`          // e.g., "PreToolUse", "PostToolUse", "SessionStart"
+	ToolName  string `json:"tool_name,omitempty"` // Tool name for tool events
+	Summary   string `json:"summary,omitempty"`   // Human-readable: command, file path, etc.
 }
 
 // ===== Agent Lifecycle Operations (beads-2qz5) =====
@@ -2098,9 +2097,9 @@ type AgentEvent struct {
 // for this mutation and deletes the pod). If the agent has a coop_url in
 // its notes, a SIGTERM is also sent to the coop sidecar.
 type AgentStopArgs struct {
-	AgentID string `json:"agent_id"`           // Agent bead ID
-	Reason  string `json:"reason,omitempty"`   // Why the agent is being stopped
-	Force   bool   `json:"force,omitempty"`    // If true, skip graceful coop signal
+	AgentID string `json:"agent_id"`         // Agent bead ID
+	Reason  string `json:"reason,omitempty"` // Why the agent is being stopped
+	Force   bool   `json:"force,omitempty"`  // If true, skip graceful coop signal
 }
 
 // AgentStopResult is returned after an agent stop request.
@@ -2127,8 +2126,8 @@ type AgentRestartResult struct {
 // AgentSignalArgs sends a signal to an agent's coop sidecar.
 // Resolves the agent's coop_url from bead notes and POSTs to /api/v1/signal.
 type AgentSignalArgs struct {
-	AgentID string `json:"agent_id"`          // Agent bead ID
-	Signal  string `json:"signal"`            // Signal name: SIGTERM, SIGINT, SIGKILL, etc.
+	AgentID string `json:"agent_id"` // Agent bead ID
+	Signal  string `json:"signal"`   // Signal name: SIGTERM, SIGINT, SIGKILL, etc.
 }
 
 // AgentSignalResult is returned after sending a signal.
@@ -2194,7 +2193,7 @@ type FedListRemotesResult struct {
 // FedSyncArgs represents arguments for the fed_sync operation.
 type FedSyncArgs struct {
 	Peer     string `json:"peer"`               // Peer name to sync with
-	Strategy string `json:"strategy,omitempty"`  // Conflict resolution strategy: "ours" or "theirs"
+	Strategy string `json:"strategy,omitempty"` // Conflict resolution strategy: "ours" or "theirs"
 }
 
 // FedConflictInfo represents a single merge conflict in the response.
@@ -2326,16 +2325,16 @@ type GCTombstonesArgs struct {
 
 // GCTombstonesResult represents the result of a gc_tombstones operation.
 type GCTombstonesResult struct {
-	TombstonesDeleted int  `json:"tombstones_deleted"`
-	ClosedDeleted     int  `json:"closed_deleted"`
-	DepsDeleted       int  `json:"deps_deleted"`
-	EventsDeleted     int  `json:"events_deleted"`
-	CommentsDeleted   int  `json:"comments_deleted"`
-	LabelsDeleted     int  `json:"labels_deleted"`
-	DirtyDeleted      int  `json:"dirty_deleted"`
-	TotalBefore       int  `json:"total_before"`
-	TotalAfter        int  `json:"total_after"`
-	DryRun            bool `json:"dry_run,omitempty"`
+	TombstonesDeleted int   `json:"tombstones_deleted"`
+	ClosedDeleted     int   `json:"closed_deleted"`
+	DepsDeleted       int   `json:"deps_deleted"`
+	EventsDeleted     int   `json:"events_deleted"`
+	CommentsDeleted   int   `json:"comments_deleted"`
+	LabelsDeleted     int   `json:"labels_deleted"`
+	DirtyDeleted      int   `json:"dirty_deleted"`
+	TotalBefore       int   `json:"total_before"`
+	TotalAfter        int   `json:"total_after"`
+	DryRun            bool  `json:"dry_run,omitempty"`
 	ElapsedMs         int64 `json:"elapsed_ms"`
 }
 
@@ -2423,9 +2422,9 @@ type FedRemoveRemoteResult struct {
 type FedAddPeerArgs struct {
 	Name        string `json:"name"`                  // Peer name
 	URL         string `json:"url"`                   // Remote URL
-	Username    string `json:"username,omitempty"`     // SQL username
-	Password    string `json:"password,omitempty"`     // SQL password
-	Sovereignty string `json:"sovereignty,omitempty"`  // Sovereignty tier: T1, T2, T3, T4
+	Username    string `json:"username,omitempty"`    // SQL username
+	Password    string `json:"password,omitempty"`    // SQL password
+	Sovereignty string `json:"sovereignty,omitempty"` // Sovereignty tier: T1, T2, T3, T4
 }
 
 // FedAddPeerResult represents the result of a fed_add_peer operation.
@@ -2466,7 +2465,7 @@ type HistoryDiffArgs struct {
 // HistoryDiffEntryRPC represents a low-level diff entry for RPC transport.
 type HistoryDiffEntryRPC struct {
 	TableName  string `json:"table_name"`
-	DiffType   string `json:"diff_type"`   // "added", "modified", "removed"
+	DiffType   string `json:"diff_type"` // "added", "modified", "removed"
 	FromCommit string `json:"from_commit"`
 	ToCommit   string `json:"to_commit"`
 }
@@ -2552,31 +2551,31 @@ type SQLArgs struct {
 
 // SQLResult represents the result of a sql query operation
 type SQLResult struct {
-	Columns []string                 `json:"columns"`           // Column names
-	Rows    []map[string]interface{} `json:"rows"`              // Result rows as key-value maps
-	Count   int                      `json:"count"`             // Number of rows returned
+	Columns []string                 `json:"columns"` // Column names
+	Rows    []map[string]interface{} `json:"rows"`    // Result rows as key-value maps
+	Count   int                      `json:"count"`   // Number of rows returned
 }
 
 // GraphArgs represents arguments for the graph visualization endpoint (bd-hpk9f).
 // Returns nodes (issues) and edges (dependencies) optimized for 3D rendering.
 type GraphArgs struct {
 	// Filtering
-	Status      []string `json:"status,omitempty"`       // Include these statuses (default: open, in_progress)
+	Status       []string `json:"status,omitempty"`        // Include these statuses (default: open, in_progress)
 	ExcludeTypes []string `json:"exclude_types,omitempty"` // Exclude these issue types (default: message, config)
-	Types       []string `json:"types,omitempty"`         // Include only these issue types
-	Priority    *int     `json:"priority,omitempty"`      // Filter by exact priority
-	PriorityMin *int     `json:"priority_min,omitempty"`  // Min priority (0=P0)
-	PriorityMax *int     `json:"priority_max,omitempty"`  // Max priority (4=P4)
-	Labels      []string `json:"labels,omitempty"`        // AND filter on labels
-	LabelsAny   []string `json:"labels_any,omitempty"`    // OR filter on labels
-	ParentID    string   `json:"parent_id,omitempty"`     // Scope to descendants of this epic/bead
-	Assignee    string   `json:"assignee,omitempty"`      // Filter by assignee
-	Rig         *string  `json:"rig,omitempty"`           // Filter by rig name (nil=any, ""=town-level)
-	Query       string   `json:"query,omitempty"`         // Full-text search in title/description
+	Types        []string `json:"types,omitempty"`         // Include only these issue types
+	Priority     *int     `json:"priority,omitempty"`      // Filter by exact priority
+	PriorityMin  *int     `json:"priority_min,omitempty"`  // Min priority (0=P0)
+	PriorityMax  *int     `json:"priority_max,omitempty"`  // Max priority (4=P4)
+	Labels       []string `json:"labels,omitempty"`        // AND filter on labels
+	LabelsAny    []string `json:"labels_any,omitempty"`    // OR filter on labels
+	ParentID     string   `json:"parent_id,omitempty"`     // Scope to descendants of this epic/bead
+	Assignee     string   `json:"assignee,omitempty"`      // Filter by assignee
+	Rig          *string  `json:"rig,omitempty"`           // Filter by rig name (nil=any, ""=town-level)
+	Query        string   `json:"query,omitempty"`         // Full-text search in title/description
 
 	// Depth control
-	Limit       int  `json:"limit,omitempty"`          // Max nodes (default 500)
-	IncludeDeps bool `json:"include_deps,omitempty"`   // Pull in dependency targets even if they don't match filters
+	Limit       int  `json:"limit,omitempty"`        // Max nodes (default 500)
+	IncludeDeps bool `json:"include_deps,omitempty"` // Pull in dependency targets even if they don't match filters
 
 	// Content control
 	IncludeBody   bool `json:"include_body,omitempty"`   // Include full description + notes text
@@ -2590,6 +2589,7 @@ type GraphNode struct {
 	Status      string   `json:"status"`
 	Priority    int      `json:"priority"`
 	IssueType   string   `json:"issue_type"`
+	ParentID    string   `json:"parent_id,omitempty"` // Epic/parent issue ID (bd-j3pex)
 	Assignee    string   `json:"assignee,omitempty"`
 	Rig         string   `json:"rig,omitempty"`
 	Labels      []string `json:"labels,omitempty"`
@@ -2599,7 +2599,7 @@ type GraphNode struct {
 	Notes       string   `json:"notes,omitempty"`       // Only when include_body=true
 	Design      string   `json:"design,omitempty"`      // Only when include_body=true
 	Ephemeral   bool     `json:"ephemeral,omitempty"`
-	DepCount    int      `json:"dep_count,omitempty"`   // Number of dependencies
+	DepCount    int      `json:"dep_count,omitempty"`    // Number of dependencies
 	DepByCount  int      `json:"dep_by_count,omitempty"` // Number of dependents
 	BlockedBy   []string `json:"blocked_by,omitempty"`   // IDs of direct blockers
 }

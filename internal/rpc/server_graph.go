@@ -159,31 +159,40 @@ func (s *Server) handleGraph(req *Request) Response {
 
 	// Run independent batch queries concurrently (bd-5nrqx)
 	var (
-		depRecords map[string][]*types.Dependency
-		depCounts  map[string]*types.DependencyCounts
-		labelsMap  map[string][]string
-		blockedMap map[string][]string
-		graphStats *types.Statistics
+		depRecords    map[string][]*types.Dependency
+		revDepRecords map[string][]*types.Dependency
+		depCounts     map[string]*types.DependencyCounts
+		labelsMap     map[string][]string
+		blockedMap    map[string][]string
+		graphStats    *types.Statistics
 
-		depErr, countErr, labelErr, blockedErr, statsErr error
-		wg sync.WaitGroup
+		depErr, revDepErr, countErr, labelErr, blockedErr, statsErr error
+		wg                                                          sync.WaitGroup
 	)
 
-	wg.Add(5)
+	wg.Add(6)
 
-	// 1. Dependency records
+	// 1. Forward dependency records (edges FROM these issues)
 	go func() {
 		defer wg.Done()
 		depRecords, depErr = store.GetDependencyRecordsForIssues(ctx, issueIDs)
 	}()
 
-	// 2. Dependency counts
+	// 2. Reverse dependency records (edges TO these issues, bd-j3pex)
+	// Finds parent-child and other edges where the graph node is the target,
+	// e.g., closed children pointing to open epics.
+	go func() {
+		defer wg.Done()
+		revDepRecords, revDepErr = store.GetReverseDepRecordsForIssues(ctx, issueIDs)
+	}()
+
+	// 3. Dependency counts
 	go func() {
 		defer wg.Done()
 		depCounts, countErr = store.GetDependencyCounts(ctx, issueIDs)
 	}()
 
-	// 3. Labels
+	// 4. Labels
 	go func() {
 		defer wg.Done()
 		labelsMap, labelErr = store.GetLabelsForIssues(ctx, issueIDs)
@@ -192,7 +201,7 @@ func (s *Server) handleGraph(req *Request) Response {
 		}
 	}()
 
-	// 4. Blocked-by (bd-5nrqx: targeted query instead of full GetBlockedIssues scan)
+	// 5. Blocked-by (bd-5nrqx: targeted query instead of full GetBlockedIssues scan)
 	go func() {
 		defer wg.Done()
 		blockedMap, blockedErr = s.getBlockedByForIssues(ctx, issueIDs)
@@ -201,7 +210,7 @@ func (s *Server) handleGraph(req *Request) Response {
 		}
 	}()
 
-	// 5. Stats
+	// 6. Stats
 	go func() {
 		defer wg.Done()
 		graphStats, statsErr = store.GetStatistics(ctx)
@@ -222,7 +231,7 @@ func (s *Server) handleGraph(req *Request) Response {
 		}
 	}
 
-	// Build edges and collect missing dep target IDs for batch fetch
+	// Build edges from forward deps and collect missing dep target IDs
 	edges := make([]GraphEdge, 0)
 	seenEdges := make(map[string]bool)
 	missingDepIDs := make(map[string]bool)
@@ -250,6 +259,33 @@ func (s *Server) handleGraph(req *Request) Response {
 		}
 	}
 
+	// Build edges from reverse deps (bd-j3pex: finds edges TO graph nodes,
+	// e.g., children pointing to parent epics, even if children are closed/filtered)
+	if revDepErr == nil && revDepRecords != nil {
+		for _, deps := range revDepRecords {
+			for _, dep := range deps {
+				edgeKey := fmt.Sprintf("%s->%s:%s", dep.IssueID, dep.DependsOnID, dep.Type)
+				if seenEdges[edgeKey] {
+					continue
+				}
+				seenEdges[edgeKey] = true
+
+				edges = append(edges, GraphEdge{
+					Source: dep.IssueID,
+					Target: dep.DependsOnID,
+					Type:   string(dep.Type),
+				})
+
+				// The source of this edge may not be in the graph — pull it in
+				if args.IncludeDeps {
+					if _, exists := issueMap[dep.IssueID]; !exists {
+						missingDepIDs[dep.IssueID] = true
+					}
+				}
+			}
+		}
+	}
+
 	// Batch-fetch missing dep targets (bd-5nrqx: replaces N individual GetIssue calls)
 	if len(missingDepIDs) > 0 {
 		missingIDs := make([]string, 0, len(missingDepIDs))
@@ -265,6 +301,26 @@ func (s *Server) handleGraph(req *Request) Response {
 		}
 	}
 
+	// Build parent-child lookup from dep records (bd-j3pex)
+	parentOf := make(map[string]string) // childID -> parentID
+	for issueID, deps := range depRecords {
+		for _, dep := range deps {
+			if dep.Type == types.DepParentChild {
+				parentOf[issueID] = dep.DependsOnID
+			}
+		}
+	}
+	// Also check reverse deps for parent info
+	if revDepRecords != nil {
+		for _, deps := range revDepRecords {
+			for _, dep := range deps {
+				if dep.Type == types.DepParentChild {
+					parentOf[dep.IssueID] = dep.DependsOnID
+				}
+			}
+		}
+	}
+
 	// Build nodes
 	nodes := make([]GraphNode, 0, len(issueMap))
 	for _, issue := range issueMap {
@@ -274,6 +330,7 @@ func (s *Server) handleGraph(req *Request) Response {
 			Status:    string(issue.Status),
 			Priority:  issue.Priority,
 			IssueType: string(issue.IssueType),
+			ParentID:  parentOf[issue.ID],
 			Assignee:  issue.Assignee,
 			Rig:       issue.Rig,
 			Labels:    labelsMap[issue.ID],
@@ -349,6 +406,22 @@ func (s *Server) handleGraph(req *Request) Response {
 			nodes = append(nodes, *node)
 		}
 	}
+
+	// Filter gate/decision nodes: only show them if they have at least one edge
+	// connecting them to an open/in_progress task (bd-2qn9y).
+	connectedIDs := make(map[string]bool)
+	for _, e := range edges {
+		connectedIDs[e.Source] = true
+		connectedIDs[e.Target] = true
+	}
+	filteredNodes := make([]GraphNode, 0, len(nodes))
+	for _, n := range nodes {
+		if n.IssueType == "gate" && !connectedIDs[n.ID] {
+			continue // drop disconnected decision gates
+		}
+		filteredNodes = append(filteredNodes, n)
+	}
+	nodes = filteredNodes
 
 	// Build result with stats
 	var result GraphResult
