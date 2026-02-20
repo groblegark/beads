@@ -53,13 +53,13 @@ bd --version  # Requires v0.47.0+
 **Run `bd prime`** for AI-optimized workflow context (auto-loaded by hooks).
 **Run `bd <command> --help`** for specific command usage.
 
-Essential commands: `bd ready`, `bd create`, `bd show`, `bd update`, `bd close`
+Essential commands: `bd ready`, `bd create`, `bd show`, `bd claim`, `bd close`
 
 ## Session Protocol
 
 1. `bd ready` — Find unblocked work
 2. `bd show <id>` — Get full context
-3. `bd update <id> --status in_progress` — Start work
+3. `bd claim <id>` — Claim and start work (sets assignee + in_progress, records git branch)
 4. Add notes as you work (critical for compaction survival)
 5. `bd close <id> --reason "..."` — Complete task
 

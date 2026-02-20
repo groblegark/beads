@@ -61,7 +61,7 @@ NEXT: Need user input on budget constraints before finalizing recommendations"
 3. Assess urgency: blocker or can defer?
 4. **If blocker**:
    - `bd update main-task --status blocked`
-   - `bd update new-issue --status in_progress`
+   - `bd claim new-issue`
    - Work on the blocker
 5. **If deferrable**:
    - Note in new issue's design field
@@ -92,10 +92,10 @@ Working on "Implement checkout flow" (checkout-1), discover payment validation s
 2. **Check what's stuck**: Use `mcp__plugin_beads_beads__blocked` to understand blockers
 3. **Check recent progress**: Use `mcp__plugin_beads_beads__list` with `status:"closed"` to see completions
 4. **Read detailed context**: Use `mcp__plugin_beads_beads__show` for the issue you'll work on
-5. **Update status**: Use `mcp__plugin_beads_beads__update` with `status:"in_progress"`
+5. **Claim it**: Use `mcp__plugin_beads_beads__update` with `status:"in_progress"` (or CLI: `bd claim <id>`)
 6. **Begin work**: Create TodoWrite from notes field's NEXT section
 
-(CLI: `bd ready`, `bd blocked`, `bd list --status closed`, `bd show <id>`, `bd update <id> --status in_progress`)
+(CLI: `bd ready`, `bd blocked`, `bd list --status closed`, `bd show <id>`, `bd claim <id>`)
 
 **Example**:
 ```bash
@@ -116,7 +116,7 @@ IN PROGRESS: Need to add token refresh
 NEXT: Implement rotation per OWASP guidelines (7-day refresh tokens)
 BLOCKER: None - ready to proceed
 
-$ bd update auth-5 --status in_progress
+$ bd claim auth-5
 # Now create TodoWrite based on NEXT section
 ```
 
@@ -148,7 +148,7 @@ blocked   blocked
 - Actively working on this issue right now
 - Has been read and understood
 - Making commits or changes related to this
-- **Command**: `bd update issue-id --status in_progress`
+- **Command**: `bd claim issue-id` (or `bd update issue-id --status in_progress`)
 - **When**: Start of work session on this issue
 
 **blocked**:
@@ -173,7 +173,7 @@ blocked   blocked
 **Starting work**:
 ```bash
 bd ready  # See what's available
-bd update auth-5 --status in_progress
+bd claim auth-5  # Sets assignee + in_progress, records git branch
 # Begin working
 ```
 
