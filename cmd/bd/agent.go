@@ -122,6 +122,31 @@ Examples:
 
 var backfillDryRun bool
 
+var agentBackfillBeadsCmd = &cobra.Command{
+	Use:   "backfill-beads",
+	Short: "Create agent beads for roster agents that lack them",
+	Long: `Scans the live agent roster and creates agent beads for any agent
+that doesn't have one yet. This is a one-time migration tool to ensure all
+known agents have persistent beads in the database.
+
+For each roster agent without a bead:
+1. Creates a task-type bead with gt:agent label
+2. Adds role_type and rig labels parsed from the agent ID
+3. Reports what was created
+
+Use --dry-run to preview without making changes.
+Use --all to include dead/reaped agents (default: live agents only).
+
+Examples:
+  bd agent backfill-beads           # Create beads for live roster agents
+  bd agent backfill-beads --dry-run # Preview without creating
+  bd agent backfill-beads --all     # Include dead agents`,
+	RunE: runAgentBackfillBeads,
+}
+
+var backfillBeadsDryRun bool
+var backfillBeadsAll bool
+
 var agentPodRegisterCmd = &cobra.Command{
 	Use:   "pod-register <agent>",
 	Short: "Register a K8s pod for an agent",
@@ -359,6 +384,8 @@ Examples:
 
 func init() {
 	agentBackfillLabelsCmd.Flags().BoolVar(&backfillDryRun, "dry-run", false, "Preview changes without applying them")
+	agentBackfillBeadsCmd.Flags().BoolVar(&backfillBeadsDryRun, "dry-run", false, "Preview changes without creating beads")
+	agentBackfillBeadsCmd.Flags().BoolVar(&backfillBeadsAll, "all", false, "Include dead/reaped agents")
 
 	agentPodRegisterCmd.Flags().StringVar(&podRegisterName, "pod-name", "", "K8s pod name (required)")
 	agentPodRegisterCmd.Flags().StringVar(&podRegisterIP, "pod-ip", "", "Pod IP address")
@@ -388,6 +415,7 @@ func init() {
 	agentCmd.AddCommand(agentHeartbeatCmd)
 	agentCmd.AddCommand(agentShowCmd)
 	agentCmd.AddCommand(agentBackfillLabelsCmd)
+	agentCmd.AddCommand(agentBackfillBeadsCmd)
 	agentCmd.AddCommand(agentSubscriptionsCmd)
 	agentCmd.AddCommand(agentStopCmd)
 	agentCmd.AddCommand(agentRestartCmd)
@@ -1885,4 +1913,123 @@ func parseDescriptionField(description, key string) string {
 		}
 	}
 	return ""
+}
+
+// runAgentBackfillBeads scans the live roster and creates agent beads for any
+// agent that doesn't have one yet. (bd-2cra1)
+func runAgentBackfillBeads(cmd *cobra.Command, args []string) error {
+	if daemonClient == nil {
+		return fmt.Errorf("agent backfill-beads requires the daemon (set BD_DAEMON_HOST)")
+	}
+	if !backfillBeadsDryRun {
+		CheckReadonly("agent backfill-beads")
+	}
+
+	// Get the live roster (use stale=0 to include all tracked agents if --all).
+	stale := rosterStaleThreshold
+	if backfillBeadsAll {
+		stale = 0
+	}
+	roster, err := daemonClient.AgentRoster(&rpc.AgentRosterArgs{
+		StaleThresholdSecs: stale,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to get roster: %w", err)
+	}
+
+	if len(roster.Actors) == 0 {
+		fmt.Println("No agents in roster")
+		return nil
+	}
+
+	// Also get existing agent beads by label.
+	var existingAgents []*types.Issue
+	resp, err := daemonClient.List(&rpc.ListArgs{
+		Labels: []string{"gt:agent"},
+		Limit:  5000,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to list existing agent beads: %w", err)
+	}
+	if err := json.Unmarshal(resp.Data, &existingAgents); err != nil {
+		return fmt.Errorf("parsing response: %w", err)
+	}
+	existingSet := make(map[string]bool, len(existingAgents))
+	for _, a := range existingAgents {
+		existingSet[a.ID] = true
+	}
+
+	created := 0
+	skipped := 0
+
+	for _, entry := range roster.Actors {
+		actor := entry.Actor
+		if actor == "" {
+			continue
+		}
+
+		// Check if bead already exists (by ID match or by gt:agent label).
+		if existingSet[actor] {
+			skipped++
+			continue
+		}
+		// Also try a direct show to catch beads without the label.
+		showResp, showErr := daemonClient.Show(&rpc.ShowArgs{ID: actor})
+		if showErr == nil && showResp != nil {
+			skipped++
+			continue
+		}
+
+		roleType, rig := parseAgentIDFields(actor)
+
+		if backfillBeadsDryRun {
+			fmt.Printf("Would create bead: %s", actor)
+			if roleType != "" {
+				fmt.Printf(" (role_type=%s", roleType)
+				if rig != "" {
+					fmt.Printf(", rig=%s", rig)
+				}
+				fmt.Printf(")")
+			}
+			fmt.Println()
+			created++
+			continue
+		}
+
+		// Create the bead via daemon RPC.
+		labels := []string{"gt:agent"}
+		if roleType != "" {
+			labels = append(labels, "role_type:"+roleType)
+		}
+		if rig != "" {
+			labels = append(labels, "rig:"+rig)
+		}
+		createArgs := &rpc.CreateArgs{
+			ID:        actor,
+			Title:     fmt.Sprintf("Agent: %s", actor),
+			IssueType: string(types.TypeTask),
+			RoleType:  roleType,
+			Rig:       rig,
+			CreatedBy: "backfill-beads",
+			Labels:    labels,
+		}
+		if _, err := daemonClient.Create(createArgs); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to create bead for %s: %v\n", actor, err)
+			continue
+		}
+		fmt.Printf("Created bead: %s", actor)
+		if roleType != "" {
+			fmt.Printf(" (role_type=%s", roleType)
+			if rig != "" {
+				fmt.Printf(", rig=%s", rig)
+			}
+			fmt.Printf(")")
+		}
+		fmt.Println()
+		created++
+	}
+
+	fmt.Printf("\nSummary: %d roster agents scanned, %d beads created, %d already existed\n",
+		len(roster.Actors), created, skipped)
+	return nil
 }
