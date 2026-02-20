@@ -183,14 +183,12 @@ GHCR image publishing is handled by gastown `docker.yml` with CalVer tags.
 
 ### Known Pipeline Issues (reviewed Feb 2026)
 
-**Should fix:**
-1. Go version inconsistency — `golang/install` gets `1.25` (latest patch) but `image-toolchain` hardcodes `go1.25.7`. These can diverge.
-
 **Nice-to-have:**
-2. Document in README-LOCKS.md: when updating Go version, must update ci.yml, image.yml, release.yml, AND .go-version together.
-3. Consider webhook triggers for gastown dispatch (instead of curl to RWX API).
+1. Document in README-LOCKS.md: when updating Go version, must update ci.yml, image.yml, release.yml, AND .go-version together.
+2. Consider webhook triggers for gastown dispatch (instead of curl to RWX API).
 
 **Previously fixed (kept for reference):**
+- ~~Go version inconsistency~~ — image-toolchain now uses `go env GOVERSION` dynamically (no hardcoded version)
 - ~~`build`/`lint` implicit dep on `code`~~ — now explicit in `use` arrays
 - ~~`helm.yml` PR status-checks~~ — now `tasks: [helm-lint]`
 - ~~`beads-changes-check` unconditional~~ — now `if: ${{ init.trigger == 'pr' }}`
