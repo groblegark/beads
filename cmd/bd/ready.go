@@ -139,6 +139,20 @@ This is useful for agents executing molecules to see which steps can run next.`,
 				fmt.Fprintf(os.Stderr, "Warning: --with-skills not yet supported in daemon mode, skill filtering skipped\n")
 			}
 
+			// Agent mode: filter out items assigned to other agents (bd-nzxs0)
+			// Agents should only see: unassigned work + their own in-progress items.
+			// This keeps "bd ready" focused on claimable work.
+			if ui.IsAgentMode() && !cmd.Flags().Changed("assignee") && !unassigned {
+				currentActor := getActor()
+				var filtered []*types.Issue
+				for _, issue := range issues {
+					if issue.Assignee == "" || issue.Assignee == currentActor {
+						filtered = append(filtered, issue)
+					}
+				}
+				issues = filtered
+			}
+
 			if jsonOutput {
 				if issues == nil {
 					issues = []*types.Issue{}
@@ -171,14 +185,18 @@ This is useful for agents executing molecules to see which steps can run next.`,
 			if prettyFormat {
 				displayPrettyList(issues, false)
 			} else {
+				isAgent := ui.IsAgentMode()
 				fmt.Printf("\n%s Ready work (%d issues with no blockers):\n\n", ui.RenderAccent("📋"), len(issues))
 				for i, issue := range issues {
+					// Agent mode: skip noisy metadata (timestamps, created_by) to save context (bd-nzxs0)
 					ageMeta := ""
-					if !issue.UpdatedAt.IsZero() {
-						ageMeta += " " + ui.RenderMuted(formatRelativeTime(issue.UpdatedAt))
-					}
-					if issue.CreatedBy != "" {
-						ageMeta += fmt.Sprintf(" by %s", ui.RenderMuted(issue.CreatedBy))
+					if !isAgent {
+						if !issue.UpdatedAt.IsZero() {
+							ageMeta += " " + ui.RenderMuted(formatRelativeTime(issue.UpdatedAt))
+						}
+						if issue.CreatedBy != "" {
+							ageMeta += fmt.Sprintf(" by %s", ui.RenderMuted(issue.CreatedBy))
+						}
 					}
 					fmt.Printf("%d. [%s] [%s] %s: %s%s\n", i+1,
 						ui.RenderPriority(issue.Priority),

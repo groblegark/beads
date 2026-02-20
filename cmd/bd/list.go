@@ -717,14 +717,16 @@ func formatIssueCompact(buf *strings.Builder, issue *types.Issue, labels []strin
 		}
 	}
 
-	// Age and created_by metadata
+	// Age and created_by metadata — skip in agent mode to reduce noise (bd-nzxs0)
 	ageStr := ""
-	if !issue.UpdatedAt.IsZero() {
-		ageStr = " " + ui.RenderMuted(formatRelativeTime(issue.UpdatedAt))
-	}
 	createdByStr := ""
-	if issue.CreatedBy != "" {
-		createdByStr = fmt.Sprintf(" by %s", ui.RenderMuted(issue.CreatedBy))
+	if !ui.IsAgentMode() {
+		if !issue.UpdatedAt.IsZero() {
+			ageStr = " " + ui.RenderMuted(formatRelativeTime(issue.UpdatedAt))
+		}
+		if issue.CreatedBy != "" {
+			createdByStr = fmt.Sprintf(" by %s", ui.RenderMuted(issue.CreatedBy))
+		}
 	}
 
 	if issue.Status == types.StatusClosed {
@@ -1032,13 +1034,15 @@ var listCmd = &cobra.Command{
 			filter.ExcludeTypes = append(filter.ExcludeTypes, "gate")
 		}
 
-		// Exclude non-work types by default (beads-qpy)
-		// When no explicit --type filter, hide infrastructure/workflow items:
-		// formula, config, message, agent, role, rig, convoy, slot, event
-		// (merge-request, molecule, runbook, advice are kept — they appear as user work)
+		// Exclude non-work types by default (beads-qpy, bd-nzxs0)
+		// When no explicit --type filter, hide infrastructure/workflow/reference items.
 		// Use --type=<type> to explicitly query any hidden type.
 		if issueType == "" {
-			for _, t := range []types.IssueType{"formula", "config", "message", "agent", "role", "rig", "convoy", "slot", "event"} {
+			for _, t := range []types.IssueType{
+				"formula", "config", "message", "agent", "role", "rig",
+				"convoy", "slot", "event",
+				"advice", "runbook", "molecule", // bd-nzxs0: advice/runbook/molecule are reference data, not actionable work
+			} {
 				filter.ExcludeTypes = append(filter.ExcludeTypes, t)
 			}
 		}
