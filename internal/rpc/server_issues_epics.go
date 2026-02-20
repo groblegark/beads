@@ -2240,10 +2240,13 @@ func (s *Server) handleList(req *Request) Response {
 	ctx, cancel := s.reqCtx(req)
 	defer cancel()
 
-	// Collect wisps from WispStore if available and not explicitly filtering non-ephemeral
+	// Collect wisps from WispStore only when explicitly requested (bd-s5mz3)
+	// Default: exclude wisps from bd list to avoid polluting output with orchestration noise
+	// Use --include-wisps or IncludeWisps=true to include wisps
+	// Ephemeral=true also includes wisps (backwards compat for ephemeral-only queries)
 	// Skip wisps for cross-rig queries (wisps are rig-local) (bd-rl6y)
 	var wisps []*types.Issue
-	shouldIncludeWisps := !useTargetStore && (filter.Ephemeral == nil || (filter.Ephemeral != nil && *filter.Ephemeral))
+	shouldIncludeWisps := !useTargetStore && (listArgs.IncludeWisps || (filter.Ephemeral != nil && *filter.Ephemeral))
 	if s.wispStore != nil && shouldIncludeWisps {
 		wispList, err := s.wispStore.List(ctx, filter)
 		if err == nil {

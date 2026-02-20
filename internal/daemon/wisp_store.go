@@ -222,6 +222,15 @@ func MatchesFilter(issue *types.Issue, filter types.IssueFilter) bool {
 		return false
 	}
 
+	// Exclude status filter
+	if len(filter.ExcludeStatus) > 0 {
+		for _, s := range filter.ExcludeStatus {
+			if issue.Status == s {
+				return false
+			}
+		}
+	}
+
 	// Priority filter
 	if filter.Priority != nil && issue.Priority != *filter.Priority {
 		return false
@@ -230,6 +239,15 @@ func MatchesFilter(issue *types.Issue, filter types.IssueFilter) bool {
 	// Issue type filter
 	if filter.IssueType != nil && issue.IssueType != *filter.IssueType {
 		return false
+	}
+
+	// Exclude types filter (used by bd list to hide internal types)
+	if len(filter.ExcludeTypes) > 0 {
+		for _, t := range filter.ExcludeTypes {
+			if issue.IssueType == t {
+				return false
+			}
+		}
 	}
 
 	// Assignee filter

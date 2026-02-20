@@ -828,6 +828,9 @@ var listCmd = &cobra.Command{
 		// Ready filter (bd-ihu31)
 		readyFlag, _ := cmd.Flags().GetBool("ready")
 
+		// Wisp inclusion (bd-s5mz3)
+		includeWisps, _ := cmd.Flags().GetBool("include-wisps")
+
 		// Watch mode implies pretty format
 		if watchMode {
 			prettyFormat = true
@@ -1203,6 +1206,9 @@ var listCmd = &cobra.Command{
 			// Pass through --allow-stale flag for resilient queries (bd-dpkdm)
 			listArgs.AllowStale = allowStale
 
+			// Wisp inclusion (bd-s5mz3)
+			listArgs.IncludeWisps = includeWisps
+
 			var issuesWithCounts []*types.IssueWithCounts
 
 			if readyFlag {
@@ -1494,6 +1500,9 @@ func init() {
 
 	// Cross-rig listing (hq-5e851d)
 	listCmd.Flags().String("rig", "", "List issues from a different rig (e.g., --rig gastown)")
+
+	// Wisp/ephemeral inclusion (bd-s5mz3)
+	listCmd.Flags().Bool("include-wisps", false, "Include ephemeral wisps in output (normally hidden)")
 
 	// Note: --json flag is defined as a persistent flag in main.go, not here
 	rootCmd.AddCommand(listCmd)

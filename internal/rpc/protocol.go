@@ -490,6 +490,9 @@ type ListArgs struct {
 	// Ephemeral filtering
 	Ephemeral *bool `json:"ephemeral,omitempty"`
 
+	// Wisp inclusion (bd-s5mz3): include wisps in list output (default: excluded)
+	IncludeWisps bool `json:"include_wisps,omitempty"`
+
 	// Molecule type filtering
 	MolType string `json:"mol_type,omitempty"`
 
