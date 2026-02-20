@@ -182,6 +182,26 @@ Examples:
 			}
 		}
 
+		// Show rig+branch conflict warnings from roster (bd-f91be).
+		if roster, err := daemonClient.AgentRoster(&rpc.AgentRosterArgs{}); err == nil {
+			var warnings []string
+			seen := make(map[string]bool)
+			for _, a := range roster.Actors {
+				if a.Conflict && !seen[a.Actor] {
+					seen[a.Actor] = true
+					warnings = append(warnings, fmt.Sprintf("  %s %s shares rig %s @ %s with %s",
+						ui.RenderFail("⚠"), a.Actor, ui.RenderAccent(a.Rig), a.Branch,
+						strings.Join(a.ConflictWith, ", ")))
+				}
+			}
+			if len(warnings) > 0 {
+				fmt.Printf("\n%s Rig+branch conflicts detected:\n\n", ui.RenderFail("⚠"))
+				for _, w := range warnings {
+					fmt.Println(w)
+				}
+			}
+		}
+
 		fmt.Printf("\n%s\n\n", ui.RenderMuted("Tip: Check for file overlap with in-progress work before starting on the same areas."))
 	},
 }

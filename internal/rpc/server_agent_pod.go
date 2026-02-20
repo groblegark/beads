@@ -341,6 +341,9 @@ func (s *Server) handleAgentRoster(req *Request) Response {
 	// Enrich with git branch/repo context from CWD (bd-z6958).
 	enrichRosterWithGitContext(rosterEntries)
 
+	// Detect rig+branch conflicts: agents sharing the same rig and branch (bd-f91be).
+	detectRosterConflicts(rosterEntries)
+
 	// Compute working/idle/dead summary counters (bd-4ul0v, bd-khlpu).
 	var working, idle, dead int
 	for _, e := range rosterEntries {
@@ -438,6 +441,7 @@ func (s *Server) enrichRosterWithTasks(req *Request, entries []AgentRosterEntry)
 	type taskInfo struct {
 		id        string
 		title     string
+		rig       string // bd-f91be: rig from bead for conflict detection
 		updatedAt time.Time
 	}
 	actorTask := make(map[string]taskInfo)
@@ -473,7 +477,7 @@ func (s *Server) enrichRosterWithTasks(req *Request, entries []AgentRosterEntry)
 				continue
 			}
 		}
-		actorTask[actor] = taskInfo{id: issue.ID, title: issue.Title, updatedAt: issue.UpdatedAt}
+		actorTask[actor] = taskInfo{id: issue.ID, title: issue.Title, rig: issue.Rig, updatedAt: issue.UpdatedAt}
 	}
 
 	// Enrich each roster entry with task info.
@@ -484,6 +488,7 @@ func (s *Server) enrichRosterWithTasks(req *Request, entries []AgentRosterEntry)
 		}
 		entries[i].TaskID = info.id
 		entries[i].TaskTitle = info.title
+		entries[i].Rig = info.rig // bd-f91be
 
 		// Find epic via dependency walk. Check two directions:
 		// 1. Forward deps (parent-child): child depends_on parent
@@ -602,4 +607,40 @@ func repoNameFromURL(url string) string {
 	}
 
 	return url
+}
+
+// detectRosterConflicts marks agents that share the same rig+branch as conflicting.
+// Reaped (dead) agents and agents without both rig and branch are skipped. (bd-f91be)
+func detectRosterConflicts(entries []AgentRosterEntry) {
+	// Group non-dead agents by rig+branch key.
+	type conflictKey struct {
+		rig    string
+		branch string
+	}
+	groups := make(map[conflictKey][]int) // key → entry indices
+
+	for i := range entries {
+		if entries[i].Reaped || entries[i].Rig == "" || entries[i].Branch == "" {
+			continue
+		}
+		key := conflictKey{rig: entries[i].Rig, branch: entries[i].Branch}
+		groups[key] = append(groups[key], i)
+	}
+
+	// Mark conflicts where 2+ agents share a key.
+	for _, indices := range groups {
+		if len(indices) < 2 {
+			continue
+		}
+		for _, idx := range indices {
+			entries[idx].Conflict = true
+			var others []string
+			for _, other := range indices {
+				if other != idx {
+					others = append(others, entries[other].Actor)
+				}
+			}
+			entries[idx].ConflictWith = others
+		}
+	}
 }

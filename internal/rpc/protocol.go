@@ -2049,24 +2049,27 @@ type AgentRosterArgs struct {
 
 // AgentRosterEntry represents a single actor's live presence.
 type AgentRosterEntry struct {
-	Actor               string  `json:"actor"`
-	LastSeen            string  `json:"last_seen"`
-	LastEvent           string  `json:"last_event"`
-	ToolName            string  `json:"tool_name,omitempty"`
-	SessionID           string  `json:"session_id,omitempty"`
-	IdleSecs            float64 `json:"idle_secs"`
-	EventCount          int64   `json:"event_count"`
-	SessionDurationSecs float64 `json:"session_duration_secs,omitempty"` // seconds since first event (bd-4ul0v)
-	EventsPerMin        float64 `json:"events_per_min,omitempty"`        // rolling event rate (bd-4ul0v)
-	TaskID              string  `json:"task_id,omitempty"`               // in_progress bead ID (bd-qdhxw)
-	TaskTitle           string  `json:"task_title,omitempty"`            // in_progress bead title
-	EpicID              string  `json:"epic_id,omitempty"`               // parent epic bead ID
-	EpicTitle           string  `json:"epic_title,omitempty"`            // parent epic bead title
-	Branch              string  `json:"branch,omitempty"`                // git branch from CWD (bd-z6958)
-	Repo                string  `json:"repo,omitempty"`                  // git repo name from CWD (bd-z6958)
-	ProjectRoot         string  `json:"project_root,omitempty"`          // working directory (bd-z6958)
-	Reaped              bool    `json:"reaped,omitempty"`                // true if dead-agent reaper marked this actor dead (bd-khlpu)
-	ReapedAt            string  `json:"reaped_at,omitempty"`             // when reaped (bd-khlpu)
+	Actor               string   `json:"actor"`
+	LastSeen            string   `json:"last_seen"`
+	LastEvent           string   `json:"last_event"`
+	ToolName            string   `json:"tool_name,omitempty"`
+	SessionID           string   `json:"session_id,omitempty"`
+	IdleSecs            float64  `json:"idle_secs"`
+	EventCount          int64    `json:"event_count"`
+	SessionDurationSecs float64  `json:"session_duration_secs,omitempty"` // seconds since first event (bd-4ul0v)
+	EventsPerMin        float64  `json:"events_per_min,omitempty"`        // rolling event rate (bd-4ul0v)
+	TaskID              string   `json:"task_id,omitempty"`               // in_progress bead ID (bd-qdhxw)
+	TaskTitle           string   `json:"task_title,omitempty"`            // in_progress bead title
+	EpicID              string   `json:"epic_id,omitempty"`               // parent epic bead ID
+	EpicTitle           string   `json:"epic_title,omitempty"`            // parent epic bead title
+	Branch              string   `json:"branch,omitempty"`                // git branch from CWD (bd-z6958)
+	Repo                string   `json:"repo,omitempty"`                  // git repo name from CWD (bd-z6958)
+	Rig                 string   `json:"rig,omitempty"`                   // rig name from in_progress bead (bd-f91be)
+	ProjectRoot         string   `json:"project_root,omitempty"`          // working directory (bd-z6958)
+	Reaped              bool     `json:"reaped,omitempty"`                // true if dead-agent reaper marked this actor dead (bd-khlpu)
+	ReapedAt            string   `json:"reaped_at,omitempty"`             // when reaped (bd-khlpu)
+	Conflict            bool     `json:"conflict,omitempty"`              // true if another agent shares rig+branch (bd-f91be)
+	ConflictWith        []string `json:"conflict_with,omitempty"`         // names of conflicting agents (bd-f91be)
 }
 
 // AgentRosterResult is the response from agent_roster.
