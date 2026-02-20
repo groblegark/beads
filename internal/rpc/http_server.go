@@ -557,6 +557,11 @@ func httpMethodToOperation(method string) string {
 		"RigShow":     OpRigShow,
 		"RigRemove":   OpRigRemove,
 
+		// Commit tracking (bd-xxabm)
+		"RecordCommit":    OpRecordCommit,
+		"CommitsForIssue": OpCommitsForIssue,
+		"IssuesForCommit": OpIssuesForCommit,
+
 		// Config
 		"ConfigSet":  OpConfigSet,
 		"ConfigList": OpConfigList,

@@ -342,6 +342,24 @@ CREATE TABLE IF NOT EXISTS blocked_issues_cache (
     CONSTRAINT fk_blocked_cache FOREIGN KEY (issue_id) REFERENCES issues(id) ON DELETE CASCADE
 );
 
+-- Issue-commit associations (bd-xxabm: commit tracking)
+-- Links issues to git commits for traceability and audit.
+CREATE TABLE IF NOT EXISTS issue_commits (
+    issue_id VARCHAR(255) NOT NULL,
+    commit_sha VARCHAR(64) NOT NULL,
+    repo_url VARCHAR(512) DEFAULT '',
+    branch VARCHAR(255) DEFAULT '',
+    author VARCHAR(255) DEFAULT '',
+    message TEXT DEFAULT '',
+    committed_at DATETIME,
+    recorded_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    recorded_by VARCHAR(255) DEFAULT '',
+    PRIMARY KEY (issue_id, commit_sha),
+    INDEX idx_issue_commits_sha (commit_sha),
+    INDEX idx_issue_commits_recorded (recorded_at),
+    CONSTRAINT fk_issue_commits_issue FOREIGN KEY (issue_id) REFERENCES issues(id) ON DELETE CASCADE
+);
+
 -- Session registry (daemon session identity persistence, bd-2rvp1)
 -- Persists daemon-assigned session names across restarts so agent identities are stable.
 CREATE TABLE IF NOT EXISTS session_registry (

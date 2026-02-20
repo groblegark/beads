@@ -238,6 +238,11 @@ const (
 	OpRigList     = "rig_list"
 	OpRigShow     = "rig_show"
 	OpRigRemove   = "rig_remove"
+
+	// Commit tracking operations (bd-xxabm)
+	OpRecordCommit    = "record_commit"
+	OpCommitsForIssue = "commits_for_issue"
+	OpIssuesForCommit = "issues_for_commit"
 )
 
 // Request represents an RPC request from client to daemon
@@ -2741,4 +2746,39 @@ type RigRemoveArgs struct {
 
 type RigListResult struct {
 	Rigs []Rig `json:"rigs"`
+}
+
+// CommitRecord represents a recorded issue-commit association (bd-xxabm)
+type CommitRecord struct {
+	IssueID     string `json:"issue_id"`
+	CommitSHA   string `json:"commit_sha"`
+	RepoURL     string `json:"repo_url,omitempty"`
+	Branch      string `json:"branch,omitempty"`
+	Author      string `json:"author,omitempty"`
+	Message     string `json:"message,omitempty"`
+	CommittedAt string `json:"committed_at,omitempty"` // RFC3339
+	RecordedAt  string `json:"recorded_at,omitempty"`  // RFC3339
+	RecordedBy  string `json:"recorded_by,omitempty"`
+}
+
+// RecordCommitArgs represents arguments for the record_commit operation (bd-xxabm)
+type RecordCommitArgs struct {
+	IssueID     string `json:"issue_id"`
+	CommitSHA   string `json:"commit_sha"`
+	RepoURL     string `json:"repo_url,omitempty"`
+	Branch      string `json:"branch,omitempty"`
+	Author      string `json:"author,omitempty"`
+	Message     string `json:"message,omitempty"`
+	CommittedAt string `json:"committed_at,omitempty"` // RFC3339
+}
+
+// CommitsForIssueArgs represents arguments for commits_for_issue (bd-xxabm)
+type CommitsForIssueArgs struct {
+	IssueID string `json:"issue_id"`
+	Limit   int    `json:"limit,omitempty"`
+}
+
+// IssuesForCommitArgs represents arguments for issues_for_commit (bd-xxabm)
+type IssuesForCommitArgs struct {
+	CommitSHA string `json:"commit_sha"`
 }

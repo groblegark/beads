@@ -554,6 +554,13 @@ func (s *Server) executeOperation(req *Request) Response {
 		resp = s.handleRigShow(req)
 	case OpRigRemove:
 		resp = s.handleRigRemove(req)
+	// Commit tracking operations (bd-xxabm)
+	case OpRecordCommit:
+		resp = s.handleRecordCommit(req)
+	case OpCommitsForIssue:
+		resp = s.handleCommitsForIssue(req)
+	case OpIssuesForCommit:
+		resp = s.handleIssuesForCommit(req)
 	default:
 		return Response{
 			Success: false,

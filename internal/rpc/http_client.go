@@ -433,6 +433,11 @@ func operationToHTTPMethod(operation string) string {
 		OpRigShow:     "RigShow",
 		OpRigRemove:   "RigRemove",
 
+		// Commit tracking (bd-xxabm)
+		OpRecordCommit:    "RecordCommit",
+		OpCommitsForIssue: "CommitsForIssue",
+		OpIssuesForCommit: "IssuesForCommit",
+
 		// Admin
 		OpShutdown: "Shutdown",
 

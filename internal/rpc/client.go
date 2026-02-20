@@ -2164,6 +2164,45 @@ func (c *Client) SQL(args *SQLArgs) (*SQLResult, error) {
 	return &result, nil
 }
 
+// RecordCommit records an issue-commit association (bd-xxabm).
+func (c *Client) RecordCommit(args *RecordCommitArgs) (*CommitRecord, error) {
+	resp, err := c.Execute(OpRecordCommit, args)
+	if err != nil {
+		return nil, err
+	}
+	var result CommitRecord
+	if err := json.Unmarshal(resp.Data, &result); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal record_commit response: %w", err)
+	}
+	return &result, nil
+}
+
+// CommitsForIssue returns all commits associated with an issue (bd-xxabm).
+func (c *Client) CommitsForIssue(args *CommitsForIssueArgs) ([]CommitRecord, error) {
+	resp, err := c.Execute(OpCommitsForIssue, args)
+	if err != nil {
+		return nil, err
+	}
+	var result []CommitRecord
+	if err := json.Unmarshal(resp.Data, &result); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal commits_for_issue response: %w", err)
+	}
+	return result, nil
+}
+
+// IssuesForCommit returns all issues associated with a commit SHA (bd-xxabm).
+func (c *Client) IssuesForCommit(args *IssuesForCommitArgs) ([]CommitRecord, error) {
+	resp, err := c.Execute(OpIssuesForCommit, args)
+	if err != nil {
+		return nil, err
+	}
+	var result []CommitRecord
+	if err := json.Unmarshal(resp.Data, &result); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal issues_for_commit response: %w", err)
+	}
+	return result, nil
+}
+
 // cleanupStaleDaemonArtifacts removes stale daemon.pid file when socket is missing and lock is free.
 // This prevents stale artifacts from accumulating after daemon crashes.
 // Only removes pid file - lock file is managed by OS (released on process exit).

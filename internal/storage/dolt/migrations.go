@@ -31,6 +31,7 @@ var migrations = []Migration{
 	{"session_registry_project_root", migrateSessionRegistryProjectRoot},
 	{"created_by_session", migrateCreatedBySession},
 	{"inbox_dedup_rows", migrateInboxDedupRows},
+	{"issue_commits_table", migrateIssueCommitsTable},
 }
 
 // RunMigrations executes all registered migrations in order.
@@ -439,5 +440,43 @@ func migrateInboxDedupRows(ctx context.Context, db *sql.DB) error {
 		return nil
 	}
 
+	return nil
+}
+
+// migrateIssueCommitsTable creates the issue_commits table for commit tracking (bd-xxabm).
+func migrateIssueCommitsTable(ctx context.Context, db *sql.DB) error {
+	var count int
+	err := db.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM information_schema.tables
+		WHERE table_schema = DATABASE()
+		  AND table_name = 'issue_commits'
+	`).Scan(&count)
+	if err != nil {
+		return fmt.Errorf("failed to check for issue_commits table: %w", err)
+	}
+	if count > 0 {
+		return nil
+	}
+
+	_, err = db.ExecContext(ctx, `
+		CREATE TABLE issue_commits (
+			issue_id VARCHAR(255) NOT NULL,
+			commit_sha VARCHAR(64) NOT NULL,
+			repo_url VARCHAR(512) DEFAULT '',
+			branch VARCHAR(255) DEFAULT '',
+			author VARCHAR(255) DEFAULT '',
+			message TEXT DEFAULT '',
+			committed_at DATETIME,
+			recorded_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			recorded_by VARCHAR(255) DEFAULT '',
+			PRIMARY KEY (issue_id, commit_sha),
+			INDEX idx_issue_commits_sha (commit_sha),
+			INDEX idx_issue_commits_recorded (recorded_at),
+			CONSTRAINT fk_issue_commits_issue FOREIGN KEY (issue_id) REFERENCES issues(id) ON DELETE CASCADE
+		)
+	`)
+	if err != nil {
+		return fmt.Errorf("failed to create issue_commits table: %w", err)
+	}
 	return nil
 }
