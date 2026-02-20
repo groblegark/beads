@@ -4,6 +4,8 @@ metadata:
   name: {{ include "bd-daemon.daemon.fullname" . }}
   labels:
     {{- include "bd-daemon.daemon.labels" . | nindent 4 }}
+  annotations:
+    reloader.stakater.com/auto: "true"
 spec:
   replicas: {{ .Values.daemon.replicaCount | default 1 }}
   strategy:

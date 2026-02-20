@@ -5,6 +5,8 @@ metadata:
   name: {{ include "bd-daemon.slackbot.fullname" . }}
   labels:
     {{- include "bd-daemon.slackbot.labels" . | nindent 4 }}
+  annotations:
+    reloader.stakater.com/auto: "true"
 spec:
   replicas: 1
   strategy:
