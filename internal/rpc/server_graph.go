@@ -315,6 +315,54 @@ func (s *Server) handleGraph(req *Request) Response {
 		}
 	}
 
+	// Include connected closed items (bd-71kcv): after edge collection, find
+	// closed issues referenced by edges that connect to open/active nodes.
+	// Default: true (unless explicitly set to false).
+	includeConnectedClosed := args.IncludeConnectedClosed == nil || *args.IncludeConnectedClosed
+	if includeConnectedClosed {
+		// Collect IDs from edges that are NOT in the current node set
+		closedCandidateIDs := make(map[string]bool)
+		for _, e := range edges {
+			if _, exists := issueMap[e.Source]; !exists {
+				closedCandidateIDs[e.Source] = true
+			}
+			if _, exists := issueMap[e.Target]; !exists {
+				closedCandidateIDs[e.Target] = true
+			}
+		}
+		// Also check forward deps: open items may depend on closed items
+		for _, deps := range depRecords {
+			for _, dep := range deps {
+				if _, exists := issueMap[dep.DependsOnID]; !exists {
+					closedCandidateIDs[dep.DependsOnID] = true
+				}
+			}
+		}
+		// Batch-fetch these candidates and add closed ones
+		if len(closedCandidateIDs) > 0 {
+			candidateIDs := make([]string, 0, len(closedCandidateIDs))
+			for id := range closedCandidateIDs {
+				candidateIDs = append(candidateIDs, id)
+			}
+			candidateFilter := types.IssueFilter{IDs: candidateIDs}
+			candidates, err := store.SearchIssues(ctx, "", candidateFilter)
+			if err == nil {
+				for _, issue := range candidates {
+					if issue.Status == types.StatusClosed {
+						// Apply age filter if set
+						if args.MaxAgeDays > 0 {
+							cutoff := time.Now().AddDate(0, 0, -args.MaxAgeDays)
+							if issue.UpdatedAt.Before(cutoff) {
+								continue
+							}
+						}
+						issueMap[issue.ID] = issue
+					}
+				}
+			}
+		}
+	}
+
 	// Build parent-child lookup from dep records (bd-j3pex, bd-uqkpq)
 	// First pass: explicit parent-child deps (canonical)
 	parentOf := make(map[string]string) // childID -> parentID
@@ -471,13 +519,42 @@ func (s *Server) handleGraph(req *Request) Response {
 		}
 	}
 
-	// Filter gate/decision nodes: only show them if they have at least one edge
-	// connecting them to an open/in_progress task (bd-2qn9y).
+	// Filter disconnected nodes (bd-2qn9y, bd-71kcv):
+	// - gate/decision/molecule: drop if no edges at all
+	// - closed items: drop if not connected to any open/active item
 	connectedIDs := make(map[string]bool)
 	for _, e := range edges {
 		connectedIDs[e.Source] = true
 		connectedIDs[e.Target] = true
 	}
+
+	// Build adjacency and identify open/active nodes for closed-node pruning
+	openActiveSet := make(map[string]bool)
+	neighbors := make(map[string][]string)
+	for _, n := range nodes {
+		if n.Status == "open" || n.Status == "in_progress" || n.Status == "blocked" || n.Status == "hooked" || n.Status == "deferred" {
+			openActiveSet[n.ID] = true
+		}
+	}
+	for _, e := range edges {
+		neighbors[e.Source] = append(neighbors[e.Source], e.Target)
+		neighbors[e.Target] = append(neighbors[e.Target], e.Source)
+	}
+
+	// Check which closed nodes connect to an open/active node (direct neighbor)
+	closedConnected := make(map[string]bool)
+	for _, n := range nodes {
+		if n.Status != "closed" {
+			continue
+		}
+		for _, neighborID := range neighbors[n.ID] {
+			if openActiveSet[neighborID] {
+				closedConnected[n.ID] = true
+				break
+			}
+		}
+	}
+
 	filteredNodes := make([]GraphNode, 0, len(nodes))
 	for _, n := range nodes {
 		switch n.IssueType {
@@ -486,9 +563,26 @@ func (s *Server) handleGraph(req *Request) Response {
 				continue // drop disconnected gates, decisions, and molecules (bd-t25i1)
 			}
 		}
+		// Drop closed nodes not connected to any open/active item (bd-71kcv)
+		if n.Status == "closed" && !closedConnected[n.ID] {
+			continue
+		}
 		filteredNodes = append(filteredNodes, n)
 	}
 	nodes = filteredNodes
+
+	// Clean up edges pointing to pruned nodes
+	nodeIDSet := make(map[string]bool, len(nodes))
+	for _, n := range nodes {
+		nodeIDSet[n.ID] = true
+	}
+	filteredEdges := make([]GraphEdge, 0, len(edges))
+	for _, e := range edges {
+		if nodeIDSet[e.Source] && nodeIDSet[e.Target] {
+			filteredEdges = append(filteredEdges, e)
+		}
+	}
+	edges = filteredEdges
 
 	// Build result with stats
 	var result GraphResult

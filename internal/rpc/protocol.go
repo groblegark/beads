@@ -2581,8 +2581,9 @@ type GraphArgs struct {
 	MaxAgeDays int `json:"max_age_days,omitempty"` // For closed issues: only include if updated within N days (0 = all)
 
 	// Depth control
-	Limit       int  `json:"limit,omitempty"`        // Max nodes (default 500)
-	IncludeDeps bool `json:"include_deps,omitempty"` // Pull in dependency targets even if they don't match filters
+	Limit                 int   `json:"limit,omitempty"`                    // Max nodes (default 500)
+	IncludeDeps           bool  `json:"include_deps,omitempty"`             // Pull in dependency targets even if they don't match filters
+	IncludeConnectedClosed *bool `json:"include_connected_closed,omitempty"` // Include closed items connected to open/active items (default true, bd-71kcv)
 
 	// Content control
 	IncludeBody   bool `json:"include_body,omitempty"`   // Include full description + notes text
