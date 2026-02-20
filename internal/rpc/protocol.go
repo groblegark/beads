@@ -2579,7 +2579,8 @@ type GraphArgs struct {
 	IncludeDeps bool `json:"include_deps,omitempty"`   // Pull in dependency targets even if they don't match filters
 
 	// Content control
-	IncludeBody bool `json:"include_body,omitempty"`   // Include full description + notes text
+	IncludeBody   bool `json:"include_body,omitempty"`   // Include full description + notes text
+	IncludeAgents bool `json:"include_agents,omitempty"` // Add agent nodes with edges to assigned beads (bd-cd86r)
 }
 
 // GraphNode represents a node in the graph visualization.

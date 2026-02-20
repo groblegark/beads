@@ -297,6 +297,31 @@ func (s *Server) handleGraph(req *Request) Response {
 		nodes = append(nodes, node)
 	}
 
+	// Add agent nodes with assignment edges (bd-cd86r)
+	if args.IncludeAgents {
+		agentIssues := make(map[string][]string) // agent name -> list of assigned issue IDs
+		for _, issue := range issueMap {
+			if issue.Assignee != "" {
+				agentIssues[issue.Assignee] = append(agentIssues[issue.Assignee], issue.ID)
+			}
+		}
+		for agent, assignedIDs := range agentIssues {
+			agentNodeID := "agent:" + agent
+			nodes = append(nodes, GraphNode{
+				ID:        agentNodeID,
+				Title:     agent,
+				IssueType: "agent",
+			})
+			for _, issueID := range assignedIDs {
+				edges = append(edges, GraphEdge{
+					Source: agentNodeID,
+					Target: issueID,
+					Type:   "assigned_to",
+				})
+			}
+		}
+	}
+
 	// Build result with stats
 	var result GraphResult
 	result.Nodes = nodes
