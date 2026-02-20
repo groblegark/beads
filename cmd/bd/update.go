@@ -229,6 +229,22 @@ create, update, show, or close operation).`,
 
 		// Use daemon RPC
 		requireDaemon("update")
+
+		// Warn if assigning to someone who already has in_progress work (bd-0quti)
+		if assignee, ok := updates["assignee"].(string); ok && assignee != "" && !jsonOutput && !isQuiet() {
+			listResp, listErr := daemonClient.List(&rpc.ListArgs{
+				Status:   "in_progress",
+				Assignee: assignee,
+			})
+			if listErr == nil {
+				var existingIssues []types.Issue
+				if json.Unmarshal(listResp.Data, &existingIssues) == nil && len(existingIssues) > 0 {
+					fmt.Fprintf(os.Stderr, "%s %s already has %d in_progress task(s). Consider using 'bd claim' instead.\n",
+						ui.RenderWarn("!"), assignee, len(existingIssues))
+				}
+			}
+		}
+
 		{
 			updatedIssues := []*types.Issue{}
 			var firstUpdatedID string // Track first successful update for last-touched
