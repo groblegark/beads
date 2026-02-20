@@ -54,7 +54,9 @@ func (s *Server) handleGraph(req *Request) Response {
 		args.Limit = 500
 	}
 	if len(args.Status) == 0 {
-		args.Status = []string{"open", "in_progress", "closed"}
+		// Include all active statuses + recently-closed (bd-7haep: was missing
+		// blocked/hooked/deferred which caused in-progress-like items to vanish)
+		args.Status = []string{"open", "in_progress", "blocked", "hooked", "deferred", "closed"}
 		// Default: show recently-closed items (24h) alongside active ones (bd-rkd71)
 		if args.MaxAgeDays == 0 {
 			args.MaxAgeDays = 1
