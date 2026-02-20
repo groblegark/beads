@@ -470,6 +470,9 @@ var createCmd = &cobra.Command{
 			fmt.Printf("  Title: %s\n", issue.Title)
 			fmt.Printf("  Priority: P%d\n", issue.Priority)
 			fmt.Printf("  Status: %s\n", issue.Status)
+			if issue.Rig != "" {
+				fmt.Printf("  Rig: %s\n", issue.Rig)
+			}
 		}
 
 		// Track as last touched issue

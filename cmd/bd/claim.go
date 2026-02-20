@@ -77,6 +77,9 @@ Examples:
 				}
 			}
 			fmt.Printf("%s Claimed: %s\n", ui.RenderPass("✓"), resolvedID)
+			if issue.Rig != "" {
+				fmt.Printf("  Rig: %s\n", issue.Rig)
+			}
 			SetLastTouchedID(resolvedID)
 		}
 
@@ -106,6 +109,9 @@ Examples:
 				}
 			}
 			fmt.Printf("%s Claimed: %s\n", ui.RenderPass("✓"), resolvedID)
+			if issue.Rig != "" {
+				fmt.Printf("  Rig: %s\n", issue.Rig)
+			}
 			SetLastTouchedID(resolvedID)
 			return nil
 		})
