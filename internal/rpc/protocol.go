@@ -2573,6 +2573,9 @@ type GraphArgs struct {
 	Rig          *string  `json:"rig,omitempty"`           // Filter by rig name (nil=any, ""=town-level)
 	Query        string   `json:"query,omitempty"`         // Full-text search in title/description
 
+	// Age-based filtering (bd-uc0mw)
+	MaxAgeDays int `json:"max_age_days,omitempty"` // For closed issues: only include if updated within N days (0 = all)
+
 	// Depth control
 	Limit       int  `json:"limit,omitempty"`        // Max nodes (default 500)
 	IncludeDeps bool `json:"include_deps,omitempty"` // Pull in dependency targets even if they don't match filters

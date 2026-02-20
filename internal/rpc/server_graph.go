@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sort"
 	"sync"
+	"time"
 
 	"github.com/steveyegge/beads/internal/types"
 )
@@ -105,6 +106,13 @@ func (s *Server) handleGraph(req *Request) Response {
 		f := filter
 		f.Status = &status
 
+		// Age-based filtering for closed issues (bd-uc0mw): only fetch
+		// recently-updated closed beads to avoid pulling thousands of stale ones.
+		if statusStr == "closed" && args.MaxAgeDays > 0 {
+			cutoff := time.Now().AddDate(0, 0, -args.MaxAgeDays)
+			f.UpdatedAfter = &cutoff
+		}
+
 		if len(args.Types) > 0 {
 			for _, t := range args.Types {
 				issueType := types.IssueType(t)
@@ -136,13 +144,19 @@ func (s *Server) handleGraph(req *Request) Response {
 		}
 	}
 
-	// Enforce limit after merging multiple status queries
+	// Enforce limit after merging multiple status queries.
+	// Sort by relevance (bd-uc0mw): active > open/blocked > recent closed > old closed.
+	// Within the same relevance tier, sort by priority.
 	if len(issueMap) > args.Limit {
 		sorted := make([]*types.Issue, 0, len(issueMap))
 		for _, issue := range issueMap {
 			sorted = append(sorted, issue)
 		}
 		sort.Slice(sorted, func(i, j int) bool {
+			ri, rj := issueRelevance(sorted[i]), issueRelevance(sorted[j])
+			if ri != rj {
+				return ri < rj // lower = more relevant
+			}
 			return sorted[i].Priority < sorted[j].Priority
 		})
 		issueMap = make(map[string]*types.Issue, args.Limit)
@@ -473,6 +487,38 @@ func (s *Server) handleGraph(req *Request) Response {
 	}
 
 	return resp
+}
+
+// issueRelevance returns a sort key for relevance-based ordering (bd-uc0mw).
+// Lower values = higher relevance. Tiers:
+//
+//	0: in_progress (actively being worked)
+//	1: blocked/hooked (needs attention)
+//	2: open (ready for work)
+//	3: deferred (on ice but still alive)
+//	4: recently closed (updated within 7 days)
+//	5: older closed
+//	6: everything else (tombstone, pinned, etc.)
+//
+// Within the same tier, the caller breaks ties by priority.
+func issueRelevance(issue *types.Issue) int {
+	switch issue.Status {
+	case types.StatusInProgress:
+		return 0
+	case types.StatusBlocked, types.StatusHooked:
+		return 1
+	case types.StatusOpen:
+		return 2
+	case types.StatusDeferred:
+		return 3
+	case types.StatusClosed:
+		if !issue.UpdatedAt.IsZero() && time.Since(issue.UpdatedAt) < 7*24*time.Hour {
+			return 4
+		}
+		return 5
+	default:
+		return 6
+	}
 }
 
 // getBlockedByForIssues returns a map of issueID -> blocker IDs for the given issues.
