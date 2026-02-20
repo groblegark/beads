@@ -203,10 +203,13 @@ func (s *Server) doneWaitViaNATS(ctx context.Context, js nats.JetStreamContext, 
 		// arrived while the agent was between yield calls. (bd-yvhxp)
 		// Also check the base name variant to catch decisions created by a
 		// continuation session (e.g., "sharp-seal-1") when yield runs as "sharp-seal". (bd-zr20k)
+		// Excludes decisions already marked as yielded to prevent stale replay. (bd-03bym)
 		if listenDecision {
 			since := time.Now().Add(-5 * time.Minute)
 			dp := findRecentDecisionForAgent(ctx, store, since, agentName)
 			if dp != nil {
+				// Mark as yielded so it doesn't re-appear on the next bd yield call. (bd-03bym)
+				_ = store.MarkDecisionYielded(ctx, dp.IssueID)
 				content := fmt.Sprintf("Decision %s resolved: %s", dp.IssueID, dp.SelectedOption)
 				if dp.Rationale != "" {
 					content += "\n" + dp.Rationale
@@ -280,6 +283,10 @@ func (s *Server) doneWaitViaNATS(ctx context.Context, js nats.JetStreamContext, 
 			case "decisions":
 				var payload eventbus.DecisionEventPayload
 				if err := json.Unmarshal(msg.Data, &payload); err == nil {
+					// Mark as yielded so it doesn't re-appear on the next bd yield call. (bd-03bym)
+					if payload.DecisionID != "" && store != nil {
+						_ = store.MarkDecisionYielded(ctx, payload.DecisionID)
+					}
 					content := fmt.Sprintf("Decision %s resolved: %s", payload.DecisionID, payload.ChosenLabel)
 					if payload.Rationale != "" {
 						content += "\n" + payload.Rationale
@@ -343,10 +350,13 @@ func (s *Server) doneWaitViaPoll(ctx context.Context, agentName string, timeout 
 	}
 
 	// Check for recently responded decisions (race: response arrived before poll started). (bd-yvhxp, bd-zr20k)
+	// Excludes decisions already marked as yielded to prevent stale replay. (bd-03bym)
 	if listenDecision {
 		since := pollStart.Add(-5 * time.Minute)
 		dp := findRecentDecisionForAgent(ctx, store, since, agentName)
 		if dp != nil {
+			// Mark as yielded so it doesn't re-appear on the next bd yield call. (bd-03bym)
+			_ = store.MarkDecisionYielded(ctx, dp.IssueID)
 			content := fmt.Sprintf("Decision %s resolved: %s", dp.IssueID, dp.SelectedOption)
 			if dp.Rationale != "" {
 				content += "\n" + dp.Rationale
@@ -392,6 +402,8 @@ func (s *Server) doneWaitViaPoll(ctx context.Context, agentName string, timeout 
 			if listenDecision {
 				dp := findRecentDecisionForAgent(ctx, store, pollStart, agentName)
 				if dp != nil {
+					// Mark as yielded so it doesn't re-appear on the next bd yield call. (bd-03bym)
+					_ = store.MarkDecisionYielded(ctx, dp.IssueID)
 					content := fmt.Sprintf("Decision %s resolved: %s", dp.IssueID, dp.SelectedOption)
 					if dp.Rationale != "" {
 						content += "\n" + dp.Rationale

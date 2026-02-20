@@ -246,6 +246,9 @@ func (m *mockStorage) ListPendingDecisions(ctx context.Context) ([]*types.Decisi
 func (m *mockStorage) ListRecentlyRespondedDecisions(ctx context.Context, since time.Time, requestedBy string) ([]*types.DecisionPoint, error) {
 	return nil, nil
 }
+func (m *mockStorage) MarkDecisionYielded(ctx context.Context, issueID string) error {
+	return nil
+}
 func (m *mockStorage) RunInTransaction(ctx context.Context, fn func(tx Transaction) error) error {
 	return nil
 }

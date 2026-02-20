@@ -206,6 +206,7 @@ func (s *DoltStore) ListRecentlyRespondedDecisions(ctx context.Context, since ti
 			WHERE responded_at IS NOT NULL
 			  AND responded_at >= ?
 			  AND requested_by = ?
+			  AND yielded_at IS NULL
 			ORDER BY responded_at DESC
 		`, since, requestedBy)
 	} else {
@@ -219,6 +220,7 @@ func (s *DoltStore) ListRecentlyRespondedDecisions(ctx context.Context, since ti
 			FROM decision_points
 			WHERE responded_at IS NOT NULL
 			  AND responded_at >= ?
+			  AND yielded_at IS NULL
 			ORDER BY responded_at DESC
 		`, since)
 	}
@@ -249,6 +251,16 @@ func (s *DoltStore) ListRecentlyRespondedDecisions(ctx context.Context, since ti
 	}
 
 	return results, nil
+}
+
+// MarkDecisionYielded sets yielded_at on a decision to prevent it from being
+// re-delivered on subsequent bd yield calls. (bd-03bym)
+func (s *DoltStore) MarkDecisionYielded(ctx context.Context, issueID string) error {
+	_, err := s.execContext(ctx, `UPDATE decision_points SET yielded_at = ? WHERE issue_id = ?`, time.Now(), issueID)
+	if err != nil {
+		return fmt.Errorf("failed to mark decision %s as yielded: %w", issueID, err)
+	}
+	return nil
 }
 
 // Transaction implementations

@@ -152,7 +152,10 @@ type Storage interface {
 	ListPendingDecisions(ctx context.Context) ([]*types.DecisionPoint, error)
 	// ListRecentlyRespondedDecisions returns decisions that were responded to
 	// within the given time window, optionally filtered by requesting agent.
+	// Excludes decisions already marked as yielded. (bd-03bym)
 	ListRecentlyRespondedDecisions(ctx context.Context, since time.Time, requestedBy string) ([]*types.DecisionPoint, error)
+	// MarkDecisionYielded sets yielded_at to prevent stale re-delivery via bd yield. (bd-03bym)
+	MarkDecisionYielded(ctx context.Context, issueID string) error
 
 	// Inbox (agent async message delivery - bd-xtahx)
 	InboxPush(ctx context.Context, item *types.InboxItem) error

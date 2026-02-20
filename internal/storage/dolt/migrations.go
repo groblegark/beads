@@ -32,6 +32,7 @@ var migrations = []Migration{
 	{"created_by_session", migrateCreatedBySession},
 	{"inbox_dedup_rows", migrateInboxDedupRows},
 	{"issue_commits_table", migrateIssueCommitsTable},
+	{"decision_yielded_at", migrateDecisionYieldedAt},
 }
 
 // RunMigrations executes all registered migrations in order.
@@ -479,4 +480,11 @@ func migrateIssueCommitsTable(ctx context.Context, db *sql.DB) error {
 		return fmt.Errorf("failed to create issue_commits table: %w", err)
 	}
 	return nil
+}
+
+// migrateDecisionYieldedAt adds yielded_at column to decision_points table.
+// This tracks when a resolved decision was delivered to an agent via bd yield,
+// preventing stale decision events from being replayed on subsequent yields. (bd-03bym)
+func migrateDecisionYieldedAt(ctx context.Context, db *sql.DB) error {
+	return addColumnIfNotExists(ctx, db, "decision_points", "yielded_at", "DATETIME")
 }

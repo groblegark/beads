@@ -301,6 +301,7 @@ CREATE TABLE IF NOT EXISTS decision_points (
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     requested_by TEXT,
     parent_bead_id VARCHAR(255),
+    yielded_at DATETIME,
     INDEX idx_decision_points_prior (prior_id),
     INDEX idx_decision_points_urgency (urgency),
     INDEX idx_decision_points_parent (parent_bead_id),

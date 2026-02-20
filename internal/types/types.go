@@ -1373,6 +1373,7 @@ type DecisionPoint struct {
 	CreatedAt      time.Time  `json:"created_at"`
 	RequestedBy    string     `json:"requested_by,omitempty"`     // Agent/session that requested this decision (for wake notifications)
 	ParentBeadID   string     `json:"parent_bead_id,omitempty"`   // Parent bead (epic/molecule) this decision belongs to
+	YieldedAt      *time.Time `json:"yielded_at,omitempty"`       // When yield delivered this decision to the agent (bd-03bym)
 }
 
 // DecisionAcceptOptionID is the ID for the special "accept-as-is" option (hq-946577.24).
