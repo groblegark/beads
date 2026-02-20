@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/steveyegge/beads/cmd/bd/doctor"
 	"github.com/steveyegge/beads/internal/rpc"
+	"github.com/steveyegge/beads/internal/types"
 	"github.com/steveyegge/beads/internal/ui"
 )
 
@@ -738,6 +739,11 @@ func runDiagnostics(path string) doctorResult {
 	result.Checks = append(result.Checks, kvSyncCheck)
 	// Don't fail overall check for KV sync warning, just inform
 
+	// Check 32: Over-claimed agents (multiple in_progress tasks per assignee) (bd-teo3d)
+	overClaimCheck := convertDoctorCheck(doctor.CheckOverClaimedAgents(path))
+	result.Checks = append(result.Checks, overClaimCheck)
+	// Don't fail overall check for over-claiming, just warn
+
 	return result
 }
 
@@ -778,7 +784,41 @@ func runRemoteDiagnostics(path string, result doctorResult) doctorResult {
 		Detail:  "No .beads/config.yaml or metadata.json required in remote mode",
 	})
 
+	// Over-claimed agents via RPC (bd-teo3d)
+	if daemonClient != nil {
+		overClaimCheck := checkOverClaimedAgentsRemote()
+		result.Checks = append(result.Checks, overClaimCheck)
+	}
+
 	return result
+}
+
+// checkOverClaimedAgentsRemote queries the remote daemon for in_progress issues
+// and detects agents with multiple claimed tasks. (bd-teo3d)
+func checkOverClaimedAgentsRemote() doctorCheck {
+	resp, err := daemonClient.List(&rpc.ListArgs{
+		Status: "in_progress",
+	})
+	if err != nil {
+		return doctorCheck{
+			Name:     "Over-Claimed Agents",
+			Status:   statusOK,
+			Message:  "N/A (unable to query remote daemon)",
+			Category: doctor.CategoryRuntime,
+		}
+	}
+
+	var issues []*types.Issue
+	if err := json.Unmarshal(resp.Data, &issues); err != nil {
+		return doctorCheck{
+			Name:     "Over-Claimed Agents",
+			Status:   statusOK,
+			Message:  "N/A (unable to parse issues)",
+			Category: doctor.CategoryRuntime,
+		}
+	}
+
+	return convertDoctorCheck(doctor.AnalyzeOverClaims(issues))
 }
 
 // convertDoctorCheck converts doctor package check to main package check
