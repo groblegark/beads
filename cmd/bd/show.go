@@ -416,6 +416,11 @@ func formatIssueMetadata(issue *types.Issue) string {
 		metaParts = append(metaParts, fmt.Sprintf("Assignee: %s", issue.Assignee))
 	}
 
+	// Git branch from metadata (bd-kg4lw)
+	if branch := rpc.GetGitBranch(issue.Metadata); branch != "" {
+		metaParts = append(metaParts, fmt.Sprintf("Branch: %s", branch))
+	}
+
 	// Type with semantic color
 	typeStr := string(issue.IssueType)
 	switch issue.IssueType {

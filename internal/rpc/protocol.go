@@ -384,8 +384,10 @@ type UpdateArgs struct {
 	EventTarget   *string `json:"event_target,omitempty"`   // Entity URI or bead ID affected
 	EventPayload  *string `json:"event_payload,omitempty"`  // Event-specific JSON data
 	// Work queue claim operation
-	Claim      bool `json:"claim,omitempty"`       // If true, atomically claim issue (set assignee+status, fail if already claimed)
-	ClaimForce bool `json:"claim_force,omitempty"` // If true, allow claiming epics (bd-gzk0p)
+	Claim       bool    `json:"claim,omitempty"`        // If true, atomically claim issue (set assignee+status, fail if already claimed)
+	ClaimForce  bool    `json:"claim_force,omitempty"`  // If true, allow claiming epics (bd-gzk0p)
+	ClaimBranch *string `json:"claim_branch,omitempty"` // Git branch at time of claim (merged into metadata.git) (bd-kg4lw)
+	ClaimCommit *string `json:"claim_commit,omitempty"` // Git commit SHA at time of claim (merged into metadata.git) (bd-kg4lw)
 	// Time-based scheduling fields (GH#820)
 	DueAt      *string `json:"due_at,omitempty"`      // Relative or ISO format due date
 	DeferUntil *string `json:"defer_until,omitempty"` // Relative or ISO format defer date
@@ -2713,6 +2715,93 @@ func ValidateSidecarMetadataJSON(raw json.RawMessage) error {
 		return nil
 	}
 	return ValidateSidecarMetadata(meta)
+}
+
+// mergeGitMetadata merges git branch/commit info into existing issue metadata. (bd-kg4lw)
+// Existing metadata keys are preserved; only the "git" sub-object is added/updated.
+// Returns the merged JSON, or error if existing metadata is malformed.
+func mergeGitMetadata(existing json.RawMessage, branch, commit *string) (json.RawMessage, error) {
+	// Parse existing metadata or start with empty object
+	var meta map[string]json.RawMessage
+	if len(existing) > 0 {
+		if err := json.Unmarshal(existing, &meta); err != nil {
+			// Existing metadata is not an object — wrap it
+			meta = map[string]json.RawMessage{}
+		}
+	} else {
+		meta = map[string]json.RawMessage{}
+	}
+
+	// Parse existing git sub-object if present
+	var gitInfo map[string]string
+	if raw, ok := meta["git"]; ok {
+		if err := json.Unmarshal(raw, &gitInfo); err != nil {
+			gitInfo = map[string]string{}
+		}
+	} else {
+		gitInfo = map[string]string{}
+	}
+
+	// Merge new values
+	if branch != nil && *branch != "" {
+		gitInfo["branch"] = *branch
+	}
+	if commit != nil && *commit != "" {
+		gitInfo["commit"] = *commit
+	}
+
+	// Only write if there's something to store
+	if len(gitInfo) == 0 {
+		return existing, nil
+	}
+
+	gitBytes, err := json.Marshal(gitInfo)
+	if err != nil {
+		return existing, err
+	}
+	meta["git"] = gitBytes
+
+	return json.Marshal(meta)
+}
+
+// GetGitBranch extracts the git branch from issue metadata, if present. (bd-kg4lw)
+func GetGitBranch(metadata json.RawMessage) string {
+	if len(metadata) == 0 {
+		return ""
+	}
+	var meta map[string]json.RawMessage
+	if err := json.Unmarshal(metadata, &meta); err != nil {
+		return ""
+	}
+	raw, ok := meta["git"]
+	if !ok {
+		return ""
+	}
+	var gitInfo map[string]string
+	if err := json.Unmarshal(raw, &gitInfo); err != nil {
+		return ""
+	}
+	return gitInfo["branch"]
+}
+
+// GetGitCommit extracts the git commit SHA from issue metadata, if present. (bd-kg4lw)
+func GetGitCommit(metadata json.RawMessage) string {
+	if len(metadata) == 0 {
+		return ""
+	}
+	var meta map[string]json.RawMessage
+	if err := json.Unmarshal(metadata, &meta); err != nil {
+		return ""
+	}
+	raw, ok := meta["git"]
+	if !ok {
+		return ""
+	}
+	var gitInfo map[string]string
+	if err := json.Unmarshal(raw, &gitInfo); err != nil {
+		return ""
+	}
+	return gitInfo["commit"]
 }
 
 // --- Rig registration types (bd-jzx1m) ---

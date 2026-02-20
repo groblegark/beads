@@ -340,3 +340,105 @@ func TestUpdateArgsWithNilValues(t *testing.T) {
 		t.Errorf("Expected status to be nil, got %v", *decodedArgs.Status)
 	}
 }
+
+func TestMergeGitMetadata(t *testing.T) {
+	branch := "feat/branch-tracking"
+	commit := "abc1234"
+
+	t.Run("empty metadata", func(t *testing.T) {
+		result, err := mergeGitMetadata(nil, &branch, &commit)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		b := GetGitBranch(result)
+		c := GetGitCommit(result)
+		if b != branch {
+			t.Errorf("expected branch %q, got %q", branch, b)
+		}
+		if c != commit {
+			t.Errorf("expected commit %q, got %q", commit, c)
+		}
+	})
+
+	t.Run("preserves existing metadata", func(t *testing.T) {
+		existing := json.RawMessage(`{"custom":"data","nested":{"key":"val"}}`)
+		result, err := mergeGitMetadata(existing, &branch, nil)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		// Check git branch is present
+		if b := GetGitBranch(result); b != branch {
+			t.Errorf("expected branch %q, got %q", branch, b)
+		}
+		// Check existing keys preserved
+		var parsed map[string]json.RawMessage
+		if err := json.Unmarshal(result, &parsed); err != nil {
+			t.Fatalf("failed to parse result: %v", err)
+		}
+		if _, ok := parsed["custom"]; !ok {
+			t.Error("expected 'custom' key to be preserved")
+		}
+		if _, ok := parsed["nested"]; !ok {
+			t.Error("expected 'nested' key to be preserved")
+		}
+	})
+
+	t.Run("merges into existing git info", func(t *testing.T) {
+		existing := json.RawMessage(`{"git":{"branch":"old-branch","dirty":true}}`)
+		result, err := mergeGitMetadata(existing, &branch, &commit)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if b := GetGitBranch(result); b != branch {
+			t.Errorf("expected branch %q, got %q", branch, b)
+		}
+		if c := GetGitCommit(result); c != commit {
+			t.Errorf("expected commit %q, got %q", commit, c)
+		}
+	})
+
+	t.Run("nil branch and commit is no-op", func(t *testing.T) {
+		existing := json.RawMessage(`{"foo":"bar"}`)
+		result, err := mergeGitMetadata(existing, nil, nil)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if string(result) != string(existing) {
+			t.Errorf("expected no change, got %s", string(result))
+		}
+	})
+
+	t.Run("branch only", func(t *testing.T) {
+		result, err := mergeGitMetadata(nil, &branch, nil)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if b := GetGitBranch(result); b != branch {
+			t.Errorf("expected branch %q, got %q", branch, b)
+		}
+		if c := GetGitCommit(result); c != "" {
+			t.Errorf("expected empty commit, got %q", c)
+		}
+	})
+}
+
+func TestGetGitBranch(t *testing.T) {
+	t.Run("empty metadata", func(t *testing.T) {
+		if b := GetGitBranch(nil); b != "" {
+			t.Errorf("expected empty, got %q", b)
+		}
+	})
+
+	t.Run("no git key", func(t *testing.T) {
+		if b := GetGitBranch(json.RawMessage(`{"foo":"bar"}`)); b != "" {
+			t.Errorf("expected empty, got %q", b)
+		}
+	})
+
+	t.Run("valid git branch", func(t *testing.T) {
+		meta := json.RawMessage(`{"git":{"branch":"main","commit":"abc123"}}`)
+		if b := GetGitBranch(meta); b != "main" {
+			t.Errorf("expected 'main', got %q", b)
+		}
+	})
+}

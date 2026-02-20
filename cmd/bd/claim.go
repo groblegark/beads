@@ -1,9 +1,12 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
+	"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/steveyegge/beads/internal/hooks"
@@ -52,12 +55,17 @@ Examples:
 
 		force, _ := cmd.Flags().GetBool("force")
 
+		// Detect git branch/commit for metadata (bd-kg4lw)
+		claimBranch, claimCommit := getClaimGitContext()
+
 		// Handle local IDs
 		for _, resolvedID := range batch.ResolvedIDs {
 			updateArgs := &rpc.UpdateArgs{
-				ID:         resolvedID,
-				Claim:      true,
-				ClaimForce: force,
+				ID:          resolvedID,
+				Claim:       true,
+				ClaimForce:  force,
+				ClaimBranch: claimBranch,
+				ClaimCommit: claimCommit,
 			}
 
 			resp, err := daemonClient.Update(updateArgs)
@@ -87,9 +95,11 @@ Examples:
 		forEachRoutedID(batch.RoutedArgs, func(resolvedID string, routedClient *rpc.Client) error {
 			routedClient.SetActor(actor)
 			updateArgs := &rpc.UpdateArgs{
-				ID:         resolvedID,
-				Claim:      true,
-				ClaimForce: force,
+				ID:          resolvedID,
+				Claim:       true,
+				ClaimForce:  force,
+				ClaimBranch: claimBranch,
+				ClaimCommit: claimCommit,
 			}
 
 			resp, updateErr := routedClient.Update(updateArgs)
@@ -116,6 +126,32 @@ Examples:
 			return nil
 		})
 	},
+}
+
+// getClaimGitContext detects the current git branch and commit SHA. (bd-kg4lw)
+// Returns nil pointers if not in a git repo or git is unavailable.
+func getClaimGitContext() (branch, commit *string) {
+	ctx := context.Background()
+
+	// Get branch
+	cmd := exec.CommandContext(ctx, "git", "rev-parse", "--abbrev-ref", "HEAD") // #nosec G204
+	if out, err := cmd.Output(); err == nil {
+		b := strings.TrimSpace(string(out))
+		if b != "" && b != "HEAD" {
+			branch = &b
+		}
+	}
+
+	// Get commit SHA (short)
+	cmd = exec.CommandContext(ctx, "git", "rev-parse", "--short", "HEAD") // #nosec G204
+	if out, err := cmd.Output(); err == nil {
+		c := strings.TrimSpace(string(out))
+		if c != "" {
+			commit = &c
+		}
+	}
+
+	return branch, commit
 }
 
 func init() {

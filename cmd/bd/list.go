@@ -601,7 +601,11 @@ func formatIssueLong(buf *strings.Builder, issue *types.Issue, labels []string) 
 		buf.WriteString(fmt.Sprintf("  %s\n", issue.Title))
 	}
 	if issue.Assignee != "" {
-		buf.WriteString(fmt.Sprintf("  Assignee: %s\n", issue.Assignee))
+		assigneeLine := fmt.Sprintf("  Assignee: %s", issue.Assignee)
+		if branch := rpc.GetGitBranch(issue.Metadata); branch != "" {
+			assigneeLine += fmt.Sprintf(" · Branch: %s", branch)
+		}
+		buf.WriteString(assigneeLine + "\n")
 	}
 	if issue.CreatedBy != "" {
 		buf.WriteString(fmt.Sprintf("  Created by: %s\n", issue.CreatedBy))
@@ -689,6 +693,9 @@ func formatIssueCompact(buf *strings.Builder, issue *types.Issue, labels []strin
 	assigneeStr := ""
 	if issue.Assignee != "" {
 		assigneeStr = fmt.Sprintf(" @%s", issue.Assignee)
+		if branch := rpc.GetGitBranch(issue.Metadata); branch != "" {
+			assigneeStr += fmt.Sprintf("(%s)", branch)
+		}
 	}
 
 	// Format dependency info

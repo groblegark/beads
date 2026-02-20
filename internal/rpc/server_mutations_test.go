@@ -1321,6 +1321,67 @@ func TestHandleUpdate_ClaimFlag_OverClaim(t *testing.T) {
 	}
 }
 
+// TestHandleUpdate_ClaimFlag_GitMetadata verifies that git branch/commit are merged into metadata on claim (bd-kg4lw)
+func TestHandleUpdate_ClaimFlag_GitMetadata(t *testing.T) {
+	store := teststore.New(t)
+	server := NewServer("/tmp/test.sock", store, "/tmp", "/tmp/test.db")
+
+	// Create an issue with existing metadata
+	createArgs := CreateArgs{
+		Title:       "Issue with metadata",
+		Description: "Testing git metadata merge",
+		IssueType:   "task",
+		Priority:    2,
+	}
+	createJSON, _ := json.Marshal(createArgs)
+	createReq := &Request{
+		Operation: OpCreate,
+		Args:      createJSON,
+		Actor:     "test-user",
+	}
+	createResp := server.handleCreate(createReq)
+	if !createResp.Success {
+		t.Fatalf("create failed: %s", createResp.Error)
+	}
+
+	var createdIssue types.Issue
+	if err := json.Unmarshal(createResp.Data, &createdIssue); err != nil {
+		t.Fatalf("failed to unmarshal: %v", err)
+	}
+
+	// Claim with git branch and commit
+	branch := "feat/branch-tracking"
+	commit := "abc1234"
+	claimArgs := UpdateArgs{
+		ID:          createdIssue.ID,
+		Claim:       true,
+		ClaimBranch: &branch,
+		ClaimCommit: &commit,
+	}
+	claimJSON, _ := json.Marshal(claimArgs)
+	claimResp := server.handleUpdate(&Request{Operation: OpUpdate, Args: claimJSON, Actor: "claiming-agent"})
+	if !claimResp.Success {
+		t.Fatalf("claim with git metadata failed: %s", claimResp.Error)
+	}
+
+	// Verify git metadata was merged
+	ctx := context.Background()
+	issue, err := store.GetIssue(ctx, createdIssue.ID)
+	if err != nil {
+		t.Fatalf("failed to get issue: %v", err)
+	}
+
+	if issue.Assignee != "claiming-agent" {
+		t.Errorf("expected assignee 'claiming-agent', got %s", issue.Assignee)
+	}
+	if b := GetGitBranch(issue.Metadata); b != branch {
+		t.Errorf("expected branch %q, got %q", branch, b)
+	}
+	if c := GetGitCommit(issue.Metadata); c != commit {
+		t.Errorf("expected commit %q, got %q", commit, c)
+	}
+}
+
 // TestHandleClose_BlockerCheck verifies that close operation checks for open blockers (GH#962)
 func TestHandleClose_BlockerCheck(t *testing.T) {
 	store := teststore.New(t)

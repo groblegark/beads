@@ -1032,6 +1032,13 @@ func (s *Server) handleUpdate(req *Request) Response {
 					claimUpdates["rig"] = rig
 				}
 			}
+			// Merge git branch/commit into metadata on claim (bd-kg4lw)
+			if updateArgs.ClaimBranch != nil || updateArgs.ClaimCommit != nil {
+				merged, mergeErr := mergeGitMetadata(issue.Metadata, updateArgs.ClaimBranch, updateArgs.ClaimCommit)
+				if mergeErr == nil {
+					claimUpdates["metadata"] = string(merged)
+				}
+			}
 			if err := tx.UpdateIssue(ctx, updateArgs.ID, claimUpdates, actor); err != nil {
 				return fmt.Errorf("failed to claim issue: %w", err)
 			}
