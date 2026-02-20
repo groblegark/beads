@@ -140,6 +140,19 @@ func (s *Server) doneWaitViaNATS(ctx context.Context, js nats.JetStreamContext, 
 		if err == nil {
 			subs = append(subs, sub)
 		}
+		// Also subscribe to the base name variant if different from agentName.
+		// Decision events are published on "decisions.<requestedBy>.<type>" where
+		// requestedBy may be "sharp-seal-1" while agentName is "sharp-seal" (or
+		// vice versa). Subscribing to both ensures we catch the event regardless
+		// of which variant name was used. (bd-zr20k)
+		baseName := eventbus.AgentBaseName(agentName)
+		if baseName != agentName {
+			baseSubject := eventbus.SubjectDecisionPrefix + baseName + ".>"
+			baseSub, err := js.SubscribeSync(baseSubject, nats.DeliverNew())
+			if err == nil {
+				subs = append(subs, baseSub)
+			}
+		}
 		// Also catch global decisions.
 		globalSub, err := js.SubscribeSync(eventbus.SubjectDecisionPrefix+"_global.>", nats.DeliverNew())
 		if err == nil {
@@ -188,11 +201,12 @@ func (s *Server) doneWaitViaNATS(ctx context.Context, js nats.JetStreamContext, 
 		// Check for decisions that were already responded to (race: response arrived
 		// before we subscribed to NATS). Look back 5 minutes to catch responses that
 		// arrived while the agent was between yield calls. (bd-yvhxp)
+		// Also check the base name variant to catch decisions created by a
+		// continuation session (e.g., "sharp-seal-1") when yield runs as "sharp-seal". (bd-zr20k)
 		if listenDecision {
 			since := time.Now().Add(-5 * time.Minute)
-			responded, err := store.ListRecentlyRespondedDecisions(ctx, since, agentName)
-			if err == nil && len(responded) > 0 {
-				dp := responded[0] // Most recent first.
+			dp := findRecentDecisionForAgent(ctx, store, since, agentName)
+			if dp != nil {
 				content := fmt.Sprintf("Decision %s resolved: %s", dp.IssueID, dp.SelectedOption)
 				if dp.Rationale != "" {
 					content += "\n" + dp.Rationale
@@ -328,12 +342,11 @@ func (s *Server) doneWaitViaPoll(ctx context.Context, agentName string, timeout 
 		}
 	}
 
-	// Check for recently responded decisions (race: response arrived before poll started). (bd-yvhxp)
+	// Check for recently responded decisions (race: response arrived before poll started). (bd-yvhxp, bd-zr20k)
 	if listenDecision {
 		since := pollStart.Add(-5 * time.Minute)
-		responded, err := store.ListRecentlyRespondedDecisions(ctx, since, agentName)
-		if err == nil && len(responded) > 0 {
-			dp := responded[0]
+		dp := findRecentDecisionForAgent(ctx, store, since, agentName)
+		if dp != nil {
 			content := fmt.Sprintf("Decision %s resolved: %s", dp.IssueID, dp.SelectedOption)
 			if dp.Rationale != "" {
 				content += "\n" + dp.Rationale
@@ -375,11 +388,10 @@ func (s *Server) doneWaitViaPoll(ctx context.Context, agentName string, timeout 
 				}
 			}
 
-			// Poll decisions. (bd-yvhxp)
+			// Poll decisions. (bd-yvhxp, bd-zr20k)
 			if listenDecision {
-				responded, err := store.ListRecentlyRespondedDecisions(ctx, pollStart, agentName)
-				if err == nil && len(responded) > 0 {
-					dp := responded[0]
+				dp := findRecentDecisionForAgent(ctx, store, pollStart, agentName)
+				if dp != nil {
 					content := fmt.Sprintf("Decision %s resolved: %s", dp.IssueID, dp.SelectedOption)
 					if dp.Rationale != "" {
 						content += "\n" + dp.Rationale
@@ -405,4 +417,33 @@ func formatInboxItems(items []*types.InboxItem) string {
 		parts = append(parts, fmt.Sprintf("[%s] %s", item.Type, item.Content))
 	}
 	return strings.Join(parts, "\n")
+}
+
+// decisionLister is a narrow interface for querying recently-responded decisions.
+// Avoids importing the storage package directly in this file.
+type decisionLister interface {
+	ListRecentlyRespondedDecisions(ctx context.Context, since time.Time, requestedBy string) ([]*types.DecisionPoint, error)
+}
+
+// findRecentDecisionForAgent checks for recently-responded decisions matching
+// the agent name OR its base name variant. This handles the case where a decision
+// was created by "sharp-seal-1" but yield is running as "sharp-seal" (or vice
+// versa). Returns the most recent match, or nil. (bd-zr20k)
+func findRecentDecisionForAgent(ctx context.Context, store decisionLister, since time.Time, agentName string) *types.DecisionPoint {
+	// Try exact name first.
+	responded, err := store.ListRecentlyRespondedDecisions(ctx, since, agentName)
+	if err == nil && len(responded) > 0 {
+		return responded[0]
+	}
+
+	// Try base name variant if different.
+	baseName := eventbus.AgentBaseName(agentName)
+	if baseName != agentName {
+		responded, err = store.ListRecentlyRespondedDecisions(ctx, since, baseName)
+		if err == nil && len(responded) > 0 {
+			return responded[0]
+		}
+	}
+
+	return nil
 }

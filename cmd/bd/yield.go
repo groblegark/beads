@@ -216,40 +216,60 @@ func loadSessionBaseNames() map[string]string {
 	return m
 }
 
-// yieldResolveAgentFromDecisions checks if there are pending decisions under a
-// variant of the agent name (e.g., "sharp-seal-1" when agent is "sharp-seal").
-// Returns the variant name if found, otherwise the original agent name. (bd-6vtx4)
+// yieldResolveAgentFromDecisions checks if there are decisions (pending OR
+// recently responded) under a variant of the agent name (e.g., "sharp-seal-1"
+// when agent is "sharp-seal"). Returns the variant name if found, otherwise
+// the original agent name.
+//
+// Must check recently-responded decisions too: if the decision was responded
+// to before yield starts, pending-only lookup returns the base name, causing
+// NATS subscriptions and DB pre-checks to use the wrong name. (bd-6vtx4, bd-zr20k)
 func yieldResolveAgentFromDecisions(agent string) string {
 	resp, err := daemonClient.DecisionList(&rpc.DecisionListArgs{})
 	if err != nil {
 		return agent
 	}
 
-	// First check: exact match — if found, no override needed.
+	// First check: exact match on any recent decision (pending or responded) — no override needed.
 	for _, d := range resp.Decisions {
 		if d.Decision == nil {
 			continue
 		}
 		dp := d.Decision
-		if dp.RequestedBy == agent && dp.SelectedOption == "" && dp.ResponseText == "" {
+		if dp.RequestedBy == agent {
 			return agent // Exact match found, use as-is.
 		}
 	}
 
 	// Second check: look for a variant match (same base name, different suffix).
+	// Prefer pending decisions, but accept recently-responded ones too. (bd-zr20k)
+	var variantPending, variantAny string
 	for _, d := range resp.Decisions {
 		if d.Decision == nil {
 			continue
 		}
 		dp := d.Decision
-		if dp.SelectedOption != "" || dp.ResponseText != "" {
-			continue // Already resolved.
+		if !matchesAgentVariant(agent, dp.RequestedBy) || dp.RequestedBy == agent {
+			continue
 		}
-		if matchesAgentVariant(agent, dp.RequestedBy) && dp.RequestedBy != agent {
-			fmt.Fprintf(os.Stderr, "yield: agent identity override %q → %q (from pending decision %s)\n",
-				agent, dp.RequestedBy, dp.IssueID)
-			return dp.RequestedBy
+		if variantAny == "" {
+			variantAny = dp.RequestedBy
 		}
+		if dp.SelectedOption == "" && dp.ResponseText == "" {
+			variantPending = dp.RequestedBy
+			break // Pending variant found — highest priority.
+		}
+	}
+
+	if variantPending != "" {
+		fmt.Fprintf(os.Stderr, "yield: agent identity override %q → %q (from pending decision)\n",
+			agent, variantPending)
+		return variantPending
+	}
+	if variantAny != "" {
+		fmt.Fprintf(os.Stderr, "yield: agent identity override %q → %q (from recent decision)\n",
+			agent, variantAny)
+		return variantAny
 	}
 
 	return agent
