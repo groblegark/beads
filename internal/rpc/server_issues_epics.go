@@ -532,6 +532,16 @@ func (s *Server) handleCreate(req *Request) Response {
 		Metadata: createArgs.Metadata,
 	}
 
+	// Auto-populate Rig if not explicitly set (bd-495pr)
+	// Priority: explicit Rig (from --agent-rig) > TargetRig > daemon default
+	if issue.Rig == "" {
+		if createArgs.TargetRig != "" {
+			issue.Rig = createArgs.TargetRig
+		} else {
+			issue.Rig = s.getDefaultRig(ctx)
+		}
+	}
+
 	// Check if any dependencies are discovered-from type
 	// If so, inherit source_repo from the parent issue
 	var discoveredFromParentID string
@@ -1015,6 +1025,12 @@ func (s *Server) handleUpdate(req *Request) Response {
 			claimUpdates := map[string]interface{}{
 				"assignee": actor,
 				"status":   "in_progress",
+			}
+			// Backfill rig if empty on claim (bd-495pr)
+			if issue.Rig == "" {
+				if rig := s.getDefaultRig(ctx); rig != "" {
+					claimUpdates["rig"] = rig
+				}
 			}
 			if err := tx.UpdateIssue(ctx, updateArgs.ID, claimUpdates, actor); err != nil {
 				return fmt.Errorf("failed to claim issue: %w", err)

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -115,6 +116,9 @@ type Server struct {
 	queryDedup *QueryDeduplicator
 	// In-memory label cache (eliminates expensive batch label queries to Dolt)
 	labelCache *LabelCache
+	// Default rig name for this daemon instance (bd-495pr)
+	// Resolved from: BD_RIG_NAME env > "rig" DB config > workspace dir basename
+	defaultRig string
 	// Event bus for hook dispatch (bd-66fp)
 	bus *eventbus.Bus
 	// NATS health provider (returns status for bus_status RPC)
@@ -265,6 +269,16 @@ func NewServerWithWispStore(socketPath string, store storage.Storage, wispStore 
 	}
 	s.lastActivityTime.Store(time.Now())
 
+	// Resolve default rig name (bd-495pr)
+	// Priority: BD_RIG_NAME env var > workspace directory basename
+	// DB config ("rig") is checked lazily in getDefaultRig() since storage
+	// may not be fully ready at construction time.
+	if envRig := os.Getenv("BD_RIG_NAME"); envRig != "" {
+		s.defaultRig = envRig
+	} else if workspacePath != "" {
+		s.defaultRig = filepath.Base(workspacePath)
+	}
+
 	// Set up slow query logging callback
 	s.metrics.SetSlowQueryCallback(func(operation string, latency time.Duration, timestamp time.Time) {
 		fmt.Fprintf(os.Stderr, "SLOW QUERY: operation=%s latency=%s time=%s\n",
@@ -272,6 +286,25 @@ func NewServerWithWispStore(socketPath string, store storage.Storage, wispStore 
 	})
 
 	return s
+}
+
+// getDefaultRig returns the default rig name for this daemon instance (bd-495pr).
+// Priority: BD_RIG_NAME env > "rig" DB config key > workspace dir basename.
+// The env/workspace fallback is set at construction time; DB config is checked
+// lazily here so the storage backend doesn't need to be ready at init.
+func (s *Server) getDefaultRig(ctx context.Context) string {
+	// Env var and workspace basename are set at construction time
+	if s.defaultRig != "" {
+		return s.defaultRig
+	}
+	// Try DB config as last resort
+	if s.storage != nil {
+		if rigVal, err := s.storage.GetConfig(ctx, "rig"); err == nil && rigVal != "" {
+			s.defaultRig = rigVal
+			return rigVal
+		}
+	}
+	return ""
 }
 
 // emitMutation sends a mutation event to the daemon's event-driven loop.

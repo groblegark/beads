@@ -414,6 +414,8 @@ func TestHTTPMappingCompleteness(t *testing.T) {
 		OpGraph,
 		// Analytics (beads-cqpj)
 		OpBurndown, OpVelocity, OpCycleTime,
+		// Rig registration (bd-jzx1m)
+		OpRigRegister, OpRigList, OpRigShow, OpRigRemove,
 	}
 
 	t.Run("client_operationToHTTPMethod_covers_all_handled_ops", func(t *testing.T) {

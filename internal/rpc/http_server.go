@@ -551,6 +551,12 @@ func httpMethodToOperation(method string) string {
 		"RunbookGet":  OpRunbookGet,
 		"RunbookSave": OpRunbookSave,
 
+		// Rig registration operations (bd-jzx1m)
+		"RigRegister": OpRigRegister,
+		"RigList":     OpRigList,
+		"RigShow":     OpRigShow,
+		"RigRemove":   OpRigRemove,
+
 		// Config
 		"ConfigSet":  OpConfigSet,
 		"ConfigList": OpConfigList,

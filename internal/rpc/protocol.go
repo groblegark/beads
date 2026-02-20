@@ -232,6 +232,12 @@ const (
 	OpBurndown  = "burndown"
 	OpVelocity  = "velocity"
 	OpCycleTime = "cycle_time"
+
+	// Rig operations (bd-jzx1m)
+	OpRigRegister = "rig_register"
+	OpRigList     = "rig_list"
+	OpRigShow     = "rig_show"
+	OpRigRemove   = "rig_remove"
 )
 
 // Request represents an RPC request from client to daemon
@@ -2702,4 +2708,37 @@ func ValidateSidecarMetadataJSON(raw json.RawMessage) error {
 		return nil
 	}
 	return ValidateSidecarMetadata(meta)
+}
+
+// --- Rig registration types (bd-jzx1m) ---
+
+// Rig represents a lightweight repository context — no filesystem operations.
+type Rig struct {
+	Name          string `json:"name"`                     // e.g., "beads", "gastown"
+	RemoteURL     string `json:"remote_url"`               // e.g., "https://github.com/groblegark/beads.git"
+	LocalPath     string `json:"local_path,omitempty"`     // optional local checkout path
+	DefaultBranch string `json:"default_branch,omitempty"` // e.g., "main"
+	Prefix        string `json:"prefix,omitempty"`         // issue ID prefix: "bd-", "gt-"
+	CreatedAt     string `json:"created_at,omitempty"`
+	UpdatedAt     string `json:"updated_at,omitempty"`
+}
+
+type RigRegisterArgs struct {
+	Name          string `json:"name"`
+	RemoteURL     string `json:"remote_url"`
+	LocalPath     string `json:"local_path,omitempty"`
+	DefaultBranch string `json:"default_branch,omitempty"`
+	Prefix        string `json:"prefix,omitempty"`
+}
+
+type RigShowArgs struct {
+	Name string `json:"name"`
+}
+
+type RigRemoveArgs struct {
+	Name string `json:"name"`
+}
+
+type RigListResult struct {
+	Rigs []Rig `json:"rigs"`
 }

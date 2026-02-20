@@ -545,6 +545,15 @@ func (s *Server) executeOperation(req *Request) Response {
 	// SQL query operation (gt-kmapkw)
 	case OpSQL:
 		resp = s.handleSQL(req)
+	// Rig registration operations (bd-jzx1m)
+	case OpRigRegister:
+		resp = s.handleRigRegister(req)
+	case OpRigList:
+		resp = s.handleRigList(req)
+	case OpRigShow:
+		resp = s.handleRigShow(req)
+	case OpRigRemove:
+		resp = s.handleRigRemove(req)
 	default:
 		return Response{
 			Success: false,

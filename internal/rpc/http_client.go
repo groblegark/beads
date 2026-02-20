@@ -427,6 +427,12 @@ func operationToHTTPMethod(operation string) string {
 		OpRunbookGet:  "RunbookGet",
 		OpRunbookSave: "RunbookSave",
 
+		// Rig registration operations (bd-jzx1m)
+		OpRigRegister: "RigRegister",
+		OpRigList:     "RigList",
+		OpRigShow:     "RigShow",
+		OpRigRemove:   "RigRemove",
+
 		// Admin
 		OpShutdown: "Shutdown",
 

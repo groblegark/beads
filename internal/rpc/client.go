@@ -1384,6 +1384,59 @@ func (c *Client) RunbookSave(args *RunbookSaveArgs) (*RunbookSaveResult, error) 
 	return &result, nil
 }
 
+// Rig registration operations (bd-jzx1m)
+
+// RigRegister creates or updates a rig registration via the daemon.
+func (c *Client) RigRegister(args *RigRegisterArgs) (*Rig, error) {
+	resp, err := c.Execute(OpRigRegister, args)
+	if err != nil {
+		return nil, err
+	}
+
+	var result Rig
+	if err := json.Unmarshal(resp.Data, &result); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal rig register response: %w", err)
+	}
+
+	return &result, nil
+}
+
+// RigList lists all registered rigs via the daemon.
+func (c *Client) RigList() (*RigListResult, error) {
+	resp, err := c.Execute(OpRigList, struct{}{})
+	if err != nil {
+		return nil, err
+	}
+
+	var result RigListResult
+	if err := json.Unmarshal(resp.Data, &result); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal rig list response: %w", err)
+	}
+
+	return &result, nil
+}
+
+// RigShow retrieves a rig by name via the daemon.
+func (c *Client) RigShow(args *RigShowArgs) (*Rig, error) {
+	resp, err := c.Execute(OpRigShow, args)
+	if err != nil {
+		return nil, err
+	}
+
+	var result Rig
+	if err := json.Unmarshal(resp.Data, &result); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal rig show response: %w", err)
+	}
+
+	return &result, nil
+}
+
+// RigRemove soft-deletes a rig via the daemon.
+func (c *Client) RigRemove(args *RigRemoveArgs) error {
+	_, err := c.Execute(OpRigRemove, args)
+	return err
+}
+
 // Agent pod operations (gt-el7sxq.7)
 
 // AgentPodRegister sets pod fields on an agent bead.
