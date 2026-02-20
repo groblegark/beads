@@ -57,7 +57,7 @@ func (s *Server) handleGraph(req *Request) Response {
 		args.Status = []string{"open", "in_progress"}
 	}
 	if len(args.ExcludeTypes) == 0 {
-		args.ExcludeTypes = []string{"message", "config", "molecule"}
+		args.ExcludeTypes = []string{"message", "config", "molecule", "formula", "advice", "role"}
 	}
 
 	// Build base filter
@@ -315,7 +315,8 @@ func (s *Server) handleGraph(req *Request) Response {
 		}
 	}
 
-	// Build parent-child lookup from dep records (bd-j3pex)
+	// Build parent-child lookup from dep records (bd-j3pex, bd-uqkpq)
+	// First pass: explicit parent-child deps (canonical)
 	parentOf := make(map[string]string) // childID -> parentID
 	for issueID, deps := range depRecords {
 		for _, dep := range deps {
@@ -324,13 +325,38 @@ func (s *Server) handleGraph(req *Request) Response {
 			}
 		}
 	}
-	// Also check reverse deps for parent info
 	if revDepRecords != nil {
 		for _, deps := range revDepRecords {
 			for _, dep := range deps {
 				if dep.Type == types.DepParentChild {
 					parentOf[dep.IssueID] = dep.DependsOnID
 				}
+			}
+		}
+	}
+	// Second pass (bd-uqkpq): infer parent-child from "blocks" deps where the
+	// target is an epic. Most epics use blocks deps rather than explicit
+	// parent-child deps, so without this inference tasks appear unlinked.
+	for issueID, deps := range depRecords {
+		if _, hasParent := parentOf[issueID]; hasParent {
+			continue // explicit parent-child takes priority
+		}
+		for _, dep := range deps {
+			if dep.Type == types.DepBlocks {
+				if target, ok := issueMap[dep.DependsOnID]; ok && target.IssueType == types.TypeEpic {
+					parentOf[issueID] = dep.DependsOnID
+					break
+				}
+			}
+		}
+	}
+
+	// Promote "blocks" edges to "parent-child" where parentOf says so (bd-uqkpq).
+	// This makes the edge type match the inferred relationship for frontend rendering.
+	for i, e := range edges {
+		if e.Type == string(types.DepBlocks) {
+			if parentOf[e.Source] == e.Target {
+				edges[i].Type = string(types.DepParentChild)
 			}
 		}
 	}
