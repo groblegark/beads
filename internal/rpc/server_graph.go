@@ -545,9 +545,14 @@ func (s *Server) handleGraph(req *Request) Response {
 
 		// Source 2: Issue assignees — create fallback agent nodes for agents not
 		// found in Source 0 or Source 1 (e.g. local dev without NATS).
+		// bd-hq1hl: Only create from active issues (open/in_progress/blocked/hooked)
+		// to avoid flooding the graph with historical agent nodes from closed issues.
 		for _, issue := range issueMap {
 			if issue.Assignee == "" {
 				continue
+			}
+			if issue.Status == "closed" || issue.Status == "tombstone" {
+				continue // Skip historical assignments
 			}
 			if _, exists := agentNodes[issue.Assignee]; !exists {
 				agentNodes[issue.Assignee] = &GraphNode{
@@ -626,6 +631,13 @@ func (s *Server) handleGraph(req *Request) Response {
 		case "gate", "decision":
 			if !connectedIDs[n.ID] {
 				continue // drop disconnected gates and decisions (bd-t25i1)
+			}
+		case "agent":
+			// bd-hq1hl: drop disconnected agent nodes (no edges) unless they're
+			// live agents (active/idle). Historical and infrastructure agents with
+			// no current work assignments just clutter the graph.
+			if !connectedIDs[n.ID] && n.Status != "active" && n.Status != "idle" {
+				continue
 			}
 		}
 		// Drop closed nodes not connected to any open/active item (bd-71kcv)
