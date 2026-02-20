@@ -416,8 +416,8 @@ func (s *Server) handleGraph(req *Request) Response {
 	}
 	filteredNodes := make([]GraphNode, 0, len(nodes))
 	for _, n := range nodes {
-		if n.IssueType == "gate" && !connectedIDs[n.ID] {
-			continue // drop disconnected decision gates
+		if (n.IssueType == "gate" || n.IssueType == "decision") && !connectedIDs[n.ID] {
+			continue // drop disconnected gates and decisions (bd-t25i1)
 		}
 		filteredNodes = append(filteredNodes, n)
 	}
