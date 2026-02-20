@@ -1672,6 +1672,32 @@ func (b *Bot) NotifyEscalation(decision *Decision) error {
 	return err
 }
 
+// NotifyAgentCrash posts a crash alert to the default channel.
+func (b *Bot) NotifyAgentCrash(agentID, agentName, reason string) error {
+	if b.channelID == "" {
+		return nil
+	}
+
+	name := agentName
+	if name == "" {
+		name = agentID
+	}
+
+	text := fmt.Sprintf(":warning: *Agent crashed: %s*", name)
+	if reason != "" {
+		text += fmt.Sprintf("\n> %s", reason)
+	}
+
+	blocks := []slack.Block{
+		slack.NewSectionBlock(
+			slack.NewTextBlockObject("mrkdwn", text, false, false),
+			nil, nil),
+	}
+
+	_, _, err := b.client.PostMessage(b.channelID, slack.MsgOptionBlocks(blocks...))
+	return err
+}
+
 // ---------- Message updates ----------
 
 func (b *Bot) updateMessageAsResolved(channelID, messageTs string, decision *Decision, resolverID string) {

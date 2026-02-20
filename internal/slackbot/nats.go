@@ -13,9 +13,9 @@ import (
 	"github.com/steveyegge/beads/internal/eventbus"
 )
 
-// NATSWatcher watches for decision events via NATS JetStream.
-// It subscribes to the DECISION_EVENTS stream and calls back to the Bot
-// when decisions are created, resolved, or canceled.
+// NATSWatcher watches for decision and agent lifecycle events via NATS JetStream.
+// It subscribes to the DECISION_EVENTS and AGENT_EVENTS streams and calls back
+// to the Bot when decisions are created/resolved or agents crash.
 type NATSWatcher struct {
 	natsURL   string
 	natsToken string
@@ -23,6 +23,7 @@ type NATSWatcher struct {
 	decisions *DecisionClient
 	conn      *nats.Conn
 	sub       *nats.Subscription
+	agentSub  *nats.Subscription
 	seen      map[string]bool
 	seenMu    sync.Mutex
 }
@@ -140,10 +141,53 @@ func (w *NATSWatcher) connect(ctx context.Context) error {
 		}
 	}
 
+	// Subscribe to agent lifecycle events (AgentCrashed, etc.) for Slack alerts.
+	var agentSub *nats.Subscription
+	for attempt := 1; attempt <= 10; attempt++ {
+		agentSub, err = js.Subscribe(
+			eventbus.SubjectAgentPrefix+">",
+			w.handleAgentMessage,
+			nats.Durable("slack-bot-agents"),
+			nats.DeliverNew(),
+			nats.AckExplicit(),
+			nats.ManualAck(),
+		)
+		if err == nil {
+			break
+		}
+		if !strings.Contains(err.Error(), "already bound") {
+			// Non-fatal: agent events are supplementary. Log and continue
+			// with decision-only mode.
+			log.Printf("slackbot/nats: agent events subscribe failed: %v (continuing without)", err)
+			agentSub = nil
+			err = nil
+			break
+		}
+		if attempt == 10 {
+			log.Printf("slackbot/nats: agent events consumer still bound after %d attempts (continuing without)", attempt)
+			agentSub = nil
+			err = nil
+			break
+		}
+		log.Printf("slackbot/nats: agent events consumer still bound (attempt %d/10), retrying in 3s", attempt)
+		select {
+		case <-ctx.Done():
+			nc.Close()
+			return ctx.Err()
+		case <-time.After(3 * time.Second):
+		}
+	}
+
 	w.conn = nc
 	w.sub = sub
-	log.Printf("slackbot/nats: connected to %s, subscribed to %s",
-		w.natsURL, eventbus.StreamDecisionEvents)
+	w.agentSub = agentSub
+	if agentSub != nil {
+		log.Printf("slackbot/nats: connected to %s, subscribed to %s + %s",
+			w.natsURL, eventbus.StreamDecisionEvents, eventbus.StreamAgentEvents)
+	} else {
+		log.Printf("slackbot/nats: connected to %s, subscribed to %s (agent events unavailable)",
+			w.natsURL, eventbus.StreamDecisionEvents)
+	}
 	return nil
 }
 
@@ -366,8 +410,56 @@ func (w *NATSWatcher) fetchWithRetry(decisionID string, attempts int, backoff ti
 	return nil, fmt.Errorf("after %d attempts: %w", attempts, lastErr)
 }
 
-// Close drains the subscription and closes the NATS connection.
+// handleAgentMessage parses a NATS message from the AGENT_EVENTS stream and
+// posts Slack alerts for agent crashes.
+func (w *NATSWatcher) handleAgentMessage(msg *nats.Msg) {
+	// Extract event type from subject: "agents.<EventType>"
+	subject := msg.Subject
+	lastDot := strings.LastIndex(subject, ".")
+	if lastDot < 0 {
+		_ = msg.Ack()
+		return
+	}
+	eventType := eventbus.EventType(subject[lastDot+1:])
+
+	if eventType != eventbus.EventAgentCrashed {
+		_ = msg.Ack()
+		return
+	}
+
+	var payload eventbus.AgentEventPayload
+	if err := json.Unmarshal(msg.Data, &payload); err != nil {
+		log.Printf("slackbot/nats: agent event unmarshal error: %v", err)
+		_ = msg.Ack()
+		return
+	}
+
+	// Deduplicate by agent+event.
+	key := "agent-crashed:" + payload.AgentID
+	w.seenMu.Lock()
+	if w.seen[key] {
+		w.seenMu.Unlock()
+		_ = msg.Ack()
+		return
+	}
+	w.seen[key] = true
+	w.seenMu.Unlock()
+
+	log.Printf("slackbot/nats: agent crashed: %s (reason: %s)", payload.AgentID, payload.Reason)
+
+	if err := w.bot.NotifyAgentCrash(payload.AgentID, payload.AgentName, payload.Reason); err != nil {
+		log.Printf("slackbot/nats: notify agent crash failed: %v", err)
+	}
+
+	_ = msg.Ack()
+}
+
+// Close drains the subscriptions and closes the NATS connection.
 func (w *NATSWatcher) Close() {
+	if w.agentSub != nil {
+		_ = w.agentSub.Drain()
+		w.agentSub = nil
+	}
 	if w.sub != nil {
 		_ = w.sub.Drain()
 		w.sub = nil
