@@ -415,6 +415,19 @@ func createDoltNativeExportFunc(ctx context.Context, store storage.Storage, auto
 		exportCtx, exportCancel := context.WithTimeout(ctx, 30*time.Second)
 		defer exportCancel()
 
+		// Cheap status check before commit (bd-zxbgc: prevent commit/push on every mutation)
+		// Without this, every RPC mutation triggers a full dolt commit+push cycle via the
+		// export debouncer, even when there's nothing new to commit.
+		if sc, ok := storage.AsStatusChecker(store); ok {
+			hasChanges, err := sc.HasUncommittedChanges(exportCtx)
+			if err != nil {
+				log.log("Warning: status check failed: %v (proceeding with commit)", err)
+			} else if !hasChanges {
+				debug.Logf("dolt-native export: no uncommitted changes, skipping commit/push")
+				return
+			}
+		}
+
 		log.log("Starting dolt-native export...")
 
 		// Get the remote storage interface

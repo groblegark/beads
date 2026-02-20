@@ -55,13 +55,7 @@ func runEventDrivenLoop(
 	signal.Notify(sigChan, daemonSignals...)
 	defer signal.Stop(sigChan)
 
-	// Debounced sync actions
-	exportDebouncer := NewDebouncer(500*time.Millisecond, func() {
-		log.log("Export triggered by mutation events")
-		doExport()
-	})
-	defer exportDebouncer.Cancel()
-
+	// Debounced import action (triggered by file watcher)
 	importDebouncer := NewDebouncer(500*time.Millisecond, func() {
 		log.log("Import triggered by file change")
 		doAutoImport()
@@ -105,7 +99,6 @@ func runEventDrivenLoop(
 					return
 				}
 				log.log("Mutation detected: %s %s", event.Type, event.IssueID)
-				exportDebouncer.Trigger()
 				// Debounced blocked cache rebuild (bd-b2ts)
 				// Coalesces rapid mutations - rebuilds once after 1s quiet period
 				cacheRebuildDebouncer.Trigger()
@@ -148,6 +141,19 @@ func runEventDrivenLoop(
 	statsTicker := time.NewTicker(statsInterval)
 	defer statsTicker.Stop()
 
+	// Periodic export (commit/push) on a cron instead of per-mutation (bd-zxbgc)
+	// Default 30s; configurable via BEADS_EXPORT_INTERVAL env var.
+	// The doExport func already checks HasUncommittedChanges so this is cheap when idle.
+	exportInterval := 30 * time.Second
+	if env := os.Getenv("BEADS_EXPORT_INTERVAL"); env != "" {
+		if d, err := time.ParseDuration(env); err == nil && d > 0 {
+			exportInterval = d
+		}
+	}
+	exportTicker := time.NewTicker(exportInterval)
+	defer exportTicker.Stop()
+	log.log("Periodic export enabled: every %v (bd-zxbgc)", exportInterval)
+
 	// Periodic remote sync to pull updates from other clones
 	// This is essential for multi-clone workflows where the file watcher only
 	// sees local changes but remote may have updates from other clones.
@@ -181,8 +187,7 @@ func runEventDrivenLoop(
 			// Check for dropped mutation events every second
 			dropped := server.ResetDroppedEventsCount()
 			if dropped > 0 {
-				log.log("WARNING: %d mutation events were dropped, triggering export", dropped)
-				exportDebouncer.Trigger()
+				log.log("WARNING: %d mutation events were dropped", dropped)
 			}
 
 		case <-healthTicker.C:
@@ -203,6 +208,11 @@ func runEventDrivenLoop(
 		case <-statsTicker.C:
 			// Periodic stats logging
 			log.log("%s", server.PeriodicStatsSummary())
+
+		case <-exportTicker.C:
+			// Periodic export: commit/push on a cron (bd-zxbgc)
+			// Replaces per-mutation export which hammered Dolt with commits
+			doExport()
 
 		case <-func() <-chan time.Time {
 			if remoteSyncTicker != nil {
@@ -255,27 +265,27 @@ func runEventDrivenLoop(
 			return
 
 		case <-ctx.Done():
-		log.log("Context canceled, shutting down")
-		log.log("Final export before shutdown...")
-		doExport()
-		if watcher != nil {
-		_ = watcher.Close()
-		}
+			log.log("Context canceled, shutting down")
+			log.log("Final export before shutdown...")
+			doExport()
+			if watcher != nil {
+				_ = watcher.Close()
+			}
 			if err := server.Stop(); err != nil {
 				log.log("Error stopping server: %v", err)
 			}
 			return
 
 		case err := <-serverErrChan:
-		log.log("RPC server failed: %v", err)
-		cancel()
-		if watcher != nil {
-		_ = watcher.Close()
-		}
-		if stopErr := server.Stop(); stopErr != nil {
-			log.log("Error stopping server: %v", stopErr)
-		}
-		return
+			log.log("RPC server failed: %v", err)
+			cancel()
+			if watcher != nil {
+				_ = watcher.Close()
+			}
+			if stopErr := server.Stop(); stopErr != nil {
+				log.log("Error stopping server: %v", stopErr)
+			}
+			return
 		}
 	}
 }
@@ -455,7 +465,7 @@ func flushStaleDirtyIssues(ctx context.Context, store storage.Storage, log daemo
 func getRemoteSyncInterval(log daemonLogger) time.Duration {
 	// config.GetDuration handles both config.yaml and env var (env takes precedence)
 	duration := config.GetDuration("remote-sync-interval")
-	
+
 	// If config returns 0, it could mean:
 	// 1. User explicitly set "0" to disable
 	// 2. Config not found (use default)
