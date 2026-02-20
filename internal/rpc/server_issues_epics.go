@@ -937,6 +937,33 @@ func (s *Server) handleUpdate(req *Request) Response {
 		}
 	}
 
+	// Prevent over-claiming: reject claim when the actor already has another
+	// in_progress task. Agents should finish or unclaim their current work first.
+	// Use --force to override (e.g., for legitimate multi-task scenarios). (bd-arwkj)
+	if updateArgs.Claim && !updateArgs.ClaimForce && actor != "" {
+		inProgressStatus := types.StatusInProgress
+		actorFilter := types.IssueFilter{
+			Status:   &inProgressStatus,
+			Assignee: &actor,
+		}
+		existing, searchErr := store.SearchIssues(ctx, "", actorFilter)
+		if searchErr == nil && len(existing) > 0 {
+			// Don't count the issue being claimed itself (re-claim scenario)
+			var others []string
+			for _, ex := range existing {
+				if ex.ID != updateArgs.ID {
+					others = append(others, ex.ID)
+				}
+			}
+			if len(others) > 0 {
+				return Response{
+					Success: false,
+					Error:   fmt.Sprintf("you already have %s in_progress; close or unclaim it first, or use --force to override", others[0]),
+				}
+			}
+		}
+	}
+
 	// Prevent work-stealing: reject status→in_progress when the issue is already
 	// in_progress and assigned to a different agent. This closes the bypass where
 	// agents use `bd update <id> --status=in_progress` instead of `--claim`.

@@ -113,6 +113,6 @@ Examples:
 }
 
 func init() {
-	claimCmd.Flags().BoolP("force", "f", false, "Force claim even for epics")
+	claimCmd.Flags().BoolP("force", "f", false, "Force claim even if you already have in_progress work or target is an epic")
 	rootCmd.AddCommand(claimCmd)
 }

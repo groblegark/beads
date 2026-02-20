@@ -1260,6 +1260,67 @@ func TestHandleUpdate_ClaimFlag_WithOtherUpdates(t *testing.T) {
 	}
 }
 
+// TestHandleUpdate_ClaimFlag_OverClaim verifies that claiming a second task fails (bd-arwkj)
+func TestHandleUpdate_ClaimFlag_OverClaim(t *testing.T) {
+	store := teststore.New(t)
+	server := NewServer("/tmp/test.sock", store, "/tmp", "/tmp/test.db")
+
+	// Create two issues
+	for i, title := range []string{"First task", "Second task"} {
+		createArgs := CreateArgs{
+			Title:     title,
+			IssueType: "task",
+			Priority:  2,
+		}
+		createJSON, _ := json.Marshal(createArgs)
+		createReq := &Request{
+			Operation: OpCreate,
+			Args:      createJSON,
+			Actor:     "test-user",
+		}
+		resp := server.handleCreate(createReq)
+		if !resp.Success {
+			t.Fatalf("failed to create issue %d: %s", i, resp.Error)
+		}
+	}
+
+	ctx := context.Background()
+	issues, err := store.SearchIssues(ctx, "", types.IssueFilter{})
+	if err != nil {
+		t.Fatalf("failed to search issues: %v", err)
+	}
+	if len(issues) < 2 {
+		t.Fatalf("expected at least 2 issues, got %d", len(issues))
+	}
+
+	// Claim the first issue — should succeed
+	claimArgs1 := UpdateArgs{ID: issues[0].ID, Claim: true}
+	claimJSON1, _ := json.Marshal(claimArgs1)
+	resp1 := server.handleUpdate(&Request{Operation: OpUpdate, Args: claimJSON1, Actor: "greedy-agent"})
+	if !resp1.Success {
+		t.Fatalf("first claim should succeed: %s", resp1.Error)
+	}
+
+	// Claim the second issue — should fail (over-claiming)
+	claimArgs2 := UpdateArgs{ID: issues[1].ID, Claim: true}
+	claimJSON2, _ := json.Marshal(claimArgs2)
+	resp2 := server.handleUpdate(&Request{Operation: OpUpdate, Args: claimJSON2, Actor: "greedy-agent"})
+	if resp2.Success {
+		t.Error("expected second claim to fail (over-claiming), but it succeeded")
+	}
+	if resp2.Error == "" || !strings.Contains(resp2.Error, "already have") {
+		t.Errorf("expected 'already have' error, got %q", resp2.Error)
+	}
+
+	// Claim with --force should succeed
+	claimArgs3 := UpdateArgs{ID: issues[1].ID, Claim: true, ClaimForce: true}
+	claimJSON3, _ := json.Marshal(claimArgs3)
+	resp3 := server.handleUpdate(&Request{Operation: OpUpdate, Args: claimJSON3, Actor: "greedy-agent"})
+	if !resp3.Success {
+		t.Errorf("claim with --force should succeed: %s", resp3.Error)
+	}
+}
+
 // TestHandleClose_BlockerCheck verifies that close operation checks for open blockers (GH#962)
 func TestHandleClose_BlockerCheck(t *testing.T) {
 	store := teststore.New(t)
