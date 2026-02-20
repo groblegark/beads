@@ -133,6 +133,9 @@ bd_test
 helm/*/charts/
 *.tgz
 
+# Downloaded Helm chart values (reference files, not part of project)
+redis/
+
 # Gas Town (added by gt)
 .beads/
 .logs/
