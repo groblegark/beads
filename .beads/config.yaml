@@ -19,8 +19,8 @@ issue-prefix: "bd"
 # Remote daemon connection (gastown-uat)
 # Enables hooks and local bd commands to reach the remote daemon via HTTP.
 # Priority: BD_DAEMON_HOST env var > this config key
-daemon-host: "https://gastown-uat.app.e2e.dev.fics.ai"
-daemon-token: "V6T4jmuDY1GDgYDmSRaFa1wwd4RTkFKv"
+daemon-host: "https://gastown-next.app.e2e.dev.fics.ai"
+daemon-token: "qYtPf5J-XAoL8Qnt-imt_Z6mabwHx9Dfs8tehCy_56M"
 
 # Disable auto-flush of database to JSONL after mutations
 # no-auto-flush: false
