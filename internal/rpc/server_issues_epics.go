@@ -3026,6 +3026,24 @@ func (s *Server) handleShow(req *Request) Response {
 	// Fetch comments
 	comments, _ := store.GetIssueComments(ctx, issue.ID)
 
+	// Fetch linked commits (bd-as8xf)
+	var commitsJSON json.RawMessage
+	if db := store.UnderlyingDB(); db != nil {
+		rows, err := db.QueryContext(ctx, `
+			SELECT issue_id, commit_sha, repo_url, branch, author, message, committed_at, recorded_at, recorded_by
+			FROM issue_commits
+			WHERE issue_id = ?
+			ORDER BY recorded_at DESC
+			LIMIT 50
+		`, issue.ID)
+		if err == nil {
+			records := scanCommitRows(rows)
+			if len(records) > 0 {
+				commitsJSON, _ = json.Marshal(records)
+			}
+		}
+	}
+
 	// Create detailed response with related data
 	details := &types.IssueDetails{
 		Issue:        *issue,
@@ -3033,6 +3051,7 @@ func (s *Server) handleShow(req *Request) Response {
 		Dependencies: deps,
 		Dependents:   dependents,
 		Comments:     comments,
+		Commits:      commitsJSON,
 	}
 
 	data, _ := json.Marshal(details)

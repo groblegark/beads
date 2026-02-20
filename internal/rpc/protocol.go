@@ -2622,6 +2622,7 @@ type GraphNode struct {
 	Ephemeral   bool     `json:"ephemeral,omitempty"`
 	DepCount    int      `json:"dep_count,omitempty"`    // Number of dependencies
 	DepByCount  int      `json:"dep_by_count,omitempty"` // Number of dependents
+	CommitCount int      `json:"commit_count,omitempty"` // Number of linked commits (bd-as8xf)
 	BlockedBy   []string `json:"blocked_by,omitempty"`   // IDs of direct blockers
 }
 

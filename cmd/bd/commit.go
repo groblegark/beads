@@ -236,6 +236,24 @@ func relativeTime(t time.Time) string {
 	}
 }
 
+// logCmd is a top-level alias for "bd commit list" (bd-as8xf).
+// Provides "bd log <id>" as a shorthand for viewing commit history.
+var logCmd = &cobra.Command{
+	Use:     "log <issue-id>",
+	GroupID: "issues",
+	Short:   "Show commit history for a bead (alias for commit list)",
+	Long: `Show git commits linked to a bead.
+
+This is a convenience alias for 'bd commit list'. Commits are automatically
+captured by the post-commit hook when you have an in-progress bead.
+
+Examples:
+  bd log bd-abc
+  bd log bd-abc --limit 10`,
+	Args: cobra.ExactArgs(1),
+	Run:  commitListCmd.Run,
+}
+
 func init() {
 	commitLinkCmd.Flags().String("branch", "", "Branch name")
 	commitLinkCmd.Flags().String("repo", "", "Repository URL")
@@ -243,10 +261,12 @@ func init() {
 	commitLinkCmd.Flags().String("message", "", "Commit message")
 
 	commitListCmd.Flags().Int("limit", 0, "Maximum commits to show (0 = all)")
+	logCmd.Flags().Int("limit", 0, "Maximum commits to show (0 = all)")
 
 	commitCmd.AddCommand(commitLinkCmd)
 	commitCmd.AddCommand(commitListCmd)
 	commitCmd.AddCommand(commitShowCmd)
 
 	rootCmd.AddCommand(commitCmd)
+	rootCmd.AddCommand(logCmd)
 }

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -185,12 +186,13 @@ func (s *Server) handleGraph(req *Request) Response {
 		labelsMap     map[string][]string
 		blockedMap    map[string][]string
 		graphStats    *types.Statistics
+		commitCounts  map[string]int // bd-as8xf
 
 		depErr, revDepErr, countErr, labelErr, blockedErr, statsErr error
 		wg                                                          sync.WaitGroup
 	)
 
-	wg.Add(6)
+	wg.Add(7)
 
 	// 1. Forward dependency records (edges FROM these issues)
 	go func() {
@@ -234,6 +236,33 @@ func (s *Server) handleGraph(req *Request) Response {
 	go func() {
 		defer wg.Done()
 		graphStats, statsErr = store.GetStatistics(ctx)
+	}()
+
+	// 7. Commit counts per issue (bd-as8xf)
+	go func() {
+		defer wg.Done()
+		commitCounts = make(map[string]int)
+		if db := store.UnderlyingDB(); db != nil && len(issueIDs) > 0 {
+			placeholders := make([]string, len(issueIDs))
+			queryArgs := make([]interface{}, len(issueIDs))
+			for i, id := range issueIDs {
+				placeholders[i] = "?"
+				queryArgs[i] = id
+			}
+			query := fmt.Sprintf(`SELECT issue_id, COUNT(*) FROM issue_commits WHERE issue_id IN (%s) GROUP BY issue_id`,
+				strings.Join(placeholders, ","))
+			rows, err := db.QueryContext(ctx, query, queryArgs...)
+			if err == nil {
+				defer rows.Close()
+				for rows.Next() {
+					var id string
+					var count int
+					if rows.Scan(&id, &count) == nil {
+						commitCounts[id] = count
+					}
+				}
+			}
+		}
 	}()
 
 	wg.Wait()
@@ -449,6 +478,9 @@ func (s *Server) handleGraph(req *Request) Response {
 		if counts, ok := depCounts[issue.ID]; ok {
 			node.DepCount = counts.DependencyCount
 			node.DepByCount = counts.DependentCount
+		}
+		if cc, ok := commitCounts[issue.ID]; ok {
+			node.CommitCount = cc
 		}
 
 		if args.IncludeBody {

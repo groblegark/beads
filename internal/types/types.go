@@ -902,6 +902,7 @@ type IssueDetails struct {
 	Dependencies []*IssueWithDependencyMetadata `json:"dependencies,omitempty"`
 	Dependents   []*IssueWithDependencyMetadata `json:"dependents,omitempty"`
 	Comments     []*Comment                     `json:"comments,omitempty"`
+	Commits      json.RawMessage               `json:"commits,omitempty"` // []CommitRecord (bd-as8xf)
 	Parent       *string                        `json:"parent,omitempty"`
 }
 

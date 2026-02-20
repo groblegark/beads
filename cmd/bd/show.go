@@ -317,6 +317,37 @@ var showCmd = &cobra.Command{
 						}
 					}
 
+					// Linked commits (bd-as8xf)
+					if len(details.Commits) > 0 {
+						var commits []rpc.CommitRecord
+						if json.Unmarshal(details.Commits, &commits) == nil && len(commits) > 0 {
+							fmt.Printf("\n%s (%d)\n", ui.RenderBold("COMMITS"), len(commits))
+							for _, c := range commits {
+								sha := c.CommitSHA
+								if len(sha) > 8 {
+									sha = sha[:8]
+								}
+								parts := []string{ui.RenderID(sha)}
+								if c.Branch != "" {
+									parts = append(parts, ui.RenderMuted("["+c.Branch+"]"))
+								}
+								if c.Message != "" {
+									msg := c.Message
+									if len(msg) > 60 {
+										msg = msg[:57] + "..."
+									}
+									parts = append(parts, msg)
+								}
+								if c.CommittedAt != "" {
+									if t, err := time.Parse(time.RFC3339, c.CommittedAt); err == nil {
+										parts = append(parts, ui.RenderMuted("("+relativeTime(t)+")"))
+									}
+								}
+								fmt.Printf("  %s\n", strings.Join(parts, "  "))
+							}
+						}
+					}
+
 					fmt.Println()
 				}
 			}
