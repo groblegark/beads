@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/steveyegge/beads/internal/rpc"
 	"github.com/steveyegge/beads/internal/types"
+	"github.com/steveyegge/beads/internal/ui"
 	"github.com/steveyegge/beads/internal/util"
 	"github.com/steveyegge/beads/internal/validation"
 )
@@ -251,8 +252,10 @@ func outputSearchResults(issues []*types.Issue, query string, longFormat bool) {
 		return
 	}
 
-	if longFormat {
-		// Long format: multi-line with details
+	isAgent := ui.IsAgentMode()
+
+	if longFormat && !isAgent {
+		// Long format: multi-line with details (skipped in agent mode — bd-fsivu)
 		fmt.Printf("\nFound %d issues matching '%s':\n\n", len(issues), query)
 		for _, issue := range issues {
 			fmt.Printf("%s [P%d] [%s] %s\n", issue.ID, issue.Priority, issue.IssueType, issue.Status)
@@ -267,19 +270,18 @@ func outputSearchResults(issues []*types.Issue, query string, longFormat bool) {
 		}
 	} else {
 		// Compact format: one line per issue
-		fmt.Printf("Found %d issues matching '%s':\n", len(issues), query)
+		// Agent mode: suppress header to save tokens (bd-fsivu)
+		if !isAgent {
+			fmt.Printf("Found %d issues matching '%s':\n", len(issues), query)
+		}
 		for _, issue := range issues {
-			labelsStr := ""
-			if len(issue.Labels) > 0 {
-				labelsStr = fmt.Sprintf(" %v", issue.Labels)
-			}
 			assigneeStr := ""
 			if issue.Assignee != "" {
 				assigneeStr = fmt.Sprintf(" @%s", issue.Assignee)
 			}
-			fmt.Printf("%s [P%d] [%s] %s%s%s - %s\n",
+			fmt.Printf("%s [P%d] [%s] %s%s - %s\n",
 				issue.ID, issue.Priority, issue.IssueType, issue.Status,
-				assigneeStr, labelsStr, issue.Title)
+				assigneeStr, issue.Title)
 		}
 	}
 }

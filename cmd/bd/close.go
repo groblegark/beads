@@ -122,9 +122,16 @@ create, update, show, or close operation).`,
 							fmt.Printf("%s Closed %s: %s\n", ui.RenderPass("✓"), id, reason)
 							// Display newly unblocked issues
 							if len(result.Unblocked) > 0 {
-								fmt.Printf("\nNewly unblocked:\n")
-								for _, issue := range result.Unblocked {
-									fmt.Printf("  • %s %q (P%d)\n", issue.ID, issue.Title, issue.Priority)
+								if ui.IsAgentMode() {
+									// Agent mode: compact unblocked list (bd-twtwg)
+									for _, issue := range result.Unblocked {
+										fmt.Printf("  Unblocked: %s (P%d) %s\n", issue.ID, issue.Priority, issue.Title)
+									}
+								} else {
+									fmt.Printf("\nNewly unblocked:\n")
+									for _, issue := range result.Unblocked {
+										fmt.Printf("  • %s %q (P%d)\n", issue.ID, issue.Title, issue.Priority)
+									}
 								}
 							}
 						}
@@ -212,9 +219,16 @@ func PrintContinueResultFromRPC(result *rpc.CloseContinueResult) {
 		return
 	}
 
+	isAgent := ui.IsAgentMode()
+
 	if result.MolComplete {
-		fmt.Printf("\n%s Molecule %s complete! All steps closed.\n", ui.RenderPass("✓"), result.MoleculeID)
-		fmt.Println("Consider: bd mol squash " + result.MoleculeID + " --summary '...'")
+		if isAgent {
+			// Agent mode: compact completion notice (bd-twtwg)
+			fmt.Printf("Molecule %s complete.\n", result.MoleculeID)
+		} else {
+			fmt.Printf("\n%s Molecule %s complete! All steps closed.\n", ui.RenderPass("✓"), result.MoleculeID)
+			fmt.Println("Consider: bd mol squash " + result.MoleculeID + " --summary '...'")
+		}
 		return
 	}
 
@@ -223,12 +237,19 @@ func PrintContinueResultFromRPC(result *rpc.CloseContinueResult) {
 		return
 	}
 
-	fmt.Printf("\nNext ready in molecule:\n")
-	fmt.Printf("  %s: %s\n", result.NextStep.ID, result.NextStep.Title)
+	if isAgent {
+		// Agent mode: single-line next step (bd-twtwg)
+		fmt.Printf("Next: %s: %s\n", result.NextStep.ID, result.NextStep.Title)
+	} else {
+		fmt.Printf("\nNext ready in molecule:\n")
+		fmt.Printf("  %s: %s\n", result.NextStep.ID, result.NextStep.Title)
+	}
 
 	if result.AutoAdvanced {
-		fmt.Printf("\n%s Marked in_progress (use --no-auto to skip)\n", ui.RenderWarn("→"))
-	} else {
+		if !isAgent {
+			fmt.Printf("\n%s Marked in_progress (use --no-auto to skip)\n", ui.RenderWarn("→"))
+		}
+	} else if !isAgent {
 		fmt.Printf("\nStart with: bd update %s --status in_progress\n", result.NextStep.ID)
 	}
 }

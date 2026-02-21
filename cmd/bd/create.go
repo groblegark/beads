@@ -70,8 +70,8 @@ var createCmd = &cobra.Command{
 		// Get silent flag
 		silent, _ := cmd.Flags().GetBool("silent")
 
-		// Warn if creating a test issue in production database (unless silent mode)
-		if strings.HasPrefix(strings.ToLower(title), "test") && !silent && !debug.IsQuiet() {
+		// Warn if creating a test issue in production database (unless silent or agent mode)
+		if strings.HasPrefix(strings.ToLower(title), "test") && !silent && !debug.IsQuiet() && !ui.IsAgentMode() {
 			fmt.Fprintf(os.Stderr, "%s Creating issue with 'Test' prefix in production database.\n", ui.RenderWarn("⚠"))
 			fmt.Fprintf(os.Stderr, "  For testing, consider using: BEADS_DB=/tmp/test.db ./bd create \"Test issue\"\n")
 		}
@@ -84,8 +84,8 @@ var createCmd = &cobra.Command{
 			if config.GetBool("create.require-description") {
 				FatalError("description is required (set create.require-description: false in config.yaml to disable)")
 			}
-			// Warn if creating an issue without a description (unless silent mode)
-			if !silent && !debug.IsQuiet() {
+			// Warn if creating an issue without a description (unless silent or agent mode — bd-wfv23)
+			if !silent && !debug.IsQuiet() && !ui.IsAgentMode() {
 				fmt.Fprintf(os.Stderr, "%s Creating issue without description.\n", ui.RenderWarn("⚠"))
 				fmt.Fprintf(os.Stderr, "  Issues without descriptions lack context for future work.\n")
 				fmt.Fprintf(os.Stderr, "  Consider adding --description=\"Why this issue exists and what needs to be done\"\n")
@@ -181,8 +181,8 @@ var createCmd = &cobra.Command{
 			if err != nil {
 				FatalError("invalid --defer format %q. Examples: +1h, tomorrow, next monday, 2025-01-15", deferStr)
 			}
-			// Warn if defer date is in the past (user probably meant future)
-			if t.Before(time.Now()) && !silent && !debug.IsQuiet() {
+			// Warn if defer date is in the past (user probably meant future) — suppress in agent mode (bd-wfv23)
+			if t.Before(time.Now()) && !silent && !debug.IsQuiet() && !ui.IsAgentMode() {
 				fmt.Fprintf(os.Stderr, "%s Defer date %q is in the past. Issue will appear in bd ready immediately.\n",
 					ui.RenderWarn("!"), t.Format("2006-01-02 15:04"))
 				fmt.Fprintf(os.Stderr, "  Did you mean a future date? Use --defer=+1h or --defer=tomorrow\n")
@@ -474,6 +474,7 @@ var createCmd = &cobra.Command{
 				fmt.Printf("  Rig: %s\n", issue.Rig)
 			}
 		}
+		// Note: agent-mode warning suppression handled above (bd-wfv23)
 
 		// Track as last touched issue
 		SetLastTouchedID(issue.ID)
