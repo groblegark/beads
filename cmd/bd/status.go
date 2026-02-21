@@ -97,8 +97,9 @@ Examples:
 		}
 
 		// Get recent activity from git history (last 24 hours) unless --no-activity
+		// Agent mode: skip activity by default to save tokens and latency (bd-fyuj2)
 		var recentActivity *RecentActivitySummary
-		if !noActivity {
+		if !noActivity && !ui.IsAgentMode() {
 			recentActivity = getGitActivity(24)
 		}
 
@@ -152,8 +153,10 @@ Examples:
 			fmt.Printf("  Issues Updated:         %d\n", recentActivity.IssuesUpdated)
 		}
 
-		// Show hint for more details
-		fmt.Printf("\nFor more details, use 'bd list' to see individual issues.\n")
+		// Show hint for more details (suppress in agent mode to save tokens — bd-fyuj2)
+		if !ui.IsAgentMode() {
+			fmt.Printf("\nFor more details, use 'bd list' to see individual issues.\n")
+		}
 		fmt.Println()
 
 		// Suppress showAll flag (it's the default behavior, included for CLI familiarity)

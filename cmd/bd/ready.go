@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/steveyegge/beads/internal/config"
@@ -258,17 +259,27 @@ var blockedCmd = &cobra.Command{
 			return
 		}
 		fmt.Printf("\n%s Blocked issues (%d):\n\n", ui.RenderFail("🚫"), len(blocked))
+		isAgent := ui.IsAgentMode()
 		for _, issue := range blocked {
-			fmt.Printf("[%s] %s: %s\n",
-				ui.RenderPriority(issue.Priority),
-				ui.RenderID(issue.ID), issue.Title)
 			blockedBy := issue.BlockedBy
 			if blockedBy == nil {
 				blockedBy = []string{}
 			}
-			fmt.Printf("  Blocked by %d open dependencies: %v\n",
-				issue.BlockedByCount, blockedBy)
-			fmt.Println()
+			if isAgent {
+				// Agent mode: compact single-line with type and blockers (bd-tb629)
+				fmt.Printf("[%s] [%s] %s: %s (blocked by: %s)\n",
+					ui.RenderPriority(issue.Priority),
+					ui.RenderType(string(issue.IssueType)),
+					issue.ID, issue.Title,
+					strings.Join(blockedBy, ", "))
+			} else {
+				fmt.Printf("[%s] %s: %s\n",
+					ui.RenderPriority(issue.Priority),
+					ui.RenderID(issue.ID), issue.Title)
+				fmt.Printf("  Blocked by %d open dependencies: %v\n",
+					issue.BlockedByCount, blockedBy)
+				fmt.Println()
+			}
 		}
 	},
 }

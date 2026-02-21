@@ -145,6 +145,8 @@ Examples:
 			return
 		}
 
+		isAgent := ui.IsAgentMode()
+
 		printed := false
 
 		if len(inProgress) > 0 {
@@ -152,7 +154,7 @@ Examples:
 			fmt.Printf("\n%s In-progress by others (%d):\n\n",
 				ui.RenderAccent("◐"), len(inProgress))
 			for _, line := range lines {
-				printNewsLine(line)
+				printNewsLine(line, isAgent)
 			}
 			printed = true
 		}
@@ -165,7 +167,7 @@ Examples:
 			fmt.Printf("%s Opened in last %s (%d):\n\n",
 				ui.RenderAccent("○"), formatDurationShort(window), len(recentlyOpened))
 			for _, line := range lines {
-				printNewsLine(line)
+				printNewsLine(line, isAgent)
 			}
 			printed = true
 		}
@@ -178,7 +180,7 @@ Examples:
 			fmt.Printf("%s Closed in last %s (%d):\n\n",
 				ui.RenderAccent("✓"), formatDurationShort(window), len(recentlyClosed))
 			for _, line := range lines {
-				printNewsLine(line)
+				printNewsLine(line, isAgent)
 			}
 		}
 
@@ -202,7 +204,10 @@ Examples:
 			}
 		}
 
-		fmt.Printf("\n%s\n\n", ui.RenderMuted("Tip: Check for file overlap with in-progress work before starting on the same areas."))
+		// Agent mode: suppress tips to save tokens (bd-tjqwz)
+		if !isAgent {
+			fmt.Printf("\n%s\n\n", ui.RenderMuted("Tip: Check for file overlap with in-progress work before starting on the same areas."))
+		}
 	},
 }
 
@@ -366,31 +371,33 @@ func mostRecentUpdate(issues []*types.Issue) time.Time {
 }
 
 // printNewsLine prints a single news line (either a regular issue or a collapsed epic).
-func printNewsLine(line newsLine) {
+func printNewsLine(line newsLine, isAgent bool) {
 	if line.collapsed {
-		printCollapsedEpic(line)
+		printCollapsedEpic(line, isAgent)
 	} else {
-		printNewsIssue(line.issue)
+		printNewsIssue(line.issue, isAgent)
 	}
 }
 
 // printCollapsedEpic prints a collapsed epic summary line.
-func printCollapsedEpic(line newsLine) {
+func printCollapsedEpic(line newsLine, isAgent bool) {
 	issue := line.issue
 	statusIcon := ui.RenderStatusIcon(string(issue.Status))
 
-	age := formatRelativeTime(mostRecentUpdate(line.children))
-
-	createdByStr := ""
-	if issue.CreatedBy != "" {
-		createdByStr = fmt.Sprintf(" by %s", ui.RenderMuted(issue.CreatedBy))
+	// Agent mode: suppress timestamps and created_by metadata (bd-tjqwz)
+	ageMeta := ""
+	if !isAgent {
+		age := formatRelativeTime(mostRecentUpdate(line.children))
+		ageMeta = "  " + ui.RenderMuted(age)
+		if issue.CreatedBy != "" {
+			ageMeta += fmt.Sprintf(" by %s", ui.RenderMuted(issue.CreatedBy))
+		}
 	}
 
-	fmt.Printf("  %s %s  %s%s  %s %s\n",
+	fmt.Printf("  %s %s%s  %s %s\n",
 		statusIcon,
 		ui.RenderID(issue.ID),
-		ui.RenderMuted(age),
-		createdByStr,
+		ageMeta,
 		issue.Title,
 		ui.RenderMuted(fmt.Sprintf("(+%d subtasks)", line.childCount)))
 }
@@ -441,7 +448,7 @@ func filterOutIDs(issues []*types.Issue, exclude map[string]bool) []*types.Issue
 }
 
 // printNewsIssue prints a single issue in the bd news format.
-func printNewsIssue(issue *types.Issue) {
+func printNewsIssue(issue *types.Issue, isAgent bool) {
 	statusIcon := ui.RenderStatusIcon(string(issue.Status))
 
 	assigneeStr := ui.RenderMuted("unassigned")
@@ -455,25 +462,25 @@ func printNewsIssue(issue *types.Issue) {
 		rigStr = fmt.Sprintf(" %s", ui.RenderMuted("["+issue.Rig+"]"))
 	}
 
-	// Use closed_at for closed issues, updated_at otherwise
-	ageTime := issue.UpdatedAt
-	if issue.Status == types.StatusClosed && issue.ClosedAt != nil {
-		ageTime = *issue.ClosedAt
+	// Agent mode: suppress timestamps and created_by metadata (bd-tjqwz)
+	ageMeta := ""
+	if !isAgent {
+		ageTime := issue.UpdatedAt
+		if issue.Status == types.StatusClosed && issue.ClosedAt != nil {
+			ageTime = *issue.ClosedAt
+		}
+		ageMeta = "  " + ui.RenderMuted(formatRelativeTime(ageTime))
+		if issue.CreatedBy != "" {
+			ageMeta += fmt.Sprintf(" by %s", ui.RenderMuted(issue.CreatedBy))
+		}
 	}
-	age := formatRelativeTime(ageTime)
 
-	createdByStr := ""
-	if issue.CreatedBy != "" {
-		createdByStr = fmt.Sprintf(" by %s", ui.RenderMuted(issue.CreatedBy))
-	}
-
-	fmt.Printf("  %s %s  %s%s  %s%s  %s\n",
+	fmt.Printf("  %s %s  %s%s%s  %s\n",
 		statusIcon,
 		ui.RenderID(issue.ID),
 		assigneeStr,
 		rigStr,
-		ui.RenderMuted(age),
-		createdByStr,
+		ageMeta,
 		issue.Title)
 }
 

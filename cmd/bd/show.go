@@ -119,13 +119,22 @@ var showCmd = &cobra.Command{
 					}
 					allDetails = append(allDetails, details)
 				} else {
+					agentMode := ui.IsAgentMode()
 					if displayIdx > 0 {
-						fmt.Println("\n" + ui.RenderMuted(strings.Repeat("─", 60)))
+						if agentMode {
+							fmt.Println() // blank line separator in agent mode (bd-uh22f)
+						} else {
+							fmt.Println("\n" + ui.RenderMuted(strings.Repeat("─", 60)))
+						}
 					}
 					fmt.Printf("\n%s\n", formatIssueHeader(issue))
 					fmt.Println(formatIssueMetadata(issue))
 					if issue.Description != "" {
-						fmt.Printf("\n%s\n%s\n", ui.RenderBold("DESCRIPTION"), ui.RenderMarkdown(issue.Description))
+						if agentMode {
+							fmt.Printf("\nDESCRIPTION\n%s\n", ui.RenderMarkdown(issue.Description))
+						} else {
+							fmt.Printf("\n%s\n%s\n", ui.RenderBold("DESCRIPTION"), ui.RenderMarkdown(issue.Description))
+						}
 					}
 					fmt.Println()
 					displayIdx++
@@ -185,8 +194,8 @@ var showCmd = &cobra.Command{
 					// Metadata: Owner · Type | Created · Updated
 					fmt.Println(formatIssueMetadata(issue))
 
-					// Compaction info (if applicable)
-					if issue.CompactionLevel > 0 {
+					// Compaction info: suppress in agent mode (bd-uh22f)
+					if !ui.IsAgentMode() && issue.CompactionLevel > 0 {
 						fmt.Println()
 						if issue.OriginalSize > 0 {
 							currentSize := len(issue.Description) + len(issue.Design) + len(issue.Notes) + len(issue.AcceptanceCriteria)
@@ -369,7 +378,14 @@ var showCmd = &cobra.Command{
 
 // formatShortIssue returns a compact one-line representation of an issue
 // Format: STATUS_ICON ID PRIORITY [Type] Title
+// Agent mode (bd-uh22f): plain text, no color escapes
 func formatShortIssue(issue *types.Issue) string {
+	// Agent mode: plain compact line (bd-uh22f)
+	if ui.IsAgentMode() {
+		icon := ui.GetStatusIcon(string(issue.Status))
+		return fmt.Sprintf("%s %s P%d %s %s", icon, issue.ID, issue.Priority, issue.IssueType, issue.Title)
+	}
+
 	statusIcon := ui.RenderStatusIcon(string(issue.Status))
 	priorityTag := ui.RenderPriority(issue.Priority)
 
@@ -398,7 +414,19 @@ func formatShortIssue(issue *types.Issue) string {
 // formatIssueHeader returns the Tufte-aligned header line
 // Format: ID · Title   [Priority · STATUS]
 // All elements in bd show get semantic colors since focus is on one issue
+// Agent mode (bd-uh22f): plain text, no color escapes
 func formatIssueHeader(issue *types.Issue) string {
+	// Agent mode: compact plain-text header (bd-uh22f)
+	if ui.IsAgentMode() {
+		icon := ui.GetStatusIcon(string(issue.Status))
+		typeBadge := ""
+		if issue.IssueType == "epic" || issue.IssueType == "bug" {
+			typeBadge = " [" + strings.ToUpper(string(issue.IssueType)) + "]"
+		}
+		return fmt.Sprintf("%s %s%s P%d %s — %s",
+			icon, issue.ID, typeBadge, issue.Priority, strings.ToUpper(string(issue.Status)), issue.Title)
+	}
+
 	// Get status icon and style
 	statusIcon := ui.RenderStatusIcon(string(issue.Status))
 	statusStyle := ui.GetStatusStyle(string(issue.Status))
@@ -435,7 +463,10 @@ func formatIssueHeader(issue *types.Issue) string {
 // Format: Owner: user · Type: task
 //
 //	Created: 2026-01-06 · Updated: 2026-01-08
+//
+// Agent mode (bd-uh22f): plain text, no color escapes
 func formatIssueMetadata(issue *types.Issue) string {
+	agentMode := ui.IsAgentMode()
 	var lines []string
 
 	// Line 1: Owner/Assignee · Type
@@ -452,13 +483,15 @@ func formatIssueMetadata(issue *types.Issue) string {
 		metaParts = append(metaParts, fmt.Sprintf("Branch: %s", branch))
 	}
 
-	// Type with semantic color
+	// Type with semantic color (plain in agent mode — bd-uh22f)
 	typeStr := string(issue.IssueType)
-	switch issue.IssueType {
-	case "epic":
-		typeStr = ui.TypeEpicStyle.Render("epic")
-	case "bug":
-		typeStr = ui.TypeBugStyle.Render("bug")
+	if !agentMode {
+		switch issue.IssueType {
+		case "epic":
+			typeStr = ui.TypeEpicStyle.Render("epic")
+		case "bug":
+			typeStr = ui.TypeBugStyle.Render("bug")
+		}
 	}
 	metaParts = append(metaParts, fmt.Sprintf("Type: %s", typeStr))
 
@@ -481,9 +514,13 @@ func formatIssueMetadata(issue *types.Issue) string {
 		lines = append(lines, strings.Join(timeParts, " · "))
 	}
 
-	// Line 3: Close reason (if closed)
+	// Line 3: Close reason (if closed) — plain in agent mode (bd-uh22f)
 	if issue.Status == types.StatusClosed && issue.CloseReason != "" {
-		lines = append(lines, ui.RenderMuted(fmt.Sprintf("Close reason: %s", issue.CloseReason)))
+		if agentMode {
+			lines = append(lines, fmt.Sprintf("Close reason: %s", issue.CloseReason))
+		} else {
+			lines = append(lines, ui.RenderMuted(fmt.Sprintf("Close reason: %s", issue.CloseReason)))
+		}
 	}
 
 	// Line 4: External ref (if exists)
@@ -496,9 +533,19 @@ func formatIssueMetadata(issue *types.Issue) string {
 
 // formatDependencyLine formats a single dependency with semantic colors
 // Closed items get entire row muted - the work is done, no need for attention
+// Agent mode (bd-uh22f): plain text, no color escapes
 func formatDependencyLine(prefix string, dep *types.IssueWithDependencyMetadata) string {
-	// Status icon (always rendered with semantic color)
 	statusIcon := ui.GetStatusIcon(string(dep.Status))
+
+	// Agent mode: plain compact line (bd-uh22f)
+	if ui.IsAgentMode() {
+		typeTag := ""
+		if dep.IssueType == "epic" || dep.IssueType == "bug" {
+			typeTag = "(" + strings.ToUpper(string(dep.IssueType)) + ") "
+		}
+		return fmt.Sprintf("  %s %s %s: %s%s P%d [%s]",
+			prefix, statusIcon, dep.ID, typeTag, dep.Title, dep.Priority, dep.Status)
+	}
 
 	// Closed items: mute entire row since the work is complete
 	if dep.Status == types.StatusClosed {
@@ -527,8 +574,15 @@ func formatDependencyLine(prefix string, dep *types.IssueWithDependencyMetadata)
 
 // formatSimpleDependencyLine formats a dependency without metadata (fallback)
 // Closed items get entire row muted - the work is done, no need for attention
+// Agent mode (bd-uh22f): plain text, no color escapes
 func formatSimpleDependencyLine(prefix string, dep *types.Issue) string {
 	statusIcon := ui.GetStatusIcon(string(dep.Status))
+
+	// Agent mode: plain compact line (bd-uh22f)
+	if ui.IsAgentMode() {
+		return fmt.Sprintf("  %s %s %s: %s P%d [%s]",
+			prefix, statusIcon, dep.ID, dep.Title, dep.Priority, dep.Status)
+	}
 
 	// Closed items: mute entire row since the work is complete
 	if dep.Status == types.StatusClosed {
