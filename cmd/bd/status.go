@@ -114,50 +114,67 @@ Examples:
 			return
 		}
 
-		// Human-readable colorized output using semantic ui package
-		fmt.Printf("\n%s Issue Database Status\n\n", ui.RenderAccent("📊"))
-		fmt.Printf("Summary:\n")
-		fmt.Printf("  Total Issues:           %d\n", stats.TotalIssues)
-		fmt.Printf("  Open:                   %s\n", ui.RenderPass(fmt.Sprintf("%d", stats.OpenIssues)))
-		fmt.Printf("  In Progress:            %s\n", ui.RenderWarn(fmt.Sprintf("%d", stats.InProgressIssues)))
-		fmt.Printf("  Blocked:                %s\n", ui.RenderFail(fmt.Sprintf("%d", stats.BlockedIssues)))
-		fmt.Printf("  Closed:                 %d\n", stats.ClosedIssues)
-		fmt.Printf("  Ready to Work:          %s\n", ui.RenderPass(fmt.Sprintf("%d", stats.ReadyIssues)))
-
-		// Extended statistics (only show if non-zero)
-		hasExtended := stats.TombstoneIssues > 0 || stats.PinnedIssues > 0 ||
-			stats.EpicsEligibleForClosure > 0 || stats.AverageLeadTime > 0
-		if hasExtended {
-			fmt.Printf("\nExtended:\n")
+		// Agent mode: compact key:value, no colors (bd-fyuj2)
+		if ui.IsAgentMode() {
+			fmt.Printf("total:%d open:%d in_progress:%d blocked:%d closed:%d ready:%d",
+				stats.TotalIssues, stats.OpenIssues, stats.InProgressIssues,
+				stats.BlockedIssues, stats.ClosedIssues, stats.ReadyIssues)
 			if stats.TombstoneIssues > 0 {
-				fmt.Printf("  Deleted:                %d (tombstones)\n", stats.TombstoneIssues)
+				fmt.Printf(" deleted:%d", stats.TombstoneIssues)
 			}
 			if stats.PinnedIssues > 0 {
-				fmt.Printf("  Pinned:                 %d\n", stats.PinnedIssues)
+				fmt.Printf(" pinned:%d", stats.PinnedIssues)
 			}
 			if stats.EpicsEligibleForClosure > 0 {
-				fmt.Printf("  Epics Ready to Close:   %s\n", ui.RenderPass(fmt.Sprintf("%d", stats.EpicsEligibleForClosure)))
+				fmt.Printf(" epics_closable:%d", stats.EpicsEligibleForClosure)
 			}
 			if stats.AverageLeadTime > 0 {
-				fmt.Printf("  Avg Lead Time:          %.1f hours\n", stats.AverageLeadTime)
+				fmt.Printf(" avg_lead_time:%.1fh", stats.AverageLeadTime)
 			}
-		}
+			fmt.Println()
+		} else {
+			// Human-readable colorized output using semantic ui package
+			fmt.Printf("\n%s Issue Database Status\n\n", ui.RenderAccent("📊"))
+			fmt.Printf("Summary:\n")
+			fmt.Printf("  Total Issues:           %d\n", stats.TotalIssues)
+			fmt.Printf("  Open:                   %s\n", ui.RenderPass(fmt.Sprintf("%d", stats.OpenIssues)))
+			fmt.Printf("  In Progress:            %s\n", ui.RenderWarn(fmt.Sprintf("%d", stats.InProgressIssues)))
+			fmt.Printf("  Blocked:                %s\n", ui.RenderFail(fmt.Sprintf("%d", stats.BlockedIssues)))
+			fmt.Printf("  Closed:                 %d\n", stats.ClosedIssues)
+			fmt.Printf("  Ready to Work:          %s\n", ui.RenderPass(fmt.Sprintf("%d", stats.ReadyIssues)))
 
-		if recentActivity != nil {
-			fmt.Printf("\nRecent Activity (last %d hours):\n", recentActivity.HoursTracked)
-			fmt.Printf("  Commits:                %d\n", recentActivity.CommitCount)
-			fmt.Printf("  Total Changes:          %d\n", recentActivity.TotalChanges)
-			fmt.Printf("  Issues Created:         %d\n", recentActivity.IssuesCreated)
-			fmt.Printf("  Issues Closed:          %d\n", recentActivity.IssuesClosed)
-			fmt.Printf("  Issues Reopened:        %d\n", recentActivity.IssuesReopened)
-			fmt.Printf("  Issues Updated:         %d\n", recentActivity.IssuesUpdated)
-		}
+			// Extended statistics (only show if non-zero)
+			hasExtended := stats.TombstoneIssues > 0 || stats.PinnedIssues > 0 ||
+				stats.EpicsEligibleForClosure > 0 || stats.AverageLeadTime > 0
+			if hasExtended {
+				fmt.Printf("\nExtended:\n")
+				if stats.TombstoneIssues > 0 {
+					fmt.Printf("  Deleted:                %d (tombstones)\n", stats.TombstoneIssues)
+				}
+				if stats.PinnedIssues > 0 {
+					fmt.Printf("  Pinned:                 %d\n", stats.PinnedIssues)
+				}
+				if stats.EpicsEligibleForClosure > 0 {
+					fmt.Printf("  Epics Ready to Close:   %s\n", ui.RenderPass(fmt.Sprintf("%d", stats.EpicsEligibleForClosure)))
+				}
+				if stats.AverageLeadTime > 0 {
+					fmt.Printf("  Avg Lead Time:          %.1f hours\n", stats.AverageLeadTime)
+				}
+			}
 
-		// Show hint for more details (suppress in agent mode to save tokens — bd-fyuj2)
-		if !ui.IsAgentMode() {
+			if recentActivity != nil {
+				fmt.Printf("\nRecent Activity (last %d hours):\n", recentActivity.HoursTracked)
+				fmt.Printf("  Commits:                %d\n", recentActivity.CommitCount)
+				fmt.Printf("  Total Changes:          %d\n", recentActivity.TotalChanges)
+				fmt.Printf("  Issues Created:         %d\n", recentActivity.IssuesCreated)
+				fmt.Printf("  Issues Closed:          %d\n", recentActivity.IssuesClosed)
+				fmt.Printf("  Issues Reopened:        %d\n", recentActivity.IssuesReopened)
+				fmt.Printf("  Issues Updated:         %d\n", recentActivity.IssuesUpdated)
+			}
+
 			fmt.Printf("\nFor more details, use 'bd list' to see individual issues.\n")
+			fmt.Println()
 		}
-		fmt.Println()
 
 		// Suppress showAll flag (it's the default behavior, included for CLI familiarity)
 		_ = showAll
