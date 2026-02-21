@@ -183,8 +183,13 @@ var showCmd = &cobra.Command{
 						continue
 					}
 
+					agentMode := ui.IsAgentMode()
 					if displayIdx > 0 {
-						fmt.Println("\n" + ui.RenderMuted(strings.Repeat("─", 60)))
+						if agentMode {
+							fmt.Println() // blank line separator in agent mode (bd-uh22f)
+						} else {
+							fmt.Println("\n" + ui.RenderMuted(strings.Repeat("─", 60)))
+						}
 					}
 					displayIdx++
 
@@ -195,7 +200,7 @@ var showCmd = &cobra.Command{
 					fmt.Println(formatIssueMetadata(issue))
 
 					// Compaction info: suppress in agent mode (bd-uh22f)
-					if !ui.IsAgentMode() && issue.CompactionLevel > 0 {
+					if !agentMode && issue.CompactionLevel > 0 {
 						fmt.Println()
 						if issue.OriginalSize > 0 {
 							currentSize := len(issue.Description) + len(issue.Design) + len(issue.Notes) + len(issue.AcceptanceCriteria)
@@ -208,22 +213,28 @@ var showCmd = &cobra.Command{
 						}
 					}
 
-					// Content sections
+					// Content sections — plain headers in agent mode (bd-uh22f)
+					sectionHeader := func(name string) string {
+						if agentMode {
+							return name
+						}
+						return ui.RenderBold(name)
+					}
 					if issue.Description != "" {
-						fmt.Printf("\n%s\n%s\n", ui.RenderBold("DESCRIPTION"), ui.RenderMarkdown(issue.Description))
+						fmt.Printf("\n%s\n%s\n", sectionHeader("DESCRIPTION"), ui.RenderMarkdown(issue.Description))
 					}
 					if issue.Design != "" {
-						fmt.Printf("\n%s\n%s\n", ui.RenderBold("DESIGN"), ui.RenderMarkdown(issue.Design))
+						fmt.Printf("\n%s\n%s\n", sectionHeader("DESIGN"), ui.RenderMarkdown(issue.Design))
 					}
 					if issue.Notes != "" {
-						fmt.Printf("\n%s\n%s\n", ui.RenderBold("NOTES"), ui.RenderMarkdown(issue.Notes))
+						fmt.Printf("\n%s\n%s\n", sectionHeader("NOTES"), ui.RenderMarkdown(issue.Notes))
 					}
 					if issue.AcceptanceCriteria != "" {
-						fmt.Printf("\n%s\n%s\n", ui.RenderBold("ACCEPTANCE CRITERIA"), ui.RenderMarkdown(issue.AcceptanceCriteria))
+						fmt.Printf("\n%s\n%s\n", sectionHeader("ACCEPTANCE CRITERIA"), ui.RenderMarkdown(issue.AcceptanceCriteria))
 					}
 
 					if len(details.Labels) > 0 {
-						fmt.Printf("\n%s %s\n", ui.RenderBold("LABELS:"), strings.Join(details.Labels, ", "))
+						fmt.Printf("\n%s %s\n", sectionHeader("LABELS:"), strings.Join(details.Labels, ", "))
 					}
 
 					// Dependencies grouped by type with semantic colors
@@ -245,25 +256,25 @@ var showCmd = &cobra.Command{
 						}
 
 						if len(parent) > 0 {
-							fmt.Printf("\n%s\n", ui.RenderBold("PARENT"))
+							fmt.Printf("\n%s\n", sectionHeader("PARENT"))
 							for _, dep := range parent {
 								fmt.Println(formatDependencyLine("↑", dep))
 							}
 						}
 						if len(blocks) > 0 {
-							fmt.Printf("\n%s\n", ui.RenderBold("DEPENDS ON"))
+							fmt.Printf("\n%s\n", sectionHeader("DEPENDS ON"))
 							for _, dep := range blocks {
 								fmt.Println(formatDependencyLine("→", dep))
 							}
 						}
 						if len(related) > 0 {
-							fmt.Printf("\n%s\n", ui.RenderBold("RELATED"))
+							fmt.Printf("\n%s\n", sectionHeader("RELATED"))
 							for _, dep := range related {
 								fmt.Println(formatDependencyLine("↔", dep))
 							}
 						}
 						if len(discovered) > 0 {
-							fmt.Printf("\n%s\n", ui.RenderBold("DISCOVERED FROM"))
+							fmt.Printf("\n%s\n", sectionHeader("DISCOVERED FROM"))
 							for _, dep := range discovered {
 								fmt.Println(formatDependencyLine("◊", dep))
 							}
@@ -289,25 +300,25 @@ var showCmd = &cobra.Command{
 						}
 
 						if len(children) > 0 {
-							fmt.Printf("\n%s\n", ui.RenderBold("CHILDREN"))
+							fmt.Printf("\n%s\n", sectionHeader("CHILDREN"))
 							for _, dep := range children {
 								fmt.Println(formatDependencyLine("↳", dep))
 							}
 						}
 						if len(blocks) > 0 {
-							fmt.Printf("\n%s\n", ui.RenderBold("BLOCKS"))
+							fmt.Printf("\n%s\n", sectionHeader("BLOCKS"))
 							for _, dep := range blocks {
 								fmt.Println(formatDependencyLine("←", dep))
 							}
 						}
 						if len(related) > 0 {
-							fmt.Printf("\n%s\n", ui.RenderBold("RELATED"))
+							fmt.Printf("\n%s\n", sectionHeader("RELATED"))
 							for _, dep := range related {
 								fmt.Println(formatDependencyLine("↔", dep))
 							}
 						}
 						if len(discovered) > 0 {
-							fmt.Printf("\n%s\n", ui.RenderBold("DISCOVERED"))
+							fmt.Printf("\n%s\n", sectionHeader("DISCOVERED"))
 							for _, dep := range discovered {
 								fmt.Println(formatDependencyLine("◊", dep))
 							}
@@ -315,9 +326,13 @@ var showCmd = &cobra.Command{
 					}
 
 					if len(details.Comments) > 0 {
-						fmt.Printf("\n%s\n", ui.RenderBold("COMMENTS"))
+						fmt.Printf("\n%s\n", sectionHeader("COMMENTS"))
 						for _, comment := range details.Comments {
-							fmt.Printf("  %s %s\n", ui.RenderMuted(formatTime(comment.CreatedAt)), comment.Author)
+							if agentMode {
+								fmt.Printf("  %s %s\n", formatTime(comment.CreatedAt), comment.Author)
+							} else {
+								fmt.Printf("  %s %s\n", ui.RenderMuted(formatTime(comment.CreatedAt)), comment.Author)
+							}
 							rendered := ui.RenderMarkdown(comment.Text)
 							// TrimRight removes trailing newlines that Glamour adds, preventing extra blank lines
 							for _, line := range strings.Split(strings.TrimRight(rendered, "\n"), "\n") {
@@ -330,15 +345,24 @@ var showCmd = &cobra.Command{
 					if len(details.Commits) > 0 {
 						var commits []rpc.CommitRecord
 						if json.Unmarshal(details.Commits, &commits) == nil && len(commits) > 0 {
-							fmt.Printf("\n%s (%d)\n", ui.RenderBold("COMMITS"), len(commits))
+							fmt.Printf("\n%s (%d)\n", sectionHeader("COMMITS"), len(commits))
 							for _, c := range commits {
 								sha := c.CommitSHA
 								if len(sha) > 8 {
 									sha = sha[:8]
 								}
-								parts := []string{ui.RenderID(sha)}
+								var parts []string
+								if agentMode {
+									parts = []string{sha}
+								} else {
+									parts = []string{ui.RenderID(sha)}
+								}
 								if c.Branch != "" {
-									parts = append(parts, ui.RenderMuted("["+c.Branch+"]"))
+									if agentMode {
+										parts = append(parts, "["+c.Branch+"]")
+									} else {
+										parts = append(parts, ui.RenderMuted("["+c.Branch+"]"))
+									}
 								}
 								if c.Message != "" {
 									msg := c.Message
@@ -349,7 +373,11 @@ var showCmd = &cobra.Command{
 								}
 								if c.CommittedAt != "" {
 									if t, err := time.Parse(time.RFC3339, c.CommittedAt); err == nil {
-										parts = append(parts, ui.RenderMuted("("+relativeTime(t)+")"))
+										if agentMode {
+											parts = append(parts, "("+relativeTime(t)+")")
+										} else {
+											parts = append(parts, ui.RenderMuted("("+relativeTime(t)+")"))
+										}
 									}
 								}
 								fmt.Printf("  %s\n", strings.Join(parts, "  "))
@@ -374,7 +402,6 @@ var showCmd = &cobra.Command{
 		}
 	},
 }
-
 
 // formatShortIssue returns a compact one-line representation of an issue
 // Format: STATUS_ICON ID PRIORITY [Type] Title
@@ -644,13 +671,22 @@ func showIssueRefs(_ context.Context, args []string, resolvedIDs []string, route
 	}
 
 	// Display refs grouped by issue and relationship type
+	agentMode := ui.IsAgentMode()
 	for issueID, refs := range allRefs {
 		if len(refs) == 0 {
-			fmt.Printf("\n%s: No references found\n", ui.RenderAccent(issueID))
+			if agentMode {
+				fmt.Printf("\n%s: No references found\n", issueID)
+			} else {
+				fmt.Printf("\n%s: No references found\n", ui.RenderAccent(issueID))
+			}
 			continue
 		}
 
-		fmt.Printf("\n%s References to %s:\n", ui.RenderAccent("📎"), issueID)
+		if agentMode {
+			fmt.Printf("\nReferences to %s:\n", issueID)
+		} else {
+			fmt.Printf("\n%s References to %s:\n", ui.RenderAccent("📎"), issueID)
+		}
 
 		// Group refs by type
 		refsByType := make(map[types.DependencyType][]*types.IssueWithDependencyMetadata)
@@ -687,12 +723,24 @@ func showIssueRefs(_ context.Context, args []string, resolvedIDs []string, route
 
 // displayRefGroup displays a group of references with a given type
 // Closed items get entire row muted - the work is done, no need for attention
+// Agent mode (bd-uh22f): plain text, no color escapes
 func displayRefGroup(depType types.DependencyType, refs []*types.IssueWithDependencyMetadata) {
-	// Get emoji for type
-	emoji := getRefTypeEmoji(depType)
-	fmt.Printf("\n  %s %s (%d):\n", emoji, depType, len(refs))
+	agentMode := ui.IsAgentMode()
+
+	if agentMode {
+		fmt.Printf("\n  %s (%d):\n", depType, len(refs))
+	} else {
+		emoji := getRefTypeEmoji(depType)
+		fmt.Printf("\n  %s %s (%d):\n", emoji, depType, len(refs))
+	}
 
 	for _, ref := range refs {
+		// Agent mode: plain compact line (bd-uh22f)
+		if agentMode {
+			fmt.Printf("    %s: %s [P%d - %s]\n", ref.ID, ref.Title, ref.Priority, ref.Status)
+			continue
+		}
+
 		// Closed items: mute entire row since the work is complete
 		if ref.Status == types.StatusClosed {
 			fmt.Printf("    %s: %s %s\n",
@@ -812,13 +860,22 @@ func showIssueChildren(_ context.Context, args []string, resolvedIDs []string, r
 	}
 
 	// Display children
+	agentMode := ui.IsAgentMode()
 	for issueID, children := range allChildren {
 		if len(children) == 0 {
-			fmt.Printf("%s: No children found\n", ui.RenderAccent(issueID))
+			if agentMode {
+				fmt.Printf("%s: No children found\n", issueID)
+			} else {
+				fmt.Printf("%s: No children found\n", ui.RenderAccent(issueID))
+			}
 			continue
 		}
 
-		fmt.Printf("%s Children of %s (%d):\n", ui.RenderAccent("↳"), issueID, len(children))
+		if agentMode {
+			fmt.Printf("Children of %s (%d):\n", issueID, len(children))
+		} else {
+			fmt.Printf("%s Children of %s (%d):\n", ui.RenderAccent("↳"), issueID, len(children))
+		}
 		for _, child := range children {
 			if shortMode {
 				fmt.Printf("  %s\n", formatShortIssue(&child.Issue))
@@ -861,16 +918,29 @@ func showIssueAsOf(ctx context.Context, args []string, ref string, shortMode boo
 			continue
 		}
 
+		agentMode := ui.IsAgentMode()
 		if idx > 0 {
-			fmt.Println("\n" + ui.RenderMuted(strings.Repeat("-", 60)))
+			if agentMode {
+				fmt.Println() // blank line separator in agent mode (bd-uh22f)
+			} else {
+				fmt.Println("\n" + ui.RenderMuted(strings.Repeat("-", 60)))
+			}
 		}
 
 		// Display header with ref indicator
-		fmt.Printf("\n%s (as of %s)\n", formatIssueHeader(issue), ui.RenderMuted(ref))
+		if agentMode {
+			fmt.Printf("\n%s (as of %s)\n", formatIssueHeader(issue), ref)
+		} else {
+			fmt.Printf("\n%s (as of %s)\n", formatIssueHeader(issue), ui.RenderMuted(ref))
+		}
 		fmt.Println(formatIssueMetadata(issue))
 
 		if issue.Description != "" {
-			fmt.Printf("\n%s\n%s\n", ui.RenderBold("DESCRIPTION"), ui.RenderMarkdown(issue.Description))
+			if agentMode {
+				fmt.Printf("\nDESCRIPTION\n%s\n", ui.RenderMarkdown(issue.Description))
+			} else {
+				fmt.Printf("\n%s\n%s\n", ui.RenderBold("DESCRIPTION"), ui.RenderMarkdown(issue.Description))
+			}
 		}
 		fmt.Println()
 	}
