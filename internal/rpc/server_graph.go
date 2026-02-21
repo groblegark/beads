@@ -64,7 +64,7 @@ func (s *Server) handleGraph(req *Request) Response {
 		}
 	}
 	if len(args.ExcludeTypes) == 0 {
-		args.ExcludeTypes = []string{"message", "config", "molecule", "formula", "advice", "role"}
+		args.ExcludeTypes = []string{"message", "config", "molecule", "formula", "advice", "role", "gate", "runbook", "event"}
 	}
 
 	// Build base filter
