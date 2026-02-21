@@ -254,22 +254,29 @@ var blockedCmd = &cobra.Command{
 			outputJSON(blocked)
 			return
 		}
+		isAgent := ui.IsAgentMode()
 		if len(blocked) == 0 {
-			fmt.Printf("\n%s No blocked issues\n\n", ui.RenderPass("✨"))
+			if isAgent {
+				fmt.Println("No blocked issues")
+			} else {
+				fmt.Printf("\n%s No blocked issues\n\n", ui.RenderPass("✨"))
+			}
 			return
 		}
-		fmt.Printf("\n%s Blocked issues (%d):\n\n", ui.RenderFail("🚫"), len(blocked))
-		isAgent := ui.IsAgentMode()
+		if isAgent {
+			fmt.Printf("Blocked issues (%d):\n", len(blocked))
+		} else {
+			fmt.Printf("\n%s Blocked issues (%d):\n\n", ui.RenderFail("🚫"), len(blocked))
+		}
 		for _, issue := range blocked {
 			blockedBy := issue.BlockedBy
 			if blockedBy == nil {
 				blockedBy = []string{}
 			}
 			if isAgent {
-				// Agent mode: compact single-line with type and blockers (bd-tb629)
-				fmt.Printf("[%s] [%s] %s: %s (blocked by: %s)\n",
-					ui.RenderPriority(issue.Priority),
-					ui.RenderType(string(issue.IssueType)),
+				// Agent mode: compact single-line, plain text, no colors (bd-tb629)
+				fmt.Printf("P%d %s %s %s (blocked by: %s)\n",
+					issue.Priority, issue.IssueType,
 					issue.ID, issue.Title,
 					strings.Join(blockedBy, ", "))
 			} else {
@@ -391,12 +398,12 @@ type MoleculeReadyStep struct {
 
 // MoleculeReadyOutput is the JSON output for bd ready --mol
 type MoleculeReadyOutput struct {
-	MoleculeID     string                  `json:"molecule_id"`
-	MoleculeTitle  string                  `json:"molecule_title"`
-	TotalSteps     int                     `json:"total_steps"`
-	ReadySteps     int                     `json:"ready_steps"`
-	Steps          []*MoleculeReadyStep    `json:"steps"`
-	ParallelGroups map[string][]string     `json:"parallel_groups"`
+	MoleculeID     string               `json:"molecule_id"`
+	MoleculeTitle  string               `json:"molecule_title"`
+	TotalSteps     int                  `json:"total_steps"`
+	ReadySteps     int                  `json:"ready_steps"`
+	Steps          []*MoleculeReadyStep `json:"steps"`
+	ParallelGroups map[string][]string  `json:"parallel_groups"`
 }
 
 func init() {
