@@ -128,7 +128,12 @@ spec:
             {{- toYaml .Values.slackBot.resources | nindent 12 }}
       volumes:
         - name: beads-data
+          {{- if .Values.slackBot.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "bd-daemon.slackbot.fullname" . }}
+          {{- else }}
           emptyDir: {}
+          {{- end }}
       {{- with .Values.daemon.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

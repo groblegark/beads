@@ -316,6 +316,12 @@ slackBot:
     periodSeconds: 5
     timeoutSeconds: 3
     failureThreshold: 1
+  persistence:
+    enabled: false
+    storageClass: ""
+    size: 100Mi
+    accessMode: ReadWriteOnce
+
   resources:
     requests:
       cpu: 100m

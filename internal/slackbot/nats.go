@@ -299,11 +299,18 @@ func (w *NATSWatcher) notifyResolvedDecision(payload eventbus.DecisionEventPaylo
 
 	// Skip if it was resolved via Slack to avoid double-updating.
 	// ResolvedBy format is "slack:U07K1RLQAKF" (with user ID suffix).
-	if strings.HasPrefix(decision.ResolvedBy, "slack") {
+	if strings.HasPrefix(decision.ResolvedBy, "slack:") {
+		log.Printf("slackbot/nats: decision %s resolved via Slack (%s), skipping update",
+			payload.DecisionID, decision.ResolvedBy)
 		return
 	}
 
-	w.bot.NotifyResolution(decision)
+	log.Printf("slackbot/nats: notifying resolution for decision %s (resolvedBy=%s, chosenIndex=%d)",
+		decision.ID, decision.ResolvedBy, decision.ChosenIndex)
+	if err := w.bot.NotifyResolution(decision); err != nil {
+		log.Printf("slackbot/nats: notify resolution for decision %s failed: %v",
+			payload.DecisionID, err)
+	}
 }
 
 // notifyEscalatedDecision fetches the full decision and highlights it in Slack.

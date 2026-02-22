@@ -1561,6 +1561,8 @@ func (b *Bot) NotifyResolution(decision *Decision) error {
 	}
 
 	if hasTracked {
+		log.Printf("slackbot: updating existing message for decision %s (ch=%s ts=%s)",
+			decision.ID, msgInfo.channelID, msgInfo.timestamp)
 		b.updateMessageAsResolved(msgInfo.channelID, msgInfo.timestamp, decision, resolvedBy)
 
 		// Decrement agent pending count for rig routing mode
@@ -1581,6 +1583,7 @@ func (b *Bot) NotifyResolution(decision *Decision) error {
 	}
 
 	// Post new resolution message (fallback when message ref is completely lost)
+	log.Printf("slackbot: no tracked message for decision %s, posting fallback resolution", decision.ID)
 	targetChannel := b.resolveChannelForDecision(decision)
 	if targetChannel == "" {
 		return nil
@@ -1795,7 +1798,9 @@ func (b *Bot) updateMessageAsResolved(channelID, messageTs string, decision *Dec
 	_, _, _, err := b.client.UpdateMessage(channelID, messageTs,
 		slack.MsgOptionBlocks(blocks...))
 	if err != nil {
-		log.Printf("slackbot: failed to update message as resolved: %v", err)
+		log.Printf("slackbot: failed to update message as resolved (ch=%s ts=%s): %v", channelID, messageTs, err)
+	} else {
+		log.Printf("slackbot: updated message as resolved (ch=%s ts=%s decision=%s)", channelID, messageTs, decision.ID)
 	}
 }
 

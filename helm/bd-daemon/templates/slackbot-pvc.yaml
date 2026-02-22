@@ -1,0 +1,17 @@
+{{- if and .Values.slackBot.enabled .Values.slackBot.standalone .Values.slackBot.persistence.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "bd-daemon.slackbot.fullname" . }}
+  labels:
+    {{- include "bd-daemon.slackbot.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - {{ .Values.slackBot.persistence.accessMode | default "ReadWriteOnce" }}
+  {{- if .Values.slackBot.persistence.storageClass }}
+  storageClassName: {{ .Values.slackBot.persistence.storageClass | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.slackBot.persistence.size | default "100Mi" }}
+{{- end }}
