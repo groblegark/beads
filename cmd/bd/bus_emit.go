@@ -77,9 +77,23 @@ func runBusEmit(cmd *cobra.Command, args []string) error {
 	// stdin may contain literal newlines or other raw bytes that
 	// json.RawMessage.MarshalJSON() rejects during the RPC call.
 	// Re-marshaling through a map normalizes the JSON. (hq-wbaeks)
+	//
+	// If unmarshal fails (e.g., literal newlines inside JSON string values),
+	// sanitize by escaping unescaped newlines/tabs before retrying. (bd-rcsec)
 	if len(eventData) > 0 {
 		var raw map[string]interface{}
-		if err := json.Unmarshal(eventData, &raw); err == nil {
+		if err := json.Unmarshal(eventData, &raw); err != nil {
+			// Attempt to fix invalid JSON by escaping literal control chars
+			// inside string values. This handles the common case where shell
+			// pipelines (echo "$_stdin" | bd bus emit) pass through unescaped
+			// newlines in the hook event JSON from Claude Code.
+			sanitized := sanitizeJSONControlChars(eventData)
+			if err2 := json.Unmarshal(sanitized, &raw); err2 == nil {
+				eventData, _ = json.Marshal(raw)
+			}
+			// If both attempts fail, pass through as-is and let the RPC
+			// call report the error — better than silently dropping data.
+		} else {
 			eventData, _ = json.Marshal(raw)
 		}
 	}
@@ -537,6 +551,42 @@ func dispatchLocal(hookType string, eventData []byte, sessionID, _ string) error
 	}
 
 	return outputEmitResult(emitResult)
+}
+
+// sanitizeJSONControlChars escapes literal control characters (newlines, tabs,
+// carriage returns) that appear inside JSON string values. This handles the
+// common case where shell pipelines pass through unescaped control chars
+// in the hook event JSON. (bd-rcsec)
+//
+// The approach: walk the bytes, track whether we're inside a JSON string
+// (between unescaped double quotes), and replace literal control chars
+// with their JSON escape sequences.
+func sanitizeJSONControlChars(data []byte) []byte {
+	var buf []byte
+	inString := false
+	for i := 0; i < len(data); i++ {
+		b := data[i]
+		if b == '"' && (i == 0 || data[i-1] != '\\') {
+			inString = !inString
+			buf = append(buf, b)
+			continue
+		}
+		if inString {
+			switch b {
+			case '\n':
+				buf = append(buf, '\\', 'n')
+			case '\r':
+				buf = append(buf, '\\', 'r')
+			case '\t':
+				buf = append(buf, '\\', 't')
+			default:
+				buf = append(buf, b)
+			}
+		} else {
+			buf = append(buf, b)
+		}
+	}
+	return buf
 }
 
 func init() {

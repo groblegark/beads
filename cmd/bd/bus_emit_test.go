@@ -477,3 +477,120 @@ func TestStopLoopWindow_Custom(t *testing.T) {
 		t.Errorf("custom window = %v, want 1h", got)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// sanitizeJSONControlChars tests (bd-rcsec)
+// ---------------------------------------------------------------------------
+
+func TestSanitizeJSONControlChars_ValidJSON(t *testing.T) {
+	// Already-valid JSON should pass through unmarshaled (the function
+	// is only called when json.Unmarshal fails, but it shouldn't break
+	// valid JSON).
+	input := `{"key":"value","num":42}`
+	got := string(sanitizeJSONControlChars([]byte(input)))
+	// Should still be valid JSON.
+	var raw map[string]interface{}
+	if err := json.Unmarshal([]byte(got), &raw); err != nil {
+		t.Errorf("sanitized output is not valid JSON: %v (got: %q)", err, got)
+	}
+}
+
+func TestSanitizeJSONControlChars_NewlineInString(t *testing.T) {
+	// Literal newline inside a JSON string value — this is the main bug.
+	input := "{\"message\":\"line1\nline2\"}"
+	got := string(sanitizeJSONControlChars([]byte(input)))
+	want := `{"message":"line1\nline2"}`
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+	// Verify the output is now valid JSON.
+	var raw map[string]interface{}
+	if err := json.Unmarshal([]byte(got), &raw); err != nil {
+		t.Errorf("sanitized output is not valid JSON: %v", err)
+	}
+	if raw["message"] != "line1\nline2" {
+		t.Errorf("message = %q, want %q", raw["message"], "line1\nline2")
+	}
+}
+
+func TestSanitizeJSONControlChars_TabInString(t *testing.T) {
+	input := "{\"data\":\"col1\tcol2\"}"
+	got := string(sanitizeJSONControlChars([]byte(input)))
+	var raw map[string]interface{}
+	if err := json.Unmarshal([]byte(got), &raw); err != nil {
+		t.Errorf("sanitized output is not valid JSON: %v", err)
+	}
+	if raw["data"] != "col1\tcol2" {
+		t.Errorf("data = %q, want %q", raw["data"], "col1\tcol2")
+	}
+}
+
+func TestSanitizeJSONControlChars_CRLFInString(t *testing.T) {
+	input := "{\"msg\":\"hello\r\nworld\"}"
+	got := string(sanitizeJSONControlChars([]byte(input)))
+	var raw map[string]interface{}
+	if err := json.Unmarshal([]byte(got), &raw); err != nil {
+		t.Errorf("sanitized output is not valid JSON: %v", err)
+	}
+	if raw["msg"] != "hello\r\nworld" {
+		t.Errorf("msg = %q, want %q", raw["msg"], "hello\r\nworld")
+	}
+}
+
+func TestSanitizeJSONControlChars_PreservesEscapedNewlines(t *testing.T) {
+	// Already-escaped \n should not be double-escaped.
+	input := `{"msg":"already\\nescaped"}`
+	got := string(sanitizeJSONControlChars([]byte(input)))
+	if got != input {
+		t.Errorf("got %q, want %q (should not modify already-escaped sequences)", got, input)
+	}
+}
+
+func TestSanitizeJSONControlChars_NewlinesOutsideStrings(t *testing.T) {
+	// Newlines between JSON tokens (pretty-printed JSON) should be preserved.
+	input := "{\n  \"key\": \"value\"\n}"
+	got := string(sanitizeJSONControlChars([]byte(input)))
+	// The newlines outside strings should be kept as-is.
+	var raw map[string]interface{}
+	if err := json.Unmarshal([]byte(got), &raw); err != nil {
+		t.Errorf("sanitized output is not valid JSON: %v", err)
+	}
+	if raw["key"] != "value" {
+		t.Errorf("key = %q, want %q", raw["key"], "value")
+	}
+}
+
+func TestSanitizeJSONControlChars_MultipleNewlinesInString(t *testing.T) {
+	// Multiple newlines in a single string value.
+	input := "{\"text\":\"a\nb\nc\nd\"}"
+	got := string(sanitizeJSONControlChars([]byte(input)))
+	var raw map[string]interface{}
+	if err := json.Unmarshal([]byte(got), &raw); err != nil {
+		t.Errorf("sanitized output is not valid JSON: %v", err)
+	}
+	if raw["text"] != "a\nb\nc\nd" {
+		t.Errorf("text = %q, want %q", raw["text"], "a\nb\nc\nd")
+	}
+}
+
+func TestSanitizeJSONControlChars_EmptyInput(t *testing.T) {
+	got := sanitizeJSONControlChars(nil)
+	if len(got) != 0 {
+		t.Errorf("expected empty, got %q", got)
+	}
+	got = sanitizeJSONControlChars([]byte{})
+	if len(got) != 0 {
+		t.Errorf("expected empty, got %q", got)
+	}
+}
+
+func TestSanitizeJSONControlChars_EscapedQuote(t *testing.T) {
+	// Escaped quotes inside strings should not confuse the string tracker.
+	input := `{"msg":"he said \"hello\nworld\""}`
+	got := string(sanitizeJSONControlChars([]byte(input)))
+	// The literal \n between hello and world should be escaped.
+	var raw map[string]interface{}
+	if err := json.Unmarshal([]byte(got), &raw); err != nil {
+		t.Errorf("sanitized output is not valid JSON: %v", err)
+	}
+}
