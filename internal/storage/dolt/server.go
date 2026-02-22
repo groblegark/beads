@@ -296,10 +296,14 @@ func GetRunningServerPID(dataDir string) int {
 // This enables auto-start when dolt_server_enabled is configured in metadata.json.
 func EnsureServerRunning(ctx context.Context, dataDir string, host string, port int) error {
 	// Defense-in-depth: refuse to auto-start a local dolt sql-server when a remote
-	// daemon is configured (K8s mode). BD_DAEMON_HOST indicates all beads operations
-	// should go through the remote daemon, not a local database. (gt-c9esrg)
+	// daemon is configured (K8s mode). BD_DAEMON_HOST or BD_DAEMON_HTTP_URL indicates
+	// all beads operations should go through the remote daemon, not a local database.
+	// BD_DAEMON_HTTP_URL is the correct full URL injected by Helm in K8s. (gt-c9esrg, gt-6fe)
 	if remoteHost := os.Getenv("BD_DAEMON_HOST"); remoteHost != "" {
 		return fmt.Errorf("refusing to auto-start local dolt sql-server: BD_DAEMON_HOST=%s is set (K8s mode); local Dolt should not run", remoteHost)
+	}
+	if httpURL := os.Getenv("BD_DAEMON_HTTP_URL"); httpURL != "" {
+		return fmt.Errorf("refusing to auto-start local dolt sql-server: BD_DAEMON_HTTP_URL=%s is set (K8s mode); local Dolt should not run", httpURL)
 	}
 
 	if host == "" {

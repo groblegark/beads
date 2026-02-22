@@ -1659,14 +1659,10 @@ func TestBuildAllowedPrefixSet(t *testing.T) {
 	})
 
 	t.Run("includes prefixes from routes.jsonl", func(t *testing.T) {
-		// Ensure BD_DAEMON_HOST is not set for this test (we want file-based routing)
-		originalHost := os.Getenv("BD_DAEMON_HOST")
-		os.Unsetenv("BD_DAEMON_HOST")
-		defer func() {
-			if originalHost != "" {
-				os.Setenv("BD_DAEMON_HOST", originalHost)
-			}
-		}()
+		// Ensure BD_DAEMON_HOST and BD_DAEMON_HTTP_URL are not set (we want file-based routing)
+		// BD_DAEMON_HTTP_URL is also checked now (gt-6fe)
+		t.Setenv("BD_DAEMON_HOST", "")
+		t.Setenv("BD_DAEMON_HTTP_URL", "")
 
 		// Create a temp directory with routes.jsonl
 		tmpDir := t.TempDir()

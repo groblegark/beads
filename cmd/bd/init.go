@@ -78,12 +78,17 @@ variable.`,
 			// Non-fatal - continue with defaults
 		}
 
-		// When BD_DAEMON_HOST is set, refuse to create a local database.
-		// The remote daemon is the source of truth — use 'bd connect' instead. (bd-a71c)
-		if rpc.GetDaemonHost() != "" {
-			fmt.Fprintf(os.Stderr, "Error: BD_DAEMON_HOST is set (%s) — cannot create a local database.\n", rpc.GetDaemonHost())
+		// When BD_DAEMON_HOST or BD_DAEMON_HTTP_URL is set, refuse to create a local
+		// database. The remote daemon is the source of truth — use 'bd connect' instead.
+		// BD_DAEMON_HTTP_URL is the correct full URL injected by Helm in K8s. (bd-a71c, gt-6fe)
+		if rpc.IsRemoteDaemon() {
+			addr := rpc.GetDaemonHTTPURL()
+			if addr == "" {
+				addr = rpc.GetDaemonHost()
+			}
+			fmt.Fprintf(os.Stderr, "Error: remote daemon is configured (%s) — cannot create a local database.\n", addr)
 			fmt.Fprintf(os.Stderr, "The remote daemon manages storage. Use 'bd connect' to configure the connection,\n")
-			fmt.Fprintf(os.Stderr, "or unset BD_DAEMON_HOST to create a standalone local workspace.\n")
+			fmt.Fprintf(os.Stderr, "or unset BD_DAEMON_HOST and BD_DAEMON_HTTP_URL to create a standalone local workspace.\n")
 			os.Exit(1)
 		}
 
@@ -102,9 +107,9 @@ variable.`,
 
 		// Auto-detect dolt server if backend is dolt and --server wasn't explicitly specified
 		// This enables server mode by default when a dolt sql-server is already running
-		// Skip auto-detection when BD_DAEMON_HOST is set (K8s mode) - local dolt should
-		// not be used. (gt-c9esrg)
-		if backend == configfile.BackendDolt && !serverMode && os.Getenv("BD_DAEMON_HOST") == "" {
+		// Skip auto-detection when BD_DAEMON_HOST or BD_DAEMON_HTTP_URL is set (K8s mode) -
+		// local dolt should not be used. (gt-c9esrg, gt-6fe)
+		if backend == configfile.BackendDolt && !serverMode && !rpc.IsRemoteDaemon() {
 			if host, port, detected := dolt.DetectRunningServer(); detected {
 				serverMode = true
 				if serverHost == "" {

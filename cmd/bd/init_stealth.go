@@ -17,8 +17,8 @@ import (
 // - .git/info/exclude is designed for user-specific, repo-local ignores
 // - Patterns are relative to repo root, so ".beads/" works correctly
 func setupStealthMode(verbose bool) error {
-	// Remote mode: no local git repo or .claude writes needed
-	if os.Getenv("BD_DAEMON_HOST") != "" {
+	// Remote mode: no local git repo or .claude writes needed. (gt-6fe)
+	if os.Getenv("BD_DAEMON_HOST") != "" || os.Getenv("BD_DAEMON_HTTP_URL") != "" {
 		return nil
 	}
 

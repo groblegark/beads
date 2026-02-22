@@ -60,7 +60,8 @@ func TestFindDatabasePathInTree(t *testing.T) {
 
 	// Clear env vars
 	os.Unsetenv("BEADS_DB")
-	t.Setenv("BD_DAEMON_HOST", "") // Ensure local mode (bd-iyscn)
+	t.Setenv("BD_DAEMON_HOST", "") // Ensure local mode (bd-iyscn, gt-6fe)
+	t.Setenv("BD_DAEMON_HTTP_URL", "") // Ensure local mode (gt-6fe)
 
 	// Create temporary directory structure
 	tmpDir, err := os.MkdirTemp("", "beads-test-*")
@@ -386,7 +387,8 @@ func TestFindBeadsDirSkipsDaemonRegistry(t *testing.T) {
 		}
 	}()
 	os.Unsetenv("BEADS_DIR")
-	t.Setenv("BD_DAEMON_HOST", "") // Ensure local mode (bd-sghd8)
+	t.Setenv("BD_DAEMON_HOST", "") // Ensure local mode (bd-sghd8, gt-6fe)
+	t.Setenv("BD_DAEMON_HTTP_URL", "") // Ensure local mode (gt-6fe)
 
 	// Create temp directory structure
 	tmpDir, err := os.MkdirTemp("", "beads-daemon-test-*")
@@ -431,7 +433,8 @@ func TestFindBeadsDirValidatesBeadsDirEnv(t *testing.T) {
 			os.Unsetenv("BEADS_DIR")
 		}
 	}()
-	t.Setenv("BD_DAEMON_HOST", "") // Ensure local mode (bd-sghd8)
+	t.Setenv("BD_DAEMON_HOST", "") // Ensure local mode (bd-sghd8, gt-6fe)
+	t.Setenv("BD_DAEMON_HTTP_URL", "") // Ensure local mode (gt-6fe)
 
 	// Create temp directory with only daemon registry files
 	tmpDir, err := os.MkdirTemp("", "beads-env-test-*")
@@ -505,7 +508,8 @@ func TestFindDatabasePathHomeDefault(t *testing.T) {
 
 // TestFollowRedirect tests the redirect file functionality
 func TestFollowRedirect(t *testing.T) {
-	t.Setenv("BD_DAEMON_HOST", "") // Ensure local mode (bd-iyscn)
+	t.Setenv("BD_DAEMON_HOST", "") // Ensure local mode (bd-iyscn, gt-6fe)
+	t.Setenv("BD_DAEMON_HTTP_URL", "") // Ensure local mode (gt-6fe)
 
 	tests := []struct {
 		name           string
@@ -696,7 +700,8 @@ func TestFollowRedirect(t *testing.T) {
 
 // TestFindDatabasePathWithRedirect tests that FindDatabasePath follows redirects
 func TestFindDatabasePathWithRedirect(t *testing.T) {
-	t.Setenv("BD_DAEMON_HOST", "") // Ensure local mode (bd-iyscn)
+	t.Setenv("BD_DAEMON_HOST", "") // Ensure local mode (bd-iyscn, gt-6fe)
+	t.Setenv("BD_DAEMON_HTTP_URL", "") // Ensure local mode (gt-6fe)
 
 	// Save original state
 	originalEnv := os.Getenv("BEADS_DIR")
@@ -756,7 +761,8 @@ func TestFindDatabasePathWithRedirect(t *testing.T) {
 
 // TestFindBeadsDirWithRedirect tests that FindBeadsDir follows redirects
 func TestFindBeadsDirWithRedirect(t *testing.T) {
-	t.Setenv("BD_DAEMON_HOST", "") // Ensure local mode (bd-iyscn)
+	t.Setenv("BD_DAEMON_HOST", "") // Ensure local mode (bd-iyscn, gt-6fe)
+	t.Setenv("BD_DAEMON_HTTP_URL", "") // Ensure local mode (gt-6fe)
 
 	// Save original state
 	originalEnv := os.Getenv("BEADS_DIR")
@@ -1081,7 +1087,8 @@ func TestFindGitRoot_NotGitRepo(t *testing.T) {
 // directory within a git worktree, respecting the worktree boundary and not
 // searching into the main repository. This is critical for bd-745.
 func TestFindBeadsDir_Worktree(t *testing.T) {
-	t.Setenv("BD_DAEMON_HOST", "") // Ensure local mode (bd-iyscn)
+	t.Setenv("BD_DAEMON_HOST", "") // Ensure local mode (bd-iyscn, gt-6fe)
+	t.Setenv("BD_DAEMON_HTTP_URL", "") // Ensure local mode (gt-6fe)
 
 	// Save original state
 	originalEnv := os.Getenv("BEADS_DIR")
@@ -1191,7 +1198,8 @@ func TestFindBeadsDir_Worktree(t *testing.T) {
 // shared database in the main repository when accessed from a git worktree. This is the
 // key test for bd-745 - worktrees should share the same .beads database.
 func TestFindDatabasePath_Worktree(t *testing.T) {
-	t.Setenv("BD_DAEMON_HOST", "") // Ensure local mode (bd-iyscn)
+	t.Setenv("BD_DAEMON_HOST", "") // Ensure local mode (bd-iyscn, gt-6fe)
+	t.Setenv("BD_DAEMON_HTTP_URL", "") // Ensure local mode (gt-6fe)
 
 	// Save original state
 	originalEnvDir := os.Getenv("BEADS_DIR")
@@ -1298,7 +1306,8 @@ func TestFindDatabasePath_Worktree(t *testing.T) {
 // its own .beads directory, FindDatabasePath finds the shared database in the main
 // repository. This tests the "shared database" behavior for worktrees.
 func TestFindDatabasePath_WorktreeNoLocalDB(t *testing.T) {
-	t.Setenv("BD_DAEMON_HOST", "") // Ensure local mode (bd-iyscn)
+	t.Setenv("BD_DAEMON_HOST", "") // Ensure local mode (bd-iyscn, gt-6fe)
+	t.Setenv("BD_DAEMON_HTTP_URL", "") // Ensure local mode (gt-6fe)
 
 	// Save original state
 	originalEnvDir := os.Getenv("BEADS_DIR")

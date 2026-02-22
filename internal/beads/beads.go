@@ -421,8 +421,10 @@ func NewSQLiteStorage(ctx context.Context, dbPath string) (Storage, error) {
 // isRemoteMode returns true when connected to a remote daemon (K8s or remote).
 // In remote mode, the database is managed by the daemon — local filesystem
 // discovery is unnecessary and may fail in pods without .beads directories.
+// Checks BD_DAEMON_HTTP_URL first (complete URL injected by Helm), then
+// BD_DAEMON_HOST (may be hostname-only in K8s). (gt-6fe)
 func isRemoteMode() bool {
-	return os.Getenv("BD_DAEMON_HOST") != ""
+	return os.Getenv("BD_DAEMON_HOST") != "" || os.Getenv("BD_DAEMON_HTTP_URL") != ""
 }
 
 // FindDatabasePath discovers the bd database path using bd's standard search order:

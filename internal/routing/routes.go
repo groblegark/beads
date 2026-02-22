@@ -42,11 +42,12 @@ func SetRouteQuerier(q RouteQuerier) {
 // LoadRoutes loads routes, trying daemon RPC first (if querier set), falling back to routes.jsonl.
 // Returns an empty slice if no routes are found.
 //
-// When BD_DAEMON_HOST is set or daemon-host is configured in config.yaml, routes.jsonl
-// is completely ignored and routes are only loaded from the remote daemon. If the daemon
-// is unreachable, an error is returned rather than silently falling back to the local file.
+// When BD_DAEMON_HOST, BD_DAEMON_HTTP_URL is set, or daemon-host is configured in
+// config.yaml, routes.jsonl is completely ignored and routes are only loaded from
+// the remote daemon. If the daemon is unreachable, an error is returned rather
+// than silently falling back to the local file. (gt-6fe)
 func LoadRoutes(beadsDir string) ([]Route, error) {
-	remoteDaemon := os.Getenv("BD_DAEMON_HOST") != "" || config.GetString("daemon-host") != ""
+	remoteDaemon := os.Getenv("BD_DAEMON_HOST") != "" || os.Getenv("BD_DAEMON_HTTP_URL") != "" || config.GetString("daemon-host") != ""
 
 	// Try loading from beads first (via injected querier)
 	if routeQuerier != nil {
@@ -91,9 +92,10 @@ func LoadRoutes(beadsDir string) ([]Route, error) {
 
 // LoadRoutesFromFile loads routes from routes.jsonl in the given beads directory.
 // Returns an empty slice if the file doesn't exist.
-// In remote/kube mode (BD_DAEMON_HOST set), returns nil — routes come from the daemon.
+// In remote/kube mode (BD_DAEMON_HOST or BD_DAEMON_HTTP_URL set), returns nil —
+// routes come from the daemon. (gt-6fe)
 func LoadRoutesFromFile(beadsDir string) ([]Route, error) {
-	if os.Getenv("BD_DAEMON_HOST") != "" {
+	if os.Getenv("BD_DAEMON_HOST") != "" || os.Getenv("BD_DAEMON_HTTP_URL") != "" {
 		return nil, nil
 	}
 
@@ -476,9 +478,9 @@ func ResolveBeadsDirForID(ctx context.Context, id, currentBeadsDir string) (stri
 // FindTownRoot walks up from startDir looking for a town root.
 // Returns the town root path, or empty string if not found.
 // A town root is identified by the presence of mayor/town.json.
-// In remote/kube mode, returns empty — no local filesystem tree to walk.
+// In remote/kube mode, returns empty — no local filesystem tree to walk. (gt-6fe)
 func FindTownRoot(startDir string) string {
-	if os.Getenv("BD_DAEMON_HOST") != "" {
+	if os.Getenv("BD_DAEMON_HOST") != "" || os.Getenv("BD_DAEMON_HTTP_URL") != "" {
 		return ""
 	}
 
@@ -562,10 +564,10 @@ func findTownRoutes(currentBeadsDir string) ([]Route, string) {
 
 // resolveRedirect checks for a redirect file in the beads directory
 // and resolves the redirect path if present.
-// In remote/kube mode (BD_DAEMON_HOST set), skips filesystem I/O —
-// the daemon handles workspace resolution and there's no local redirect file.
+// In remote/kube mode (BD_DAEMON_HOST or BD_DAEMON_HTTP_URL set), skips filesystem I/O —
+// the daemon handles workspace resolution and there's no local redirect file. (gt-6fe)
 func resolveRedirect(beadsDir string) string {
-	if os.Getenv("BD_DAEMON_HOST") != "" {
+	if os.Getenv("BD_DAEMON_HOST") != "" || os.Getenv("BD_DAEMON_HTTP_URL") != "" {
 		return beadsDir
 	}
 

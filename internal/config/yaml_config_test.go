@@ -180,6 +180,9 @@ func TestNormalizeYamlKey(t *testing.T) {
 }
 
 func TestSetYamlConfig(t *testing.T) {
+	// Ensure local mode (gt-6fe: clear both BD_DAEMON_HOST and BD_DAEMON_HTTP_URL)
+	t.Setenv("BD_DAEMON_HOST", "")
+	t.Setenv("BD_DAEMON_HTTP_URL", "")
 	// Create a temp directory with .beads/config.yaml
 	tmpDir, err := os.MkdirTemp("", "beads-yaml-test-*")
 	if err != nil {

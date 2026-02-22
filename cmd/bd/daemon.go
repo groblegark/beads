@@ -153,11 +153,15 @@ Run 'bd daemon --help' to see all subcommands.`,
 			os.Exit(1)
 		}
 
-		// Check if BD_DAEMON_HOST is set - refuse to start local daemon when configured for remote
-		if remoteHost := os.Getenv("BD_DAEMON_HOST"); remoteHost != "" {
-			fmt.Fprintf(os.Stderr, "Error: BD_DAEMON_HOST is set (%s)\n", remoteHost)
+		// Check if a remote daemon is configured - refuse to start local daemon. (gt-6fe)
+		if rpc.IsRemoteDaemon() {
+			addr := rpc.GetDaemonHTTPURL()
+			if addr == "" {
+				addr = rpc.GetDaemonHost()
+			}
+			fmt.Fprintf(os.Stderr, "Error: remote daemon is configured (%s)\n", addr)
 			fmt.Fprintf(os.Stderr, "Cannot start a local daemon when configured for remote daemon.\n")
-			fmt.Fprintf(os.Stderr, "Hint: Use 'bd daemon status' to check the remote daemon, or unset BD_DAEMON_HOST to use a local daemon.\n")
+			fmt.Fprintf(os.Stderr, "Hint: Use 'bd daemon status' to check the remote daemon, or unset BD_DAEMON_HOST and BD_DAEMON_HTTP_URL to use a local daemon.\n")
 			os.Exit(1)
 		}
 

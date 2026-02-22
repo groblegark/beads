@@ -85,11 +85,16 @@ func NewFromConfig(ctx context.Context, beadsDir string) (storage.Storage, error
 // NewFromConfigWithOptions creates a storage backend with options from metadata.json.
 func NewFromConfigWithOptions(ctx context.Context, beadsDir string, opts Options) (storage.Storage, error) {
 	// Guard: Block direct database access when using a remote daemon (gt-57wsnm)
-	// BD_DAEMON_HOST indicates the client is connecting to a remote daemon,
-	// so local filesystem database access would be incorrect (and may auto-start
-	// a local Dolt server). Callers should use daemon RPC instead.
+	// BD_DAEMON_HOST or BD_DAEMON_HTTP_URL indicates the client is connecting to
+	// a remote daemon, so local filesystem database access would be incorrect (and
+	// may auto-start a local Dolt server). Callers should use daemon RPC instead.
+	// BD_DAEMON_HTTP_URL is checked alongside BD_DAEMON_HOST for K8s pods where
+	// Helm injects BD_DAEMON_HTTP_URL but BD_DAEMON_HOST may be hostname-only. (gt-6fe)
 	if remoteHost := os.Getenv("BD_DAEMON_HOST"); remoteHost != "" && !opts.AllowWithRemoteDaemon {
 		return nil, fmt.Errorf("direct database access blocked: BD_DAEMON_HOST=%s is set (use daemon RPC instead); if local access is genuinely needed, set AllowWithRemoteDaemon option", remoteHost)
+	}
+	if httpURL := os.Getenv("BD_DAEMON_HTTP_URL"); httpURL != "" && !opts.AllowWithRemoteDaemon {
+		return nil, fmt.Errorf("direct database access blocked: BD_DAEMON_HTTP_URL=%s is set (use daemon RPC instead); if local access is genuinely needed, set AllowWithRemoteDaemon option", httpURL)
 	}
 
 	cfg, err := configfile.Load(beadsDir)
