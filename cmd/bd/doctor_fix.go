@@ -310,6 +310,8 @@ func applyFixList(path string, fixes []doctorCheck) {
 			err = doctor.FixStaleMQFiles(path)
 		case "Patrol Pollution":
 			err = fix.PatrolPollution(path)
+		case "Over-Claimed Agents":
+			err = fix.OverClaimedAgents(path)
 		default:
 			fmt.Printf("  ⚠ No automatic fix available for %s\n", check.Name)
 			fmt.Printf("  Manual fix: %s\n", check.Fix)
