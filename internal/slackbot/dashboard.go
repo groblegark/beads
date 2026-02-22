@@ -2,23 +2,30 @@ package slackbot
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"log"
+	"math/rand"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/nats-io/nats.go"
 	"github.com/slack-go/slack"
+	"github.com/steveyegge/beads/internal/eventbus"
 	"github.com/steveyegge/beads/internal/rpc"
 )
 
 // DashboardConfig holds configuration for the agent activity dashboard.
 type DashboardConfig struct {
 	Enabled           bool
-	ChannelID         string // If empty, uses the bot's default channel.
-	MaxWorkingShown   int    // Max working agents to display (default 10).
-	MaxIdleShown      int    // Max idle agents to display (default 5).
-	MaxDeadShown      int    // Max dead agents to display (default 5).
-	MaxUnclaimedShown int    // Max unclaimed tasks to display (default 5).
+	ChannelID         string        // If empty, uses the bot's default channel.
+	Interval          time.Duration // Poll interval (default 15s).
+	MaxWorkingShown   int           // Max working agents to display (default 10).
+	MaxIdleShown      int           // Max idle agents to display (default 5).
+	MaxDeadShown      int           // Max dead agents to display (default 5).
+	MaxUnclaimedShown int           // Max unclaimed tasks to display (default 5).
 }
 
 // DashboardMessage tracks the posted dashboard message for later updates.
@@ -299,4 +306,236 @@ func buildRosterHash(roster *rpc.AgentRosterResult) string {
 		parts = append(parts, fmt.Sprintf("unclaimed:%s", t.ID))
 	}
 	return strings.Join(parts, "|")
+}
+
+// ── Dashboard Update Loop ─────────────────────────────────────────────────
+
+// Dashboard manages the agent activity dashboard: a single Slack message
+// that is periodically updated with the current agent roster.
+type Dashboard struct {
+	client   SlackAPI
+	provider DecisionProvider
+	state    *StateManager
+	cfg      DashboardConfig
+
+	mu          sync.Mutex
+	msg         *DashboardMessage // nil until first post
+	lastUpdate  time.Time
+	dirty       bool // set by NATS events to trigger earlier refresh
+	minInterval time.Duration
+}
+
+// NewDashboard creates a Dashboard that will post and update a roster message.
+func NewDashboard(client SlackAPI, provider DecisionProvider, state *StateManager, cfg DashboardConfig) *Dashboard {
+	if cfg.ChannelID == "" {
+		log.Printf("slackbot/dashboard: no channel configured, dashboard disabled")
+		cfg.Enabled = false
+	}
+	return &Dashboard{
+		client:      client,
+		provider:    provider,
+		state:       state,
+		cfg:         cfg,
+		minInterval: 3 * time.Second,
+	}
+}
+
+// Run starts the periodic dashboard update loop. It blocks until ctx is canceled.
+// The poll interval is cfg.Interval (default 15s). NATS events can trigger early
+// refreshes by calling MarkDirty.
+func (d *Dashboard) Run(ctx context.Context) {
+	if !d.cfg.Enabled {
+		return
+	}
+	interval := d.cfg.Interval
+	if interval == 0 {
+		interval = 15 * time.Second
+	}
+
+	// Jitter on startup: random 0-5s delay to avoid thundering herd.
+	jitter := time.Duration(rand.Intn(5000)) * time.Millisecond
+	select {
+	case <-ctx.Done():
+		return
+	case <-time.After(jitter):
+	}
+
+	// Restore or create the initial dashboard message.
+	d.initMessage(ctx)
+
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			d.refresh(ctx)
+		}
+	}
+}
+
+// MarkDirty signals that the dashboard should refresh on the next cycle.
+// Called by NATS agent event handlers for important lifecycle events.
+func (d *Dashboard) MarkDirty() {
+	d.mu.Lock()
+	d.dirty = true
+	d.mu.Unlock()
+}
+
+// HandleAgentEvent processes a NATS agent lifecycle event for dashboard refresh.
+// AgentStarted, AgentStopped, and AgentCrashed trigger the dirty flag for an
+// early refresh on the next tick. AgentHeartbeat is ignored.
+func (d *Dashboard) HandleAgentEvent(msg *nats.Msg) {
+	defer func() { _ = msg.Ack() }()
+
+	if !d.cfg.Enabled {
+		return
+	}
+
+	// Extract event type from subject: "agents.<EventType>"
+	subject := msg.Subject
+	lastDot := strings.LastIndex(subject, ".")
+	if lastDot < 0 {
+		return
+	}
+	eventType := eventbus.EventType(subject[lastDot+1:])
+
+	switch eventType {
+	case eventbus.EventAgentStarted, eventbus.EventAgentStopped, eventbus.EventAgentCrashed:
+		d.MarkDirty()
+		var payload eventbus.AgentEventPayload
+		if err := json.Unmarshal(msg.Data, &payload); err == nil {
+			log.Printf("slackbot/dashboard: agent %s event %s — marked dirty", payload.AgentID, eventType)
+		}
+	case eventbus.EventAgentIdle:
+		// Less urgent — dirty flag ensures the next poll picks it up.
+		d.MarkDirty()
+	default:
+		// EventAgentHeartbeat and others — ignore (too frequent).
+	}
+}
+
+// initMessage restores a persisted dashboard message or posts a new one.
+func (d *Dashboard) initMessage(ctx context.Context) {
+	// Try to restore from state.
+	if d.state != nil {
+		chID, ts, _, ok := d.state.GetDashboard()
+		if ok && chID != "" && ts != "" {
+			// Validate the message still exists by attempting an update.
+			blocks, hash, err := BuildDashboardBlocks(ctx, d.provider, d.cfg)
+			if err != nil {
+				log.Printf("slackbot/dashboard: init build blocks failed: %v", err)
+			} else {
+				_, _, _, err = d.client.UpdateMessage(chID, ts, slack.MsgOptionBlocks(blocks...))
+				if err == nil {
+					d.mu.Lock()
+					d.msg = &DashboardMessage{ChannelID: chID, Timestamp: ts, LastHash: hash}
+					d.lastUpdate = time.Now()
+					d.mu.Unlock()
+					log.Printf("slackbot/dashboard: restored message in %s (ts=%s)", chID, ts)
+					return
+				}
+				log.Printf("slackbot/dashboard: persisted message gone (update failed: %v), posting new", err)
+			}
+		}
+	}
+
+	// Post a new dashboard message.
+	d.postNew(ctx)
+}
+
+// postNew creates a fresh dashboard message.
+func (d *Dashboard) postNew(ctx context.Context) {
+	blocks, hash, err := BuildDashboardBlocks(ctx, d.provider, d.cfg)
+	if err != nil {
+		log.Printf("slackbot/dashboard: build blocks failed: %v", err)
+		return
+	}
+
+	chID, ts, err := d.client.PostMessage(d.cfg.ChannelID, slack.MsgOptionBlocks(blocks...))
+	if err != nil {
+		log.Printf("slackbot/dashboard: post message failed: %v", err)
+		return
+	}
+
+	d.mu.Lock()
+	d.msg = &DashboardMessage{ChannelID: chID, Timestamp: ts, LastHash: hash}
+	d.lastUpdate = time.Now()
+	d.mu.Unlock()
+
+	if d.state != nil {
+		if err := d.state.SetDashboard(chID, ts, hash); err != nil {
+			log.Printf("slackbot/dashboard: persist state failed: %v", err)
+		}
+	}
+
+	log.Printf("slackbot/dashboard: posted new message in %s (ts=%s)", chID, ts)
+}
+
+// refresh fetches the current roster and updates the dashboard message if changed.
+func (d *Dashboard) refresh(ctx context.Context) {
+	d.mu.Lock()
+	msg := d.msg
+	dirty := d.dirty
+	lastUpdate := d.lastUpdate
+	d.dirty = false
+	d.mu.Unlock()
+
+	if msg == nil {
+		d.postNew(ctx)
+		return
+	}
+
+	// Respect minimum update interval even on dirty flag.
+	if time.Since(lastUpdate) < d.minInterval {
+		if dirty {
+			// Re-mark dirty so the next tick picks it up.
+			d.mu.Lock()
+			d.dirty = true
+			d.mu.Unlock()
+		}
+		return
+	}
+
+	blocks, hash, err := BuildDashboardBlocks(ctx, d.provider, d.cfg)
+	if err != nil {
+		log.Printf("slackbot/dashboard: refresh build blocks failed: %v", err)
+		return
+	}
+
+	// Skip update if content hasn't changed (unless it's been >5 min — update timestamp).
+	if hash == msg.LastHash && time.Since(lastUpdate) < 5*time.Minute {
+		return
+	}
+
+	_, _, _, err = d.client.UpdateMessage(msg.ChannelID, msg.Timestamp, slack.MsgOptionBlocks(blocks...))
+	if err != nil {
+		// Handle rate limiting explicitly.
+		if rateLimitErr, ok := err.(*slack.RateLimitedError); ok {
+			log.Printf("slackbot/dashboard: rate limited, retry after %v", rateLimitErr.RetryAfter)
+			d.mu.Lock()
+			d.dirty = true // Retry on next tick.
+			d.mu.Unlock()
+			return
+		}
+		log.Printf("slackbot/dashboard: update message failed: %v", err)
+		// Message may have been deleted — try posting a new one next cycle.
+		if strings.Contains(err.Error(), "message_not_found") {
+			d.mu.Lock()
+			d.msg = nil
+			d.mu.Unlock()
+		}
+		return
+	}
+
+	d.mu.Lock()
+	d.msg.LastHash = hash
+	d.lastUpdate = time.Now()
+	d.mu.Unlock()
+
+	if d.state != nil {
+		_ = d.state.SetDashboard(msg.ChannelID, msg.Timestamp, hash)
+	}
 }

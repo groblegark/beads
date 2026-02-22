@@ -48,17 +48,17 @@ Optional:
 }
 
 var (
-	slackBotToken       string
-	slackAppToken       string
-	slackChannel        string
-	slackNatsURL        string
-	slackDaemonHost     string
-	slackHealthPort     int
-	slackDynamicChans   bool
-	slackChanPrefix     string
-	slackAutoInvite     string
-	slackDebug          bool
-	slackRouterConfig   string
+	slackBotToken     string
+	slackAppToken     string
+	slackChannel      string
+	slackNatsURL      string
+	slackDaemonHost   string
+	slackHealthPort   int
+	slackDynamicChans bool
+	slackChanPrefix   string
+	slackAutoInvite   string
+	slackDebug        bool
+	slackRouterConfig string
 )
 
 var slackStatusCmd = &cobra.Command{
@@ -196,6 +196,18 @@ func runSlackStart(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	// Dashboard config from env vars (bd-ije8h).
+	dashboardEnabled := os.Getenv("BD_SLACK_DASHBOARD") == "true" || os.Getenv("BD_SLACK_DASHBOARD") == "1"
+	dashboardChannel := firstNonEmpty(os.Getenv("BD_SLACK_DASHBOARD_CHANNEL"), channelID)
+	var dashboardInterval time.Duration
+	if iv := os.Getenv("BD_SLACK_DASHBOARD_INTERVAL"); iv != "" {
+		if parsed, err := time.ParseDuration(iv); err == nil {
+			dashboardInterval = parsed
+		} else {
+			log.Printf("slackbot: ignoring invalid BD_SLACK_DASHBOARD_INTERVAL %q: %v", iv, err)
+		}
+	}
+
 	cfg := slackbot.BotConfig{
 		BotToken:         botToken,
 		AppToken:         appToken,
@@ -205,6 +217,11 @@ func runSlackStart(cmd *cobra.Command, args []string) error {
 		ChannelPrefix:    slackChanPrefix,
 		AutoInviteUsers:  autoInviteUsers,
 		Debug:            slackDebug,
+		Dashboard: slackbot.DashboardConfig{
+			Enabled:   dashboardEnabled,
+			ChannelID: dashboardChannel,
+			Interval:  dashboardInterval,
+		},
 	}
 
 	bot, err := slackbot.NewBot(cfg, decisions)

@@ -17,15 +17,16 @@ import (
 // It subscribes to the DECISION_EVENTS and AGENT_EVENTS streams and calls back
 // to the Bot when decisions are created/resolved or agents crash.
 type NATSWatcher struct {
-	natsURL   string
-	natsToken string
-	bot       *Bot
-	decisions *DecisionClient
-	conn      *nats.Conn
-	sub       *nats.Subscription
-	agentSub  *nats.Subscription
-	seen      map[string]bool
-	seenMu    sync.Mutex
+	natsURL      string
+	natsToken    string
+	bot          *Bot
+	decisions    *DecisionClient
+	conn         *nats.Conn
+	sub          *nats.Subscription
+	agentSub     *nats.Subscription
+	dashboardSub *nats.Subscription // Separate consumer for dashboard refresh (bd-ije8h)
+	seen         map[string]bool
+	seenMu       sync.Mutex
 }
 
 // NewNATSWatcher creates a watcher that subscribes to decision events on the
@@ -178,16 +179,56 @@ func (w *NATSWatcher) connect(ctx context.Context) error {
 		}
 	}
 
+	// Subscribe dashboard consumer for agent events (separate durable from crash alerts).
+	var dashboardSub *nats.Subscription
+	if dashboard := w.bot.GetDashboard(); dashboard != nil {
+		for attempt := 1; attempt <= 10; attempt++ {
+			dashboardSub, err = js.Subscribe(
+				eventbus.SubjectAgentPrefix+">",
+				dashboard.HandleAgentEvent,
+				nats.Durable("slack-bot-dashboard"),
+				nats.DeliverNew(),
+				nats.AckExplicit(),
+				nats.ManualAck(),
+			)
+			if err == nil {
+				break
+			}
+			if !strings.Contains(err.Error(), "already bound") {
+				log.Printf("slackbot/nats: dashboard events subscribe failed: %v (continuing without)", err)
+				dashboardSub = nil
+				err = nil
+				break
+			}
+			if attempt == 10 {
+				log.Printf("slackbot/nats: dashboard events consumer still bound after %d attempts (continuing without)", attempt)
+				dashboardSub = nil
+				err = nil
+				break
+			}
+			log.Printf("slackbot/nats: dashboard events consumer still bound (attempt %d/10), retrying in 3s", attempt)
+			select {
+			case <-ctx.Done():
+				nc.Close()
+				return ctx.Err()
+			case <-time.After(3 * time.Second):
+			}
+		}
+	}
+
 	w.conn = nc
 	w.sub = sub
 	w.agentSub = agentSub
+	w.dashboardSub = dashboardSub
+
+	subs := []string{eventbus.StreamDecisionEvents}
 	if agentSub != nil {
-		log.Printf("slackbot/nats: connected to %s, subscribed to %s + %s",
-			w.natsURL, eventbus.StreamDecisionEvents, eventbus.StreamAgentEvents)
-	} else {
-		log.Printf("slackbot/nats: connected to %s, subscribed to %s (agent events unavailable)",
-			w.natsURL, eventbus.StreamDecisionEvents)
+		subs = append(subs, eventbus.StreamAgentEvents)
 	}
+	if dashboardSub != nil {
+		subs = append(subs, "dashboard")
+	}
+	log.Printf("slackbot/nats: connected to %s, subscribed to %s", w.natsURL, strings.Join(subs, " + "))
 	return nil
 }
 
@@ -464,6 +505,10 @@ func (w *NATSWatcher) handleAgentMessage(msg *nats.Msg) {
 
 // Close drains the subscriptions and closes the NATS connection.
 func (w *NATSWatcher) Close() {
+	if w.dashboardSub != nil {
+		_ = w.dashboardSub.Drain()
+		w.dashboardSub = nil
+	}
 	if w.agentSub != nil {
 		_ = w.agentSub.Drain()
 		w.agentSub = nil

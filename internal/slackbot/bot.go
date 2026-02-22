@@ -59,6 +59,8 @@ type Bot struct {
 	// User notification preferences
 	preferenceManager *PreferenceManager
 
+	// Agent activity dashboard
+	dashboard *Dashboard
 }
 
 // BotConfig holds configuration for the Slack bot.
@@ -72,6 +74,7 @@ type BotConfig struct {
 	BeadsDir         string   // .beads directory path (auto-discovered if empty)
 	AutoInviteUsers  []string // Slack user IDs to auto-invite when routing to new channels
 	Debug            bool
+	Dashboard        DashboardConfig // Agent activity dashboard configuration
 }
 
 // NewBot creates a new Slack bot.
@@ -188,6 +191,15 @@ func NewBot(cfg BotConfig, decisions *DecisionClient) (*Bot, error) {
 		router.SetChannelCreator(bot)
 	}
 
+	// Initialize dashboard if configured (bd-ije8h).
+	if cfg.Dashboard.Enabled {
+		dashCfg := cfg.Dashboard
+		if dashCfg.ChannelID == "" {
+			dashCfg.ChannelID = cfg.ChannelID
+		}
+		bot.dashboard = NewDashboard(client, decisions, stateMgr, dashCfg)
+	}
+
 	return bot, nil
 }
 
@@ -279,7 +291,17 @@ func (b *Bot) Run(ctx context.Context) error {
 		log.Printf("slackbot: warning: failed to auto-join channels: %v", err)
 	}
 
+	// Start dashboard update loop if enabled.
+	if b.dashboard != nil {
+		go b.dashboard.Run(ctx)
+	}
+
 	return b.socketMode.RunContext(ctx)
+}
+
+// GetDashboard returns the dashboard instance for NATS event wiring.
+func (b *Bot) GetDashboard() *Dashboard {
+	return b.dashboard
 }
 
 // findBeadsDir walks up from dir looking for a .beads directory.
@@ -1832,13 +1854,13 @@ func (b *Bot) isRigRoutingMode() bool {
 // routing. Called on startup when rig mode is enabled.
 //
 // Migration scenarios:
-// 1. Fresh start with rig mode: status cards hydrated from state file, catch-up
-//    via NATSWatcher.catchUpMissedDecisions will thread new decisions naturally.
-// 2. Config change to rig mode (hot migration): any in-memory decisionMessages
-//    from before the switch were posted flat. We create status cards for those
-//    agents so new decisions thread correctly. Old flat messages are left as-is.
-// 3. Restart after running in rig mode: status cards restored from state, no
-//    migration needed.
+//  1. Fresh start with rig mode: status cards hydrated from state file, catch-up
+//     via NATSWatcher.catchUpMissedDecisions will thread new decisions naturally.
+//  2. Config change to rig mode (hot migration): any in-memory decisionMessages
+//     from before the switch were posted flat. We create status cards for those
+//     agents so new decisions thread correctly. Old flat messages are left as-is.
+//  3. Restart after running in rig mode: status cards restored from state, no
+//     migration needed.
 func (b *Bot) migrateToRigRouting() {
 	if !b.isRigRoutingMode() {
 		return
