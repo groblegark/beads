@@ -2615,7 +2615,8 @@ type GraphNode struct {
 	Status      string   `json:"status"`
 	Priority    int      `json:"priority"`
 	IssueType   string   `json:"issue_type"`
-	ParentID    string   `json:"parent_id,omitempty"` // Epic/parent issue ID (bd-j3pex)
+	AwaitType   string   `json:"await_type,omitempty"` // Gate condition type: decision, human, timer, etc. (bd-zbyn7)
+	ParentID    string   `json:"parent_id,omitempty"`  // Epic/parent issue ID (bd-j3pex)
 	Assignee    string   `json:"assignee,omitempty"`
 	Rig         string   `json:"rig,omitempty"`
 	Labels      []string `json:"labels,omitempty"`

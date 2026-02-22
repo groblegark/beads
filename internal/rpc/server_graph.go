@@ -60,7 +60,7 @@ func (s *Server) handleGraph(req *Request) Response {
 		args.Status = []string{"open", "in_progress", "blocked", "hooked", "deferred"}
 	}
 	if len(args.ExcludeTypes) == 0 {
-		args.ExcludeTypes = []string{"message", "config", "molecule", "formula", "advice", "role", "gate", "runbook", "event"}
+		args.ExcludeTypes = []string{"message", "config", "molecule", "formula", "advice", "role", "runbook", "event"}
 	}
 
 	// Build base filter
@@ -490,6 +490,7 @@ func (s *Server) handleGraph(req *Request) Response {
 			Status:    string(issue.Status),
 			Priority:  issue.Priority,
 			IssueType: string(issue.IssueType),
+			AwaitType: issue.AwaitType, // bd-zbyn7: expose gate condition type for decisions
 			ParentID:  parentOf[issue.ID],
 			Assignee:  issue.Assignee,
 			Rig:       issue.Rig,
