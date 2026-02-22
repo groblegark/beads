@@ -176,19 +176,20 @@ func (s *Server) handleGraph(req *Request) Response {
 
 	// Run independent batch queries concurrently (bd-5nrqx)
 	var (
-		depRecords    map[string][]*types.Dependency
-		revDepRecords map[string][]*types.Dependency
-		depCounts     map[string]*types.DependencyCounts
-		labelsMap     map[string][]string
-		blockedMap    map[string][]string
-		graphStats    *types.Statistics
-		commitCounts  map[string]int // bd-as8xf
+		depRecords     map[string][]*types.Dependency
+		revDepRecords  map[string][]*types.Dependency
+		depCounts      map[string]*types.DependencyCounts
+		labelsMap      map[string][]string
+		blockedMap     map[string][]string
+		graphStats     *types.Statistics
+		commitCounts   map[string]int              // bd-as8xf
+		decisionPoints []*types.DecisionPoint      // bd-37gvm: decision edges
 
 		depErr, revDepErr, countErr, labelErr, blockedErr, statsErr error
 		wg                                                          sync.WaitGroup
 	)
 
-	wg.Add(7)
+	wg.Add(8)
 
 	// 1. Forward dependency records (edges FROM these issues)
 	go func() {
@@ -261,6 +262,12 @@ func (s *Server) handleGraph(req *Request) Response {
 		}
 	}()
 
+	// 8. Pending decision points for decision edge creation (bd-37gvm)
+	go func() {
+		defer wg.Done()
+		decisionPoints, _ = store.ListPendingDecisions(ctx)
+	}()
+
 	wg.Wait()
 
 	if depErr != nil {
@@ -273,6 +280,27 @@ func (s *Server) handleGraph(req *Request) Response {
 		return Response{
 			Success: false,
 			Error:   fmt.Sprintf("failed to get dependency counts: %v", countErr),
+		}
+	}
+
+	// bd-37gvm: Inject pending decision gate issues into the graph.
+	// Decisions are gate-type issues excluded by default ExcludeTypes, so we
+	// fetch them separately and merge into issueMap.
+	if len(decisionPoints) > 0 {
+		decisionIssueIDs := make([]string, 0, len(decisionPoints))
+		for _, dp := range decisionPoints {
+			if _, exists := issueMap[dp.IssueID]; !exists {
+				decisionIssueIDs = append(decisionIssueIDs, dp.IssueID)
+			}
+		}
+		if len(decisionIssueIDs) > 0 {
+			dpFilter := types.IssueFilter{IDs: decisionIssueIDs}
+			dpIssues, err := store.SearchIssues(ctx, "", dpFilter)
+			if err == nil {
+				for _, issue := range dpIssues {
+					issueMap[issue.ID] = issue
+				}
+			}
 		}
 	}
 
@@ -579,11 +607,80 @@ func (s *Server) handleGraph(req *Request) Response {
 			}
 		}
 
-		// bd-a0vbd: Only add agent nodes that have at least one assigned_to edge.
-		// Agents from roster/beads with no in-progress work just clutter the graph.
+		// bd-37gvm: Create edges connecting decision nodes to requesting agents
+		// and to beads referenced by decision options.
+		if len(decisionPoints) > 0 {
+			// Index pending decisions by issue ID for quick lookup
+			dpByIssue := make(map[string]*types.DecisionPoint, len(decisionPoints))
+			for _, dp := range decisionPoints {
+				dpByIssue[dp.IssueID] = dp
+			}
+
+			for _, issue := range issueMap {
+				// Decisions are gate-type issues with await_type=decision
+				if issue.IssueType != "gate" || issue.AwaitType != "decision" {
+					continue
+				}
+				dp := dpByIssue[issue.ID]
+				if dp == nil {
+					continue // Only pending decisions get edges (resolved ones are closed/filtered)
+				}
+
+				// Edge: agent → decision (requested_by)
+				requester := dp.RequestedBy
+				if requester == "" {
+					requester = issue.CreatedBy // fallback
+				}
+				if requester != "" {
+					// Ensure agent node exists
+					if _, exists := agentNodes[requester]; !exists {
+						agentNodes[requester] = &GraphNode{
+							ID:        "agent:" + requester,
+							Title:     requester,
+							IssueType: "agent",
+						}
+					}
+					edgeKey := fmt.Sprintf("agent:%s->%s:requested_by", requester, issue.ID)
+					if !seenEdges[edgeKey] {
+						seenEdges[edgeKey] = true
+						edges = append(edges, GraphEdge{
+							Source: "agent:" + requester,
+							Target: issue.ID,
+							Type:   "requested_by",
+						})
+					}
+				}
+
+				// Edges: decision → option beads (option_ref)
+				var options []types.DecisionOption
+				if dp.Options != "" {
+					_ = json.Unmarshal([]byte(dp.Options), &options)
+				}
+				for _, opt := range options {
+					if opt.BeadID == "" {
+						continue
+					}
+					if _, inGraph := issueMap[opt.BeadID]; !inGraph {
+						continue // Only link to beads already in the graph
+					}
+					edgeKey := fmt.Sprintf("%s->%s:option_ref", issue.ID, opt.BeadID)
+					if !seenEdges[edgeKey] {
+						seenEdges[edgeKey] = true
+						edges = append(edges, GraphEdge{
+							Source: issue.ID,
+							Target: opt.BeadID,
+							Type:   "option_ref",
+						})
+					}
+				}
+			}
+		}
+
+		// bd-a0vbd: Only add agent nodes that have at least one edge.
+		// Agents from roster/beads with no connections just clutter the graph.
 		agentsWithEdges := make(map[string]bool)
 		for _, e := range edges {
-			if e.Type == "assigned_to" {
+			if e.Type == "assigned_to" || e.Type == "requested_by" {
 				agentsWithEdges[e.Source] = true
 			}
 		}
