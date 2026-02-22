@@ -127,6 +127,15 @@ tasks:
   # ── Version check ────────────────────────────────────────────────────────
   - key: version-check
     use: code
+    filter:
+      - cmd/bd/version.go
+      - integrations/beads-mcp/pyproject.toml
+      - integrations/beads-mcp/src/beads_mcp/__init__.py
+      - claude-plugin/.claude-plugin/plugin.json
+      - .claude-plugin/marketplace.json
+      - npm-package/package.json
+      - cmd/bd/templates/hooks/prepare-commit-msg
+      - scripts/check-versions.sh
     run: ./scripts/check-versions.sh
 
   # ── Beads JSONL guard (PRs only — comparing to main is meaningless on main) ─

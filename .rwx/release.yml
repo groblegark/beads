@@ -98,7 +98,7 @@ tasks:
       - go.mod
       - go.sum
       - "!**/*_test.go"
-      - cmd/bd/templates/**/*
+      - "cmd/bd/templates/**"
     run: |
       TAG="${REF_NAME#refs/tags/}"
       TAG="${TAG#refs/heads/}"
@@ -128,7 +128,7 @@ tasks:
       - go.mod
       - go.sum
       - "!**/*_test.go"
-      - cmd/bd/templates/**/*
+      - "cmd/bd/templates/**"
     run: |
       TAG="${REF_NAME#refs/tags/}"
       TAG="${TAG#refs/heads/}"
@@ -161,7 +161,7 @@ tasks:
       - go.mod
       - go.sum
       - "!**/*_test.go"
-      - cmd/bd/templates/**/*
+      - "cmd/bd/templates/**"
     run: |
       TAG="${REF_NAME#refs/tags/}"
       TAG="${TAG#refs/heads/}"
