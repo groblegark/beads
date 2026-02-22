@@ -212,11 +212,23 @@ func retryConnect(socketPath string, dialTimeout time.Duration) (*Client, error)
 // GetDaemonHost returns the daemon host address.
 // Priority: BD_DAEMON_HOST env var > daemon-host config key.
 // When set, clients should connect to this address instead of Unix socket.
+//
+// Note: prefer GetDaemonHTTPURL() for connection URLs — it returns the
+// complete URL including port, which BD_DAEMON_HOST may omit in K8s.
 func GetDaemonHost() string {
 	if host := os.Getenv("BD_DAEMON_HOST"); host != "" {
 		return host
 	}
 	return config.GetString("daemon-host")
+}
+
+// IsRemoteDaemon returns true when the CLI is configured to connect to a
+// remote daemon (K8s or remote mode). It checks BD_DAEMON_HTTP_URL first
+// (correct full URL with port), then BD_DAEMON_HOST and daemon-host config.
+// Use this for "are we in remote mode?" checks in place of checking only
+// BD_DAEMON_HOST. (gt-6fe)
+func IsRemoteDaemon() bool {
+	return GetDaemonHTTPURL() != "" || GetDaemonHost() != ""
 }
 
 // GetDaemonToken returns the daemon authentication token.

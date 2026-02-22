@@ -21,6 +21,7 @@ func TestDefaultConfig(t *testing.T) {
 
 func TestLoadSaveRoundtrip(t *testing.T) {
 	t.Setenv("BD_DAEMON_HOST", "") // Ensure local mode for filesystem roundtrip
+	t.Setenv("BD_DAEMON_HTTP_URL", "") // Ensure local mode (gt-6fe)
 	tmpDir := t.TempDir()
 	beadsDir := filepath.Join(tmpDir, ".beads")
 	if err := os.MkdirAll(beadsDir, 0750); err != nil {
@@ -52,7 +53,8 @@ func TestLoadSaveRoundtrip(t *testing.T) {
 }
 
 func TestLoadNonexistent(t *testing.T) {
-	t.Setenv("BD_DAEMON_HOST", "") // Ensure local mode for filesystem test
+	t.Setenv("BD_DAEMON_HOST", "")    // Ensure local mode for filesystem test
+	t.Setenv("BD_DAEMON_HTTP_URL", "") // Ensure local mode (gt-6fe)
 	tmpDir := t.TempDir()
 
 	cfg, err := Load(tmpDir)
@@ -260,6 +262,7 @@ func TestDoltServerConfig(t *testing.T) {
 // TestDoltServerConfigRoundtrip tests that server config survives save/load
 func TestDoltServerConfigRoundtrip(t *testing.T) {
 	t.Setenv("BD_DAEMON_HOST", "") // Ensure local mode for filesystem roundtrip
+	t.Setenv("BD_DAEMON_HTTP_URL", "") // Ensure local mode (gt-6fe)
 	tmpDir := t.TempDir()
 	beadsDir := filepath.Join(tmpDir, ".beads")
 	if err := os.MkdirAll(beadsDir, 0750); err != nil {

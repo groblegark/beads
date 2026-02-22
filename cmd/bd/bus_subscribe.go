@@ -105,13 +105,17 @@ func runBusSubscribeHTTP(cmd *cobra.Command) error {
 		token = hc.Token()
 	}
 	if baseURL == "" {
-		// Fallback: construct from daemon host env
-		host := os.Getenv("BD_DAEMON_HOST")
+		// Fallback: BD_DAEMON_HTTP_URL has priority (full URL with port); (gt-6fe)
+		// BD_DAEMON_HOST may be hostname-only in K8s.
+		host := rpc.GetDaemonHTTPURL()
+		if host == "" {
+			host = rpc.GetDaemonHost()
+		}
 		if host == "" {
 			host = "http://127.0.0.1:9080"
 		}
 		baseURL = host
-		token = os.Getenv("BD_DAEMON_TOKEN")
+		token = rpc.GetDaemonToken()
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())

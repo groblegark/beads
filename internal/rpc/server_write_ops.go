@@ -836,8 +836,8 @@ func (s *Server) isSingleDBMode() bool {
 	if os.Getenv("BEADS_DOLT_SERVER_HOST") != "" {
 		return true
 	}
-	// Auto-detect: remote daemon implies single-DB
-	if os.Getenv("BD_DAEMON_HOST") != "" {
+	// Auto-detect: remote daemon implies single-DB (gt-6fe: check both vars)
+	if os.Getenv("BD_DAEMON_HOST") != "" || os.Getenv("BD_DAEMON_HTTP_URL") != "" {
 		return true
 	}
 	return false

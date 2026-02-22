@@ -18,8 +18,8 @@ import (
 // Silent on success, prints a hint if issues detected.
 // Respects hints.doctor config setting.
 func runCheckHealth(path string) {
-	// Remote mode: no local filesystem to check. (bd-ehxmg)
-	if os.Getenv("BD_DAEMON_HOST") != "" {
+	// Remote mode: no local filesystem to check. (bd-ehxmg, gt-6fe)
+	if os.Getenv("BD_DAEMON_HOST") != "" || os.Getenv("BD_DAEMON_HTTP_URL") != "" {
 		return
 	}
 

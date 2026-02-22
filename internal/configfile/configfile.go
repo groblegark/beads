@@ -63,12 +63,13 @@ func ConfigPath(beadsDir string) string {
 
 // Load reads metadata.json from beadsDir.
 //
-// In remote mode (BD_DAEMON_HOST set), returns a default Dolt config without
-// touching the filesystem. Remote CLI clients are thin RPC wrappers — the
-// daemon owns the database, so metadata.json is irrelevant. (bd-baoqj)
+// In remote mode (BD_DAEMON_HOST or BD_DAEMON_HTTP_URL set), returns a default
+// Dolt config without touching the filesystem. Remote CLI clients are thin RPC
+// wrappers — the daemon owns the database, so metadata.json is irrelevant.
+// BD_DAEMON_HTTP_URL is the correct full URL injected by Helm in K8s. (bd-baoqj, gt-6fe)
 func Load(beadsDir string) (*Config, error) {
 	// Remote mode: return defaults — no filesystem needed.
-	if os.Getenv("BD_DAEMON_HOST") != "" {
+	if os.Getenv("BD_DAEMON_HOST") != "" || os.Getenv("BD_DAEMON_HTTP_URL") != "" {
 		return RemoteDefaultConfig(), nil
 	}
 
@@ -115,8 +116,8 @@ func Load(beadsDir string) (*Config, error) {
 }
 
 func (c *Config) Save(beadsDir string) error {
-	// Remote mode: no local filesystem to write to. (bd-baoqj)
-	if os.Getenv("BD_DAEMON_HOST") != "" {
+	// Remote mode: no local filesystem to write to. (bd-baoqj, gt-6fe)
+	if os.Getenv("BD_DAEMON_HOST") != "" || os.Getenv("BD_DAEMON_HTTP_URL") != "" {
 		return nil
 	}
 

@@ -132,9 +132,9 @@ func init() {
 }
 
 func runSlackStart(cmd *cobra.Command, args []string) error {
-	// Daemon host: flag > env > default.
-	// Default to HTTP on localhost:9080 (sidecar in same pod).
-	daemonHost := firstNonEmpty(slackDaemonHost, os.Getenv("BD_DAEMON_HOST"), "http://localhost:9080")
+	// Daemon host: flag > BD_DAEMON_HTTP_URL (full URL with port) > BD_DAEMON_HOST > default.
+	// BD_DAEMON_HTTP_URL has priority because BD_DAEMON_HOST may be hostname-only in K8s. (gt-6fe)
+	daemonHost := firstNonEmpty(slackDaemonHost, os.Getenv("BD_DAEMON_HTTP_URL"), os.Getenv("BD_DAEMON_HOST"), "http://localhost:9080")
 
 	// Connect to daemon RPC via HTTP (retry for sidecar startup race).
 	// Previous versions used TCP (localhost:9876) but HTTP is more reliable

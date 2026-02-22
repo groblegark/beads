@@ -82,12 +82,11 @@ func getIssueWithRouting(ctx context.Context, localStore storage.Storage, id str
 	}, nil
 }
 
-// isRemoteDaemon returns true if connected to a remote daemon via BD_DAEMON_HOST
-// env var or daemon-host config key. When connected to a remote daemon, skip local
-// filesystem routing - the remote daemon handles all IDs centrally. This fixes
-// gt-57wsnm. Using rpc.GetDaemonHost() ensures config.yaml is also checked.
+// isRemoteDaemon returns true if connected to a remote daemon via BD_DAEMON_HTTP_URL,
+// BD_DAEMON_HOST env var, or daemon-host config key. When connected to a remote daemon,
+// skip local filesystem routing - the remote daemon handles all IDs centrally. (gt-6fe)
 func isRemoteDaemon() bool {
-	return rpc.GetDaemonHost() != ""
+	return rpc.IsRemoteDaemon()
 }
 
 // needsRouting checks if an ID would be routed to a different beads directory.

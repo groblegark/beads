@@ -407,12 +407,12 @@ var rootCmd = &cobra.Command{
 		// Protect forks from accidentally committing upstream issue database
 		ensureForkProtection()
 
-		// Emit deprecation warnings for local-mode flags when BD_DAEMON_HOST is set.
+		// Emit deprecation warnings for local-mode flags when a remote daemon is set.
 		// These flags are only meaningful for local/direct storage and are ignored or
-		// blocked by the remote daemon. (bd-dx85)
-		if remoteHost := rpc.GetDaemonHost(); remoteHost != "" {
+		// blocked by the remote daemon. (bd-dx85, gt-6fe)
+		if rpc.IsRemoteDaemon() {
 			localFlags := map[string]string{
-				"db":           "--db is ignored with remote daemon (BD_DAEMON_HOST is set)",
+				"db":           "--db is ignored with remote daemon (BD_DAEMON_HOST or BD_DAEMON_HTTP_URL is set)",
 				"lock-timeout": "--lock-timeout is a SQLite setting, ignored with remote daemon",
 			}
 			for flag, msg := range localFlags {
@@ -478,15 +478,15 @@ var rootCmd = &cobra.Command{
 				}
 
 				if cmd.Name() != "import" && cmd.Name() != "setup" && !isYamlOnlyConfigOp && !canAutoBootstrap {
-					// When BD_DAEMON_HOST is set, don't require a local database.
+					// When a remote daemon is configured, don't require a local database.
 					// The remote daemon provides all storage — skip the local dbPath
-					// fallback and let execution continue to daemon connection. (bd-ges3k)
-					if rpc.GetDaemonHost() != "" {
-						debug.Logf("no local database found, but BD_DAEMON_HOST is set — deferring to remote daemon")
+					// fallback and let execution continue to daemon connection. (bd-ges3k, gt-6fe)
+					if rpc.IsRemoteDaemon() {
+						debug.Logf("no local database found, but remote daemon is configured — deferring to remote daemon")
 					} else {
 						// No database and no remote daemon configured
 						fmt.Fprintf(os.Stderr, "Error: no beads database found\n")
-						fmt.Fprintf(os.Stderr, "Hint: run 'bd connect' to connect to a remote daemon (BD_DAEMON_HOST)\n")
+						fmt.Fprintf(os.Stderr, "Hint: run 'bd connect' to connect to a remote daemon (BD_DAEMON_HTTP_URL or BD_DAEMON_HOST)\n")
 						fmt.Fprintf(os.Stderr, "      or run 'bd init' to create a local workspace\n")
 						fmt.Fprintf(os.Stderr, "      or set BEADS_DIR to point to your .beads directory\n")
 						os.Exit(1)
@@ -537,13 +537,17 @@ var rootCmd = &cobra.Command{
 
 		// Try to connect to daemon first (unless direct mode is forced or worktree safety check fails)
 		if forceDirectMode {
-			// When BD_DAEMON_HOST is set, direct mode is not allowed for most commands
+			// When a remote daemon is set, direct mode is not allowed for most commands
 			// since the remote daemon should handle all operations. Only doctor is exempt
-			// because it specifically diagnoses daemon connectivity issues. (bd-lkks)
-			if remoteHost := rpc.GetDaemonHost(); remoteHost != "" && cmd.Name() != "doctor" {
-				fmt.Fprintf(os.Stderr, "Error: this command requested direct database access, but BD_DAEMON_HOST is set (%s)\n", remoteHost)
+			// because it specifically diagnoses daemon connectivity issues. (bd-lkks, gt-6fe)
+			if rpc.IsRemoteDaemon() && cmd.Name() != "doctor" {
+				addr := rpc.GetDaemonHTTPURL()
+				if addr == "" {
+					addr = rpc.GetDaemonHost()
+				}
+				fmt.Fprintf(os.Stderr, "Error: this command requested direct database access, but a remote daemon is set (%s)\n", addr)
 				fmt.Fprintf(os.Stderr, "Direct mode (--profile) is not available with a remote daemon.\n")
-				fmt.Fprintf(os.Stderr, "Hint: unset BD_DAEMON_HOST to use local mode, or run the command without --profile\n")
+				fmt.Fprintf(os.Stderr, "Hint: unset BD_DAEMON_HOST and BD_DAEMON_HTTP_URL to use local mode, or run the command without --profile\n")
 				os.Exit(1)
 			}
 			debug.Logf("direct mode forced for this command")
@@ -558,8 +562,8 @@ var rootCmd = &cobra.Command{
 			client, err := rpc.TryConnectAuto(socketPath)
 			if err == nil && client != nil {
 				// Set expected database path for validation (skip for remote TCP connections
-				// where local path doesn't match remote daemon's database)
-				if dbPath != "" && rpc.GetDaemonHost() == "" {
+				// where local path doesn't match remote daemon's database) (gt-6fe)
+				if dbPath != "" && !rpc.IsRemoteDaemon() {
 					absDBPath, _ := filepath.Abs(dbPath)
 					client.SetDatabasePath(absDBPath)
 				}
@@ -572,11 +576,11 @@ var rootCmd = &cobra.Command{
 						debug.Logf("daemon version advisory: daemon=%s, client=%s (proceeding anyway)",
 							health.Version, Version)
 						// Only attempt restart for LOCAL daemons with genuine version mismatch
-						if rpc.GetDaemonHost() == "" && health.Version != Version && restartDaemonForVersionMismatch() {
+						if !rpc.IsRemoteDaemon() && health.Version != Version && restartDaemonForVersionMismatch() {
 							// Retry connection after restart
 							client, err = rpc.TryConnectAuto(socketPath)
 							if err == nil && client != nil {
-								if dbPath != "" && rpc.GetDaemonHost() == "" {
+								if dbPath != "" && !rpc.IsRemoteDaemon() {
 									absDBPath, _ := filepath.Abs(dbPath)
 									client.SetDatabasePath(absDBPath)
 								}
@@ -684,10 +688,15 @@ var rootCmd = &cobra.Command{
 				}
 			}
 
-			// If BD_DAEMON_HOST is set, fail hard instead of falling back to local mode.
+			// If a remote daemon is set, fail hard instead of falling back to local mode.
 			// The user explicitly requested a remote daemon - silent fallback would be confusing.
-			if remoteHost := rpc.GetDaemonHost(); remoteHost != "" {
-				fmt.Fprintf(os.Stderr, "Error: failed to connect to remote daemon at %s\n", remoteHost)
+			// Prefer BD_DAEMON_HTTP_URL for display (full URL with port). (gt-6fe)
+			if rpc.IsRemoteDaemon() {
+				addr := rpc.GetDaemonHTTPURL()
+				if addr == "" {
+					addr = rpc.GetDaemonHost()
+				}
+				fmt.Fprintf(os.Stderr, "Error: failed to connect to remote daemon at %s\n", addr)
 				if daemonStatus.Detail != "" {
 					fmt.Fprintf(os.Stderr, "Detail: %s\n", daemonStatus.Detail)
 				}

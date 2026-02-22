@@ -331,12 +331,17 @@ func TestDetectUserRole_DefaultContributor(t *testing.T) {
 // Before fix: walking up from ~/gt/olympus/.beads finds ~/gt/olympus (WRONG)
 // After fix: findTownRootFromCWD() walks up from CWD to find mayor/town.json at ~/gt
 func TestFindTownRoutes_SymlinkedBeadsDir(t *testing.T) {
-	// Ensure BD_DAEMON_HOST is not set for this test (we want file-based routing)
+	// Ensure BD_DAEMON_HOST and BD_DAEMON_HTTP_URL are not set for file-based routing (gt-6fe)
 	originalHost := os.Getenv("BD_DAEMON_HOST")
+	originalHTTPURL := os.Getenv("BD_DAEMON_HTTP_URL")
 	os.Unsetenv("BD_DAEMON_HOST")
+	os.Unsetenv("BD_DAEMON_HTTP_URL")
 	defer func() {
 		if originalHost != "" {
 			os.Setenv("BD_DAEMON_HOST", originalHost)
+		}
+		if originalHTTPURL != "" {
+			os.Setenv("BD_DAEMON_HTTP_URL", originalHTTPURL)
 		}
 	}()
 
@@ -442,12 +447,17 @@ func TestFindTownRoutes_SymlinkedBeadsDir(t *testing.T) {
 // Before fix: LookupRigForgiving returns false (not found)
 // After fix: LookupRigForgiving checks if gastown/.beads exists and returns a synthetic route
 func TestLookupRigForgiving_DirectoryBased(t *testing.T) {
-	// Ensure BD_DAEMON_HOST is not set for this test (we want file-based routing)
+	// Ensure BD_DAEMON_HOST and BD_DAEMON_HTTP_URL are not set for file-based routing (gt-6fe)
 	originalHost := os.Getenv("BD_DAEMON_HOST")
+	originalHTTPURL := os.Getenv("BD_DAEMON_HTTP_URL")
 	os.Unsetenv("BD_DAEMON_HOST")
+	os.Unsetenv("BD_DAEMON_HTTP_URL")
 	defer func() {
 		if originalHost != "" {
 			os.Setenv("BD_DAEMON_HOST", originalHost)
+		}
+		if originalHTTPURL != "" {
+			os.Setenv("BD_DAEMON_HTTP_URL", originalHTTPURL)
 		}
 	}()
 
@@ -608,14 +618,19 @@ func TestLoadRoutes_RemoteDaemonNoFallback(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Test 1: Without BD_DAEMON_HOST, LoadRoutes should fall back to file
+	// Test 1: Without remote daemon, LoadRoutes should fall back to file
 	t.Run("without_remote_daemon", func(t *testing.T) {
-		// Ensure BD_DAEMON_HOST is not set
+		// Ensure both daemon env vars are not set (gt-6fe)
 		originalHost := os.Getenv("BD_DAEMON_HOST")
+		originalHTTPURL := os.Getenv("BD_DAEMON_HTTP_URL")
 		os.Unsetenv("BD_DAEMON_HOST")
+		os.Unsetenv("BD_DAEMON_HTTP_URL")
 		defer func() {
 			if originalHost != "" {
 				os.Setenv("BD_DAEMON_HOST", originalHost)
+			}
+			if originalHTTPURL != "" {
+				os.Setenv("BD_DAEMON_HTTP_URL", originalHTTPURL)
 			}
 		}()
 
@@ -626,10 +641,10 @@ func TestLoadRoutes_RemoteDaemonNoFallback(t *testing.T) {
 
 		routes, err := LoadRoutes(tmpDir)
 		if err != nil {
-			t.Fatalf("LoadRoutes should not error without BD_DAEMON_HOST: %v", err)
+			t.Fatalf("LoadRoutes should not error without remote daemon: %v", err)
 		}
 		if len(routes) == 0 {
-			t.Fatal("LoadRoutes should fall back to routes.jsonl without BD_DAEMON_HOST")
+			t.Fatal("LoadRoutes should fall back to routes.jsonl without remote daemon")
 		}
 		if routes[0].Prefix != "gt-" {
 			t.Errorf("Expected prefix gt-, got %s", routes[0].Prefix)

@@ -109,9 +109,9 @@ func normalizeYamlKey(key string) string {
 // there is no local .beads/config.yaml to write to. Yaml-only keys are local
 // concerns that don't apply when connected to a remote daemon. (bd-fuf23)
 func SetYamlConfig(key, value string) error {
-	// In remote mode, there's no local config.yaml — skip gracefully. (bd-fuf23)
-	if os.Getenv("BD_DAEMON_HOST") != "" {
-		fmt.Fprintf(os.Stderr, "Warning: skipping config.yaml write for %q (remote mode — BD_DAEMON_HOST is set)\n", key)
+	// In remote mode, there's no local config.yaml — skip gracefully. (bd-fuf23, gt-6fe)
+	if os.Getenv("BD_DAEMON_HOST") != "" || os.Getenv("BD_DAEMON_HTTP_URL") != "" {
+		fmt.Fprintf(os.Stderr, "Warning: skipping config.yaml write for %q (remote mode — BD_DAEMON_HOST or BD_DAEMON_HTTP_URL is set)\n", key)
 		return nil
 	}
 
