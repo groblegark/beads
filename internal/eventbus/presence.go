@@ -524,6 +524,23 @@ func (pt *PresenceTracker) HasTask(actor string) bool {
 	return len(state.taskIDs) > 0
 }
 
+// ActorTaskIDs returns a snapshot of the in_progress bead IDs tracked for the
+// given actor. Returns nil if the actor is unknown or has no tasks. (hq-g3v7qs.4)
+func (pt *PresenceTracker) ActorTaskIDs(actor string) []string {
+	pt.mu.RLock()
+	defer pt.mu.RUnlock()
+
+	state, ok := pt.actors[actor]
+	if !ok || len(state.taskIDs) == 0 {
+		return nil
+	}
+	ids := make([]string, 0, len(state.taskIDs))
+	for id := range state.taskIDs {
+		ids = append(ids, id)
+	}
+	return ids
+}
+
 func (pt *PresenceTracker) handleMutationEvent(msg *nats.Msg) {
 	var payload MutationEventPayload
 	if err := json.Unmarshal(msg.Data, &payload); err != nil {

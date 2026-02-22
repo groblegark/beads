@@ -870,6 +870,50 @@ func runDaemonLoop(interval time.Duration, autoCommit, autoPush, autoPull, local
 						"agent_state": "dead",
 					}, "reaper")
 				}
+
+				// Release orphaned in_progress beads so they can be re-dispatched.
+				// The presence tracker knows which beads this actor was working on
+				// (populated via mutation events + cold-start backfill). (hq-g3v7qs.4)
+				if store != nil {
+					orphanedIDs := pt.ActorTaskIDs(actor)
+					if len(orphanedIDs) > 0 {
+						log.Warn("reaper: releasing orphaned work",
+							"agent", actor, "beads", orphanedIDs)
+						ctx2, cancel2 := context.WithTimeout(context.Background(), 10*time.Second)
+						defer cancel2()
+						for _, beadID := range orphanedIDs {
+							err := store.UpdateIssue(ctx2, beadID, map[string]interface{}{
+								"status":   "open",
+								"assignee": "",
+							}, "reaper")
+							if err != nil {
+								log.Warn("reaper: failed to release orphaned bead",
+									"bead", beadID, "agent", actor, "error", err)
+								continue
+							}
+							// Add a comment so the audit trail is clear.
+							_ = store.AddComment(ctx2, beadID, "reaper",
+								fmt.Sprintf("Auto-released: agent %q went dead (no activity for 15+ min)", actor))
+							// Emit mutation event so NATS consumers (presence tracker,
+							// SSE clients, beads3d) see the status change. (hq-g3v7qs.4)
+							mutPayload := eventbus.MutationEventPayload{
+								Type:      "status",
+								IssueID:   beadID,
+								Assignee:  "",
+								Actor:     "reaper",
+								OldStatus: "in_progress",
+								NewStatus: "open",
+								Timestamp: time.Now().UTC().Format(time.RFC3339),
+							}
+							mutData, merr := json.Marshal(mutPayload)
+							if merr == nil {
+								bus.PublishRaw("mutations."+string(eventbus.EventMutationStatus), mutData)
+							}
+							log.Info("reaper: released orphaned bead",
+								"bead", beadID, "agent", actor)
+						}
+					}
+				}
 			},
 		})
 

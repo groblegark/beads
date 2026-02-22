@@ -273,6 +273,48 @@ func TestPresenceTracker_HasTask(t *testing.T) {
 	}
 }
 
+// TestPresenceTracker_ActorTaskIDs verifies that ActorTaskIDs returns the
+// correct bead IDs for an actor, and nil for unknown/empty actors. (hq-g3v7qs.4)
+func TestPresenceTracker_ActorTaskIDs(t *testing.T) {
+	pt := NewPresenceTracker()
+
+	// Unknown actor → nil.
+	if ids := pt.ActorTaskIDs("nobody"); ids != nil {
+		t.Errorf("expected nil for unknown actor, got %v", ids)
+	}
+
+	// Actor with no tasks → nil.
+	pt.mu.Lock()
+	pt.actors["alice"] = &actorState{taskIDs: map[string]bool{}}
+	pt.mu.Unlock()
+	if ids := pt.ActorTaskIDs("alice"); ids != nil {
+		t.Errorf("expected nil for actor with empty taskIDs, got %v", ids)
+	}
+
+	// Actor with multiple tasks → returns all IDs.
+	pt.mu.Lock()
+	pt.actors["bob"] = &actorState{taskIDs: map[string]bool{
+		"bd-1": true,
+		"bd-2": true,
+		"bd-3": true,
+	}}
+	pt.mu.Unlock()
+
+	ids := pt.ActorTaskIDs("bob")
+	if len(ids) != 3 {
+		t.Fatalf("expected 3 task IDs, got %d: %v", len(ids), ids)
+	}
+	idSet := make(map[string]bool)
+	for _, id := range ids {
+		idSet[id] = true
+	}
+	for _, want := range []string{"bd-1", "bd-2", "bd-3"} {
+		if !idSet[want] {
+			t.Errorf("expected %q in result, got %v", want, ids)
+		}
+	}
+}
+
 func TestPresenceTracker_HandleMutationEvent(t *testing.T) {
 	pt := NewPresenceTracker()
 
@@ -866,6 +908,59 @@ func TestPresenceTracker_Reaper_Eviction(t *testing.T) {
 	}
 	if _, ok := pt.actors["alive"]; !ok {
 		t.Error("expected alive actor to survive")
+	}
+}
+
+// TestPresenceTracker_Reaper_OrphanedTaskIDs verifies that when the reaper
+// marks an actor as dead, ActorTaskIDs still returns the actor's in_progress
+// beads so the OnDead callback can release them. (hq-g3v7qs.4)
+func TestPresenceTracker_Reaper_OrphanedTaskIDs(t *testing.T) {
+	pt := NewPresenceTracker()
+	pt.started = time.Now()
+
+	// Add an idle actor with tracked tasks.
+	pt.mu.Lock()
+	pt.actors["dead-agent"] = &actorState{
+		firstSeen:  time.Now().Add(-30 * time.Minute),
+		lastSeen:   time.Now().Add(-20 * time.Minute),
+		lastEvent:  "PostToolUse",
+		sessionID:  "sess-dead",
+		eventCount: 50,
+		taskIDs:    map[string]bool{"bd-100": true, "bd-200": true},
+	}
+	pt.mu.Unlock()
+
+	// Capture orphaned task IDs from OnDead callback.
+	var orphanedIDs []string
+	var mu sync.Mutex
+
+	cfg := &ReaperConfig{
+		DeadThreshold: 15 * time.Minute,
+		SweepInterval: 10 * time.Millisecond,
+		OnDead: func(actor, sessionID string) {
+			ids := pt.ActorTaskIDs(actor)
+			mu.Lock()
+			orphanedIDs = ids
+			mu.Unlock()
+		},
+	}
+
+	pt.StartReaper(cfg)
+	time.Sleep(50 * time.Millisecond)
+	pt.Stop()
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	if len(orphanedIDs) != 2 {
+		t.Fatalf("expected 2 orphaned task IDs, got %d: %v", len(orphanedIDs), orphanedIDs)
+	}
+	idSet := make(map[string]bool)
+	for _, id := range orphanedIDs {
+		idSet[id] = true
+	}
+	if !idSet["bd-100"] || !idSet["bd-200"] {
+		t.Errorf("expected bd-100 and bd-200 in orphaned IDs, got %v", orphanedIDs)
 	}
 }
 
