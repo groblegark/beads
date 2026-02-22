@@ -322,6 +322,12 @@ slackBot:
     size: 100Mi
     accessMode: ReadWriteOnce
 
+  # Agent activity dashboard (bd-u01j4): posts/updates a live roster in Slack
+  dashboard:
+    enabled: false
+    channelID: ""    # Channel for dashboard message (defaults to slackBot.channelID)
+    interval: ""     # Update interval (e.g., "30s", "1m"). Empty = default (60s)
+
   resources:
     requests:
       cpu: 100m

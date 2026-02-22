@@ -77,6 +77,18 @@ spec:
             - name: BD_NATS_URL
               value: {{ include "bd-daemon.natsURL" . | quote }}
             {{- end }}
+            {{- if .Values.slackBot.dashboard.enabled }}
+            - name: BD_SLACK_DASHBOARD
+              value: "true"
+            {{- if .Values.slackBot.dashboard.channelID }}
+            - name: BD_SLACK_DASHBOARD_CHANNEL
+              value: {{ .Values.slackBot.dashboard.channelID | quote }}
+            {{- end }}
+            {{- if .Values.slackBot.dashboard.interval }}
+            - name: BD_SLACK_DASHBOARD_INTERVAL
+              value: {{ .Values.slackBot.dashboard.interval | quote }}
+            {{- end }}
+            {{- end }}
             {{- /* Anthropic API key for standalone slackbot */ -}}
             {{- if and .Values.externalSecrets.enabled .Values.externalSecrets.anthropicApiKey.enabled .Values.externalSecrets.anthropicApiKey.remoteRef }}
             - name: ANTHROPIC_API_KEY
