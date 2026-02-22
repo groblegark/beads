@@ -41,7 +41,6 @@ type roleAgentInfo struct {
 }
 
 // buildRoleAgentCommands creates list/stop/start subcommands for a given role type.
-// roleType is "refinery" or "witness".
 func buildRoleAgentCommands(roleType string) (*cobra.Command, func()) {
 	var listRig string
 	var listAll bool

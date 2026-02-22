@@ -855,7 +855,7 @@ func detectAgentIdentity() *agentIdentity {
 // parseAgentIdentity parses a GT_ROLE value into agent identity.
 func parseAgentIdentity(role string) *agentIdentity {
 	// GT_ROLE can be:
-	// - Simple: "crew", "polecat", "witness", "refinery", "mayor"
+	// - Simple: "crew", "polecat", "mayor", "deacon"
 	// - Compound: "beads/crew/dave", "gastown/polecat/Nux-123"
 
 	if strings.Contains(role, "/") {
@@ -891,14 +891,6 @@ func parseAgentIdentity(role string) *agentIdentity {
 		if rig != "" && polecat != "" {
 			identity.FullIdentity = fmt.Sprintf("%s/%s", rig, polecat)
 		}
-	case "witness":
-		if rig != "" {
-			identity.FullIdentity = fmt.Sprintf("%s/witness", rig)
-		}
-	case "refinery":
-		if rig != "" {
-			identity.FullIdentity = fmt.Sprintf("%s/refinery", rig)
-		}
 	case "mayor":
 		identity.FullIdentity = "mayor"
 		identity.Rig = "" // Mayor is rig-agnostic
@@ -920,8 +912,6 @@ func detectAgentFromPath(cwd string) *agentIdentity {
 	// Match patterns like:
 	// - /Users/.../gt/<rig>/crew/<name>/...
 	// - /Users/.../gt/<rig>/polecats/<name>/...
-	// - /Users/.../gt/<rig>/witness/...
-	// - /Users/.../gt/<rig>/refinery/...
 
 	// Crew pattern
 	if strings.Contains(cwd, "/crew/") {
@@ -953,32 +943,6 @@ func detectAgentFromPath(cwd string) *agentIdentity {
 				Rig:          rig,
 				Role:         "polecat",
 				Molecule:     getPinnedMolecule(),
-			}
-		}
-	}
-
-	// Witness pattern
-	if strings.Contains(cwd, "/witness/") || strings.HasSuffix(cwd, "/witness") {
-		parts := strings.Split(cwd, "/witness")
-		if len(parts) >= 1 {
-			rig := filepath.Base(parts[0])
-			return &agentIdentity{
-				FullIdentity: fmt.Sprintf("%s/witness", rig),
-				Rig:          rig,
-				Role:         "witness",
-			}
-		}
-	}
-
-	// Refinery pattern
-	if strings.Contains(cwd, "/refinery/") || strings.HasSuffix(cwd, "/refinery") {
-		parts := strings.Split(cwd, "/refinery")
-		if len(parts) >= 1 {
-			rig := filepath.Base(parts[0])
-			return &agentIdentity{
-				FullIdentity: fmt.Sprintf("%s/refinery", rig),
-				Rig:          rig,
-				Role:         "refinery",
 			}
 		}
 	}

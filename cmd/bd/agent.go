@@ -1537,7 +1537,6 @@ func isAgentBead(labels []string) bool {
 // parseAgentIDFields extracts role_type and rig from an agent bead ID.
 // Agent ID patterns:
 //   - Town-level: <prefix>-<role> (e.g., gt-mayor) → role="mayor", rig=""
-//   - Per-rig singleton: <prefix>-<rig>-<role> (e.g., gt-gastown-witness) → role="witness", rig="gastown"
 //   - Per-rig named: <prefix>-<rig>-<role>-<name> (e.g., gt-gastown-polecat-nux) → role="polecat", rig="gastown"
 func parseAgentIDFields(agentID string) (roleType, rig string) {
 	// Must contain a hyphen to have a prefix
@@ -1556,7 +1555,6 @@ func parseAgentIDFields(agentID string) (roleType, rig string) {
 
 	// Known roles for classification
 	townLevelRoles := map[string]bool{"mayor": true, "deacon": true}
-	rigLevelRoles := map[string]bool{"witness": true, "refinery": true}
 	namedRoles := map[string]bool{"crew": true, "polecat": true}
 
 	// Case 1: Town-level roles (gt-mayor, gt-deacon) - single part after prefix
@@ -1573,13 +1571,6 @@ func parseAgentIDFields(agentID string) (roleType, rig string) {
 	for i := len(parts) - 1; i >= 0; i-- {
 		part := parts[i]
 
-		// Check for rig-level role (witness, refinery) - must be at end
-		if rigLevelRoles[part] && i == len(parts)-1 {
-			// rig is everything before role
-			rig = strings.Join(parts[:i], "-")
-			return part, rig
-		}
-
 		// Check for named role (crew, polecat) - must have something after (the name)
 		if namedRoles[part] && i < len(parts)-1 {
 			// rig is everything before role
@@ -1594,7 +1585,7 @@ func parseAgentIDFields(agentID string) (roleType, rig string) {
 // AgentFields holds agent-specific configuration that can be stored in a bead's description.
 // These fields extend the core agent identity stored in Issue fields (RoleType, Rig, etc.).
 type AgentFields struct {
-	// RoleType is the agent role: polecat, crew, witness, refinery, mayor, deacon
+	// RoleType is the agent role: polecat, crew, mayor, deacon
 	RoleType string
 
 	// Rig is the rig name (empty for town-level agents)
