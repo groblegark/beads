@@ -83,10 +83,10 @@ dolt:
   # Smaller resources for e2e testing
   resources:
     requests:
-      cpu: 250m
+      cpu: 1000m
       memory: 512Mi
     limits:
-      cpu: 500m
+      cpu: 4000m
       memory: 1Gi
 
   persistence:
