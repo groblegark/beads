@@ -55,13 +55,9 @@ func (s *Server) handleGraph(req *Request) Response {
 		args.Limit = 500
 	}
 	if len(args.Status) == 0 {
-		// Include all active statuses + recently-closed (bd-7haep: was missing
-		// blocked/hooked/deferred which caused in-progress-like items to vanish)
-		args.Status = []string{"open", "in_progress", "blocked", "hooked", "deferred", "closed"}
-		// Default: show recently-closed items (24h) alongside active ones (bd-rkd71)
-		if args.MaxAgeDays == 0 {
-			args.MaxAgeDays = 1
-		}
+		// Default: show only active work — no closed items (bd-a0vbd: reduce graph
+		// hairball by excluding closed beads that add noise without signal).
+		args.Status = []string{"open", "in_progress", "blocked", "hooked", "deferred"}
 	}
 	if len(args.ExcludeTypes) == 0 {
 		args.ExcludeTypes = []string{"message", "config", "molecule", "formula", "advice", "role", "gate", "runbook", "event"}
@@ -361,8 +357,9 @@ func (s *Server) handleGraph(req *Request) Response {
 
 	// Include connected closed items (bd-71kcv): after edge collection, find
 	// closed issues referenced by edges that connect to open/active nodes.
-	// Default: true (unless explicitly set to false).
-	includeConnectedClosed := args.IncludeConnectedClosed == nil || *args.IncludeConnectedClosed
+	// Default: false (bd-a0vbd: was true, but pulling in closed items via edges
+	// creates excessive connections and turns the graph into a hairball).
+	includeConnectedClosed := args.IncludeConnectedClosed != nil && *args.IncludeConnectedClosed
 	if includeConnectedClosed {
 		// Collect IDs from edges that are NOT in the current node set
 		closedCandidateIDs := make(map[string]bool)
@@ -545,14 +542,14 @@ func (s *Server) handleGraph(req *Request) Response {
 
 		// Source 2: Issue assignees — create fallback agent nodes for agents not
 		// found in Source 0 or Source 1 (e.g. local dev without NATS).
-		// bd-hq1hl: Only create from active issues (open/in_progress/blocked/hooked)
-		// to avoid flooding the graph with historical agent nodes from closed issues.
+		// bd-a0vbd: Only create from in_progress issues to avoid bloating the graph
+		// with agent nodes that bridge otherwise-separate clusters.
 		for _, issue := range issueMap {
 			if issue.Assignee == "" {
 				continue
 			}
-			if issue.Status == "closed" || issue.Status == "tombstone" {
-				continue // Skip historical assignments
+			if issue.Status != types.StatusInProgress {
+				continue // Only agents with active work get nodes
 			}
 			if _, exists := agentNodes[issue.Assignee]; !exists {
 				agentNodes[issue.Assignee] = &GraphNode{
@@ -563,12 +560,15 @@ func (s *Server) handleGraph(req *Request) Response {
 			}
 		}
 
-		// Create assigned_to edges from agent nodes to their issues (bd-988ef).
-		// This is a separate pass over issueMap so that edges are created for ALL
-		// agents regardless of which source discovered them (Source 0/1/2).
+		// Create assigned_to edges only for in_progress issues (bd-a0vbd).
+		// Previously edges were created for ALL assigned issues (open, blocked, etc.),
+		// which caused agent nodes to bridge separate epic clusters into one hairball.
 		for _, issue := range issueMap {
 			if issue.Assignee == "" {
 				continue
+			}
+			if issue.Status != types.StatusInProgress {
+				continue // Only show agent tether for actively-worked beads
 			}
 			if _, exists := agentNodes[issue.Assignee]; exists {
 				edges = append(edges, GraphEdge{
@@ -579,8 +579,18 @@ func (s *Server) handleGraph(req *Request) Response {
 			}
 		}
 
+		// bd-a0vbd: Only add agent nodes that have at least one assigned_to edge.
+		// Agents from roster/beads with no in-progress work just clutter the graph.
+		agentsWithEdges := make(map[string]bool)
+		for _, e := range edges {
+			if e.Type == "assigned_to" {
+				agentsWithEdges[e.Source] = true
+			}
+		}
 		for _, node := range agentNodes {
-			nodes = append(nodes, *node)
+			if agentsWithEdges[node.ID] {
+				nodes = append(nodes, *node)
+			}
 		}
 	}
 
