@@ -2,6 +2,8 @@ package formula
 
 import (
 	"fmt"
+	"os"
+	"strings"
 
 	"github.com/steveyegge/beads/internal/storage"
 )
@@ -29,10 +31,20 @@ func loadAndResolveWithParser(formulaPath string, parser *Parser) (*Formula, err
 	// Try to load by name first (from .beads/formulas/ registry or DB)
 	f, err := parser.LoadByName(formulaPath)
 	if err != nil {
-		// Fall back to parsing as a file path
-		f, err = parser.ParseFile(formulaPath)
-		if err != nil {
-			return nil, fmt.Errorf("parsing formula: %w", err)
+		// Only fall back to parsing as a file path when the argument looks like a path
+		// (has a formula extension or path separator). When it's a bare formula name
+		// that wasn't found, propagate the clean "not found" error rather than trying
+		// to open a file at that path (which produces confusing errors like
+		// "open /home/beads/mol-polecat-work: no such file or directory"). (gt-4p0)
+		if strings.HasSuffix(formulaPath, FormulaExtTOML) ||
+			strings.HasSuffix(formulaPath, FormulaExtJSON) ||
+			strings.ContainsAny(formulaPath, string(os.PathSeparator)+"/") {
+			f, err = parser.ParseFile(formulaPath)
+			if err != nil {
+				return nil, fmt.Errorf("parsing formula: %w", err)
+			}
+		} else {
+			return nil, err
 		}
 	}
 

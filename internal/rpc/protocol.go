@@ -1257,13 +1257,14 @@ type RefileResult struct {
 
 // CookArgs represents arguments for the cook operation
 type CookArgs struct {
-	FormulaName string            `json:"formula_name"`      // Formula file name or path
-	DryRun      bool              `json:"dry_run,omitempty"` // Preview only
-	Persist     bool              `json:"persist,omitempty"` // Write proto to database
-	Force       bool              `json:"force,omitempty"`   // Overwrite existing proto
-	Prefix      string            `json:"prefix,omitempty"`  // Proto ID prefix
-	Vars        map[string]string `json:"vars,omitempty"`    // Variable substitutions
-	Mode        string            `json:"mode,omitempty"`    // "compile" or "runtime"
+	FormulaName    string            `json:"formula_name"`               // Formula file name or path
+	DryRun         bool              `json:"dry_run,omitempty"`          // Preview only
+	Persist        bool              `json:"persist,omitempty"`          // Write proto to database
+	Force          bool              `json:"force,omitempty"`            // Overwrite existing proto
+	Prefix         string            `json:"prefix,omitempty"`           // Proto ID prefix
+	Vars           map[string]string `json:"vars,omitempty"`             // Variable substitutions
+	Mode           string            `json:"mode,omitempty"`             // "compile" or "runtime"
+	FormulaContent json.RawMessage   `json:"formula_content,omitempty"` // Pre-resolved formula from client filesystem (gt-4p0)
 }
 
 // CookResult represents the result of a cook operation

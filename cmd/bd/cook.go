@@ -299,6 +299,11 @@ func runCook(cmd *cobra.Command, args []string) {
 // Handles all modes: ephemeral (default), dry-run, and persist.
 // The daemon resolves formulas from the database first, which is required
 // in K8s environments where there are no filesystem formula files.
+//
+// When the formula is found on the client's local filesystem, its resolved
+// content is sent to the daemon directly (gt-4p0). This allows formulas that
+// exist on the client's filesystem but not in the daemon's DB to work in
+// daemon mode.
 func cookViaDaemon(flags *cookFlags) {
 	args := &rpc.CookArgs{
 		FormulaName: flags.formulaPath,
@@ -310,6 +315,16 @@ func cookViaDaemon(flags *cookFlags) {
 	}
 	if flags.runtimeMode {
 		args.Mode = "runtime"
+	}
+
+	// Try to resolve the formula from the client's local filesystem.
+	// Send the resolved content to the daemon so it doesn't need to look up
+	// the formula in its own DB or filesystem (gt-4p0). This is required in
+	// K8s environments where the daemon pod cannot access the client filesystem.
+	if localFormula, err := formula.LoadAndResolve(flags.formulaPath, nil); err == nil {
+		if content, err := json.Marshal(localFormula); err == nil {
+			args.FormulaContent = content
+		}
 	}
 
 	result, err := daemonClient.Cook(args)

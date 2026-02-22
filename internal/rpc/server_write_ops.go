@@ -373,10 +373,23 @@ func (s *Server) handleCook(req *Request) Response {
 		actor = "daemon"
 	}
 
-	// Load and resolve formula using DB-backed parser (checks DB first, then filesystem)
-	resolved, err := formula.LoadAndResolveWithStorage(args.FormulaName, nil, store)
-	if err != nil {
-		return Response{Success: false, Error: fmt.Sprintf("loading formula %q: %v", args.FormulaName, err)}
+	// Resolve the formula: prefer client-provided content (gt-4p0), then DB/filesystem.
+	// Client sends FormulaContent when the formula exists on the client's local filesystem
+	// but may not be in the daemon's DB (common in K8s daemon-mode deployments).
+	var resolved *formula.Formula
+	if len(args.FormulaContent) > 0 {
+		var f formula.Formula
+		if err := json.Unmarshal(args.FormulaContent, &f); err != nil {
+			return Response{Success: false, Error: fmt.Sprintf("invalid formula content: %v", err)}
+		}
+		resolved = &f
+	} else {
+		// Load and resolve formula using DB-backed parser (checks DB first, then filesystem)
+		var err error
+		resolved, err = formula.LoadAndResolveWithStorage(args.FormulaName, nil, store)
+		if err != nil {
+			return Response{Success: false, Error: fmt.Sprintf("loading formula %q: %v", args.FormulaName, err)}
+		}
 	}
 
 	// Apply prefix to proto ID if specified
