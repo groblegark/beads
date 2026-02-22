@@ -1596,58 +1596,22 @@ func (b *Bot) NotifyResolution(decision *Decision) error {
 
 	resolverText := formatResolver(resolvedBy)
 
-	var blocks []slack.Block
-	blocks = append(blocks,
-		slack.NewSectionBlock(
-			slack.NewTextBlockObject("mrkdwn",
-				fmt.Sprintf(":clipboard: *Decision Resolved: %s*", displayID), false, false),
-			nil, nil),
-		slack.NewSectionBlock(
-			slack.NewTextBlockObject("mrkdwn",
-				fmt.Sprintf("*Question:* %s", decision.Question), false, false),
-			nil, nil))
-
-	if decision.RequestedBy != "" {
-		blocks = append(blocks,
-			slack.NewContextBlock("",
-				slack.NewTextBlockObject("mrkdwn",
-					fmt.Sprintf("*Requested by:* %s", decision.RequestedBy), false, false)))
-	}
-
-	if len(decision.Options) > 0 {
-		blocks = append(blocks, slack.NewDividerBlock())
-		optionsText := "*Options:*\n"
-		for i, opt := range decision.Options {
-			prefix := "○"
-			if i+1 == decision.ChosenIndex {
-				prefix = "chosen:"
-			}
-			optionsText += fmt.Sprintf("%s %d. *%s*", prefix, i+1, opt.Label)
-			if opt.Description != "" {
-				desc := opt.Description
-				if len(desc) > 100 {
-					desc = desc[:97] + "..."
-				}
-				optionsText += fmt.Sprintf(" — _%s_", desc)
-			}
-			optionsText += "\n"
-		}
-		blocks = append(blocks,
-			slack.NewSectionBlock(
-				slack.NewTextBlockObject("mrkdwn", optionsText, false, false),
-				nil, nil))
-	}
-
-	blocks = append(blocks, slack.NewDividerBlock())
-	resolutionText := fmt.Sprintf("*Choice:* %s\n*Resolved by:* %s", optionLabel, resolverText)
+	// Compact fallback resolution message: response, reason, target agent, decision ID
+	resolutionText := fmt.Sprintf(":clipboard: *%s* — Resolved\n\n", displayID)
+	resolutionText += fmt.Sprintf("*Response:* %s\n", optionLabel)
 	if decision.Rationale != "" {
 		displayRationale := decision.Rationale
 		if len(displayRationale) > 400 {
 			displayRationale = displayRationale[:397] + "..."
 		}
-		resolutionText = fmt.Sprintf("*Choice:* %s\n*Rationale:* %s\n*Resolved by:* %s",
-			optionLabel, displayRationale, resolverText)
+		resolutionText += fmt.Sprintf("*Reason:* %s\n", displayRationale)
 	}
+	if decision.RequestedBy != "" {
+		resolutionText += fmt.Sprintf("*Agent:* %s\n", decision.RequestedBy)
+	}
+	resolutionText += fmt.Sprintf("*Resolved by:* %s", resolverText)
+
+	var blocks []slack.Block
 	blocks = append(blocks,
 		slack.NewSectionBlock(
 			slack.NewTextBlockObject("mrkdwn", resolutionText, false, false),
@@ -1727,69 +1691,27 @@ func (b *Bot) updateMessageAsResolved(channelID, messageTs string, decision *Dec
 
 	resolverText := formatResolver(resolverID)
 
-	var blocks []slack.Block
-	blocks = append(blocks,
-		slack.NewSectionBlock(
-			slack.NewTextBlockObject("mrkdwn",
-				fmt.Sprintf("*%s* — Resolved", displayID), false, false),
-			nil, nil),
-		slack.NewSectionBlock(
-			slack.NewTextBlockObject("mrkdwn",
-				fmt.Sprintf("*Question:* %s", decision.Question), false, false),
-			nil, nil))
-
-	if decision.RequestedBy != "" {
-		blocks = append(blocks,
-			slack.NewContextBlock("",
-				slack.NewTextBlockObject("mrkdwn",
-					fmt.Sprintf("*Requested by:* %s", decision.RequestedBy), false, false)))
-	}
-
-	blocks = append(blocks, slack.NewDividerBlock())
-
-	if len(decision.Options) > 0 {
-		optionsText := "*Options:*\n"
-		for i, opt := range decision.Options {
-			prefix := "○"
-			if i+1 == decision.ChosenIndex {
-				prefix = "chosen:"
-			}
-			label := opt.Label
-			if opt.Recommended {
-				label += " *"
-			}
-			optionsText += fmt.Sprintf("%s %d. *%s*", prefix, i+1, label)
-			if opt.Description != "" {
-				desc := opt.Description
-				if len(desc) > 100 {
-					desc = desc[:97] + "..."
-				}
-				optionsText += fmt.Sprintf(" — _%s_", desc)
-			}
-			optionsText += "\n"
-		}
-		blocks = append(blocks,
-			slack.NewSectionBlock(
-				slack.NewTextBlockObject("mrkdwn", optionsText, false, false),
-				nil, nil))
-	}
-
-	blocks = append(blocks, slack.NewDividerBlock())
-
 	chosenLabel := "Unknown"
 	if decision.ChosenIndex > 0 && decision.ChosenIndex <= len(decision.Options) {
 		chosenLabel = decision.Options[decision.ChosenIndex-1].Label
 	}
-	resolutionText := fmt.Sprintf("*Choice:* %s\n", chosenLabel)
+
+	// Compact resolved message: response, reason, target agent, decision ID
+	resolutionText := fmt.Sprintf("*%s* — Resolved\n\n", displayID)
+	resolutionText += fmt.Sprintf("*Response:* %s\n", chosenLabel)
 	if decision.Rationale != "" {
 		displayRationale := decision.Rationale
 		if len(displayRationale) > 400 {
 			displayRationale = displayRationale[:397] + "..."
 		}
-		resolutionText += fmt.Sprintf("*Rationale:* %s\n", displayRationale)
+		resolutionText += fmt.Sprintf("*Reason:* %s\n", displayRationale)
+	}
+	if decision.RequestedBy != "" {
+		resolutionText += fmt.Sprintf("*Agent:* %s\n", decision.RequestedBy)
 	}
 	resolutionText += fmt.Sprintf("*Resolved by:* %s", resolverText)
 
+	var blocks []slack.Block
 	blocks = append(blocks,
 		slack.NewSectionBlock(
 			slack.NewTextBlockObject("mrkdwn", resolutionText, false, false),
