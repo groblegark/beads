@@ -258,6 +258,11 @@ linters:
         linters:
           - gosec
         text: 'G112'
+      # gosec G404: math/rand for jitter/scheduling is safe — no crypto requirement
+      - path: 'internal/slackbot/dashboard\.go'
+        linters:
+          - gosec
+        text: 'G404'
 
       # misspell: "cancelled" is intentional - matching GitHub API response values
       - path: 'cmd/bd/gate\.go'
