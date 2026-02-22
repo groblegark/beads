@@ -352,6 +352,8 @@ func (b *Bot) handleSlashCommand(cmd slack.SlashCommand) {
 	switch cmd.Command {
 	case "/decisions", "/decide":
 		b.handleDecisionsCommand(cmd)
+	case "/roster":
+		b.handleRosterCommand(cmd)
 	default:
 		b.postEphemeral(cmd.ChannelID, cmd.UserID,
 			fmt.Sprintf("Unknown command: %s", cmd.Command))
@@ -450,6 +452,27 @@ func (b *Bot) handleDecisionsCommand(cmd slack.SlashCommand) {
 		slack.MsgOptionResponseURL(cmd.ResponseURL, slack.ResponseTypeEphemeral))
 	if err != nil {
 		log.Printf("slackbot: error posting decisions list: %v", err)
+	}
+}
+
+func (b *Bot) handleRosterCommand(cmd slack.SlashCommand) {
+	ctx := context.Background()
+	cfg := DashboardConfig{
+		MaxWorkingShown:   15,
+		MaxIdleShown:      10,
+		MaxDeadShown:      10,
+		MaxUnclaimedShown: 10,
+	}
+	blocks, _, err := BuildDashboardBlocks(ctx, b.decisions, cfg)
+	if err != nil {
+		b.postEphemeral(cmd.ChannelID, cmd.UserID,
+			fmt.Sprintf("Error fetching roster: %v", err))
+		return
+	}
+	_, err = b.client.PostEphemeral(cmd.ChannelID, cmd.UserID,
+		slack.MsgOptionBlocks(blocks...))
+	if err != nil {
+		log.Printf("slackbot: error posting roster: %v", err)
 	}
 }
 
