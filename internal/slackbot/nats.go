@@ -25,6 +25,7 @@ type NATSWatcher struct {
 	sub          *nats.Subscription
 	agentSub     *nats.Subscription
 	dashboardSub *nats.Subscription // Separate consumer for dashboard refresh (bd-ije8h)
+	mutationSub  *nats.Subscription // Watches for bead close events with Slack metadata (beads-4m4o)
 	seen         map[string]bool
 	seenMu       sync.Mutex
 }
@@ -216,10 +217,48 @@ func (w *NATSWatcher) connect(ctx context.Context) error {
 		}
 	}
 
+	// Subscribe to mutation events for Slack chat response relay (beads-4m4o).
+	// When a bead with [slack:CH:TS] metadata is closed, relay the close reason
+	// back to the originating Slack thread.
+	var mutationSub *nats.Subscription
+	for attempt := 1; attempt <= 10; attempt++ {
+		mutationSub, err = js.Subscribe(
+			eventbus.SubjectMutationPrefix+string(eventbus.EventMutationStatus),
+			w.handleMutationStatus,
+			nats.Durable("slack-bot-mutations"),
+			nats.DeliverNew(),
+			nats.AckExplicit(),
+			nats.ManualAck(),
+		)
+		if err == nil {
+			break
+		}
+		if !strings.Contains(err.Error(), "already bound") {
+			log.Printf("slackbot/nats: mutation events subscribe failed: %v (continuing without)", err)
+			mutationSub = nil
+			err = nil
+			break
+		}
+		if attempt == 10 {
+			log.Printf("slackbot/nats: mutation events consumer still bound after %d attempts (continuing without)", attempt)
+			mutationSub = nil
+			err = nil
+			break
+		}
+		log.Printf("slackbot/nats: mutation events consumer still bound (attempt %d/10), retrying in 3s", attempt)
+		select {
+		case <-ctx.Done():
+			nc.Close()
+			return ctx.Err()
+		case <-time.After(3 * time.Second):
+		}
+	}
+
 	w.conn = nc
 	w.sub = sub
 	w.agentSub = agentSub
 	w.dashboardSub = dashboardSub
+	w.mutationSub = mutationSub
 
 	subs := []string{eventbus.StreamDecisionEvents}
 	if agentSub != nil {
@@ -227,6 +266,9 @@ func (w *NATSWatcher) connect(ctx context.Context) error {
 	}
 	if dashboardSub != nil {
 		subs = append(subs, "dashboard")
+	}
+	if mutationSub != nil {
+		subs = append(subs, "mutations")
 	}
 	log.Printf("slackbot/nats: connected to %s, subscribed to %s", w.natsURL, strings.Join(subs, " + "))
 	return nil
@@ -503,8 +545,75 @@ func (w *NATSWatcher) handleAgentMessage(msg *nats.Msg) {
 	_ = msg.Ack()
 }
 
+// handleMutationStatus processes bead status change events. When a bead with
+// Slack metadata ([slack:CH:TS] tag) is closed, it relays the close reason
+// back to the originating Slack thread as a reply. (beads-4m4o)
+func (w *NATSWatcher) handleMutationStatus(msg *nats.Msg) {
+	var payload eventbus.MutationEventPayload
+	if err := json.Unmarshal(msg.Data, &payload); err != nil {
+		log.Printf("slackbot/nats: mutation unmarshal error: %v", err)
+		_ = msg.Ack()
+		return
+	}
+
+	// Only care about transitions to "closed".
+	if payload.NewStatus != "closed" {
+		_ = msg.Ack()
+		return
+	}
+
+	// Only care about beads with the "slack-chat" label.
+	hasSlackLabel := false
+	for _, label := range payload.Labels {
+		if label == "slack-chat" {
+			hasSlackLabel = true
+			break
+		}
+	}
+	if !hasSlackLabel {
+		_ = msg.Ack()
+		return
+	}
+
+	// Fetch the bead to extract Slack metadata and close reason.
+	ctx := context.Background()
+	info, err := w.decisions.GetSlackChatIssueInfo(ctx, payload.IssueID)
+	if err != nil {
+		log.Printf("slackbot/nats: mutation: get issue %s failed: %v", payload.IssueID, err)
+		_ = msg.Ack()
+		return
+	}
+
+	channelID, messageTS := parseSlackMeta(info.Description)
+	if channelID == "" || messageTS == "" {
+		log.Printf("slackbot/nats: mutation: bead %s has slack-chat label but no [slack:] tag", payload.IssueID)
+		_ = msg.Ack()
+		return
+	}
+
+	// Build response text from the close reason.
+	responseText := fmt.Sprintf(":white_check_mark: *%s* completed", payload.IssueID)
+	if payload.Actor != "" {
+		responseText += fmt.Sprintf(" by *%s*", payload.Actor)
+	}
+	if info.CloseReason != "" {
+		responseText += fmt.Sprintf("\n\n%s", info.CloseReason)
+	} else if info.Notes != "" {
+		responseText += fmt.Sprintf("\n\n%s", info.Notes)
+	}
+
+	w.bot.postThreadReply(channelID, messageTS, responseText)
+	log.Printf("slackbot/nats: mutation: relayed close of %s to Slack %s", payload.IssueID, channelID)
+
+	_ = msg.Ack()
+}
+
 // Close drains the subscriptions and closes the NATS connection.
 func (w *NATSWatcher) Close() {
+	if w.mutationSub != nil {
+		_ = w.mutationSub.Drain()
+		w.mutationSub = nil
+	}
 	if w.dashboardSub != nil {
 		_ = w.dashboardSub.Drain()
 		w.dashboardSub = nil

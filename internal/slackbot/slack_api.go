@@ -50,4 +50,16 @@ type DecisionProvider interface {
 
 	// AgentRoster returns the live presence roster from the NATS event bus.
 	AgentRoster(ctx context.Context) (*rpc.AgentRosterResult, error)
+
+	// CreateIssue creates a new bead via the daemon. Returns the new issue ID.
+	CreateIssue(ctx context.Context, title, description, issueType string, priority int, labels []string) (string, error)
+
+	// InboxPush sends a mail message to an agent's inbox.
+	InboxPush(ctx context.Context, agentName, content string) error
+
+	// NudgeAgent sends a wake-up message to an agent's terminal via Coop sidecar.
+	NudgeAgent(ctx context.Context, agentName, message string) error
+
+	// GetIssueDescription fetches an issue's description by ID.
+	GetIssueDescription(ctx context.Context, issueID string) (string, error)
 }

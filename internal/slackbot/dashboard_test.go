@@ -465,6 +465,18 @@ func (p *dashboardMockProvider) AddComment(_ context.Context, id, author, text s
 func (p *dashboardMockProvider) PeekAgent(_ context.Context, name string) (string, error) {
 	return "", nil
 }
+func (p *dashboardMockProvider) CreateIssue(_ context.Context, title, description, issueType string, priority int, labels []string) (string, error) {
+	return "mock-bead-001", nil
+}
+func (p *dashboardMockProvider) InboxPush(_ context.Context, agentName, content string) error {
+	return nil
+}
+func (p *dashboardMockProvider) NudgeAgent(_ context.Context, agentName, message string) error {
+	return nil
+}
+func (p *dashboardMockProvider) GetIssueDescription(_ context.Context, issueID string) (string, error) {
+	return "", nil
+}
 
 // dashboardMockSlack captures PostMessage and UpdateMessage calls.
 type dashboardMockSlack struct {

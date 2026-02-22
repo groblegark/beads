@@ -16,6 +16,7 @@ import (
 	"github.com/slack-go/slack"
 	"github.com/slack-go/slack/slackevents"
 	"github.com/slack-go/slack/socketmode"
+	"github.com/steveyegge/beads/internal/rpc"
 )
 
 // messageInfo tracks a posted Slack message for later updates/deletion.
@@ -2396,6 +2397,10 @@ func (b *Bot) getDecisionByThread(channelID, threadTS string) string {
 	return ""
 }
 
+// slackMetaTag is the metadata tag format embedded in bead descriptions to track
+// the originating Slack message. Format: [slack:<channel_id>:<message_ts>]
+const slackMetaTagPrefix = "[slack:"
+
 func (b *Bot) handleAgentChannelMessage(ev *slackevents.MessageEvent) {
 	if ev.User == b.botUserID || ev.BotID != "" {
 		return
@@ -2409,6 +2414,11 @@ func (b *Bot) handleAgentChannelMessage(ev *slackevents.MessageEvent) {
 		return
 	}
 
+	text := strings.TrimSpace(ev.Text)
+	if text == "" {
+		return
+	}
+
 	userName := ev.User
 	if userInfo, err := b.client.GetUserInfo(ev.User); err == nil {
 		if userInfo.RealName != "" {
@@ -2418,7 +2428,116 @@ func (b *Bot) handleAgentChannelMessage(ev *slackevents.MessageEvent) {
 		}
 	}
 
-	log.Printf("slackbot: channel message from %s in agent channel for %s", userName, agentAddress)
+	log.Printf("slackbot: forwarding channel message from %s to idle agent (channel agent: %s)", userName, agentAddress)
+
+	ctx := context.Background()
+
+	// Find an idle agent via the roster.
+	targetAgent := ""
+	roster, err := b.decisions.AgentRoster(ctx)
+	if err != nil {
+		log.Printf("slackbot: chat forward: roster query failed: %v", err)
+	} else {
+		targetAgent = pickIdleAgent(roster)
+	}
+
+	// Build Slack metadata tag for response routing.
+	slackTag := fmt.Sprintf("[slack:%s:%s]", ev.Channel, ev.TimeStamp)
+
+	// Truncate title to 80 chars.
+	title := text
+	if len(title) > 80 {
+		title = title[:77] + "..."
+	}
+	title = "Slack: " + title
+
+	description := fmt.Sprintf("Message from %s in Slack:\n\n%s\n\n---\n%s", userName, text, slackTag)
+
+	// Create a tracking bead.
+	beadID, err := b.decisions.CreateIssue(ctx, title, description, "task", 2, []string{"slack-chat"})
+	if err != nil {
+		log.Printf("slackbot: chat forward: create bead failed: %v", err)
+		b.postThreadReply(ev.Channel, ev.TimeStamp,
+			fmt.Sprintf("Failed to create tracking issue: %v", err))
+		return
+	}
+
+	if targetAgent == "" {
+		// No idle agent — leave bead unassigned for bd ready pickup.
+		log.Printf("slackbot: chat forward: no idle agents, created unassigned bead %s", beadID)
+		b.postThreadReply(ev.Channel, ev.TimeStamp,
+			fmt.Sprintf(":mailbox_with_mail: No agents currently available. Created *%s* — it will be picked up when an agent becomes free.", beadID))
+		return
+	}
+
+	// Send mail to the idle agent with instructions.
+	mailContent := fmt.Sprintf("[Slack Chat] From %s\n\n%s\n\n---\nTracking bead: %s\nReply by closing this bead: bd close %s --reason=\"your response\"\nYour response will be posted as a Slack thread reply automatically.",
+		userName, text, beadID, beadID)
+	if err := b.decisions.InboxPush(ctx, targetAgent, mailContent); err != nil {
+		log.Printf("slackbot: chat forward: inbox push to %s failed: %v", targetAgent, err)
+	}
+
+	// Nudge the agent to wake them up.
+	nudgeMsg := fmt.Sprintf("[SLACK CHAT] New message from %s — check your inbox. Bead: %s", userName, beadID)
+	if err := b.decisions.NudgeAgent(ctx, targetAgent, nudgeMsg); err != nil {
+		log.Printf("slackbot: chat forward: nudge %s failed: %v (mail was sent)", targetAgent, err)
+	}
+
+	log.Printf("slackbot: chat forward: created %s, assigned to %s", beadID, targetAgent)
+	b.postThreadReply(ev.Channel, ev.TimeStamp,
+		fmt.Sprintf(":incoming_envelope: Forwarded to *%s*, tracking as *%s*", targetAgent, beadID))
+}
+
+// pickIdleAgent selects the best idle agent from the roster.
+// Returns empty string if no suitable agent is found.
+func pickIdleAgent(roster *rpc.AgentRosterResult) string {
+	if roster == nil {
+		return ""
+	}
+
+	var bestAgent string
+	var bestIdle float64 = -1
+
+	for _, agent := range roster.Actors {
+		// Skip agents with active work.
+		if agent.TaskID != "" {
+			continue
+		}
+		// Skip dead/reaped agents.
+		if agent.Reaped {
+			continue
+		}
+		// Skip agents idle too long (likely unresponsive).
+		if agent.IdleSecs > 120 {
+			continue
+		}
+		// Pick the most recently active idle agent.
+		if bestIdle < 0 || agent.IdleSecs < bestIdle {
+			bestAgent = agent.Actor
+			bestIdle = agent.IdleSecs
+		}
+	}
+
+	return bestAgent
+}
+
+// parseSlackMeta extracts channel ID and message timestamp from a bead description
+// containing a [slack:CHANNEL:TIMESTAMP] tag. Returns empty strings if not found.
+func parseSlackMeta(description string) (channelID, messageTS string) {
+	idx := strings.Index(description, slackMetaTagPrefix)
+	if idx < 0 {
+		return "", ""
+	}
+	rest := description[idx+len(slackMetaTagPrefix):]
+	endIdx := strings.Index(rest, "]")
+	if endIdx < 0 {
+		return "", ""
+	}
+	parts := strings.SplitN(rest[:endIdx], ":", 2)
+	if len(parts) != 2 {
+		return "", ""
+	}
+	return parts[0], parts[1]
 }
 
 // ---------- Peek (agent terminal output) ----------

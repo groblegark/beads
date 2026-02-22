@@ -332,6 +332,22 @@ func (m *mockDecisionProvider) AgentRoster(_ context.Context) (*rpc.AgentRosterR
 	return &rpc.AgentRosterResult{}, nil
 }
 
+func (m *mockDecisionProvider) CreateIssue(_ context.Context, title, description, issueType string, priority int, labels []string) (string, error) {
+	return "mock-bead-001", nil
+}
+
+func (m *mockDecisionProvider) InboxPush(_ context.Context, agentName, content string) error {
+	return nil
+}
+
+func (m *mockDecisionProvider) NudgeAgent(_ context.Context, agentName, message string) error {
+	return nil
+}
+
+func (m *mockDecisionProvider) GetIssueDescription(_ context.Context, issueID string) (string, error) {
+	return "", nil
+}
+
 func (m *mockDecisionProvider) getComments(issueID string) []commentCall {
 	m.mu.Lock()
 	defer m.mu.Unlock()

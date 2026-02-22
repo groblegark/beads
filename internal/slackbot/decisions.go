@@ -381,6 +381,153 @@ func (dc *DecisionClient) AgentRoster(ctx context.Context) (*rpc.AgentRosterResu
 	return result, nil
 }
 
+// CreateIssue creates a new issue (bead) via the daemon RPC.
+// Returns the new issue ID.
+func (dc *DecisionClient) CreateIssue(ctx context.Context, title, description, issueType string, priority int, labels []string) (string, error) {
+	args := &rpc.CreateArgs{
+		Title:       title,
+		Description: description,
+		IssueType:   issueType,
+		Priority:    priority,
+		Labels:      labels,
+		CreatedBy:   "slackbot",
+	}
+	resp, err := dc.getClient().Create(args)
+	if err != nil && isBrokenPipe(err) {
+		if rerr := dc.reconnect(); rerr != nil {
+			return "", fmt.Errorf("create issue (reconnect failed): %w", rerr)
+		}
+		resp, err = dc.getClient().Create(args)
+	}
+	if err != nil {
+		return "", fmt.Errorf("create issue: %w", err)
+	}
+	if resp == nil {
+		return "", fmt.Errorf("create issue: nil response")
+	}
+	// Response data is a types.Issue JSON; extract the ID.
+	var created struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(resp.Data, &created); err != nil {
+		return "", fmt.Errorf("create issue: parse response: %w", err)
+	}
+	if created.ID == "" {
+		return "", fmt.Errorf("create issue: no ID in response")
+	}
+	return created.ID, nil
+}
+
+// InboxPush sends a mail message to an agent's inbox via the daemon RPC.
+func (dc *DecisionClient) InboxPush(ctx context.Context, agentName, content string) error {
+	args := &rpc.InboxPushArgs{
+		AgentName: agentName,
+		Type:      "mail",
+		Source:    "slackbot",
+		Content:   content,
+		Priority:  2,
+	}
+	_, err := dc.getClient().InboxPush(args)
+	if err != nil && isBrokenPipe(err) {
+		if rerr := dc.reconnect(); rerr != nil {
+			return fmt.Errorf("inbox push (reconnect failed): %w", rerr)
+		}
+		_, err = dc.getClient().InboxPush(args)
+	}
+	if err != nil {
+		return fmt.Errorf("inbox push to %s: %w", agentName, err)
+	}
+	return nil
+}
+
+// NudgeAgent sends a nudge message to an agent via their Coop sidecar.
+// This wakes up idle agents by sending text to their terminal session.
+func (dc *DecisionClient) NudgeAgent(ctx context.Context, agentName, message string) error {
+	if agentName == "" {
+		return fmt.Errorf("no agent name provided")
+	}
+
+	client := dc.getClient()
+	if client == nil {
+		return fmt.Errorf("daemon not connected")
+	}
+
+	result, err := client.AgentPodList(&rpc.AgentPodListArgs{})
+	if err != nil && isBrokenPipe(err) {
+		if rerr := dc.reconnect(); rerr != nil {
+			return fmt.Errorf("agent pod list (reconnect failed): %w", rerr)
+		}
+		client = dc.getClient()
+		result, err = client.AgentPodList(&rpc.AgentPodListArgs{})
+	}
+	if err != nil {
+		return fmt.Errorf("agent pod list: %w", err)
+	}
+
+	podInfo := matchAgentPod(agentName, result.Agents)
+	if podInfo == nil {
+		return fmt.Errorf("agent %q not found in pod list", agentName)
+	}
+	if podInfo.PodIP == "" {
+		return fmt.Errorf("agent %q has no pod IP", agentName)
+	}
+
+	coopURL := fmt.Sprintf("http://%s:3000", podInfo.PodIP)
+	coopClient := coop.NewClient(coopURL, coop.WithTimeout(5*time.Second))
+
+	_, err = coopClient.NudgeSession(ctx, message)
+	if err != nil {
+		return fmt.Errorf("nudge %s: %w", agentName, err)
+	}
+	return nil
+}
+
+// SlackChatIssueInfo contains the fields needed for Slack chat relay.
+type SlackChatIssueInfo struct {
+	Description string
+	CloseReason string
+	Notes       string
+}
+
+// GetIssueDescription fetches an issue's description and close reason by ID via the daemon RPC.
+func (dc *DecisionClient) GetIssueDescription(ctx context.Context, issueID string) (string, error) {
+	info, err := dc.GetSlackChatIssueInfo(ctx, issueID)
+	if err != nil {
+		return "", err
+	}
+	return info.Description, nil
+}
+
+// GetSlackChatIssueInfo fetches fields needed for Slack chat relay from a bead.
+func (dc *DecisionClient) GetSlackChatIssueInfo(ctx context.Context, issueID string) (*SlackChatIssueInfo, error) {
+	resp, err := dc.getClient().Show(&rpc.ShowArgs{ID: issueID})
+	if err != nil && isBrokenPipe(err) {
+		if rerr := dc.reconnect(); rerr != nil {
+			return nil, fmt.Errorf("get issue (reconnect failed): %w", rerr)
+		}
+		resp, err = dc.getClient().Show(&rpc.ShowArgs{ID: issueID})
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get issue %s: %w", issueID, err)
+	}
+	if resp == nil {
+		return nil, fmt.Errorf("get issue %s: nil response", issueID)
+	}
+	var issue struct {
+		Description string `json:"description"`
+		CloseReason string `json:"close_reason"`
+		Notes       string `json:"notes"`
+	}
+	if err := json.Unmarshal(resp.Data, &issue); err != nil {
+		return nil, fmt.Errorf("get issue %s: parse response: %w", issueID, err)
+	}
+	return &SlackChatIssueInfo{
+		Description: issue.Description,
+		CloseReason: issue.CloseReason,
+		Notes:       issue.Notes,
+	}, nil
+}
+
 // convertDecisionResponse maps an rpc.DecisionResponse to the unified Decision type.
 func convertDecisionResponse(resp *rpc.DecisionResponse) Decision {
 	d := Decision{}
