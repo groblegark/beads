@@ -121,6 +121,9 @@ spec:
             timeoutSeconds: {{ .Values.slackBot.readinessProbe.timeoutSeconds }}
             failureThreshold: {{ .Values.slackBot.readinessProbe.failureThreshold }}
           {{- end }}
+          volumeMounts:
+            - name: beads-data
+              mountPath: /home/beads
           resources:
             {{- toYaml .Values.slackBot.resources | nindent 12 }}
       volumes:

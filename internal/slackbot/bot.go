@@ -1549,6 +1549,17 @@ func (b *Bot) NotifyResolution(decision *Decision) error {
 	msgInfo, hasTracked := b.decisionMessages[decision.ID]
 	b.decisionMessagesMu.RUnlock()
 
+	// Fallback: if not in memory, try recovering from persisted state.
+	// This handles cases where the bot's in-memory map was lost (e.g., pod restart
+	// within the same PVC lifecycle) but the state file still has the message ref.
+	if !hasTracked && b.stateManager != nil {
+		if chID, ts, agent, ok := b.stateManager.GetDecisionMessage(decision.ID); ok {
+			msgInfo = messageInfo{channelID: chID, timestamp: ts, agent: agent}
+			hasTracked = true
+			log.Printf("slackbot: recovered decision %s message ref from state file (ch=%s ts=%s)", decision.ID, chID, ts)
+		}
+	}
+
 	if hasTracked {
 		b.updateMessageAsResolved(msgInfo.channelID, msgInfo.timestamp, decision, resolvedBy)
 
@@ -1561,10 +1572,15 @@ func (b *Bot) NotifyResolution(decision *Decision) error {
 		b.decisionMessagesMu.Lock()
 		delete(b.decisionMessages, decision.ID)
 		b.decisionMessagesMu.Unlock()
+
+		// Clean up persisted state too
+		if b.stateManager != nil {
+			_ = b.stateManager.RemoveDecisionMessage(decision.ID)
+		}
 		return nil
 	}
 
-	// Post new resolution message
+	// Post new resolution message (fallback when message ref is completely lost)
 	targetChannel := b.resolveChannelForDecision(decision)
 	if targetChannel == "" {
 		return nil

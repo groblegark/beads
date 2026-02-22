@@ -298,7 +298,8 @@ func (w *NATSWatcher) notifyResolvedDecision(payload eventbus.DecisionEventPaylo
 	}
 
 	// Skip if it was resolved via Slack to avoid double-updating.
-	if decision.ResolvedBy == "slack" {
+	// ResolvedBy format is "slack:U07K1RLQAKF" (with user ID suffix).
+	if strings.HasPrefix(decision.ResolvedBy, "slack") {
 		return
 	}
 
