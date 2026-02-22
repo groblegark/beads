@@ -305,6 +305,7 @@ CREATE TABLE IF NOT EXISTS decision_points (
     INDEX idx_decision_points_prior (prior_id),
     INDEX idx_decision_points_urgency (urgency),
     INDEX idx_decision_points_parent (parent_bead_id),
+    INDEX idx_decision_points_pending (responded_at, created_at),
     CONSTRAINT fk_decision_issue FOREIGN KEY (issue_id) REFERENCES issues(id) ON DELETE CASCADE,
     CONSTRAINT fk_decision_prior FOREIGN KEY (prior_id) REFERENCES issues(id) ON DELETE SET NULL
 );

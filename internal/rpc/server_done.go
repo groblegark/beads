@@ -369,7 +369,7 @@ func (s *Server) doneWaitViaPoll(ctx context.Context, agentName string, timeout 
 		}
 	}
 
-	ticker := time.NewTicker(2 * time.Second)
+	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
 
 	for {

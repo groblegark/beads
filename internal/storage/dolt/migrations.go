@@ -33,6 +33,7 @@ var migrations = []Migration{
 	{"inbox_dedup_rows", migrateInboxDedupRows},
 	{"issue_commits_table", migrateIssueCommitsTable},
 	{"decision_yielded_at", migrateDecisionYieldedAt},
+	{"decision_pending_index", migrateDecisionPendingIndex},
 }
 
 // RunMigrations executes all registered migrations in order.
@@ -487,4 +488,24 @@ func migrateIssueCommitsTable(ctx context.Context, db *sql.DB) error {
 // preventing stale decision events from being replayed on subsequent yields. (bd-03bym)
 func migrateDecisionYieldedAt(ctx context.Context, db *sql.DB) error {
 	return addColumnIfNotExists(ctx, db, "decision_points", "yielded_at", "DATETIME")
+}
+
+// migrateDecisionPendingIndex adds an index on (responded_at, created_at) to
+// decision_points for efficient pending decision lookups (bd-oc7ni).
+// The decision sweeper queries WHERE responded_at IS NULL ORDER BY created_at,
+// which was doing a full table scan without this index.
+func migrateDecisionPendingIndex(ctx context.Context, db *sql.DB) error {
+	_, err := db.ExecContext(ctx, `
+		CREATE INDEX IF NOT EXISTS idx_decision_points_pending
+		ON decision_points (responded_at, created_at)
+	`)
+	if err != nil {
+		errLower := strings.ToLower(err.Error())
+		if strings.Contains(errLower, "duplicate key") ||
+			strings.Contains(errLower, "already exists") {
+			return nil
+		}
+		return fmt.Errorf("failed to create decision pending index: %w", err)
+	}
+	return nil
 }
