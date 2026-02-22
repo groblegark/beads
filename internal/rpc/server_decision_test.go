@@ -1555,3 +1555,65 @@ func TestDecisionCreate_MarksGateBackend_WithSuffix(t *testing.T) {
 		t.Error("gate backend should NOT be marked under suffixed name 'test-agent-1'")
 	}
 }
+
+// TestDecisionResolve_ReMarksGateBackend verifies that resolving a decision
+// re-marks the NATS gate with a fresh TTL. Without this, the gate created on
+// decision create may expire during the human response wait, causing the Stop
+// hook to re-fire immediately after bd yield returns. (hq-g3v7qs.3)
+func TestDecisionResolve_ReMarksGateBackend(t *testing.T) {
+	server, client, _, cleanup := setupTestServerWithStore(t)
+	defer cleanup()
+
+	backend := newTestGateBackend()
+	server.SetGateBackend(backend)
+
+	// Create a decision
+	issueID := createTestIssueForDecision(t, client, "Gate re-mark test")
+	createArgs := &DecisionCreateArgs{
+		Prompt:      "Continue working?",
+		Options:     StringOptions("Yes", "No"),
+		RequestedBy: "test-agent",
+	}
+	_, err := client.DecisionCreate(createArgs)
+	if err != nil {
+		t.Fatalf("DecisionCreate failed: %v", err)
+	}
+
+	// Verify gate is marked after create
+	if !backend.IsSatisfied("test-agent", "decision") {
+		t.Fatal("gate should be satisfied after DecisionCreate")
+	}
+
+	// Clear the gate to simulate TTL expiration
+	_ = backend.Clear("test-agent", "decision")
+	if backend.IsSatisfied("test-agent", "decision") {
+		t.Fatal("gate should be cleared after simulated TTL expiration")
+	}
+
+	// Resolve the decision
+	resolveArgs := &DecisionResolveArgs{
+		IssueID:        issueID,
+		SelectedOption: "Yes",
+		RespondedBy:    "human",
+	}
+	_, err = client.DecisionResolve(resolveArgs)
+	if err != nil {
+		t.Fatalf("DecisionResolve failed: %v", err)
+	}
+
+	// Verify gate was re-marked on resolve
+	if !backend.IsSatisfied("test-agent", "decision") {
+		t.Error("gate should be re-marked after DecisionResolve to prevent Stop hook re-fire loop")
+	}
+
+	// Verify it was marked with "decision_respond" mechanism
+	found := false
+	for _, m := range backend.marked {
+		if m == "test-agent.decision" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected 'test-agent.decision' in marked list after resolve")
+	}
+}

@@ -4340,6 +4340,22 @@ func (s *Server) handleDecisionResolve(req *Request) Response {
 		s.pushDecisionResponseToInbox(ctx, dp, args)
 	}
 
+	// Re-mark the decision gate with a fresh TTL so the agent has time to
+	// process the response without the Stop hook re-blocking. The original
+	// gate (marked on decision create) may have expired during the wait for
+	// human response, causing the Stop hook to re-fire immediately after
+	// bd yield returns — creating an infinite checkpoint loop. (hq-g3v7qs.3)
+	if s.gateBackend != nil && dp.RequestedBy != "" {
+		agentName := eventbus.AgentBaseName(dp.RequestedBy)
+		if agentName != "" {
+			_ = s.gateBackend.Mark(agentName, "decision", gate.MarkOpts{
+				Mechanism: "decision_respond",
+				Actor:     agentName,
+				TTL:       gate.DefaultTTLFor("decision"),
+			})
+		}
+	}
+
 	// Auto-assign bead when selected option has a bead_id. (bd-isufm)
 	// This avoids the manual "bd update <id> --status=in_progress" step
 	// after a checkpoint decision selects work for the agent.
