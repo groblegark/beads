@@ -59,6 +59,8 @@ linters:
         - (*github.com/steveyegge/beads/internal/slackbot.Bot).NotifyResolution
         - (*github.com/steveyegge/beads/internal/slackbot.Bot).NotifyEscalation
         - (*github.com/steveyegge/beads/internal/slackbot.Bot).NotifyNewDecision
+        # Tabwriter flush — best-effort display flush to stdout
+        - (*text/tabwriter.Writer).Flush
     misspell:
       locale: US
 
@@ -77,7 +79,7 @@ linters:
           - gosec
         text: "G306"
       # G304: Safe file reads from known JSONL and error paths
-      - path: 'cmd/bd/autoflush\.go|cmd/bd/daemon_autostart\.go|cmd/bd/doctor/git\.go|cmd/bd/rename_prefix\.go|internal/beads/beads\.go|internal/daemon/discovery\.go'
+      - path: 'cmd/bd/autoflush\.go|cmd/bd/daemon_autostart\.go|cmd/bd/doctor/git\.go|cmd/bd/jsonl_utils\.go|cmd/bd/rename_prefix\.go|internal/beads/beads\.go|internal/daemon/discovery\.go'
         linters:
           - gosec
         text: "G304"
@@ -111,7 +113,7 @@ linters:
           - gosec
         text: "G115"
       # G201: SQL with fmt.Sprintf using placeholders (IN clause expansion)
-      - path: 'internal/storage/sqlite/(dependencies|batch_ops)\.go'
+      - path: 'internal/storage/sqlite/(dependencies|batch_ops)\.go|internal/rpc/server_analytics\.go'
         linters:
           - gosec
         text: "G201"
@@ -215,6 +217,11 @@ linters:
         linters:
           - unparam
         text: 'execContext.*result'
+      # unparam: self param kept for API consistency — used by buildEpicInsights companion function
+      - path: 'cmd/bd/gate_session\.go'
+        linters:
+          - unparam
+        text: 'buildRosterSummaryForHook.*self'
 
       # gosec G602: Slice bounds checked in surrounding logic
       - path: 'cmd/bd/decision_show\.go'
@@ -259,6 +266,11 @@ linters:
         text: 'cancelled'
       # misspell: "cancelled" in SQL LIKE clause — must match stored data values
       - path: 'internal/storage/dolt/blocked_cache\.go'
+        linters:
+          - misspell
+        text: 'cancelled'
+      # misspell: "cancelled" in retry error message — idiomatic Go wording
+      - path: 'internal/rpc/server_agent_lifecycle\.go'
         linters:
           - misspell
         text: 'cancelled'
