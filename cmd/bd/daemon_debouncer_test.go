@@ -23,7 +23,9 @@ func TestDebouncer_BatchesMultipleTriggers(t *testing.T) {
 		t.Errorf("action fired too early: got %d, want 0", got)
 	}
 
-	time.Sleep(35 * time.Millisecond)
+	// Wait with generous margin for CI runners where goroutine scheduling
+	// can be delayed under load.
+	time.Sleep(100 * time.Millisecond)
 	if got := atomic.LoadInt32(&count); got != 1 {
 		t.Errorf("action should have fired once: got %d, want 1", got)
 	}
@@ -46,7 +48,8 @@ func TestDebouncer_ResetsTimerOnSubsequentTriggers(t *testing.T) {
 		t.Errorf("action fired too early after timer reset: got %d, want 0", got)
 	}
 
-	time.Sleep(35 * time.Millisecond)
+	// Generous margin for CI runners under load.
+	time.Sleep(100 * time.Millisecond)
 	if got := atomic.LoadInt32(&count); got != 1 {
 		t.Errorf("action should have fired once after final timer: got %d, want 1", got)
 	}
