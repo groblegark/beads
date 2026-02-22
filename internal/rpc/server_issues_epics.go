@@ -837,6 +837,66 @@ func (s *Server) handleCreate(req *Request) Response {
 	}
 }
 
+// validateClaimPreconditions checks claim-related guards that apply to both
+// handleUpdate and handleUpdateWithComment. Returns a *Response with the error
+// if validation fails, or nil if everything is OK. (bd-z32l8)
+func (s *Server) validateClaimPreconditions(ctx context.Context, store storage.Storage, issue *types.Issue, args *UpdateArgs, actor string) *Response {
+	// Pre-validate claim before transaction (pure check against pre-fetched issue)
+	if args.Claim && issue.IssueType == types.TypeEpic && !args.ClaimForce {
+		return &Response{
+			Success: false,
+			Error:   fmt.Sprintf("cannot claim epic %s directly — please create or assign a sub-task instead (use --force to override)", args.ID),
+		}
+	}
+	if args.Claim && issue.Assignee != "" {
+		return &Response{
+			Success: false,
+			Error:   fmt.Sprintf("already claimed by %s", issue.Assignee),
+		}
+	}
+
+	// Prevent over-claiming: reject claim when the actor already has another
+	// in_progress task. Agents should finish or unclaim their current work first.
+	// Use --force to override (e.g., for legitimate multi-task scenarios). (bd-arwkj)
+	if args.Claim && !args.ClaimForce && actor != "" {
+		inProgressStatus := types.StatusInProgress
+		actorFilter := types.IssueFilter{
+			Status:   &inProgressStatus,
+			Assignee: &actor,
+		}
+		existing, searchErr := store.SearchIssues(ctx, "", actorFilter)
+		if searchErr == nil && len(existing) > 0 {
+			// Don't count the issue being claimed itself (re-claim scenario)
+			var others []string
+			for _, ex := range existing {
+				if ex.ID != args.ID {
+					others = append(others, ex.ID)
+				}
+			}
+			if len(others) > 0 {
+				return &Response{
+					Success: false,
+					Error:   fmt.Sprintf("you already have %s in_progress; close or unclaim it first, or use --force to override", others[0]),
+				}
+			}
+		}
+	}
+
+	// Prevent work-stealing: reject status→in_progress when the issue is already
+	// in_progress and assigned to a different agent. This closes the bypass where
+	// agents use `bd update <id> --status=in_progress` instead of `--claim`.
+	// The same actor can re-claim their own work. (bd-eg9u3)
+	if args.Status != nil && *args.Status == string(types.StatusInProgress) &&
+		issue.Status == types.StatusInProgress && issue.Assignee != "" && issue.Assignee != actor {
+		return &Response{
+			Success: false,
+			Error:   fmt.Sprintf("already in progress by %s; use 'bd show %s' to check status", issue.Assignee, issue.ID),
+		}
+	}
+
+	return nil
+}
+
 func (s *Server) handleUpdate(req *Request) Response {
 	var updateArgs UpdateArgs
 	if err := json.Unmarshal(req.Args, &updateArgs); err != nil {
@@ -934,57 +994,9 @@ func (s *Server) handleUpdate(req *Request) Response {
 
 	actor := s.reqActor(req)
 
-	// Pre-validate claim before transaction (pure check against pre-fetched issue)
-	if updateArgs.Claim && issue.IssueType == types.TypeEpic && !updateArgs.ClaimForce {
-		return Response{
-			Success: false,
-			Error:   fmt.Sprintf("cannot claim epic %s directly — please create or assign a sub-task instead (use --force to override)", updateArgs.ID),
-		}
-	}
-	if updateArgs.Claim && issue.Assignee != "" {
-		return Response{
-			Success: false,
-			Error:   fmt.Sprintf("already claimed by %s", issue.Assignee),
-		}
-	}
-
-	// Prevent over-claiming: reject claim when the actor already has another
-	// in_progress task. Agents should finish or unclaim their current work first.
-	// Use --force to override (e.g., for legitimate multi-task scenarios). (bd-arwkj)
-	if updateArgs.Claim && !updateArgs.ClaimForce && actor != "" {
-		inProgressStatus := types.StatusInProgress
-		actorFilter := types.IssueFilter{
-			Status:   &inProgressStatus,
-			Assignee: &actor,
-		}
-		existing, searchErr := store.SearchIssues(ctx, "", actorFilter)
-		if searchErr == nil && len(existing) > 0 {
-			// Don't count the issue being claimed itself (re-claim scenario)
-			var others []string
-			for _, ex := range existing {
-				if ex.ID != updateArgs.ID {
-					others = append(others, ex.ID)
-				}
-			}
-			if len(others) > 0 {
-				return Response{
-					Success: false,
-					Error:   fmt.Sprintf("you already have %s in_progress; close or unclaim it first, or use --force to override", others[0]),
-				}
-			}
-		}
-	}
-
-	// Prevent work-stealing: reject status→in_progress when the issue is already
-	// in_progress and assigned to a different agent. This closes the bypass where
-	// agents use `bd update <id> --status=in_progress` instead of `--claim`.
-	// The same actor can re-claim their own work. (bd-eg9u3)
-	if updateArgs.Status != nil && *updateArgs.Status == string(types.StatusInProgress) &&
-		issue.Status == types.StatusInProgress && issue.Assignee != "" && issue.Assignee != actor {
-		return Response{
-			Success: false,
-			Error:   fmt.Sprintf("already in progress by %s; use 'bd show %s' to check status", issue.Assignee, issue.ID),
-		}
+	// Validate claim preconditions (shared with handleUpdateWithComment). (bd-z32l8)
+	if errResp := s.validateClaimPreconditions(ctx, store, issue, &updateArgs, actor); errResp != nil {
+		return *errResp
 	}
 
 	// Parse updates before transaction (pure validation, no DB)
@@ -1334,6 +1346,11 @@ func (s *Server) handleUpdateWithComment(req *Request) Response {
 	commentAuthor := args.CommentAuthor
 	if commentAuthor == "" {
 		commentAuthor = actor
+	}
+
+	// Validate claim preconditions (same guards as handleUpdate). (bd-z32l8)
+	if errResp := s.validateClaimPreconditions(ctx, store, issue, &args.UpdateArgs, actor); errResp != nil {
+		return *errResp
 	}
 
 	// Build updates map from args
@@ -4494,6 +4511,24 @@ func (s *Server) autoAssignBeadFromDecision(ctx context.Context, store storage.S
 		fmt.Fprintf(os.Stderr, "decision-auto-assign: bead %s already assigned to %s (not %s), skipping\n",
 			beadID, bead.Assignee, dp.RequestedBy)
 		return
+	}
+
+	// Prevent over-claiming: skip if requesting agent already has in_progress work. (bd-z32l8)
+	if dp.RequestedBy != "" {
+		inProgressStatus := types.StatusInProgress
+		existing, searchErr := store.SearchIssues(ctx, "", types.IssueFilter{
+			Status:   &inProgressStatus,
+			Assignee: &dp.RequestedBy,
+		})
+		if searchErr == nil {
+			for _, ex := range existing {
+				if ex.ID != beadID {
+					fmt.Fprintf(os.Stderr, "decision-auto-assign: agent %s already has %s in_progress, skipping auto-assign of %s\n",
+						dp.RequestedBy, ex.ID, beadID)
+					return
+				}
+			}
+		}
 	}
 
 	// Build update map

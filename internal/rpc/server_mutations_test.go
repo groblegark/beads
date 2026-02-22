@@ -1702,6 +1702,133 @@ func TestHandleUpdate_AutoAssignWhenNoExplicitAssignee(t *testing.T) {
 }
 
 // mustJSON marshals v to json.RawMessage, panicking on error. Test helper.
+// TestHandleUpdateWithComment_ClaimValidation verifies that handleUpdateWithComment
+// enforces the same claim preconditions as handleUpdate (bd-z32l8).
+func TestHandleUpdateWithComment_ClaimValidation(t *testing.T) {
+	store := teststore.New(t)
+	server := NewServer("/tmp/test.sock", store, "/tmp", "/tmp/test.db")
+
+	// Create two issues
+	for i, title := range []string{"First task", "Second task"} {
+		createArgs := CreateArgs{
+			Title:     title,
+			IssueType: "task",
+			Priority:  2,
+		}
+		createJSON, _ := json.Marshal(createArgs)
+		createReq := &Request{
+			Operation: OpCreate,
+			Args:      createJSON,
+			Actor:     "test-user",
+		}
+		resp := server.handleCreate(createReq)
+		if !resp.Success {
+			t.Fatalf("failed to create issue %d: %s", i, resp.Error)
+		}
+	}
+
+	ctx := context.Background()
+	issues, err := store.SearchIssues(ctx, "", types.IssueFilter{})
+	if err != nil {
+		t.Fatalf("failed to search issues: %v", err)
+	}
+	if len(issues) < 2 {
+		t.Fatalf("expected at least 2 issues, got %d", len(issues))
+	}
+
+	// Claim the first issue via handleUpdate — should succeed
+	claimJSON1, _ := json.Marshal(UpdateArgs{ID: issues[0].ID, Claim: true})
+	resp1 := server.handleUpdate(&Request{Operation: OpUpdate, Args: claimJSON1, Actor: "greedy-agent"})
+	if !resp1.Success {
+		t.Fatalf("first claim should succeed: %s", resp1.Error)
+	}
+
+	// Try to claim the second issue via handleUpdateWithComment — should fail (over-claiming)
+	uwcArgs := UpdateWithCommentArgs{
+		UpdateArgs:  UpdateArgs{ID: issues[1].ID, Claim: true},
+		CommentText: "Starting work",
+	}
+	uwcJSON, _ := json.Marshal(uwcArgs)
+	resp2 := server.handleUpdateWithComment(&Request{Operation: OpUpdateWithComment, Args: uwcJSON, Actor: "greedy-agent"})
+	if resp2.Success {
+		t.Error("expected update_with_comment claim to fail (over-claiming), but it succeeded")
+	}
+	if !strings.Contains(resp2.Error, "already have") {
+		t.Errorf("expected 'already have' error, got %q", resp2.Error)
+	}
+
+	// Verify work-stealing prevention: another agent can't set status=in_progress
+	// on the first agent's task via update_with_comment
+	inProgress := "in_progress"
+	uwcArgs2 := UpdateWithCommentArgs{
+		UpdateArgs:  UpdateArgs{ID: issues[0].ID, Status: &inProgress},
+		CommentText: "Stealing this",
+	}
+	uwcJSON2, _ := json.Marshal(uwcArgs2)
+	resp3 := server.handleUpdateWithComment(&Request{Operation: OpUpdateWithComment, Args: uwcJSON2, Actor: "thief-agent"})
+	if resp3.Success {
+		t.Error("expected work-stealing via update_with_comment to fail, but it succeeded")
+	}
+	if !strings.Contains(resp3.Error, "already in progress by") {
+		t.Errorf("expected 'already in progress by' error, got %q", resp3.Error)
+	}
+}
+
+// TestDecisionAutoAssign_OverClaimPrevention verifies that autoAssignBeadFromDecision
+// skips assignment when the agent already has an in_progress task. (bd-z32l8)
+func TestDecisionAutoAssign_OverClaimPrevention(t *testing.T) {
+	store := teststore.New(t)
+	server := NewServer("/tmp/test.sock", store, "/tmp", "/tmp/test.db")
+	ctx := context.Background()
+
+	// Create two tasks
+	for _, title := range []string{"Already working on this", "Decision target"} {
+		createJSON, _ := json.Marshal(CreateArgs{
+			Title:     title,
+			IssueType: "task",
+			Priority:  2,
+		})
+		resp := server.handleCreate(&Request{Operation: OpCreate, Args: createJSON, Actor: "test-user"})
+		if !resp.Success {
+			t.Fatalf("failed to create issue: %s", resp.Error)
+		}
+	}
+
+	issues, _ := store.SearchIssues(ctx, "", types.IssueFilter{})
+	if len(issues) < 2 {
+		t.Fatalf("expected at least 2 issues, got %d", len(issues))
+	}
+
+	// Claim the first task — agent is now busy
+	claimJSON, _ := json.Marshal(UpdateArgs{ID: issues[0].ID, Claim: true})
+	resp := server.handleUpdate(&Request{Operation: OpUpdate, Args: claimJSON, Actor: "busy-agent"})
+	if !resp.Success {
+		t.Fatalf("first claim should succeed: %s", resp.Error)
+	}
+
+	// Simulate decision auto-assign for the second task
+	optionsJSON, _ := json.Marshal([]types.DecisionOption{
+		{ID: "a", Label: "Do this", BeadID: issues[1].ID},
+	})
+	dp := &types.DecisionPoint{
+		RequestedBy: "busy-agent",
+		Options:     string(optionsJSON),
+	}
+	server.autoAssignBeadFromDecision(ctx, store, dp, "a")
+
+	// Verify the second task was NOT assigned (over-claim prevention)
+	target, err := store.GetIssue(ctx, issues[1].ID)
+	if err != nil {
+		t.Fatalf("failed to get target issue: %v", err)
+	}
+	if target.Assignee == "busy-agent" {
+		t.Error("expected decision auto-assign to skip over-claimed agent, but it assigned anyway")
+	}
+	if target.Status == types.StatusInProgress {
+		t.Error("expected target to remain open, but it was set to in_progress")
+	}
+}
+
 func mustJSON(v interface{}) json.RawMessage {
 	data, err := json.Marshal(v)
 	if err != nil {
