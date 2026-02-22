@@ -1,29 +1,33 @@
-# Beads Release Formula v2 (Gate-Aware)
+# Beads Release Formula v3 (RWX CI + CalVer)
 #
 # This formula uses gates for async waits during CI, enabling clean phase handoffs.
 # Instead of polling, the polecat completes Phase 1, and a gate blocks Phase 2
-# until GitHub Actions finishes.
+# until RWX CI finishes.
 #
 # Phases:
 #   1. Prep & Push: preflight → push-tag (polecat work)
-#   2. Gate: await-ci (async wait for release.yml)
+#   2. Gate: await-ci (async wait for RWX release.yml)
 #   3. Verify: verify-github, verify-npm, verify-pypi (parallel)
 #   4. Install: local-install → release-complete (fan-in)
+#
+# NOTE: This formula handles the beads-repo-side release (tag + GitHub Release).
+# The actual deployment to K8s goes through gastown's platform-versions.env +
+# docker.yml pipeline (see gastown-release formula).
 
 formula = "beads-release"
 description = """
-Beads release workflow v2 - gate-aware async release.
+Beads release workflow v3 - RWX CI + CalVer.
 
-This formula orchestrates a complete release cycle with async gates:
+This formula orchestrates a complete beads release cycle with async gates:
 
 Phase 1 (Polecat Work):
   1. Preflight checks (clean git, up to date)
   2. Documentation updates (CHANGELOG, info.go)
-  3. Version bump (all components)
+  3. Version bump (all components) — CalVer format YYYY.MDD.N
   4. Git operations (commit, tag, push)
 
 Gate (Async Wait):
-  5. await-ci: Gate on GitHub Actions release.yml completion
+  5. await-ci: Gate on RWX CI release.yml completion
 
 Phase 2 (Parallel Verification):
   6. Verify GitHub release, npm package, PyPI package (concurrent)
@@ -32,26 +36,26 @@ Phase 3 (Installation):
   7. Local installation update
   8. Daemon restart
 
+NOTE: This creates a beads GitHub Release with CalVer tag. The actual K8s
+deployment goes through gastown's platform-versions.env → docker.yml pipeline.
+After this formula completes, bump BEADS_VERSION in ~/gastown3/platform-versions.env
+to trigger the deploy.
+
 ## Usage
 
 ```bash
-bd mol wisp create beads-release --var version=0.44.0
-```
-
-Or assign to a polecat:
-```bash
-gt sling beads/polecats/p1 --formula beads-release --var version=0.44.0
+bd mol wisp create beads-release --var version=2026.221.0
 ```
 
 The polecat will complete Phase 1, then signal phase-complete. The gate blocks
 until release.yml finishes. A new polecat (or the same one) resumes for Phases 2-3.
 """
 type = "workflow"
-phase = "vapor"  # Ensures this runs as a wisp - bd pour will warn, gt sling --formula creates wisp
-version = 1
+phase = "vapor"  # Ensures this runs as a wisp - bd mol wisp create beads-release
+version = 3
 
 [vars.version]
-description = "The semantic version to release (e.g., 0.44.0)"
+description = "The CalVer version to release (e.g., 2026.221.0 — YYYY.MDD.N)"
 required = true
 
 # =============================================================================
@@ -440,16 +444,16 @@ description = """
 Update the Alpha version badge in README.md.
 
 ```bash
-# macOS
-sed -i '' 's/Alpha (v[^)]*)/Alpha (v{{version}})/' README.md
+# macOS — match both old semver "Alpha (v0.X.Y)" and CalVer "Alpha (2026.MDD.N)"
+sed -i '' 's/Alpha (v\{0,1\}[^)]*)/Alpha ({{version}})/' README.md
 
 # Linux
-sed -i 's/Alpha (v[^)]*)/Alpha (v{{version}})/' README.md
+sed -i 's/Alpha (v\{0,1\}[^)]*)/Alpha ({{version}})/' README.md
 ```
 
 Verify:
 ```bash
-grep 'Alpha (v' README.md
+grep 'Alpha (' README.md
 ```
 """
 
@@ -568,7 +572,7 @@ description = """
 Create annotated git tag.
 
 ```bash
-git tag -a v{{version}} -m "Release v{{version}}"
+git tag -a {{version}} -m "Release {{version}}"
 ```
 
 Verify: `git tag -l | tail -5`
@@ -596,17 +600,14 @@ description = """
 Push the version tag to trigger CI release.
 
 ```bash
-git push origin v{{version}}
+git push origin {{version}}
 ```
 
-This triggers GitHub Actions to build artifacts and publish.
+This triggers RWX CI release.yml to build binaries (linux + darwin) and create
+the GitHub Release. The tag must match CalVer format (starts with `20`) to trigger.
 
-**Phase 1 Complete**: After this step, signal phase-complete:
-```bash
-gt done --phase-complete
-```
-
-The gate will block until CI finishes. A new session will resume at Phase 2.
+**Phase 1 Complete**: After this step, the gate blocks until RWX CI finishes.
+A new session will resume at Phase 2.
 """
 
 # =============================================================================
@@ -618,26 +619,34 @@ id = "await-ci"
 title = "Await CI: release.yml completion"
 needs = ["push-tag"]
 description = """
-Gate step: Wait for GitHub Actions release workflow to complete.
+Gate step: Wait for RWX CI release.yml workflow to complete.
 
-This gate blocks until the release.yml workflow run succeeds.
-The Refinery auto-discovers the workflow run triggered by v{{version}}
-and closes this gate when it completes.
+This gate blocks until the RWX release.yml run succeeds.
+The tag push triggers .rwx/release.yml which builds binaries for all platforms
+(linux_amd64, linux_arm64, darwin_amd64, darwin_arm64) and creates the GitHub
+Release via GoReleaser.
 
 Expected time: 5-10 minutes
 
-The gate monitors:
-- Build artifacts (all platforms)
-- Test suite pass
-- npm publish
-- PyPI publish
+Check progress:
+```bash
+# Get the run ID from the tag push
+rwx run .rwx/release.yml --init commit-sha=$(git rev-parse HEAD) --wait --output json
 
-If the workflow fails, this gate remains open and requires manual intervention.
+# Or check the RWX web UI for the run triggered by the tag
+```
+
+The release.yml also dispatches gastown's docker.yml to rebuild images.
+
+If the workflow fails, check logs:
+```bash
+rwx results <run-id>
+rwx logs <failed-task-id>
+```
 """
 
 [steps.gate]
-type = "gh:run"
-id = "release.yml"
+type = "timer"
 timeout = "30m"
 
 # =============================================================================
@@ -651,7 +660,7 @@ needs = ["await-ci"]
 description = """
 Check the GitHub releases page.
 
-https://github.com/steveyegge/beads/releases/tag/v{{version}}
+https://github.com/groblegark/beads/releases/tag/{{version}}
 
 Verify:
 - Release created
@@ -659,7 +668,7 @@ Verify:
 - Checksums present
 
 ```bash
-gh release view v{{version}} --json assets --jq '.assets[].name'
+gh release view {{version}} --repo groblegark/beads --json assets --jq '.assets[].name'
 ```
 """
 
@@ -719,7 +728,7 @@ brew upgrade bd
 
 Option B - Install script:
 ```bash
-curl -fsSL https://raw.githubusercontent.com/steveyegge/beads/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/groblegark/beads/main/scripts/install.sh | bash
 ```
 
 **Step 2: Check for dev builds (developers only)**
@@ -779,7 +788,7 @@ id = "release-complete"
 title = "Release complete"
 needs = ["restart-daemons"]
 description = """
-Release v{{version}} is complete!
+Release {{version}} is complete!
 
 Summary:
 - All version files updated
