@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"math/rand"
+	"math/rand/v2"
 	"sort"
 	"strings"
 	"sync"
@@ -353,7 +353,7 @@ func (d *Dashboard) Run(ctx context.Context) {
 	}
 
 	// Jitter on startup: random 0-5s delay to avoid thundering herd.
-	jitter := time.Duration(rand.Intn(5000)) * time.Millisecond
+	jitter := time.Duration(rand.IntN(5000)) * time.Millisecond
 	select {
 	case <-ctx.Done():
 		return
