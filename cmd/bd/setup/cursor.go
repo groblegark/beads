@@ -26,6 +26,7 @@ bd ready                              # Show issues ready to work (no blockers)
 bd list --status=open                 # List all open issues
 bd create --title="..." --type=task  # Create new issue
 bd claim <id>                         # Claim work (sets assignee + in_progress)
+bd update <id> --status=in_progress   # Update issue status or fields
 bd close <id>                         # Mark complete
 bd dep add <issue> <depends-on>       # Add dependency (issue depends on depends-on)
 bd sync                               # Sync with git remote

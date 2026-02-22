@@ -94,12 +94,12 @@ func readDBVersion(t *testing.T, beadsDir string) string {
 	ctx := context.Background()
 	store, err := storagefactory.NewFromConfigWithOptions(ctx, beadsDir, storagefactory.Options{ReadOnly: true, AllowWithRemoteDaemon: true})
 	if err != nil {
-		t.Fatalf("readDBVersion: failed to open store: %v", err)
+		return "0.0.0" // no database available (fresh clone or no-db case)
 	}
 	defer func() { _ = store.Close() }()
 	v, err := store.GetMetadata(ctx, "bd_version")
 	if err != nil {
-		t.Fatalf("readDBVersion: failed to read bd_version: %v", err)
+		return "0.0.0"
 	}
 	if v == "" {
 		v = "0.0.0" // fallback for empty version

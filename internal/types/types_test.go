@@ -569,6 +569,7 @@ func TestIssueTypeIsValid(t *testing.T) {
 		{TypeAdvice, true},
 		{TypeFormula, true},
 		{TypeRunbook, true},
+		{TypeRig, true},
 		// Gas Town types are now custom types (not built-in)
 		{IssueType("message"), false},
 		{IssueType("merge-request"), false},
@@ -579,7 +580,6 @@ func TestIssueTypeIsValid(t *testing.T) {
 		{IssueType("convoy"), false},
 		{TypeEvent, false},
 		{IssueType("slot"), false},
-		{IssueType("rig"), false},
 		// Invalid types
 		{IssueType("invalid"), false},
 		{IssueType(""), false},
