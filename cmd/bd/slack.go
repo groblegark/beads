@@ -241,6 +241,15 @@ func runSlackStart(cmd *cobra.Command, args []string) error {
 func runSlackStatus(cmd *cobra.Command, args []string) error {
 	router, err := slackbot.LoadRouter()
 	if err != nil {
+		// No local slack.json config — check if a standalone slackbot
+		// handles Slack via NATS on the remote daemon. (bd-0yjxe)
+		if isRemoteDaemon() {
+			fmt.Println("Slack routing: standalone (via NATS)")
+			fmt.Println("  Local config: not present (not needed)")
+			fmt.Println("  Mode: standalone slackbot subscribes to NATS DecisionCreated events")
+			fmt.Println("  Delivery: daemon emits NATS event → slackbot posts to Slack")
+			return nil
+		}
 		fmt.Println("Slack routing: not configured")
 		return nil
 	}

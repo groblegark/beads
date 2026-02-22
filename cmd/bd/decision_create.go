@@ -285,6 +285,13 @@ func runDecisionCreate(cmd *cobra.Command, args []string) {
 		} else {
 			fmt.Println("\n  (No notification routes configured)")
 		}
+
+		// When using a remote daemon, the daemon emits a NATS DecisionCreated
+		// event that the standalone slackbot (and other NATS consumers) pick up
+		// automatically. Note this so the agent knows Slack is covered. (bd-0yjxe)
+		if isRemoteDaemon() {
+			fmt.Println("    + NATS event (daemon → slackbot)")
+		}
 	}
 
 	// With --no-wait, return immediately after creation (gt-lquqdp).
