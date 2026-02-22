@@ -334,6 +334,11 @@ func (s *Server) handleAgentRoster(req *Request) Response {
 		rosterEntries[i] = entry
 	}
 
+	// Cross-reference with K8s pod status to mark completed/failed agents as reaped. (hq-g3v7qs.6)
+	// The NATS presence tracker only knows about event silence (15-min reaper), but
+	// K8s pod status is synced to agent beads and provides immediate detection.
+	s.enrichRosterWithPodStatus(req, rosterEntries)
+
 	// Enrich with in_progress task and epic context (bd-qdhxw).
 	// Also collects unclaimed in_progress beads (no assignee). (bd-oenjf)
 	unclaimed := s.enrichRosterWithTasks(req, rosterEntries)
@@ -414,6 +419,106 @@ func (s *Server) handleAgentRecentEvents(req *Request) Response {
 
 	data, _ := json.Marshal(result)
 	return Response{Success: true, Data: data}
+}
+
+// enrichRosterWithPodStatus cross-references roster entries with K8s pod status
+// from agent beads. If an agent bead has agent_state of "done", "failed", "stopped",
+// or "dead", the roster entry is marked as reaped immediately instead of waiting
+// for the 15-minute NATS presence timeout. (hq-g3v7qs.6)
+func (s *Server) enrichRosterWithPodStatus(req *Request, entries []AgentRosterEntry) {
+	store := s.storage
+	if store == nil || len(entries) == 0 {
+		return
+	}
+
+	ctx, cancel := s.reqCtx(req)
+	defer cancel()
+
+	// Get all agent beads with pod info.
+	agentBeads, err := store.GetIssuesByLabel(ctx, "gt:agent")
+	if err != nil {
+		return
+	}
+
+	// Build map of agent bead ID (and title fragments) → terminal state.
+	// Terminal states: done, failed, stopped, dead.
+	type podInfo struct {
+		agentID    string
+		agentState types.AgentState
+		podStatus  string
+	}
+	terminalAgents := make(map[string]podInfo) // key = agent bead ID
+	for _, ab := range agentBeads {
+		state := ab.AgentState
+		if state == types.StateDone || state == types.StateDead ||
+			state == types.StateStopped || ab.PodStatus == "failed" ||
+			ab.PodStatus == "terminated" || ab.PodStatus == "succeeded" {
+			terminalAgents[ab.ID] = podInfo{
+				agentID:    ab.ID,
+				agentState: ab.AgentState,
+				podStatus:  ab.PodStatus,
+			}
+		}
+	}
+
+	if len(terminalAgents) == 0 {
+		return
+	}
+
+	// Match roster actors to terminal agent beads.
+	// Actor names (e.g., "keen-ram") may appear as substrings of agent bead IDs
+	// (e.g., "gt-gastown-polecat-obsidian") or in the Assignee field.
+	// Also check agent bead Assignee field for direct match.
+	assigneeToInfo := make(map[string]podInfo)
+	for _, ab := range agentBeads {
+		if _, terminal := terminalAgents[ab.ID]; terminal && ab.Assignee != "" {
+			assigneeToInfo[ab.Assignee] = terminalAgents[ab.ID]
+		}
+	}
+
+	now := time.Now().Format(time.RFC3339)
+	for i := range entries {
+		if entries[i].Reaped {
+			continue // Already marked dead by NATS reaper
+		}
+
+		actor := entries[i].Actor
+
+		// Check 1: Direct match on assignee field.
+		if info, ok := assigneeToInfo[actor]; ok {
+			entries[i].Reaped = true
+			entries[i].ReapedAt = now
+			_ = info // suppress unused
+			continue
+		}
+
+		// Check 2: Actor name appears in a terminal agent bead ID.
+		for _, info := range terminalAgents {
+			if matchActorToAgentID(actor, info.agentID) {
+				entries[i].Reaped = true
+				entries[i].ReapedAt = now
+				break
+			}
+		}
+	}
+}
+
+// matchActorToAgentID checks if a roster actor name matches an agent bead ID.
+// Agent bead IDs follow patterns like "gt-gastown-polecat-obsidian" or
+// "bd-beads-polecat-furiosa". Actor names are shorter like "keen-ram" or "obsidian".
+func matchActorToAgentID(actor, agentID string) bool {
+	if actor == agentID {
+		return true
+	}
+	// Check if agent ID ends with the actor name (e.g., "-obsidian" matches "obsidian").
+	if strings.HasSuffix(agentID, "-"+actor) || strings.HasSuffix(agentID, "/"+actor) {
+		return true
+	}
+	// Check if actor contains the agent ID or vice versa as substring.
+	if strings.Contains(agentID, actor) {
+		return true
+	}
+	return false
 }
 
 // enrichRosterWithTasks looks up in_progress beads and matches them to roster
