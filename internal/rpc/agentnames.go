@@ -19,6 +19,7 @@ func GenerateAgentName(sessionKey string) string {
 }
 
 // adjectives for agent names — positive, distinctive, easy to remember.
+// 100 entries × 100 nouns = 10,000 combinations, keeping collision odds low.
 var adjectives = []string{
 	"bold", "brave", "bright", "calm", "clear",
 	"cool", "crisp", "deft", "eager", "fair",
@@ -30,9 +31,20 @@ var adjectives = []string{
 	"tall", "tame", "tidy", "true", "vast",
 	"vivid", "warm", "wary", "wise", "witty",
 	"zesty", "agile", "apt", "arch", "avid",
+	"brisk", "civic", "civil", "dense", "dry",
+	"even", "firm", "flat", "free", "full",
+	"gilt", "glib", "gray", "hale", "hard",
+	"high", "lean", "live", "long", "mild",
+	"mute", "odd", "pale", "peak", "pink",
+	"plain", "plum", "raw", "real", "rich",
+	"ripe", "safe", "sage", "sane", "shy",
+	"side", "slim", "slow", "thin", "trim",
+	"twin", "void", "wet", "wide", "wild",
+	"worn", "zero", "zinc", "dual", "deep",
 }
 
 // nouns for agent names — animals, natural things, short and distinctive.
+// 100 entries × 100 adjectives = 10,000 combinations.
 var nouns = []string{
 	"ant", "ape", "bat", "bear", "bee",
 	"bird", "boar", "buck", "bull", "cat",
@@ -48,4 +60,10 @@ var nouns = []string{
 	"snake", "sole", "stag", "swan", "teal",
 	"tern", "toad", "trout", "vole", "wasp",
 	"wren", "wolf", "yak", "fox", "finch",
+	"bass", "clam", "carp", "chip", "cob",
+	"crane", "dace", "dart", "dory", "dun",
+	"egret", "eel", "gnat", "grub", "hen",
+	"heron", "koi", "lamb", "loon", "louse",
+	"macaw", "midge", "mite", "nit", "perch",
+	"quail", "roach", "ruff", "shad", "skua",
 }

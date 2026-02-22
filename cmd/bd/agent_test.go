@@ -69,18 +69,12 @@ func TestParseAgentIDFields(t *testing.T) {
 			wantRoleType: "deacon",
 			wantRig:      "",
 		},
-		// Per-rig singleton roles
+		// Per-rig singleton roles (witness/refinery removed in d458dc2c)
 		{
-			name:         "rig-level witness",
+			name:         "rig-level unknown singleton",
 			agentID:      "gt-gastown-witness",
-			wantRoleType: "witness",
-			wantRig:      "gastown",
-		},
-		{
-			name:         "rig-level refinery",
-			agentID:      "bd-beads-refinery",
-			wantRoleType: "refinery",
-			wantRig:      "beads",
+			wantRoleType: "",
+			wantRig:      "",
 		},
 		// Per-rig named roles
 		{
@@ -114,17 +108,18 @@ func TestParseAgentIDFields(t *testing.T) {
 			wantRoleType: "crew",
 			wantRig:      "infra-dashboard",
 		},
+		// witness/refinery roles removed — these now return empty
 		{
-			name:         "witness with hyphenated rig",
+			name:         "witness with hyphenated rig (removed role)",
 			agentID:      "gt-my-cool-rig-witness",
-			wantRoleType: "witness",
-			wantRig:      "my-cool-rig",
+			wantRoleType: "",
+			wantRig:      "",
 		},
 		{
-			name:         "refinery with hyphenated rig",
+			name:         "refinery with hyphenated rig (removed role)",
 			agentID:      "bd-super-long-rig-name-refinery",
-			wantRoleType: "refinery",
-			wantRig:      "super-long-rig-name",
+			wantRoleType: "",
+			wantRig:      "",
 		},
 		{
 			name:         "polecat with multi-hyphen rig and name",
