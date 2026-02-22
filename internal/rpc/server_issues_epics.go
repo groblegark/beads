@@ -1470,6 +1470,54 @@ func (s *Server) handleClose(req *Request) Response {
 		}
 	}
 
+	ctx, cancel := s.reqCtx(req)
+	defer cancel()
+
+	// Check WispStore first for wisp IDs (bd-6ntq4)
+	if s.wispStore != nil && isWispID(closeArgs.ID) {
+		issue, err := s.wispStore.Get(ctx, closeArgs.ID)
+		if err != nil {
+			return Response{
+				Success: false,
+				Error:   fmt.Sprintf("failed to get wisp: %v", err),
+			}
+		}
+		if issue != nil {
+			oldStatus := string(issue.Status)
+			issue.Status = types.StatusClosed
+			now := time.Now()
+			issue.UpdatedAt = now
+			issue.ClosedAt = &now
+			if closeArgs.Reason != "" {
+				issue.CloseReason = closeArgs.Reason
+			}
+			if err := s.wispStore.Update(ctx, issue); err != nil {
+				return Response{
+					Success: false,
+					Error:   fmt.Sprintf("failed to close wisp: %v", err),
+				}
+			}
+			// Emit status change event
+			evt := MutationEvent{
+				Type:      MutationStatus,
+				IssueID:   closeArgs.ID,
+				Title:     issue.Title,
+				Assignee:  issue.Assignee,
+				OldStatus: oldStatus,
+				NewStatus: "closed",
+			}
+			enrichEvent(&evt, issue)
+			s.emitRichMutation(evt)
+
+			data, _ := json.Marshal(issue)
+			return Response{
+				Success: true,
+				Data:    data,
+			}
+		}
+		// Not found in WispStore, fall through to regular storage
+	}
+
 	store := s.storage
 	if store == nil {
 		return Response{
@@ -1477,9 +1525,6 @@ func (s *Server) handleClose(req *Request) Response {
 			Error:   "storage not available (global daemon deprecated - use local daemon instead with 'bd daemon' in your project)",
 		}
 	}
-
-	ctx, cancel := s.reqCtx(req)
-	defer cancel()
 
 	// Check if issue is a template (beads-1ra): templates are read-only
 	issue, err := store.GetIssue(ctx, closeArgs.ID)

@@ -1,7 +1,9 @@
 package rpc
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"testing"
 	"time"
@@ -888,4 +890,112 @@ func TestResetDroppedEventsCount(t *testing.T) {
 	server.ResetDroppedEventsCount()
 
 	// No error means success
+}
+
+// testWispStore is a minimal in-memory WispStore for testing.
+type testWispStore struct {
+	wisps map[string]*types.Issue
+}
+
+func newTestWispStore() *testWispStore {
+	return &testWispStore{wisps: make(map[string]*types.Issue)}
+}
+func (s *testWispStore) Create(_ context.Context, issue *types.Issue) error {
+	if _, ok := s.wisps[issue.ID]; ok {
+		return fmt.Errorf("wisp already exists: %s", issue.ID)
+	}
+	s.wisps[issue.ID] = issue
+	return nil
+}
+func (s *testWispStore) Get(_ context.Context, id string) (*types.Issue, error) {
+	issue, ok := s.wisps[id]
+	if !ok {
+		return nil, nil
+	}
+	return issue, nil
+}
+func (s *testWispStore) List(_ context.Context, _ types.IssueFilter) ([]*types.Issue, error) {
+	var result []*types.Issue
+	for _, issue := range s.wisps {
+		result = append(result, issue)
+	}
+	return result, nil
+}
+func (s *testWispStore) Update(_ context.Context, issue *types.Issue) error {
+	if _, ok := s.wisps[issue.ID]; !ok {
+		return fmt.Errorf("wisp not found: %s", issue.ID)
+	}
+	s.wisps[issue.ID] = issue
+	return nil
+}
+func (s *testWispStore) Delete(_ context.Context, id string) error {
+	if _, ok := s.wisps[id]; !ok {
+		return fmt.Errorf("wisp not found: %s", id)
+	}
+	delete(s.wisps, id)
+	return nil
+}
+func (s *testWispStore) Count() int  { return len(s.wisps) }
+func (s *testWispStore) Close() error { return nil }
+
+// TestCloseWispIssue tests that bd close works for wisp-prefixed issue IDs (bd-6ntq4).
+// Previously, handleClose only checked the main storage, not the wispStore,
+// causing "issue not found" for wisp IDs.
+func TestCloseWispIssue(t *testing.T) {
+	server, client, _, cleanup := setupTestServerWithStore(t)
+	defer cleanup()
+
+	// Set up a wisp store with a test wisp
+	ws := newTestWispStore()
+	server.wispStore = ws
+
+	wispID := "bd-wisp-test123"
+	wisp := &types.Issue{
+		ID:        wispID,
+		Title:     "Test wisp issue",
+		Status:    types.StatusOpen,
+		IssueType: types.TypeTask,
+		Priority:  2,
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}
+	if err := ws.Create(context.Background(), wisp); err != nil {
+		t.Fatalf("Failed to create wisp: %v", err)
+	}
+
+	// Close the wisp via RPC
+	resp, err := client.CloseIssue(&CloseArgs{
+		ID:     wispID,
+		Reason: "Test close reason",
+	})
+	if err != nil {
+		t.Fatalf("CloseIssue failed for wisp: %v", err)
+	}
+	if !resp.Success {
+		t.Fatalf("Expected success closing wisp, got error: %s", resp.Error)
+	}
+
+	// Verify the wisp was closed
+	var closedIssue types.Issue
+	if err := json.Unmarshal(resp.Data, &closedIssue); err != nil {
+		t.Fatalf("Failed to unmarshal closed wisp: %v", err)
+	}
+	if closedIssue.Status != types.StatusClosed {
+		t.Errorf("Expected status %s, got %s", types.StatusClosed, closedIssue.Status)
+	}
+	if closedIssue.CloseReason != "Test close reason" {
+		t.Errorf("Expected close reason 'Test close reason', got %q", closedIssue.CloseReason)
+	}
+	if closedIssue.ClosedAt == nil {
+		t.Error("Expected ClosedAt to be set")
+	}
+
+	// Verify the wisp in the store is also updated
+	stored, err := ws.Get(context.Background(), wispID)
+	if err != nil {
+		t.Fatalf("Failed to get wisp from store: %v", err)
+	}
+	if stored.Status != types.StatusClosed {
+		t.Errorf("Stored wisp status: expected %s, got %s", types.StatusClosed, stored.Status)
+	}
 }
