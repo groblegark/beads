@@ -914,6 +914,29 @@ func runDaemonLoop(interval time.Duration, autoCommit, autoPush, autoPull, local
 						}
 					}
 				}
+
+				// Clean up orphaned wisps created by or assigned to the dead agent.
+				// Wisps are in-memory ephemeral molecules; leaving them around after
+				// the agent dies wastes memory and clutters bd list. (hq-g3v7qs.7)
+				if ws := server.GetWispStore(); ws != nil {
+					ctx3, cancel3 := context.WithTimeout(context.Background(), 5*time.Second)
+					defer cancel3()
+					allWisps, err := ws.List(ctx3, types.IssueFilter{})
+					if err == nil {
+						var cleaned int
+						for _, w := range allWisps {
+							if w.Assignee == actor || w.CreatedBy == actor {
+								if delErr := ws.Delete(ctx3, w.ID); delErr == nil {
+									cleaned++
+								}
+							}
+						}
+						if cleaned > 0 {
+							log.Info("reaper: cleaned up orphaned wisps",
+								"agent", actor, "count", cleaned)
+						}
+					}
+				}
 			},
 		})
 

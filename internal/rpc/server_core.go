@@ -531,6 +531,13 @@ func (s *Server) SetBus(bus *eventbus.Bus) {
 	s.bus = bus
 }
 
+// GetWispStore returns the wisp store, or nil if not configured. (hq-g3v7qs.7)
+func (s *Server) GetWispStore() WispStore {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.wispStore
+}
+
 // SetGateBackend sets the session gate backend for NATS KV operations. (bd-rabpy)
 func (s *Server) SetGateBackend(backend gate.GateBackend) {
 	s.mu.Lock()
