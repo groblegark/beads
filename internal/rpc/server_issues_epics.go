@@ -12,6 +12,7 @@ import (
 	"github.com/steveyegge/beads/internal/config"
 	"github.com/steveyegge/beads/internal/decision"
 	"github.com/steveyegge/beads/internal/eventbus"
+	"github.com/steveyegge/beads/internal/gate"
 	"github.com/steveyegge/beads/internal/idgen"
 	"github.com/steveyegge/beads/internal/routing"
 	"github.com/steveyegge/beads/internal/storage"
@@ -4046,6 +4047,25 @@ func (s *Server) handleDecisionCreate(req *Request) Response {
 
 	// Emit mutation event so the daemon event-driven sync picks it up.
 	s.emitMutationForActor(MutationCreate, issue, actor)
+
+	// Mark the decision gate in the NATS backend so the in-process gate check
+	// (handleInProcess) sees the satisfaction. Without this, the CLI writes a
+	// file marker that the daemon's NATS-only check path never sees — causing
+	// false-positive Stop hook blocks for already-resolved decisions. (bd-1x0qp)
+	//
+	// Use args.RequestedBy (the agent creating the decision) rather than the
+	// RPC actor — the Stop hook fires under the requesting agent's name, so
+	// the gate must be keyed on that agent's base name.
+	if s.gateBackend != nil && args.RequestedBy != "" {
+		agentName := eventbus.AgentBaseName(args.RequestedBy)
+		if agentName != "" {
+			_ = s.gateBackend.Mark(agentName, "decision", gate.MarkOpts{
+				Mechanism: "decision_create",
+				Actor:     agentName,
+				TTL:       gate.DefaultTTLFor("decision"),
+			})
+		}
+	}
 
 	// Emit decision event to NATS JetStream so the Slack bot (and other
 	// consumers) are notified immediately.  Previously the CLI client was

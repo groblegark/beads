@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"testing"
 
+	"github.com/steveyegge/beads/internal/gate"
 	"github.com/steveyegge/beads/internal/types"
 )
 
@@ -1414,5 +1416,142 @@ func TestDecisionResolve_AutoAssignFallbackFromLabel(t *testing.T) {
 	}
 	if target.Status != types.StatusInProgress {
 		t.Errorf("Target bead status = %q, want %q", target.Status, types.StatusInProgress)
+	}
+}
+
+// ============================================================================
+// Gate Backend Integration Tests (bd-1x0qp)
+// ============================================================================
+
+// testGateBackend implements gate.GateBackend for testing.
+type testGateBackend struct {
+	satisfied map[string]bool
+	marked    []string
+}
+
+func newTestGateBackend() *testGateBackend {
+	return &testGateBackend{satisfied: make(map[string]bool)}
+}
+
+func (m *testGateBackend) Mark(agent, gateID string, _ gate.MarkOpts) error {
+	m.satisfied[agent+"."+gateID] = true
+	m.marked = append(m.marked, agent+"."+gateID)
+	return nil
+}
+
+func (m *testGateBackend) Clear(agent, gateID string) error {
+	delete(m.satisfied, agent+"."+gateID)
+	return nil
+}
+
+func (m *testGateBackend) ClearAll(agent string) error {
+	for k := range m.satisfied {
+		if strings.HasPrefix(k, agent+".") {
+			delete(m.satisfied, k)
+		}
+	}
+	return nil
+}
+
+func (m *testGateBackend) ClearGateAllAgents(gateID string) error {
+	for k := range m.satisfied {
+		if strings.HasSuffix(k, "."+gateID) {
+			delete(m.satisfied, k)
+		}
+	}
+	return nil
+}
+
+func (m *testGateBackend) IsSatisfied(agent, gateID string) bool {
+	return m.satisfied[agent+"."+gateID]
+}
+
+func (m *testGateBackend) Get(agent, gateID string) *gate.GateEntry {
+	if !m.satisfied[agent+"."+gateID] {
+		return nil
+	}
+	return &gate.GateEntry{Satisfied: true, Mechanism: "test"}
+}
+
+// TestDecisionCreate_MarksGateBackend verifies that handleDecisionCreate marks
+// the NATS gate backend so that the in-process gate check (handleInProcess) sees
+// the decision gate as satisfied. This prevents the false-positive Stop hook block
+// where the CLI wrote a file marker but the daemon's NATS path never saw it. (bd-1x0qp)
+func TestDecisionCreate_MarksGateBackend(t *testing.T) {
+	server, client, _, cleanup := setupTestServerWithStore(t)
+	defer cleanup()
+
+	// Set a mock gate backend on the server.
+	backend := newTestGateBackend()
+	server.SetGateBackend(backend)
+
+	// Create a decision as "test-agent".
+	createArgs := &DecisionCreateArgs{
+		Prompt:      "Should we deploy?",
+		Options:     StringOptions("Yes", "No"),
+		RequestedBy: "test-agent",
+	}
+
+	result, err := client.DecisionCreate(createArgs)
+	if err != nil {
+		t.Fatalf("DecisionCreate failed: %v", err)
+	}
+	if result == nil || result.Decision == nil {
+		t.Fatal("DecisionCreate returned nil result")
+	}
+
+	// Verify the gate backend was marked for the agent.
+	if !backend.IsSatisfied("test-agent", "decision") {
+		t.Error("expected gate backend to be marked for test-agent.decision after DecisionCreate")
+	}
+
+	// Verify the marked list records the call.
+	found := false
+	for _, m := range backend.marked {
+		if m == "test-agent.decision" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected 'test-agent.decision' in marked list, got %v", backend.marked)
+	}
+}
+
+// TestDecisionCreate_MarksGateBackend_WithSuffix verifies that agent name
+// suffixes (e.g., "test-agent-1") are stripped via AgentBaseName before
+// marking the gate backend, matching the handleInProcess lookup key.
+func TestDecisionCreate_MarksGateBackend_WithSuffix(t *testing.T) {
+	server, _, _, cleanup := setupTestServerWithStore(t)
+	defer cleanup()
+
+	backend := newTestGateBackend()
+	server.SetGateBackend(backend)
+
+	// Send a raw request with actor "test-agent-1" (continuation suffix).
+	createArgs := &DecisionCreateArgs{
+		Prompt:      "Continue working?",
+		Options:     StringOptions("Yes", "No"),
+		RequestedBy: "test-agent-1",
+	}
+	argsJSON, _ := json.Marshal(createArgs)
+	req := &Request{
+		Operation: "DecisionCreate",
+		Args:      argsJSON,
+		Actor:     "test-agent-1",
+	}
+
+	resp := server.handleDecisionCreate(req)
+	if !resp.Success {
+		t.Fatalf("handleDecisionCreate failed: %s", resp.Error)
+	}
+
+	// AgentBaseName("test-agent-1") = "test-agent", so the gate should be
+	// marked under "test-agent", not "test-agent-1".
+	if !backend.IsSatisfied("test-agent", "decision") {
+		t.Error("expected gate backend to be marked for base name 'test-agent'")
+	}
+	if backend.IsSatisfied("test-agent-1", "decision") {
+		t.Error("gate backend should NOT be marked under suffixed name 'test-agent-1'")
 	}
 }
