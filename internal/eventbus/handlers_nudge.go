@@ -259,6 +259,19 @@ func (h *BeadNudgeHandler) tryAutoSling(ctx context.Context, event *Event) strin
 
 	bead := issues[0]
 
+	// Double-check: verify agent truly has no in_progress tasks in DB.
+	// The PresenceTracker fast-path (actorHasTask) can be stale if it missed
+	// a mutation event, so verify against the database before assigning. (bd-oxs3k)
+	inProgress := types.StatusInProgress
+	actor := event.Actor
+	existing, searchErr := h.autoSlingStore.SearchIssues(ctx, "", types.IssueFilter{
+		Status:   &inProgress,
+		Assignee: &actor,
+	})
+	if searchErr == nil && len(existing) > 0 {
+		return "" // Agent already has in_progress work — skip auto-sling
+	}
+
 	// Assign the bead to the agent: status → in_progress, assignee → actor.
 	updates := map[string]interface{}{
 		"status":   string(types.StatusInProgress),
