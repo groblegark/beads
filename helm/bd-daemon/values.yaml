@@ -136,6 +136,16 @@ dolt:
     read_timeout_millis: 28800000
     write_timeout_millis: 28800000
 
+  # Performance tuning (Dolt config.yaml performance section)
+  # query_parallelism controls parallel query execution. null = Dolt default (single-threaded).
+  # Set to number of CPU cores available to improve concurrent query throughput.
+  performance: {}
+    # query_parallelism: 2
+
+  # System variables set at server startup (Dolt config.yaml system_variables section)
+  # These override Dolt/MySQL system variable defaults.
+  system_variables: {}
+
   # Service
   service:
     type: ClusterIP
