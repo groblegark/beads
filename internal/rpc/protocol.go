@@ -262,6 +262,7 @@ type Response struct {
 	Success bool            `json:"success"`
 	Data    json.RawMessage `json:"data,omitempty"`
 	Error   string          `json:"error,omitempty"`
+	Message string          `json:"message,omitempty"` // Informational message (e.g., auto-released tasks on --force claim) (bd-nl8zj)
 }
 
 // CreateArgs represents arguments for the create operation

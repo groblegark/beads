@@ -1312,12 +1312,30 @@ func TestHandleUpdate_ClaimFlag_OverClaim(t *testing.T) {
 		t.Errorf("expected 'already have' error, got %q", resp2.Error)
 	}
 
-	// Claim with --force should succeed
+	// Claim with --force should succeed AND auto-release the first task (bd-nl8zj)
 	claimArgs3 := UpdateArgs{ID: issues[1].ID, Claim: true, ClaimForce: true}
 	claimJSON3, _ := json.Marshal(claimArgs3)
 	resp3 := server.handleUpdate(&Request{Operation: OpUpdate, Args: claimJSON3, Actor: "greedy-agent"})
 	if !resp3.Success {
 		t.Errorf("claim with --force should succeed: %s", resp3.Error)
+	}
+	if resp3.Message == "" {
+		t.Error("expected non-empty Message with auto-release info when using --force")
+	}
+	if !strings.Contains(resp3.Message, "Auto-released") {
+		t.Errorf("expected 'Auto-released' in message, got %q", resp3.Message)
+	}
+
+	// Verify the first task was auto-released (status=open, assignee="")
+	firstIssue, getErr := store.GetIssue(ctx, issues[0].ID)
+	if getErr != nil {
+		t.Fatalf("failed to get first issue: %v", getErr)
+	}
+	if firstIssue.Status != types.StatusOpen {
+		t.Errorf("expected first task status 'open' after auto-release, got %q", firstIssue.Status)
+	}
+	if firstIssue.Assignee != "" {
+		t.Errorf("expected first task assignee '' after auto-release, got %q", firstIssue.Assignee)
 	}
 }
 

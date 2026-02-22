@@ -74,6 +74,11 @@ Examples:
 				os.Exit(1)
 			}
 
+			// Show auto-released tasks when --force was used (bd-nl8zj)
+			if resp.Message != "" {
+				fmt.Fprintf(os.Stderr, "%s\n", resp.Message)
+			}
+
 			var issue types.Issue
 			if err := json.Unmarshal(resp.Data, &issue); err == nil {
 				if hookRunner != nil {
@@ -106,6 +111,11 @@ Examples:
 			if updateErr != nil {
 				fmt.Fprintf(os.Stderr, "Error claiming %s: %v\n", resolvedID, updateErr)
 				return updateErr
+			}
+
+			// Show auto-released tasks when --force was used (bd-nl8zj)
+			if resp.Message != "" {
+				fmt.Fprintf(os.Stderr, "%s\n", resp.Message)
 			}
 
 			var issue types.Issue

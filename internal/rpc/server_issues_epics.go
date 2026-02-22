@@ -839,26 +839,32 @@ func (s *Server) handleCreate(req *Request) Response {
 
 // validateClaimPreconditions checks claim-related guards that apply to both
 // handleUpdate and handleUpdateWithComment. Returns a *Response with the error
-// if validation fails, or nil if everything is OK. (bd-z32l8)
-func (s *Server) validateClaimPreconditions(ctx context.Context, store storage.Storage, issue *types.Issue, args *UpdateArgs, actor string) *Response {
+// if validation fails, or (nil, message) if everything is OK. The message string
+// contains informational text about auto-released tasks (when --force is used). (bd-z32l8)
+//
+// When ClaimForce is true and the actor has other in_progress tasks, those tasks
+// are automatically released (set to open, assignee cleared) instead of blocking
+// the claim. This makes --force a deliberate task-switch. (bd-nl8zj)
+func (s *Server) validateClaimPreconditions(ctx context.Context, store storage.Storage, issue *types.Issue, args *UpdateArgs, actor string) (*Response, string) {
 	// Pre-validate claim before transaction (pure check against pre-fetched issue)
 	if args.Claim && issue.IssueType == types.TypeEpic && !args.ClaimForce {
 		return &Response{
 			Success: false,
 			Error:   fmt.Sprintf("cannot claim epic %s directly — please create or assign a sub-task instead (use --force to override)", args.ID),
-		}
+		}, ""
 	}
 	if args.Claim && issue.Assignee != "" {
 		return &Response{
 			Success: false,
 			Error:   fmt.Sprintf("already claimed by %s", issue.Assignee),
-		}
+		}, ""
 	}
 
 	// Prevent over-claiming: reject claim when the actor already has another
 	// in_progress task. Agents should finish or unclaim their current work first.
-	// Use --force to override (e.g., for legitimate multi-task scenarios). (bd-arwkj)
-	if args.Claim && !args.ClaimForce && actor != "" {
+	// Use --force to auto-release prior tasks (deliberate task-switch). (bd-arwkj, bd-nl8zj)
+	var releaseMsg string
+	if args.Claim && actor != "" {
 		inProgressStatus := types.StatusInProgress
 		actorFilter := types.IssueFilter{
 			Status:   &inProgressStatus,
@@ -867,16 +873,35 @@ func (s *Server) validateClaimPreconditions(ctx context.Context, store storage.S
 		existing, searchErr := store.SearchIssues(ctx, "", actorFilter)
 		if searchErr == nil && len(existing) > 0 {
 			// Don't count the issue being claimed itself (re-claim scenario)
-			var others []string
+			var others []*types.Issue
 			for _, ex := range existing {
 				if ex.ID != args.ID {
-					others = append(others, ex.ID)
+					others = append(others, ex)
 				}
 			}
 			if len(others) > 0 {
-				return &Response{
-					Success: false,
-					Error:   fmt.Sprintf("you already have %s in_progress; close or unclaim it first, or use --force to override", others[0]),
+				if !args.ClaimForce {
+					return &Response{
+						Success: false,
+						Error:   fmt.Sprintf("you already have %s in_progress; close or unclaim it first, or use --force to override", others[0].ID),
+					}, ""
+				}
+				// --force: auto-release prior tasks (bd-nl8zj)
+				var released []string
+				for _, ex := range others {
+					releaseUpdates := map[string]interface{}{
+						"status":   string(types.StatusOpen),
+						"assignee": "",
+					}
+					if err := store.UpdateIssue(ctx, ex.ID, releaseUpdates, actor); err != nil {
+						fmt.Fprintf(os.Stderr, "claim-force: failed to release %s: %v\n", ex.ID, err)
+						continue
+					}
+					released = append(released, fmt.Sprintf("Auto-released %s: %s (was in_progress)", ex.ID, ex.Title))
+					s.emitMutation(MutationUpdate, ex.ID, "", "")
+				}
+				if len(released) > 0 {
+					releaseMsg = strings.Join(released, "\n")
 				}
 			}
 		}
@@ -891,10 +916,10 @@ func (s *Server) validateClaimPreconditions(ctx context.Context, store storage.S
 		return &Response{
 			Success: false,
 			Error:   fmt.Sprintf("already in progress by %s; use 'bd show %s' to check status", issue.Assignee, issue.ID),
-		}
+		}, ""
 	}
 
-	return nil
+	return nil, releaseMsg
 }
 
 func (s *Server) handleUpdate(req *Request) Response {
@@ -995,7 +1020,8 @@ func (s *Server) handleUpdate(req *Request) Response {
 	actor := s.reqActor(req)
 
 	// Validate claim preconditions (shared with handleUpdateWithComment). (bd-z32l8)
-	if errResp := s.validateClaimPreconditions(ctx, store, issue, &updateArgs, actor); errResp != nil {
+	errResp, releaseMsg := s.validateClaimPreconditions(ctx, store, issue, &updateArgs, actor)
+	if errResp != nil {
 		return *errResp
 	}
 
@@ -1297,6 +1323,7 @@ func (s *Server) handleUpdate(req *Request) Response {
 	return Response{
 		Success: true,
 		Data:    data,
+		Message: releaseMsg, // Non-empty when --force auto-released prior tasks (bd-nl8zj)
 	}
 }
 
@@ -1349,9 +1376,11 @@ func (s *Server) handleUpdateWithComment(req *Request) Response {
 	}
 
 	// Validate claim preconditions (same guards as handleUpdate). (bd-z32l8)
-	if errResp := s.validateClaimPreconditions(ctx, store, issue, &args.UpdateArgs, actor); errResp != nil {
+	errResp, releaseMsg := s.validateClaimPreconditions(ctx, store, issue, &args.UpdateArgs, actor)
+	if errResp != nil {
 		return *errResp
 	}
+	_ = releaseMsg // handleUpdateWithComment doesn't surface release messages (daemon-only path)
 
 	// Build updates map from args
 	updates, err := updatesFromArgs(args.UpdateArgs)
