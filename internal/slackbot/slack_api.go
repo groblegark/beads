@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/slack-go/slack"
+	"github.com/steveyegge/beads/internal/rpc"
 )
 
 // SlackAPI abstracts the subset of slack.Client methods used by the bot.
@@ -46,4 +47,7 @@ type DecisionProvider interface {
 	// and returns the terminal text. Returns an error if the agent is not found or
 	// unreachable.
 	PeekAgent(ctx context.Context, agentName string) (string, error)
+
+	// AgentRoster returns the live presence roster from the NATS event bus.
+	AgentRoster(ctx context.Context) (*rpc.AgentRosterResult, error)
 }

@@ -366,6 +366,21 @@ func stripSessionSuffix(name string) string {
 	return sessionSuffixPattern.ReplaceAllString(name, "")
 }
 
+// AgentRoster returns the live agent presence roster from the daemon.
+func (dc *DecisionClient) AgentRoster(ctx context.Context) (*rpc.AgentRosterResult, error) {
+	result, err := dc.getClient().AgentRoster(&rpc.AgentRosterArgs{})
+	if err != nil && isBrokenPipe(err) {
+		if rerr := dc.reconnect(); rerr != nil {
+			return nil, fmt.Errorf("agent roster (reconnect failed): %w", rerr)
+		}
+		result, err = dc.getClient().AgentRoster(&rpc.AgentRosterArgs{})
+	}
+	if err != nil {
+		return nil, fmt.Errorf("agent roster: %w", err)
+	}
+	return result, nil
+}
+
 // convertDecisionResponse maps an rpc.DecisionResponse to the unified Decision type.
 func convertDecisionResponse(resp *rpc.DecisionResponse) Decision {
 	d := Decision{}

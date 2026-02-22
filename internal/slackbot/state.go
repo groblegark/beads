@@ -21,10 +21,18 @@ type decisionMessageState struct {
 	Agent     string `json:"agent,omitempty"`
 }
 
+// dashboardState is the serialized form of the dashboard message reference.
+type dashboardState struct {
+	ChannelID string `json:"channel_id"`
+	Timestamp string `json:"timestamp"`
+	LastHash  string `json:"last_hash,omitempty"`
+}
+
 // slackState is the top-level persisted state.
 type slackState struct {
 	AgentCards       map[string]agentCardState       `json:"agent_cards"`
 	DecisionMessages map[string]decisionMessageState `json:"decision_messages,omitempty"`
+	Dashboard        *dashboardState                 `json:"dashboard,omitempty"`
 }
 
 // StateManager persists Slack bot state across restarts.
@@ -140,6 +148,30 @@ func (sm *StateManager) AllAgentCards() map[string]agentCardState {
 		result[k] = v
 	}
 	return result
+}
+
+// GetDashboard returns the persisted dashboard message reference, if any.
+func (sm *StateManager) GetDashboard() (channelID, timestamp, lastHash string, ok bool) {
+	sm.mu.RLock()
+	defer sm.mu.RUnlock()
+
+	if sm.state.Dashboard == nil {
+		return "", "", "", false
+	}
+	return sm.state.Dashboard.ChannelID, sm.state.Dashboard.Timestamp, sm.state.Dashboard.LastHash, true
+}
+
+// SetDashboard persists the dashboard message reference.
+func (sm *StateManager) SetDashboard(channelID, timestamp, lastHash string) error {
+	sm.mu.Lock()
+	sm.state.Dashboard = &dashboardState{
+		ChannelID: channelID,
+		Timestamp: timestamp,
+		LastHash:  lastHash,
+	}
+	sm.mu.Unlock()
+
+	return sm.Save()
 }
 
 // Save writes state to disk using atomic write (temp file + rename).

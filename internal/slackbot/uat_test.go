@@ -13,6 +13,7 @@ import (
 
 	"github.com/slack-go/slack"
 	"github.com/slack-go/slack/slackevents"
+	"github.com/steveyegge/beads/internal/rpc"
 )
 
 // ---------- Mock Slack API ----------
@@ -325,6 +326,10 @@ func (m *mockDecisionProvider) PeekAgent(_ context.Context, agentName string) (s
 		return "", fmt.Errorf("no agent name")
 	}
 	return fmt.Sprintf("[mock terminal for %s]\n$ bd ready\nNo pending work.", agentName), nil
+}
+
+func (m *mockDecisionProvider) AgentRoster(_ context.Context) (*rpc.AgentRosterResult, error) {
+	return &rpc.AgentRosterResult{}, nil
 }
 
 func (m *mockDecisionProvider) getComments(issueID string) []commentCall {
