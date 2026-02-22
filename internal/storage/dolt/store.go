@@ -373,9 +373,11 @@ func openServerConnection(ctx context.Context, cfg *Config) (*sql.DB, string, er
 		return nil, "", fmt.Errorf("failed to open Dolt server connection: %w", err)
 	}
 
-	// Server mode supports multi-writer, configure large pool for multi-agent workloads
-	db.SetMaxOpenConns(1000)
-	db.SetMaxIdleConns(100)
+	// Server mode: keep pool small since Dolt is typically CPU-limited (1-2 cores).
+	// With 2 daemon replicas, total connections = 2 × MaxOpenConns.
+	// 25 per replica × 2 replicas = 50 total, matching Dolt's default max_connections.
+	db.SetMaxOpenConns(25)
+	db.SetMaxIdleConns(5)
 	db.SetConnMaxLifetime(5 * time.Minute)
 	db.SetConnMaxIdleTime(20 * time.Minute) // Prevent stale idle connections
 
@@ -434,8 +436,8 @@ func openStandbyConnection(ctx context.Context, cfg *Config) (*sql.DB, string, e
 	}
 
 	// Smaller pool: standby is read-only failover, not primary traffic
-	db.SetMaxOpenConns(50)
-	db.SetMaxIdleConns(10)
+	db.SetMaxOpenConns(10)
+	db.SetMaxIdleConns(2)
 	db.SetConnMaxLifetime(5 * time.Minute)
 	db.SetConnMaxIdleTime(5 * time.Minute)
 

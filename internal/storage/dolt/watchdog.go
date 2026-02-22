@@ -281,8 +281,8 @@ func (s *DoltStore) reconnectPrimary(ctx context.Context) error {
 	}
 
 	// Apply same pool settings as openServerConnection
-	newDB.SetMaxOpenConns(1000)
-	newDB.SetMaxIdleConns(100)
+	newDB.SetMaxOpenConns(25)
+	newDB.SetMaxIdleConns(5)
 	newDB.SetConnMaxLifetime(5 * time.Minute)
 	newDB.SetConnMaxIdleTime(20 * time.Minute)
 
