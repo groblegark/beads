@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
-	"github.com/steveyegge/beads/internal/eventbus"
 	"github.com/steveyegge/beads/internal/gate"
 	"github.com/steveyegge/beads/internal/hooks"
 	"github.com/steveyegge/beads/internal/notification"
@@ -218,14 +217,9 @@ func runDecisionCreate(cmd *cobra.Command, args []string) {
 		_ = hookRunner.RunDecisionSync(hooks.EventDecisionCreate, decisionPoint, nil, requestedBy)
 	}
 
-	// Emit decision event to bus (od-k3o.15.1).
-	emitDecisionEvent(eventbus.EventDecisionCreated, eventbus.DecisionEventPayload{
-		DecisionID:  decisionID,
-		Question:    prompt,
-		Urgency:     urgency,
-		RequestedBy: requestedBy,
-		Options:     len(options),
-	})
+	// NOTE: Decision event emission (DecisionCreated → NATS) is now handled
+	// server-side in handleDecisionCreate. The CLI no longer emits here to
+	// avoid duplicate NATS events reaching the slackbot. (bd-2besw)
 
 	// JSON output deferred until after response arrives.
 	if jsonOutput {
