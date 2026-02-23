@@ -126,6 +126,7 @@ CREATE TABLE IF NOT EXISTS dependencies (
     INDEX idx_dependencies_issue (issue_id),
     INDEX idx_dependencies_depends_on (depends_on_id),
     INDEX idx_dependencies_depends_on_type (depends_on_id, type),
+    INDEX idx_dependencies_type_depends_on (type, depends_on_id),
     INDEX idx_dependencies_issue_type (issue_id, type),
     INDEX idx_dependencies_thread (thread_id),
     CONSTRAINT fk_dep_issue FOREIGN KEY (issue_id) REFERENCES issues(id) ON DELETE CASCADE

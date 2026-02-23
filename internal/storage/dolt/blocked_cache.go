@@ -50,17 +50,19 @@ func (s *DoltStore) rebuildBlockedCacheInternal(ctx context.Context, exec dbExec
 		return fmt.Errorf("failed to clear blocked_issues_cache: %w", err)
 	}
 
-	// Rebuild using recursive CTE matching the SQLite blocked_cache.go logic.
+	// Rebuild using recursive CTE matching the SQLite blocked_cache.go logic (bd-zg6tc optimized).
 	// Dolt supports recursive CTEs and JSON_EXTRACT natively.
 	//
-	// Note: Dolt uses JSON_EXTRACT (MySQL syntax) vs json_extract (SQLite).
-	// COALESCE+JSON_EXTRACT pattern works identically on both.
+	// Optimizations vs original (bd-zg6tc):
+	//   1. conditional-blocks: compute LOWER(close_reason) once, use REGEXP instead of 10 LIKEs
+	//   2. waits-for: fix operator precedence (AND/OR) with explicit parentheses
+	//   3. Use UNION (implicit DISTINCT) between CTE branches to dedupe once at end
 	query := `
 		INSERT INTO blocked_issues_cache (issue_id)
 		WITH RECURSIVE
 		  blocked_directly AS (
 		    -- Regular 'blocks' dependencies: B blocked if A not closed
-		    SELECT DISTINCT d.issue_id
+		    SELECT d.issue_id
 		    FROM dependencies d
 		    JOIN issues blocker ON d.depends_on_id = blocker.id
 		    WHERE d.type = 'blocks'
@@ -68,57 +70,49 @@ func (s *DoltStore) rebuildBlockedCacheInternal(ctx context.Context, exec dbExec
 
 		    UNION
 
-		    -- 'conditional-blocks': B blocked unless A closed with failure
-		    SELECT DISTINCT d.issue_id
+		    -- 'conditional-blocks': B blocked unless A closed with failure reason
+		    SELECT d.issue_id
 		    FROM dependencies d
 		    JOIN issues blocker ON d.depends_on_id = blocker.id
 		    WHERE d.type = 'conditional-blocks'
 		      AND (
 		        blocker.status IN ('open', 'in_progress', 'blocked', 'deferred')
-		        OR
-		        (blocker.status = 'closed' AND NOT (
-		          LOWER(COALESCE(blocker.close_reason, '')) LIKE '%failed%'
-		          OR LOWER(COALESCE(blocker.close_reason, '')) LIKE '%rejected%'
-		          OR LOWER(COALESCE(blocker.close_reason, '')) LIKE '%wontfix%'
-		          OR LOWER(COALESCE(blocker.close_reason, '')) LIKE '%canceled%'
-		          OR LOWER(COALESCE(blocker.close_reason, '')) LIKE '%cancelled%'
-		          OR LOWER(COALESCE(blocker.close_reason, '')) LIKE '%abandoned%'
-		          OR LOWER(COALESCE(blocker.close_reason, '')) LIKE '%blocked%'
-		          OR LOWER(COALESCE(blocker.close_reason, '')) LIKE '%error%'
-		          OR LOWER(COALESCE(blocker.close_reason, '')) LIKE '%timeout%'
-		          OR LOWER(COALESCE(blocker.close_reason, '')) LIKE '%aborted%'
-		        ))
+		        OR (blocker.status = 'closed'
+		          AND LOWER(COALESCE(blocker.close_reason, ''))
+		            NOT REGEXP 'failed|rejected|wontfix|cancel[l]?ed|abandoned|blocked|error|timeout|aborted')
 		      )
 
 		    UNION
 
-		    -- 'waits-for': B blocked until all children of spawner closed
-		    SELECT DISTINCT d.issue_id
+		    -- 'waits-for': B blocked until children of spawner satisfy gate condition
+		    SELECT d.issue_id
 		    FROM dependencies d
 		    WHERE d.type = 'waits-for'
 		      AND (
-		        COALESCE(JSON_EXTRACT(d.metadata, '$.gate'), 'all-children') = 'all-children'
-		        AND EXISTS (
-		          SELECT 1 FROM dependencies child_dep
-		          JOIN issues child ON child_dep.issue_id = child.id
-		          WHERE child_dep.type = 'parent-child'
-		            AND child_dep.depends_on_id = COALESCE(
-		              JSON_EXTRACT(d.metadata, '$.spawner_id'),
-		              d.depends_on_id
-		            )
-		            AND child.status NOT IN ('closed', 'tombstone')
+		        (COALESCE(JSON_EXTRACT(d.metadata, '$.gate'), 'all-children') = 'all-children'
+		          AND EXISTS (
+		            SELECT 1 FROM dependencies child_dep
+		            JOIN issues child ON child_dep.issue_id = child.id
+		            WHERE child_dep.type = 'parent-child'
+		              AND child_dep.depends_on_id = COALESCE(
+		                JSON_EXTRACT(d.metadata, '$.spawner_id'),
+		                d.depends_on_id
+		              )
+		              AND child.status NOT IN ('closed', 'tombstone')
+		          )
 		        )
 		        OR
-		        COALESCE(JSON_EXTRACT(d.metadata, '$.gate'), 'all-children') = 'any-children'
-		        AND NOT EXISTS (
-		          SELECT 1 FROM dependencies child_dep
-		          JOIN issues child ON child_dep.issue_id = child.id
-		          WHERE child_dep.type = 'parent-child'
-		            AND child_dep.depends_on_id = COALESCE(
-		              JSON_EXTRACT(d.metadata, '$.spawner_id'),
-		              d.depends_on_id
-		            )
-		            AND child.status IN ('closed', 'tombstone')
+		        (COALESCE(JSON_EXTRACT(d.metadata, '$.gate'), 'all-children') = 'any-children'
+		          AND NOT EXISTS (
+		            SELECT 1 FROM dependencies child_dep
+		            JOIN issues child ON child_dep.issue_id = child.id
+		            WHERE child_dep.type = 'parent-child'
+		              AND child_dep.depends_on_id = COALESCE(
+		                JSON_EXTRACT(d.metadata, '$.spawner_id'),
+		                d.depends_on_id
+		              )
+		              AND child.status IN ('closed', 'tombstone')
+		          )
 		        )
 		      )
 		  ),

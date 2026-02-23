@@ -35,6 +35,7 @@ var migrations = []Migration{
 	{"decision_yielded_at", migrateDecisionYieldedAt},
 	{"decision_pending_index", migrateDecisionPendingIndex},
 	{"query_perf_indexes", migrateQueryPerfIndexes},
+	{"blocked_cache_dep_index", migrateBlockedCacheDepIndex},
 	{"jack_expires_at", migrateJackExpiresAt},
 }
 
@@ -553,6 +554,22 @@ func migrateJackExpiresAt(ctx context.Context, db *sql.DB) error {
 			return nil
 		}
 		return fmt.Errorf("failed to create jack_expires_at index: %w", err)
+	}
+	return nil
+}
+
+// migrateBlockedCacheDepIndex adds a covering index on dependencies(type, depends_on_id)
+// to accelerate the blocked_issues_cache recursive CTE which filters by dep type and
+// joins on depends_on_id (bd-zg6tc).
+func migrateBlockedCacheDepIndex(ctx context.Context, db *sql.DB) error {
+	_, err := db.ExecContext(ctx, "CREATE INDEX IF NOT EXISTS idx_dependencies_type_depends_on ON dependencies (type, depends_on_id)")
+	if err != nil {
+		errLower := strings.ToLower(err.Error())
+		if strings.Contains(errLower, "duplicate key") ||
+			strings.Contains(errLower, "already exists") {
+			return nil
+		}
+		return fmt.Errorf("failed to create dep type index: %w", err)
 	}
 	return nil
 }
