@@ -815,6 +815,8 @@ func runDaemonLoop(interval time.Duration, autoCommit, autoPush, autoPull, local
 			if jsCtx != nil {
 				handler.SetJetStream(jsCtx)
 			}
+		case *eventbus.SubagentIdentityHandler:
+			handler.SetAgentSpawner(server) // bd-0lrwn: wire CreateAgent for K8s subagent spawning
 		}
 	}
 

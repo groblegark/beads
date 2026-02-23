@@ -308,6 +308,34 @@ func (s *Server) handleCreateAgent(req *Request) Response {
 	return Response{Success: true, Data: respData}
 }
 
+// SpawnAgent implements eventbus.AgentSpawner by delegating to handleCreateAgent. (bd-0lrwn)
+func (s *Server) SpawnAgent(ctx context.Context, agentType, rig, parentAgentID, teamID string, labels []string) (string, error) {
+	args := CreateAgentArgs{
+		AgentType:     agentType,
+		Rig:           rig,
+		ParentAgentID: parentAgentID,
+		TeamID:        teamID,
+		Labels:        labels,
+	}
+	data, err := json.Marshal(args)
+	if err != nil {
+		return "", fmt.Errorf("marshal create_agent args: %w", err)
+	}
+	resp := s.handleCreateAgent(&Request{
+		Operation: OpCreateAgent,
+		Args:      data,
+		Actor:     "daemon",
+	})
+	if !resp.Success {
+		return "", fmt.Errorf("create agent failed: %s", resp.Error)
+	}
+	var result CreateAgentResult
+	if err := json.Unmarshal(resp.Data, &result); err != nil {
+		return "", fmt.Errorf("parse create_agent response: %w", err)
+	}
+	return result.AgentID, nil
+}
+
 // extractCoopURL parses the coop_url from a bead's notes field.
 // Notes format: "coop_url: http://host:port\nother_key: value\n"
 func extractCoopURL(notes string) string {
