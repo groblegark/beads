@@ -307,6 +307,127 @@ func TestTypeSchemaJSON(t *testing.T) {
 	}
 }
 
+func TestJackSchema(t *testing.T) {
+	schema := JackSchema()
+
+	if schema == nil {
+		t.Fatal("JackSchema() returned nil")
+	}
+	if len(schema.RequiredFields) != 1 || schema.RequiredFields[0] != "description" {
+		t.Errorf("JackSchema().RequiredFields = %v, want [description]", schema.RequiredFields)
+	}
+	if len(schema.RequiredLabels) != 1 || schema.RequiredLabels[0] != "jack:*" {
+		t.Errorf("JackSchema().RequiredLabels = %v, want [jack:*]", schema.RequiredLabels)
+	}
+	if schema.Description == "" {
+		t.Error("JackSchema().Description is empty")
+	}
+}
+
+func TestJackSchemaValidation(t *testing.T) {
+	schema := JackSchema()
+
+	tests := []struct {
+		name    string
+		issue   Issue
+		labels  []string
+		wantErr bool
+	}{
+		{
+			name: "valid jack with description and jack:debug label",
+			issue: Issue{
+				Title:       "Add debug logging",
+				IssueType:   TypeJack,
+				Description: "Adding NATS debug logging for timeout investigation",
+			},
+			labels:  []string{LabelJackDebug},
+			wantErr: false,
+		},
+		{
+			name: "valid jack with jack:hotfix label",
+			issue: Issue{
+				Title:       "Test fix in-place",
+				IssueType:   TypeJack,
+				Description: "Testing NATS reconnect fix",
+			},
+			labels:  []string{LabelJackHotfix, "priority:high"},
+			wantErr: false,
+		},
+		{
+			name: "missing description fails",
+			issue: Issue{
+				Title:     "No description jack",
+				IssueType: TypeJack,
+			},
+			labels:  []string{LabelJackDebug},
+			wantErr: true,
+		},
+		{
+			name: "missing jack label fails",
+			issue: Issue{
+				Title:       "No jack label",
+				IssueType:   TypeJack,
+				Description: "Has description but no jack: label",
+			},
+			labels:  []string{"priority:high"},
+			wantErr: true,
+		},
+		{
+			name: "missing both description and label fails",
+			issue: Issue{
+				Title:     "Empty jack",
+				IssueType: TypeJack,
+			},
+			labels:  nil,
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.issue.ValidateAgainstSchema(schema, tt.labels)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ValidateAgainstSchema() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestJackTypeConstants(t *testing.T) {
+	// TypeJack should be "jack"
+	if TypeJack != "jack" {
+		t.Errorf("TypeJack = %q, want %q", TypeJack, "jack")
+	}
+
+	// TypeJack is a custom type, not built-in
+	if TypeJack.IsValid() {
+		t.Error("TypeJack.IsValid() = true, want false (jack is a custom type)")
+	}
+	if TypeJack.IsBuiltIn() {
+		t.Error("TypeJack.IsBuiltIn() = true, want false (jack is a custom type)")
+	}
+
+	// TypeJack should be valid when configured as custom type
+	if !TypeJack.IsValidWithCustom([]string{"jack"}) {
+		t.Error("TypeJack.IsValidWithCustom([jack]) = false, want true")
+	}
+}
+
+func TestJackLabelConstants(t *testing.T) {
+	labels := []string{
+		LabelJackDebug,
+		LabelJackHotfix,
+		LabelJackFailover,
+		LabelJackConfig,
+		LabelJackExperiment,
+	}
+	for _, label := range labels {
+		if !matchesLabelPattern("jack:*", []string{label}) {
+			t.Errorf("label %q does not match pattern jack:*", label)
+		}
+	}
+}
+
 func TestGetFieldValue(t *testing.T) {
 	extRef := "gh-123"
 	issue := Issue{

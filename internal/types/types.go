@@ -45,8 +45,9 @@ type Issue struct {
 	ClosedBySession  string     `json:"closed_by_session,omitempty"` // Claude Code session that closed this issue
 
 	// ===== Time-Based Scheduling (GH#820) =====
-	DueAt      *time.Time `json:"due_at,omitempty"`      // When this issue should be completed
-	DeferUntil *time.Time `json:"defer_until,omitempty"` // Hide from bd ready until this time
+	DueAt         *time.Time `json:"due_at,omitempty"`          // When this issue should be completed
+	DeferUntil    *time.Time `json:"defer_until,omitempty"`     // Hide from bd ready until this time
+	JackExpiresAt *time.Time `json:"jack_expires_at,omitempty"` // When jack infrastructure modification expires (bd-duvjc)
 
 	// ===== External Integration =====
 	ExternalRef  *string `json:"external_ref,omitempty"`  // e.g., "gh-9", "jira-ABC"
@@ -564,6 +565,16 @@ func matchesLabelPattern(pattern string, labels []string) bool {
 // TypeSchemaConfigPrefix is the config key prefix for type schemas.
 const TypeSchemaConfigPrefix = "schema.type."
 
+// JackSchema returns the default TypeSchema for jack beads.
+// Requires a non-empty description and at least one jack:* label.
+func JackSchema() *TypeSchema {
+	return &TypeSchema{
+		RequiredFields: []string{"description"},
+		RequiredLabels: []string{"jack:*"},
+		Description:    "Infrastructure modification jack — requires description and jack: label",
+	}
+}
+
 // ValidateForImport validates the issue for multi-repo import (federation trust model).
 // Built-in types are validated (to catch typos). Non-built-in types are trusted
 // since the source repo already validated them when the issue was created.
@@ -702,6 +713,25 @@ const (
 // core work type (not in IsValid) but is accepted by IsValidWithCustom /
 // ValidateWithCustom and treated as built-in for hydration trust (GH#1356).
 const TypeEvent IssueType = "event"
+
+// TypeJack is a custom type for infrastructure modification primitives.
+// Jacks represent temporary, tracked modifications to infrastructure
+// (like an automotive jack — you put a system "on the jacks" to do work,
+// then take it "off the jacks" when done). Registered via types.custom config.
+// See docs/design/jacks.md for full design.
+const TypeJack IssueType = "jack"
+
+// Jack label constants for categorizing infrastructure modifications.
+const (
+	LabelJackDebug      = "jack:debug"      // Debug logging, tracing
+	LabelJackHotfix     = "jack:hotfix"     // Testing a fix in-place
+	LabelJackFailover   = "jack:failover"   // Infrastructure emergency response
+	LabelJackConfig     = "jack:config"     // Configuration change (env vars, configmaps)
+	LabelJackExperiment = "jack:experiment" // Trying something to see if it works
+)
+
+// JackLabelPrefix is the required label prefix for jack beads.
+const JackLabelPrefix = "jack:"
 
 // Note: Gas Town types (molecule, gate, convoy, merge-request, slot, agent, role, message)
 // were removed from beads core. They are now purely custom types with no built-in constants.
