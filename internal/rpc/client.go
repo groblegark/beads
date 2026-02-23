@@ -2219,7 +2219,7 @@ func (c *Client) IssuesForCommit(args *IssuesForCommitArgs) ([]CommitRecord, err
 
 // JackOff reverts and closes a jack via the daemon.
 func (c *Client) JackOff(args *JackOffArgs) (*Response, error) {
-treturn c.Execute(OpJackOff, args)
+	return c.Execute(OpJackOff, args)
 }
 
 // cleanupStaleDaemonArtifacts removes stale daemon.pid file when socket is missing and lock is free.
