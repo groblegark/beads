@@ -163,11 +163,7 @@ func (s *Server) handleInboxList(req *Request) Response {
 		Items: items,
 		Count: len(items),
 	}
-	data, _ := json.Marshal(resp)
-	return Response{
-		Success: true,
-		Data:    data,
-	}
+	return jsonOK(resp)
 }
 
 func (s *Server) handleInboxDrain(req *Request) Response {
@@ -219,11 +215,7 @@ func (s *Server) handleInboxDrain(req *Request) Response {
 		Items: items,
 		Count: len(items),
 	}
-	data, _ := json.Marshal(resp)
-	return Response{
-		Success: true,
-		Data:    data,
-	}
+	return jsonOK(resp)
 }
 
 func (s *Server) handleInboxMarkDelivered(req *Request) Response {
@@ -329,9 +321,5 @@ func (s *Server) handleInboxTeamBroadcast(req *Request, args InboxPushArgs, prio
 		"pushed": pushed,
 		"team":   args.Team,
 	}
-	data, _ := json.Marshal(result)
-	return Response{
-		Success: true,
-		Data:    data,
-	}
+	return jsonOK(result)
 }

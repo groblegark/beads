@@ -1320,12 +1320,7 @@ func (s *Server) handleUpdate(req *Request) Response {
 		}
 	}
 
-	data, _ := json.Marshal(updatedIssue)
-	return Response{
-		Success: true,
-		Data:    data,
-		Message: releaseMsg, // Non-empty when --force auto-released prior tasks (bd-nl8zj)
-	}
+	return jsonOKMsg(updatedIssue, releaseMsg) // Non-empty when --force auto-released prior tasks (bd-nl8zj)
 }
 
 // handleUpdateWithComment handles atomic update + comment in a single transaction.

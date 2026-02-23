@@ -90,8 +90,7 @@ func (s *Server) handleAgentStop(req *Request) Response {
 		AgentState: string(types.StateStopping),
 		CoopSignal: coopSignaled,
 	}
-	data, _ := json.Marshal(result)
-	return Response{Success: true, Data: data}
+	return jsonOK(result)
 }
 
 // handleAgentRestart sets agent_state to spawning on the bead.
@@ -168,8 +167,7 @@ func (s *Server) handleAgentRestart(req *Request) Response {
 		AgentID:    args.AgentID,
 		AgentState: string(types.StateSpawning),
 	}
-	data, _ := json.Marshal(result)
-	return Response{Success: true, Data: data}
+	return jsonOK(result)
 }
 
 // handleAgentSignal sends a signal to an agent's coop sidecar.
@@ -227,8 +225,7 @@ func (s *Server) handleAgentSignal(req *Request) Response {
 		Signal:  args.Signal,
 		Sent:    sent,
 	}
-	data, _ := json.Marshal(result)
-	return Response{Success: true, Data: data}
+	return jsonOK(result)
 }
 
 // handleCreateAgent creates a new agent bead with the appropriate labels

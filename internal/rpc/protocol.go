@@ -283,6 +283,13 @@ func jsonOK(v interface{}) Response {
 	return Response{Success: true, Data: data}
 }
 
+// jsonOKMsg marshals v into a success Response with an informational message.
+func jsonOKMsg(v interface{}, msg string) Response {
+	resp := jsonOK(v)
+	resp.Message = msg
+	return resp
+}
+
 // CreateArgs represents arguments for the create operation
 type CreateArgs struct {
 	ID                 string   `json:"id,omitempty"`
