@@ -1,7 +1,7 @@
 # Jacks: Infrastructure Modification Primitives
 
 **Issue**: beads-it75
-**Status**: Draft
+**Status**: Draft (Review Round 1 Complete — 6 dimensions analyzed)
 **Author**: Matthew Baker + Claude
 **Date**: 2026-02-23
 
@@ -595,6 +595,178 @@ bd jack off bd-jack-abc --reason="Agent crashed, reverted manually" --force
 1. Unit tests for jack metadata validation
 2. RPC integration tests for jack lifecycle
 3. CLI script tests in `cmd/bd/testdata/`
+
+---
+
+---
+
+## Part 8: Design Review Findings (Round 1)
+
+Six parallel review agents analyzed this design across API, Data Model, UX,
+Scalability, Security, and Integration dimensions. This section captures the
+critical findings and required changes before implementation.
+
+### 8.1 Authorization Model (Critical)
+
+**Finding**: No authorization check on `jack_target`. Any agent can target any
+K8s resource, including production namespaces, databases, and secrets.
+
+**Resolution**: Add tiered authorization:
+- **Auto-approved**: Non-production namespaces, debug pods, `jack:debug` labels
+- **Requires decision gate**: Production namespaces, StatefulSets, Secrets,
+  ConfigMaps containing credentials
+- **Implementation**: Add `TargetRig` to `JackOnArgs`, validate against agent's
+  rig scope via existing `auth.go` infrastructure
+- **Target format**: Define grammar:
+  `<resource-type>/<namespace>/<name>` for K8s,
+  `external://<system>/<type>/<id>` for non-K8s
+
+### 8.2 Revert Plan Semantics (Critical)
+
+**Finding**: Design is ambiguous on whether `--revert-plan` is required at
+creation or can be deferred. Also unclear whether daemon executes the plan or
+it's documentation-only.
+
+**Resolution**:
+- **Revert plan is documentation, not executable by daemon.** Agent is
+  responsible for executing steps manually, then closing the jack.
+- **Required at creation** for non-emergency jacks (reject if missing).
+- **Optional at creation for P0 jacks** (`--priority=0`), but required before
+  closing without `--force`.
+- **`--force` renamed to `--skip-revert-check`** for clarity. Requires `--reason`
+  explaining why revert was skipped (e.g., "pod recycled").
+
+### 8.3 Error Handling (Critical)
+
+**Finding**: No error catalog. Failure cases for verification, concurrent jacks,
+TTL expiry during close, and invalid IDs are all unspecified.
+
+**Resolution**: Add explicit error handling:
+
+| Scenario | Behavior |
+|----------|----------|
+| `bd jack off <invalid-id>` | Error: "jack not found" with suggestion to run `bd jack list` |
+| `bd jack off` on closed jack | Error: "jack already closed by {agent} at {time}" |
+| `bd jack off --verify` fails | Error: "verification failed; fix infrastructure or use --skip-revert-check" |
+| `bd jack on --target=<already-jacked>` | Warning: "existing jack {id} on target; use --allow-concurrent to override" |
+| `bd jack on` without `--reason` | Error: "--reason is required" |
+| `bd jack on` without `--revert-plan` (non-P0) | Error: "--revert-plan is required (use --priority=0 to defer)" |
+| `bd jack extend` on expired jack | Allowed (extends from now); comment logged |
+| `bd jack log` on closed jack | Error: "jack is closed; cannot log changes" |
+
+### 8.4 Emergency Ergonomics (Critical)
+
+**Finding**: Two required flags (`--target`, `--reason`) plus recommended
+`--revert-plan` is too heavy for P0 outages.
+
+**Resolution**: Define emergency mode:
+```bash
+# Minimum viable emergency jack (P0 defers revert plan):
+bd jack on --target=pod/foo --reason="P0: outage" --priority=0
+
+# Defaults applied:
+#   --ttl=1h
+#   --revert-plan="" (deferred, required before close)
+#   --labels=jack:general (auto-added)
+```
+
+Also support positional target for speed:
+```bash
+bd jack on pod/foo --reason="P0: outage" -p0
+```
+
+### 8.5 Storage Strategy (Major)
+
+**Finding**: Storing `jack_expires_at` in metadata JSON prevents indexing.
+`bd jack check` requires full table scan + JSON parsing. At 27K+ issues, this
+is too slow for a 5-minute sweep.
+
+**Resolution**: Hybrid approach:
+- **Promote `jack_expires_at`** to a denormalized column on the issues table
+  (nullable, indexed). Updated by `handleJackOn` and `handleJackExtend`.
+- **Keep `jack_changes`, `jack_revert_plan`, `jack_verify_cmd`** in metadata
+  JSON (rarely queried, variable size).
+- **Add limits**: Max 500 `jack_changes` entries per jack. Truncate
+  `before`/`after` to 5KB each.
+
+### 8.6 Sensitive Data Protection (Major)
+
+**Finding**: `jack_changes` before/after values could contain secrets
+(passwords, API keys, tokens). Stored in plaintext in JSONL/Dolt.
+
+**Resolution**:
+- Scan `before`/`after` for known secret patterns at `bd jack log` time
+- If detected, require `--sensitive` flag acknowledgment
+- Redact patterns in stored values (e.g., `DB_PASSWORD=[REDACTED]`)
+- Display `[SENSITIVE - run bd jack show <id> --reveal]` in list/show output
+- Full values available only via `--reveal` flag (logged as audit event)
+
+### 8.7 TTL Enforcement (Major)
+
+**Finding**: No maximum TTL. Agents can extend indefinitely, defeating the
+"temporary by design" principle. Auto-escalation is optional.
+
+**Resolution**:
+- **Maximum cumulative TTL**: 7 days per jack
+- **Maximum extensions**: 5 per jack
+- **Maximum single extension**: 24 hours
+- **Auto-escalation is default behavior** (not optional flag)
+- **Sweep interval**: 5 minutes (configurable via `BEADS_JACK_SWEEP_INTERVAL`)
+- **Escalation creates a decision point** (not just a P0 bead) requiring human
+  response
+
+### 8.8 Concurrent Jack Detection (Major)
+
+**Finding**: Two agents can open jacks on the same target with conflicting
+revert plans.
+
+**Resolution**:
+- `handleJackOn` checks for existing active jacks on same target
+- Default: reject with error showing existing jack ID and agent
+- Override: `--allow-concurrent` flag (with warning logged)
+
+### 8.9 Notification Throttling (Major)
+
+**Finding**: If agents log changes frequently, `jack.log` events could flood
+Slack (500-1000 events/minute at scale).
+
+**Resolution**:
+- Suppress Slack notifications for `jack.log` events entirely
+- Batch `jack.on` events if >10 in 1 minute (send summary)
+- Keep `jack.off` and `jack.expired` as real-time alerts
+- Deduplicate `jack.expired` alerts (one per jack per 6 hours)
+
+### 8.10 Multi-Rig Visibility (Minor)
+
+**Finding**: Cross-rig jack visibility and blocking semantics unspecified.
+
+**Resolution**: Global jacks with rig field (Path A):
+- Jacks are stored globally in Dolt (shared across rigs)
+- `bd jack on` auto-sets `jack_rig` to current rig
+- `bd jack list` shows all jacks by default; `--rig=<name>` to filter
+- Cross-rig blocking works via standard dependency system
+
+### 8.11 `--force` Flag Rename (Minor)
+
+**Finding**: `--force` is ambiguous — could mean "bypass safety" vs. "revert was
+manual." Name is dangerous.
+
+**Resolution**: Rename to `--skip-revert-check`. Clarify in help:
+```
+--skip-revert-check   Close jack without verifying revert was executed.
+                      Use when: pod was recycled, infrastructure was rebuilt,
+                      or revert was performed manually out-of-band.
+                      Requires --reason explaining why revert check was skipped.
+```
+
+### 8.12 Ambient Jack Awareness (Minor)
+
+**Finding**: Agents modifying resources with active jacks get no warning.
+
+**Resolution**:
+- Add advice bead for session-start: check for active/expired jacks
+- `bd show` on issues blocked by jacks should display jack info
+- Future: `bd jack list --target=<resource>` before modifying resources
 
 ---
 
