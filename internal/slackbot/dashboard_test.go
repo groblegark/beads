@@ -523,6 +523,9 @@ func (m *dashboardMockSlack) DeleteMessage(ch, ts string) (string, string, error
 func (m *dashboardMockSlack) OpenView(id string, v slack.ModalViewRequest) (*slack.ViewResponse, error) {
 	return &slack.ViewResponse{}, nil
 }
+func (m *dashboardMockSlack) UpdateView(v slack.ModalViewRequest, externalID string, hash string, viewID string) (*slack.ViewResponse, error) {
+	return &slack.ViewResponse{}, nil
+}
 func (m *dashboardMockSlack) CreateConversation(p slack.CreateConversationParams) (*slack.Channel, error) {
 	return nil, nil
 }

@@ -25,6 +25,7 @@ type SlackAPI interface {
 
 	// Modals
 	OpenView(triggerID string, view slack.ModalViewRequest) (*slack.ViewResponse, error)
+	UpdateView(view slack.ModalViewRequest, externalID string, hash string, viewID string) (*slack.ViewResponse, error)
 
 	// Conversations
 	CreateConversation(params slack.CreateConversationParams) (*slack.Channel, error)

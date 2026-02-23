@@ -707,17 +707,36 @@ func (b *Bot) handleResolveDecision(callback slack.InteractionCallback, action *
 	var chosenIndex int
 	_, _ = fmt.Sscanf(parts[1], "%d", &chosenIndex)
 
+	// Open a loading modal immediately to avoid expired_trigger_id. (bd-m9jx7)
+	// Slack trigger_ids expire in ~3s; the GetDecision RPC below can be slow.
+	messageTs := callback.Message.Timestamp
+	loadingModal := b.buildLoadingModal("resolve_decision_modal",
+		fmt.Sprintf("%s:%d:%s:%s|loading", decisionID, chosenIndex, callback.Channel.ID, messageTs),
+		"Resolve Decision", "Loading decision...")
+	viewResp, err := b.client.OpenView(callback.TriggerID, loadingModal)
+	if err != nil {
+		log.Printf("slackbot: error opening resolve modal: %v", err)
+		b.postEphemeral(callback.Channel.ID, callback.User.ID,
+			fmt.Sprintf("Error opening dialog: %v", err))
+		return
+	}
+	viewID := viewResp.View.ID
+	log.Printf("slackbot: resolve loading modal opened: viewID=%s", viewID)
+
+	// Now fetch decision data and update the modal with real content.
 	ctx := context.Background()
 	decision, err := b.decisions.GetDecision(ctx, decisionID)
 	if err != nil {
-		b.postEphemeral(callback.Channel.ID, callback.User.ID,
-			fmt.Sprintf("Error fetching decision: %v", err))
+		log.Printf("slackbot: error fetching decision for modal update: %v", err)
 		return
 	}
 
 	if decision.Resolved {
-		b.postEphemeral(callback.Channel.ID, callback.User.ID,
-			fmt.Sprintf("Decision %s has already been resolved.", decisionID))
+		// Update modal to show "already resolved" message instead of the form.
+		closedModal := b.buildLoadingModal("resolve_decision_modal", "",
+			"Already Resolved", fmt.Sprintf("Decision %s has already been resolved.", decisionID))
+		closedModal.Submit = nil // remove submit button
+		_, _ = b.client.UpdateView(closedModal, "", "", viewID)
 		return
 	}
 
@@ -726,42 +745,49 @@ func (b *Bot) handleResolveDecision(callback slack.InteractionCallback, action *
 		optionLabel = decision.Options[chosenIndex-1].Label
 	}
 
-	messageTs := callback.Message.Timestamp
 	modalRequest := b.buildResolveModal(decisionID, chosenIndex, decision.Question, optionLabel, callback.Channel.ID, messageTs)
-
-	viewResp, err := b.client.OpenView(callback.TriggerID, modalRequest)
+	updResp, err := b.client.UpdateView(modalRequest, "", "", viewID)
 	if err != nil {
-		log.Printf("slackbot: error opening resolve modal: %v", err)
-		b.postEphemeral(callback.Channel.ID, callback.User.ID,
-			fmt.Sprintf("Error opening dialog: %v", err))
+		log.Printf("slackbot: error updating resolve modal: %v", err)
 	} else {
-		log.Printf("slackbot: resolve modal opened successfully: viewID=%s callbackID=%s", viewResp.View.ID, viewResp.View.CallbackID)
+		log.Printf("slackbot: resolve modal updated: viewID=%s callbackID=%s", updResp.View.ID, updResp.View.CallbackID)
 	}
 }
 
 func (b *Bot) handleResolveOther(callback slack.InteractionCallback, decisionID string) {
-	ctx := context.Background()
-	decision, err := b.decisions.GetDecision(ctx, decisionID)
-	if err != nil {
-		b.postEphemeral(callback.Channel.ID, callback.User.ID,
-			fmt.Sprintf("Error fetching decision: %v", err))
-		return
-	}
-
-	if decision.Resolved {
-		b.postEphemeral(callback.Channel.ID, callback.User.ID,
-			fmt.Sprintf("Decision %s not found or already resolved.", decisionID))
-		return
-	}
-
+	// Open a loading modal immediately to avoid expired_trigger_id. (bd-m9jx7)
 	messageTs := callback.Message.Timestamp
-	modalRequest := b.buildOtherModal(decisionID, decision.Question, callback.Channel.ID, messageTs)
-
-	_, err = b.client.OpenView(callback.TriggerID, modalRequest)
+	loadingModal := b.buildLoadingModal("resolve_other_modal",
+		fmt.Sprintf("other:%s:%s:%s", decisionID, callback.Channel.ID, messageTs),
+		"Custom Response", "Loading decision...")
+	viewResp, err := b.client.OpenView(callback.TriggerID, loadingModal)
 	if err != nil {
 		log.Printf("slackbot: error opening Other modal: %v", err)
 		b.postEphemeral(callback.Channel.ID, callback.User.ID,
 			fmt.Sprintf("Error opening dialog: %v", err))
+		return
+	}
+	viewID := viewResp.View.ID
+
+	ctx := context.Background()
+	decision, err := b.decisions.GetDecision(ctx, decisionID)
+	if err != nil {
+		log.Printf("slackbot: error fetching decision for Other modal: %v", err)
+		return
+	}
+
+	if decision.Resolved {
+		closedModal := b.buildLoadingModal("resolve_other_modal", "",
+			"Already Resolved", fmt.Sprintf("Decision %s not found or already resolved.", decisionID))
+		closedModal.Submit = nil
+		_, _ = b.client.UpdateView(closedModal, "", "", viewID)
+		return
+	}
+
+	modalRequest := b.buildOtherModal(decisionID, decision.Question, callback.Channel.ID, messageTs)
+	_, err = b.client.UpdateView(modalRequest, "", "", viewID)
+	if err != nil {
+		log.Printf("slackbot: error updating Other modal: %v", err)
 	}
 }
 
@@ -946,16 +972,19 @@ func (b *Bot) DismissDecisionByID(decisionID string) bool {
 func (b *Bot) handleOpenPreferences(callback slack.InteractionCallback, decisionID string) {
 	userID := callback.User.ID
 
-	if decisionID != "" {
-		b.sendDecisionAsDM(decisionID, userID, callback.Channel.ID)
-	}
-
+	// Open preferences modal immediately to avoid expired_trigger_id. (bd-m9jx7)
+	// sendDecisionAsDM does network calls that can delay past the 3s TTL.
 	modalRequest := b.buildPreferencesModal(userID)
 	_, err := b.client.OpenView(callback.TriggerID, modalRequest)
 	if err != nil {
 		log.Printf("slackbot: error opening preferences modal: %v", err)
 		b.postEphemeral(callback.Channel.ID, userID,
 			fmt.Sprintf("Error opening preferences: %v", err))
+	}
+
+	// Send decision DM after modal is open (doesn't need trigger_id).
+	if decisionID != "" {
+		b.sendDecisionAsDM(decisionID, userID, callback.Channel.ID)
 	}
 }
 
@@ -1022,6 +1051,27 @@ func (b *Bot) sendDecisionAsDM(decisionID, userID, sourceChannelID string) {
 }
 
 // ---------- Modals ----------
+
+// buildLoadingModal creates a minimal modal that can be opened immediately
+// with a trigger_id, then updated via UpdateView once data is loaded.
+// This prevents expired_trigger_id errors from slow RPC calls. (bd-m9jx7)
+func (b *Bot) buildLoadingModal(callbackID, metadata, title, message string) slack.ModalViewRequest {
+	return slack.ModalViewRequest{
+		Type:            slack.VTModal,
+		CallbackID:      callbackID,
+		Title:           slack.NewTextBlockObject("plain_text", title, false, false),
+		Submit:          slack.NewTextBlockObject("plain_text", "Submit", false, false),
+		Close:           slack.NewTextBlockObject("plain_text", "Cancel", false, false),
+		PrivateMetadata: metadata,
+		Blocks: slack.Blocks{
+			BlockSet: []slack.Block{
+				slack.NewSectionBlock(
+					slack.NewTextBlockObject("mrkdwn", message, false, false),
+					nil, nil),
+			},
+		},
+	}
+}
 
 func (b *Bot) buildResolveModal(decisionID string, chosenIndex int, question, optionLabel, channelID, messageTs string) slack.ModalViewRequest {
 	displayQuestion := question

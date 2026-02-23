@@ -148,7 +148,15 @@ func (m *mockSlackAPI) OpenView(triggerID string, view slack.ModalViewRequest) (
 		TriggerID: triggerID,
 		View:      view,
 	})
-	return &slack.ViewResponse{}, nil
+	return &slack.ViewResponse{View: slack.View{ID: "mock-view-id"}}, nil
+}
+
+func (m *mockSlackAPI) UpdateView(view slack.ModalViewRequest, externalID string, hash string, viewID string) (*slack.ViewResponse, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	// For testing, record as if it were an opened view update
+	m.OpenedViews = append(m.OpenedViews, openedView{View: view})
+	return &slack.ViewResponse{View: slack.View{ID: viewID}}, nil
 }
 
 func (m *mockSlackAPI) CreateConversation(params slack.CreateConversationParams) (*slack.Channel, error) {
