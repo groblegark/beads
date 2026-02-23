@@ -29,6 +29,7 @@ Optional flags:
   --blocks: Bead ID this jack blocks (creates dependency)
   --labels: Additional labels (jack:* label auto-added if none specified)
   --priority: Priority 0-4 (default 2)
+  --allow-concurrent: Allow concurrent jacks on same target (logged as warning)
 
 Examples:
   # Debug logging on a pod
@@ -60,6 +61,7 @@ func init() {
 	jackOnCmd.Flags().String("blocks", "", "Bead ID this jack blocks (creates dependency)")
 	jackOnCmd.Flags().StringSlice("labels", nil, "Additional labels (jack:* auto-added if none)")
 	jackOnCmd.Flags().IntP("priority", "p", 2, "Priority 0-4 (default 2)")
+	jackOnCmd.Flags().Bool("allow-concurrent", false, "Allow concurrent jacks on same target (logged as warning)")
 
 	jackCmd.AddCommand(jackOnCmd)
 }
@@ -104,6 +106,43 @@ func runJackOn(cmd *cobra.Command, args []string) {
 	if priority < 0 || priority > 4 {
 		fmt.Fprintf(os.Stderr, "Error: priority must be 0-4, got %d\n", priority)
 		os.Exit(1)
+	}
+
+	// Check for concurrent jacks on the same target
+	allowConcurrent, _ := cmd.Flags().GetBool("allow-concurrent")
+	listArgs := &rpc.ListArgs{
+		IssueType: string(types.TypeJack),
+		Status:    "in_progress",
+	}
+	if listResp, err := daemonClient.List(listArgs); err == nil && listResp.Success {
+		var existingJacks []*types.IssueWithCounts
+		if json.Unmarshal(listResp.Data, &existingJacks) == nil {
+			for _, ejwc := range existingJacks {
+				if ejwc.Issue == nil {
+					continue
+				}
+				// Parse metadata to check target
+				var meta map[string]interface{}
+				if len(ejwc.Issue.Metadata) > 0 {
+					_ = json.Unmarshal(ejwc.Issue.Metadata, &meta)
+				}
+				if jackTarget, _ := meta["jack_target"].(string); jackTarget == target {
+					agent := ejwc.Issue.Assignee
+					if agent == "" {
+						agent = ejwc.Issue.CreatedBy
+					}
+					if allowConcurrent {
+						fmt.Fprintf(os.Stderr, "Warning: concurrent jack on target %s (existing: %s by %s)\n",
+							target, ejwc.Issue.ID, agent)
+					} else {
+						fmt.Fprintf(os.Stderr, "Error: active jack already exists on target %s\n", target)
+						fmt.Fprintf(os.Stderr, "  Existing jack: %s (by %s)\n", ejwc.Issue.ID, agent)
+						fmt.Fprintf(os.Stderr, "  Use --allow-concurrent to override\n")
+						os.Exit(1)
+					}
+				}
+			}
+		}
 	}
 
 	// Ensure at least one jack:* label
