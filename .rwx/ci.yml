@@ -142,9 +142,9 @@ tasks:
       sudo bash -c 'curl -L https://github.com/dolthub/dolt/releases/latest/download/install.sh | bash' || true
       dolt version || true
 
-      # Run all benchmarks with 3 iterations for stable numbers
+      # Run benchmarks only (-run='^$' skips all regular tests)
       echo "=== Benchmark Run (count=3) ==="
-      go test -bench=. -benchmem -benchtime=3s -count=3 -timeout=600s \
+      go test -run='^$' -bench=. -benchmem -benchtime=3s -count=3 -timeout=600s \
         ./internal/storage/dolt/... 2>&1 | tee bench-raw.txt
 
       # Also produce benchstat-compatible output
