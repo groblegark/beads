@@ -126,7 +126,7 @@ tasks:
 
   # ── Dolt benchmarks (manual, for perf baseline/regression) ──────────────
   - key: bench
-    use: build
+    use: [code, go-deps, git-config, system-deps]
     cache: false
     filter:
       - "internal/storage/dolt/**"
