@@ -1449,6 +1449,7 @@ type InboxItem struct {
 	Type        string     `json:"type"`                    // "decision", "alert", "event", "agent", "mail", "gate", "system"
 	Source      string     `json:"source"`                  // Producer identity
 	Content     string     `json:"content"`                 // The message (plain text or pre-formatted)
+	Subject     string     `json:"subject,omitempty"`       // Short summary/title for the message (bd-pwoii)
 	Priority    int        `json:"priority"`                // 0=critical, 2=normal, 4=low
 	CreatedAt   time.Time  `json:"created_at"`
 	DeliveredAt *time.Time `json:"delivered_at,omitempty"`  // NULL until drained to agent

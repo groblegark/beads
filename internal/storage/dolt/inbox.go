@@ -19,11 +19,11 @@ func (s *DoltStore) InboxPush(ctx context.Context, item *types.InboxItem) error 
 	// INSERT IGNORE: if dedup_key already exists, silently skip (idempotent).
 	_, err := s.db.ExecContext(ctx, `
 		INSERT IGNORE INTO inbox (
-			id, agent_name, rig, session_id, type, source, content,
+			id, agent_name, rig, session_id, type, source, content, subject,
 			priority, created_at, expires_at, dedup_key
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`, item.ID, item.AgentName, item.Rig, item.SessionID, item.Type, item.Source,
-		item.Content, item.Priority, item.CreatedAt, expiresAt, item.DedupKey)
+		item.Content, item.Subject, item.Priority, item.CreatedAt, expiresAt, item.DedupKey)
 	if err != nil {
 		return fmt.Errorf("inbox push: %w", err)
 	}
@@ -40,7 +40,7 @@ func (s *DoltStore) InboxPush(ctx context.Context, item *types.InboxItem) error 
 // reappear endlessly. NOT EXISTS is immune to this issue. (bd-5dh7k)
 func (s *DoltStore) InboxList(ctx context.Context, agentName string, includeDelivered bool) ([]*types.InboxItem, error) {
 	query := `
-		SELECT i.id, i.agent_name, i.rig, i.session_id, i.type, i.source, i.content,
+		SELECT i.id, i.agent_name, i.rig, i.session_id, i.type, i.source, i.content, i.subject,
 		       i.priority, i.created_at, i.delivered_at, i.expires_at, i.dedup_key
 		FROM inbox i
 		WHERE (i.agent_name = ? OR i.agent_name = 'all')`
@@ -81,7 +81,7 @@ func (s *DoltStore) InboxList(ctx context.Context, agentName string, includeDeli
 // reappear endlessly. NOT EXISTS is immune to this issue. (bd-5dh7k)
 func (s *DoltStore) InboxDrain(ctx context.Context, agentName string, maxPriority ...int) ([]*types.InboxItem, error) {
 	query := `
-		SELECT i.id, i.agent_name, i.rig, i.session_id, i.type, i.source, i.content,
+		SELECT i.id, i.agent_name, i.rig, i.session_id, i.type, i.source, i.content, i.subject,
 		       i.priority, i.created_at, i.delivered_at, i.expires_at, i.dedup_key
 		FROM inbox i
 		WHERE (i.agent_name = ? OR i.agent_name = 'all')
@@ -178,11 +178,11 @@ func scanInboxItems(rows *sql.Rows) ([]*types.InboxItem, error) {
 	for rows.Next() {
 		item := &types.InboxItem{}
 		var deliveredAt, expiresAt sql.NullTime
-		var rig, sessionID sql.NullString
+		var rig, sessionID, subject sql.NullString
 
 		err := rows.Scan(
 			&item.ID, &item.AgentName, &rig, &sessionID,
-			&item.Type, &item.Source, &item.Content,
+			&item.Type, &item.Source, &item.Content, &subject,
 			&item.Priority, &item.CreatedAt, &deliveredAt, &expiresAt, &item.DedupKey,
 		)
 		if err != nil {
@@ -202,6 +202,9 @@ func scanInboxItems(rows *sql.Rows) ([]*types.InboxItem, error) {
 		}
 		if sessionID.Valid {
 			item.SessionID = sessionID.String
+		}
+		if subject.Valid {
+			item.Subject = subject.String
 		}
 		if deliveredAt.Valid {
 			item.DeliveredAt = &deliveredAt.Time

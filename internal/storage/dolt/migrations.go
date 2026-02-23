@@ -38,6 +38,7 @@ var migrations = []Migration{
 	{"blocked_cache_dep_index", migrateBlockedCacheDepIndex},
 	{"time_column_indexes", migrateTimeColumnIndexes},
 	{"jack_expires_at", migrateJackExpiresAt},
+	{"inbox_subject", migrateInboxSubject},
 }
 
 // RunMigrations executes all registered migrations in order.
@@ -598,3 +599,9 @@ func migrateTimeColumnIndexes(ctx context.Context, db *sql.DB) error {
 	}
 	return nil
 }
+
+// migrateInboxSubject adds the subject column to the inbox table (bd-pwoii).
+func migrateInboxSubject(ctx context.Context, db *sql.DB) error {
+	return addColumnIfNotExists(ctx, db, "inbox", "subject", "VARCHAR(512) DEFAULT ''")
+}
+

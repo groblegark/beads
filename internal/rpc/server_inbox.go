@@ -26,10 +26,10 @@ func (s *Server) handleInboxPush(req *Request) Response {
 		}
 	}
 
-	if args.AgentName == "" {
+	if args.AgentName == "" && args.Team == "" {
 		return Response{
 			Success: false,
-			Error:   "agent_name is required",
+			Error:   "agent_name or team is required",
 		}
 	}
 	if args.Type == "" {
@@ -77,6 +77,11 @@ func (s *Server) handleInboxPush(req *Request) Response {
 		expiresAt = &t
 	}
 
+	// Team broadcast: resolve team members from presence roster and push to each (bd-pwoii).
+	if args.Team != "" && args.AgentName == "" {
+		return s.handleInboxTeamBroadcast(req, args, priority, expiresAt)
+	}
+
 	item := &types.InboxItem{
 		ID:        id,
 		AgentName: args.AgentName,
@@ -84,6 +89,7 @@ func (s *Server) handleInboxPush(req *Request) Response {
 		Type:      args.Type,
 		Source:    args.Source,
 		Content:   args.Content,
+		Subject:   args.Subject,
 		Priority:  priority,
 		CreatedAt: now,
 		ExpiresAt: expiresAt,
@@ -260,5 +266,72 @@ func (s *Server) handleInboxMarkDelivered(req *Request) Response {
 
 	return Response{
 		Success: true,
+	}
+}
+
+// handleInboxTeamBroadcast resolves team members from the presence roster and pushes
+// an individual inbox message to each active (non-reaped) agent, excluding the sender.
+// This enables agent-to-agent messaging via "bd inbox push --team=<name>" (bd-pwoii).
+func (s *Server) handleInboxTeamBroadcast(req *Request, args InboxPushArgs, priority int, expiresAt *time.Time) Response {
+	if s.bus == nil || s.bus.Presence() == nil {
+		return Response{
+			Success: false,
+			Error:   "presence tracker not available for team broadcast",
+		}
+	}
+
+	store := s.storage
+	ctx, cancel := s.reqCtx(req)
+	defer cancel()
+
+	now := time.Now().UTC()
+	roster := s.bus.Presence().Roster(0)
+
+	var pushed int
+	for _, entry := range roster {
+		if entry.Reaped {
+			continue
+		}
+		// Skip the sender.
+		if entry.Actor == args.Source {
+			continue
+		}
+
+		id := uuid.New().String()
+		dedupKey := fmt.Sprintf("team:%s:%s:%s:%d", args.Team, args.Source, entry.Actor, now.UnixMilli())
+
+		item := &types.InboxItem{
+			ID:        id,
+			AgentName: entry.Actor,
+			Type:      args.Type,
+			Source:    args.Source,
+			Content:   args.Content,
+			Subject:   args.Subject,
+			Priority:  priority,
+			CreatedAt: now,
+			ExpiresAt: expiresAt,
+			DedupKey:  dedupKey,
+		}
+
+		if err := store.InboxPush(ctx, item); err != nil {
+			continue // best-effort delivery
+		}
+		pushed++
+
+		// Publish to JetStream for real-time delivery.
+		if s.bus.JetStreamEnabled() {
+			data, _ := json.Marshal(item)
+			s.bus.PublishRaw("inbox.agent."+entry.Actor, data)
+		}
+	}
+
+	result := map[string]interface{}{
+		"pushed": pushed,
+		"team":   args.Team,
+	}
+	data, _ := json.Marshal(result)
+	return Response{
+		Success: true,
+		Data:    data,
 	}
 }
