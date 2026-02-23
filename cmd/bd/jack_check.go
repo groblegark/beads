@@ -114,7 +114,6 @@ Examples:
 						{ID: "extend", Label: "Extend TTL by 1h"},
 						{ID: "investigate", Label: "Investigate before deciding"},
 					},
-					NoWait: true,
 				}
 				_, cerr := daemonClient.DecisionCreate(createArgs)
 				if cerr != nil {
