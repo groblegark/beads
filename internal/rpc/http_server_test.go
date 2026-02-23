@@ -418,6 +418,8 @@ func TestHTTPMappingCompleteness(t *testing.T) {
 		OpRigRegister, OpRigList, OpRigShow, OpRigRemove,
 		// Commit tracking (bd-xxabm)
 		OpRecordCommit, OpCommitsForIssue, OpIssuesForCommit,
+		// Jack operations (bd-x444q)
+		OpJackOn, OpJackOff, OpJackCheck, OpJackExtend, OpJackLog,
 	}
 
 	t.Run("client_operationToHTTPMethod_covers_all_handled_ops", func(t *testing.T) {

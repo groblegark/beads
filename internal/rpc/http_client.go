@@ -515,6 +515,13 @@ func operationToHTTPMethod(operation string) string {
 		OpBurndown:  "Burndown",
 		OpVelocity:  "Velocity",
 		OpCycleTime: "CycleTime",
+
+		// Jack operations (bd-x444q)
+		OpJackOn:     "JackOn",
+		OpJackOff:    "JackOff",
+		OpJackCheck:  "JackCheck",
+		OpJackExtend: "JackExtend",
+		OpJackLog:    "JackLog",
 	}
 
 	return methodMap[operation]
