@@ -189,6 +189,9 @@ func (s *Server) handleJackOff(req *Request) Response {
 	if err != nil {
 		return Response{Success: false, Error: fmt.Sprintf("jack not found: %v", err)}
 	}
+	if issue == nil {
+		return Response{Success: false, Error: fmt.Sprintf("jack %s not found", args.ID)}
+	}
 	if issue.IssueType != types.TypeJack {
 		return Response{Success: false, Error: fmt.Sprintf("%s is not a jack (type=%s)", args.ID, issue.IssueType)}
 	}
@@ -390,6 +393,9 @@ func (s *Server) handleJackExtend(req *Request) Response {
 	if err != nil {
 		return Response{Success: false, Error: fmt.Sprintf("jack not found: %v", err)}
 	}
+	if issue == nil {
+		return Response{Success: false, Error: fmt.Sprintf("jack %s not found", args.ID)}
+	}
 	if issue.IssueType != types.TypeJack {
 		return Response{Success: false, Error: fmt.Sprintf("%s is not a jack (type=%s)", args.ID, issue.IssueType)}
 	}
@@ -472,6 +478,9 @@ func (s *Server) handleJackLog(req *Request) Response {
 	issue, err := store.GetIssue(ctx, args.ID)
 	if err != nil {
 		return Response{Success: false, Error: fmt.Sprintf("jack not found: %v", err)}
+	}
+	if issue == nil {
+		return Response{Success: false, Error: fmt.Sprintf("jack %s not found", args.ID)}
 	}
 	if issue.IssueType != types.TypeJack {
 		return Response{Success: false, Error: fmt.Sprintf("%s is not a jack (type=%s)", args.ID, issue.IssueType)}
