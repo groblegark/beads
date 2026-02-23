@@ -499,7 +499,7 @@ func (s *Server) handleJackLog(req *Request) Response {
 	// Parse metadata
 	metadata := make(map[string]interface{})
 	if len(issue.Metadata) > 0 {
-		json.Unmarshal(issue.Metadata, &metadata)
+		_ = json.Unmarshal(issue.Metadata, &metadata)
 	}
 
 	// Get existing changes

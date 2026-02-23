@@ -81,7 +81,7 @@ func runJackShow(cmd *cobra.Command, args []string) {
 	if rawChanges, ok := metadata["jack_changes"]; ok {
 		changesJSON, err := json.Marshal(rawChanges)
 		if err == nil {
-			json.Unmarshal(changesJSON, &changes)
+			_ = json.Unmarshal(changesJSON, &changes)
 		}
 	}
 
