@@ -60,10 +60,16 @@ const (
 
 	// SubjectInboxPrefix is the subject prefix for inbox events.
 	SubjectInboxPrefix = "inbox."
+
+	// StreamJackEvents is the JetStream stream for jack lifecycle events (bd-yrzhq).
+	StreamJackEvents = "JACK_EVENTS"
+
+	// SubjectJackPrefix is the subject prefix for jack events.
+	SubjectJackPrefix = "jack."
 )
 
 // StreamNames lists all known stream short names (used by CLI --stream flag and SSE ?stream= param).
-var StreamNames = []string{"hooks", "decisions", "oj", "agents", "mail", "mutations", "config", "gate", "inbox"}
+var StreamNames = []string{"hooks", "decisions", "oj", "agents", "mail", "mutations", "config", "gate", "inbox", "jack"}
 
 // streamToPrefix maps short stream names to NATS subject prefixes.
 var streamToPrefix = map[string]string{
@@ -76,6 +82,7 @@ var streamToPrefix = map[string]string{
 	"config":    SubjectConfigPrefix,
 	"gate":      SubjectGatePrefix,
 	"inbox":     SubjectInboxPrefix,
+	"jack":      SubjectJackPrefix,
 }
 
 // prefixToStream maps subject prefixes (without trailing dot) to short stream names.
@@ -89,6 +96,7 @@ var prefixToStream = map[string]string{
 	"config":    "config",
 	"gate":      "gate",
 	"inbox":     "inbox",
+	"jack":      "jack",
 }
 
 // StreamForSubject returns the short stream name for a NATS subject.
@@ -146,6 +154,8 @@ func StreamNameForJetStream(name string) string {
 		return StreamGateEvents
 	case "inbox":
 		return StreamInboxEvents
+	case "jack":
+		return StreamJackEvents
 	}
 	return ""
 }
@@ -177,6 +187,9 @@ func SubjectForEvent(eventType EventType) string {
 	}
 	if eventType.IsGateEvent() {
 		return SubjectGatePrefix + string(eventType)
+	}
+	if eventType.IsJackEvent() {
+		return SubjectJackPrefix + string(eventType)
 	}
 	return SubjectHookPrefix + string(eventType)
 }
@@ -320,6 +333,20 @@ func EnsureStreams(js nats.JetStreamContext) error {
 		})
 		if err != nil {
 			return fmt.Errorf("create %s stream: %w", StreamGateEvents, err)
+		}
+	}
+
+	// Jack lifecycle events stream (bd-yrzhq).
+	if _, err := js.StreamInfo(StreamJackEvents); err != nil {
+		_, err = js.AddStream(&nats.StreamConfig{
+			Name:     StreamJackEvents,
+			Subjects: []string{SubjectJackPrefix + ">"},
+			Storage:  nats.FileStorage,
+			MaxMsgs:  10000,
+			MaxBytes: 100 << 20,
+		})
+		if err != nil {
+			return fmt.Errorf("create %s stream: %w", StreamJackEvents, err)
 		}
 	}
 

@@ -72,6 +72,12 @@ const (
 	// Gate state change events (bd-cvu4c).
 	EventGateSatisfied EventType = "GateSatisfied"
 	EventGateCleared   EventType = "GateCleared"
+
+	// Jack lifecycle events (bd-yrzhq).
+	EventJackOn      EventType = "jack.on"
+	EventJackOff     EventType = "jack.off"
+	EventJackExpired EventType = "jack.expired"
+	EventJackExtend  EventType = "jack.extend"
 )
 
 // Event represents a single hook event flowing through the bus.
@@ -168,6 +174,16 @@ func (t EventType) IsMutationEvent() bool {
 func (t EventType) IsGateEvent() bool {
 	switch t {
 	case EventGateSatisfied, EventGateCleared:
+		return true
+	}
+	return false
+}
+
+// IsJackEvent returns true if the event type belongs to the jack
+// lifecycle event category (bd-yrzhq).
+func (t EventType) IsJackEvent() bool {
+	switch t {
+	case EventJackOn, EventJackOff, EventJackExpired, EventJackExtend:
 		return true
 	}
 	return false
@@ -292,6 +308,18 @@ type GateEventPayload struct {
 	Mechanism string `json:"mechanism,omitempty"`  // what caused the change
 	Actor     string `json:"actor,omitempty"`      // who performed the action
 	SessionID string `json:"session_id,omitempty"`
+	Timestamp string `json:"timestamp"`
+}
+
+// JackEventPayload carries data for jack lifecycle events (bd-yrzhq).
+// Used by EventJackOn, EventJackOff, EventJackExpired, EventJackExtend.
+type JackEventPayload struct {
+	JackID    string `json:"jack_id"`
+	Target    string `json:"target"`
+	Agent     string `json:"agent"`
+	Reason    string `json:"reason,omitempty"`
+	TTL       string `json:"ttl,omitempty"`
+	ExpiresAt string `json:"expires_at,omitempty"`
 	Timestamp string `json:"timestamp"`
 }
 

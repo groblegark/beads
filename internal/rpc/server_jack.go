@@ -6,9 +6,30 @@ import (
 	"strings"
 	"time"
 
+	"github.com/steveyegge/beads/internal/eventbus"
 	"github.com/steveyegge/beads/internal/storage"
 	"github.com/steveyegge/beads/internal/types"
 )
+
+// emitJackEvent publishes a jack lifecycle event to JetStream (bd-yrzhq).
+func (s *Server) emitJackEvent(evtType eventbus.EventType, jackID, target, agent, reason, ttl, expiresAt string) {
+	if s.bus == nil || !s.bus.JetStreamEnabled() {
+		return
+	}
+	payload := eventbus.JackEventPayload{
+		JackID:    jackID,
+		Target:    target,
+		Agent:     agent,
+		Reason:    reason,
+		TTL:       ttl,
+		ExpiresAt: expiresAt,
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
+	}
+	if data, err := json.Marshal(payload); err == nil {
+		subject := eventbus.SubjectForEvent(evtType)
+		s.bus.PublishRaw(subject, data)
+	}
+}
 
 // handleJackOn creates and activates a jack bead.
 // Steps: validate → create issue → add labels → set status to in_progress → add dependency.
@@ -133,6 +154,7 @@ func (s *Server) handleJackOn(req *Request) Response {
 
 	issue.Labels = labels
 	s.emitMutationFor(MutationCreate, issue)
+	s.emitJackEvent(eventbus.EventJackOn, issue.ID, args.Target, actor, args.Reason, ttl.String(), expiresAt.Format(time.RFC3339))
 
 	data, _ := json.Marshal(issue)
 	return Response{Success: true, Data: data}
@@ -216,6 +238,9 @@ func (s *Server) handleJackOff(req *Request) Response {
 	// Refresh issue for response
 	issue, _ = store.GetIssue(ctx, args.ID)
 	s.emitMutationFor(MutationUpdate, issue)
+
+	target, _ := metadata["jack_target"].(string)
+	s.emitJackEvent(eventbus.EventJackOff, args.ID, target, actor, args.Reason, "", "")
 
 	data, _ := json.Marshal(issue)
 	return Response{Success: true, Data: data}
@@ -314,6 +339,7 @@ func (s *Server) handleJackCheck(req *Request) Response {
 				if txErr == nil {
 					escalated++
 					s.emitMutationFor(MutationCreate, alertIssue)
+					s.emitJackEvent(eventbus.EventJackExpired, jack.ID, target, actor, "TTL expired", "", expiresAtStr)
 				}
 			}
 		} else {
@@ -399,6 +425,9 @@ func (s *Server) handleJackExtend(req *Request) Response {
 
 	issue, _ = store.GetIssue(ctx, args.ID)
 	s.emitMutationFor(MutationUpdate, issue)
+
+	target, _ := metadata["jack_target"].(string)
+	s.emitJackEvent(eventbus.EventJackExtend, args.ID, target, actor, args.Reason, ttl.String(), newExpiry.Format(time.RFC3339))
 
 	result := map[string]interface{}{
 		"id":         args.ID,
