@@ -728,6 +728,9 @@ func (b *Bot) handleResolveDecision(callback slack.InteractionCallback, action *
 	decision, err := b.decisions.GetDecision(ctx, decisionID)
 	if err != nil {
 		log.Printf("slackbot: error fetching decision for modal update: %v", err)
+		errModal := b.buildLoadingModal("resolve_decision_modal", "",
+			"Error", fmt.Sprintf("Failed to load decision: %v", err))
+		_, _ = b.client.UpdateView(errModal, "", "", viewID)
 		return
 	}
 
@@ -735,7 +738,6 @@ func (b *Bot) handleResolveDecision(callback slack.InteractionCallback, action *
 		// Update modal to show "already resolved" message instead of the form.
 		closedModal := b.buildLoadingModal("resolve_decision_modal", "",
 			"Already Resolved", fmt.Sprintf("Decision %s has already been resolved.", decisionID))
-		closedModal.Submit = nil // remove submit button
 		_, _ = b.client.UpdateView(closedModal, "", "", viewID)
 		return
 	}
@@ -773,13 +775,15 @@ func (b *Bot) handleResolveOther(callback slack.InteractionCallback, decisionID 
 	decision, err := b.decisions.GetDecision(ctx, decisionID)
 	if err != nil {
 		log.Printf("slackbot: error fetching decision for Other modal: %v", err)
+		errModal := b.buildLoadingModal("resolve_other_modal", "",
+			"Error", fmt.Sprintf("Failed to load decision: %v", err))
+		_, _ = b.client.UpdateView(errModal, "", "", viewID)
 		return
 	}
 
 	if decision.Resolved {
 		closedModal := b.buildLoadingModal("resolve_other_modal", "",
 			"Already Resolved", fmt.Sprintf("Decision %s not found or already resolved.", decisionID))
-		closedModal.Submit = nil
 		_, _ = b.client.UpdateView(closedModal, "", "", viewID)
 		return
 	}
@@ -1055,12 +1059,12 @@ func (b *Bot) sendDecisionAsDM(decisionID, userID, sourceChannelID string) {
 // buildLoadingModal creates a minimal modal that can be opened immediately
 // with a trigger_id, then updated via UpdateView once data is loaded.
 // This prevents expired_trigger_id errors from slow RPC calls. (bd-m9jx7)
+// No Submit button — prevents accidental submission while loading.
 func (b *Bot) buildLoadingModal(callbackID, metadata, title, message string) slack.ModalViewRequest {
 	return slack.ModalViewRequest{
 		Type:            slack.VTModal,
 		CallbackID:      callbackID,
 		Title:           slack.NewTextBlockObject("plain_text", title, false, false),
-		Submit:          slack.NewTextBlockObject("plain_text", "Submit", false, false),
 		Close:           slack.NewTextBlockObject("plain_text", "Cancel", false, false),
 		PrivateMetadata: metadata,
 		Blocks: slack.Blocks{
