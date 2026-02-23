@@ -555,12 +555,39 @@ func formatIssueMetadata(issue *types.Issue) string {
 		lines = append(lines, fmt.Sprintf("External: %s", *issue.ExternalRef))
 	}
 
+	// Line 5: Jack metadata (target, expiry) when viewing a jack bead (bd-fiil6)
+	if issue.IssueType == types.TypeJack && len(issue.Metadata) > 0 {
+		var meta map[string]interface{}
+		if json.Unmarshal(issue.Metadata, &meta) == nil {
+			jackParts := []string{}
+			if target, _ := meta["jack_target"].(string); target != "" {
+				jackParts = append(jackParts, fmt.Sprintf("Target: %s", target))
+			}
+			if issue.JackExpiresAt != nil {
+				remaining := time.Until(*issue.JackExpiresAt)
+				if remaining <= 0 {
+					jackParts = append(jackParts, fmt.Sprintf("EXPIRED %s ago", jackShowFormatDuration(-remaining)))
+				} else {
+					jackParts = append(jackParts, fmt.Sprintf("Expires: %s (%s remaining)",
+						issue.JackExpiresAt.Format("2006-01-02 15:04 MST"), jackShowFormatDuration(remaining)))
+				}
+			}
+			if revertPlan, _ := meta["jack_revert_plan"].(string); revertPlan != "" {
+				jackParts = append(jackParts, fmt.Sprintf("Revert: %s", revertPlan))
+			}
+			if len(jackParts) > 0 {
+				lines = append(lines, strings.Join(jackParts, " · "))
+			}
+		}
+	}
+
 	return strings.Join(lines, "\n")
 }
 
 // formatDependencyLine formats a single dependency with semantic colors
 // Closed items get entire row muted - the work is done, no need for attention
 // Agent mode (bd-uh22f): plain text, no color escapes
+// Jack dependencies show inline target/expiry info (bd-fiil6)
 func formatDependencyLine(prefix string, dep *types.IssueWithDependencyMetadata) string {
 	statusIcon := ui.GetStatusIcon(string(dep.Status))
 
@@ -570,8 +597,13 @@ func formatDependencyLine(prefix string, dep *types.IssueWithDependencyMetadata)
 		if dep.IssueType == "epic" || dep.IssueType == "bug" {
 			typeTag = "(" + strings.ToUpper(string(dep.IssueType)) + ") "
 		}
-		return fmt.Sprintf("  %s %s %s: %s%s P%d [%s]",
+		line := fmt.Sprintf("  %s %s %s: %s%s P%d [%s]",
 			prefix, statusIcon, dep.ID, typeTag, dep.Title, dep.Priority, dep.Status)
+		// Append jack metadata inline (bd-fiil6)
+		if dep.IssueType == types.TypeJack {
+			line += formatJackInline(&dep.Issue)
+		}
+		return line
 	}
 
 	// Closed items: mute entire row since the work is complete
@@ -596,7 +628,61 @@ func formatDependencyLine(prefix string, dep *types.IssueWithDependencyMetadata)
 		typeStr = ui.TypeBugStyle.Render("(BUG)") + " "
 	}
 
-	return fmt.Sprintf("  %s %s %s: %s%s %s", prefix, statusIcon, idStr, typeStr, dep.Title, priorityTag)
+	line := fmt.Sprintf("  %s %s %s: %s%s %s", prefix, statusIcon, idStr, typeStr, dep.Title, priorityTag)
+	// Append jack metadata inline (bd-fiil6)
+	if dep.IssueType == types.TypeJack {
+		line += formatJackInline(&dep.Issue)
+	}
+	return line
+}
+
+// formatJackInline returns inline jack info (target, expiry) for dependency display. (bd-fiil6)
+func formatJackInline(issue *types.Issue) string {
+	var parts []string
+	if len(issue.Metadata) > 0 {
+		var meta map[string]interface{}
+		if json.Unmarshal(issue.Metadata, &meta) == nil {
+			if target, _ := meta["jack_target"].(string); target != "" {
+				parts = append(parts, "target="+target)
+			}
+		}
+	}
+	if issue.JackExpiresAt != nil {
+		remaining := time.Until(*issue.JackExpiresAt)
+		if remaining <= 0 {
+			parts = append(parts, "EXPIRED "+jackShowFormatDuration(-remaining)+" ago")
+		} else {
+			parts = append(parts, "expires in "+jackShowFormatDuration(remaining))
+		}
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return " [" + strings.Join(parts, ", ") + "]"
+}
+
+// jackShowFormatDuration formats a duration for jack display in bd show. (bd-fiil6)
+func jackShowFormatDuration(d time.Duration) string {
+	if d < time.Minute {
+		return fmt.Sprintf("%ds", int(d.Seconds()))
+	}
+	if d < time.Hour {
+		return fmt.Sprintf("%dm", int(d.Minutes()))
+	}
+	if d < 24*time.Hour {
+		h := int(d.Hours())
+		m := int(d.Minutes()) % 60
+		if m == 0 {
+			return fmt.Sprintf("%dh", h)
+		}
+		return fmt.Sprintf("%dh%dm", h, m)
+	}
+	days := int(d.Hours()) / 24
+	h := int(d.Hours()) % 24
+	if h == 0 {
+		return fmt.Sprintf("%dd", days)
+	}
+	return fmt.Sprintf("%dd%dh", days, h)
 }
 
 // formatSimpleDependencyLine formats a dependency without metadata (fallback)

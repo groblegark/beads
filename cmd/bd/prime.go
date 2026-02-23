@@ -142,6 +142,11 @@ Workflow customization:
 			}
 		}
 
+		// Append active/expired jack warnings for ambient awareness. (bd-fiil6)
+		if !primeExportMode {
+			outputJackAwarenessSection(os.Stdout)
+		}
+
 		// Append active agent roster to prevent work duplication. (bd-rzec3)
 		if !primeExportMode {
 			outputRosterSection(os.Stdout)
@@ -642,6 +647,127 @@ func outputAdviceSection(w io.Writer, agentID string) {
 			_, _ = fmt.Fprintln(w)
 		}
 	}
+}
+
+// outputJackAwarenessSection checks for active and expired jacks and appends
+// a warning section to prime output. This gives agents ambient awareness of
+// infrastructure modifications in progress. (bd-fiil6)
+//
+// Connects to daemon RPC (same pattern as outputAdviceSection).
+// Fails silently if daemon is unavailable or no jacks are found.
+func outputJackAwarenessSection(w io.Writer) {
+	beadsDir := beads.FindBeadsDir()
+	if beadsDir == "" {
+		return
+	}
+
+	socketPath := filepath.Join(beadsDir, "bd.sock")
+	client, err := rpc.TryConnectAuto(socketPath)
+	if err != nil || client == nil {
+		return
+	}
+	defer func() { _ = client.Close() }()
+
+	// Fetch all in_progress jacks.
+	listArgs := &rpc.ListArgs{
+		IssueType: string(types.TypeJack),
+		Status:    "in_progress",
+	}
+	resp, err := client.List(listArgs)
+	if err != nil || !resp.Success {
+		return
+	}
+
+	var issuesWithCounts []*types.IssueWithCounts
+	if err := json.Unmarshal(resp.Data, &issuesWithCounts); err != nil {
+		return
+	}
+
+	if len(issuesWithCounts) == 0 {
+		return
+	}
+
+	// Partition into active vs expired.
+	now := time.Now()
+	var active, expired []jackPrimeSummary
+	for _, iwc := range issuesWithCounts {
+		if iwc.Issue == nil {
+			continue
+		}
+		summary := jackPrimeSummary{Issue: iwc.Issue}
+		if len(iwc.Issue.Metadata) > 0 {
+			var meta map[string]interface{}
+			if json.Unmarshal(iwc.Issue.Metadata, &meta) == nil {
+				summary.Target, _ = meta["jack_target"].(string)
+			}
+		}
+
+		if iwc.Issue.JackExpiresAt != nil && now.After(*iwc.Issue.JackExpiresAt) {
+			summary.ExpiredAgo = now.Sub(*iwc.Issue.JackExpiresAt)
+			expired = append(expired, summary)
+		} else {
+			if iwc.Issue.JackExpiresAt != nil {
+				summary.Remaining = time.Until(*iwc.Issue.JackExpiresAt)
+			}
+			active = append(active, summary)
+		}
+	}
+
+	// Only output if there's something to warn about.
+	if len(active) == 0 && len(expired) == 0 {
+		return
+	}
+
+	fmt.Fprintf(w, "\n## Active Jacks (%d)\n\n", len(active)+len(expired))
+
+	if len(expired) > 0 {
+		for _, j := range expired {
+			agent := j.Issue.Assignee
+			if agent == "" {
+				agent = j.Issue.CreatedBy
+			}
+			fmt.Fprintf(w, "- **EXPIRED** `%s` on `%s` (by %s, expired %s ago) — run `bd jack off %s` or `bd jack extend %s`\n",
+				j.Issue.ID, j.Target, agent, formatPrimeDuration(j.ExpiredAgo), j.Issue.ID, j.Issue.ID)
+		}
+	}
+
+	for _, j := range active {
+		agent := j.Issue.Assignee
+		if agent == "" {
+			agent = j.Issue.CreatedBy
+		}
+		remaining := "unknown"
+		if j.Remaining > 0 {
+			remaining = formatPrimeDuration(j.Remaining) + " remaining"
+		}
+		fmt.Fprintf(w, "- `%s` on `%s` (by %s, %s)\n",
+			j.Issue.ID, j.Target, agent, remaining)
+	}
+	_, _ = fmt.Fprintln(w)
+}
+
+// jackPrimeSummary holds parsed jack info for prime output. (bd-fiil6)
+type jackPrimeSummary struct {
+	Issue      *types.Issue
+	Target     string
+	Remaining  time.Duration
+	ExpiredAgo time.Duration
+}
+
+// formatPrimeDuration formats a duration for prime output. (bd-fiil6)
+func formatPrimeDuration(d time.Duration) string {
+	if d < time.Minute {
+		return fmt.Sprintf("%ds", int(d.Seconds()))
+	}
+	if d < time.Hour {
+		return fmt.Sprintf("%dm", int(d.Minutes()))
+	}
+	h := int(d.Hours())
+	m := int(d.Minutes()) % 60
+	if m == 0 {
+		return fmt.Sprintf("%dh", h)
+	}
+	return fmt.Sprintf("%dh%dm", h, m)
 }
 
 // outputRosterSection appends a live agent roster to the prime output.
