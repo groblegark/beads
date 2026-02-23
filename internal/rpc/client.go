@@ -1588,6 +1588,19 @@ func (c *Client) AgentSignal(args *AgentSignalArgs) (*AgentSignalResult, error) 
 	return &result, nil
 }
 
+// CreateAgent requests creation of a new agent bead (bd-dwzum).
+func (c *Client) CreateAgent(args *CreateAgentArgs) (*CreateAgentResult, error) {
+	resp, err := c.Execute(OpCreateAgent, args)
+	if err != nil {
+		return nil, err
+	}
+	var result CreateAgentResult
+	if err := json.Unmarshal(resp.Data, &result); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal create_agent response: %w", err)
+	}
+	return &result, nil
+}
+
 // VCS operations (bd-ma0s.2)
 
 // VcsCommit creates a Dolt commit with the given message.

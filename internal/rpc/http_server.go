@@ -597,6 +597,7 @@ func httpMethodToOperation(method string) string {
 		"AgentSignal":  OpAgentSignal,
 		"AgentRoster":       OpAgentRoster,
 		"AgentRecentEvents": OpAgentRecentEvents,
+		"CreateAgent":       OpCreateAgent, // bd-dwzum
 
 		// VCS operations (bd-ma0s.2)
 		"VcsCommit":        OpVcsCommit,

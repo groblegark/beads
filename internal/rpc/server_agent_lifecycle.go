@@ -231,6 +231,83 @@ func (s *Server) handleAgentSignal(req *Request) Response {
 	return Response{Success: true, Data: data}
 }
 
+// handleCreateAgent creates a new agent bead with the appropriate labels
+// and sets agent_state to spawning so the K8s controller picks it up (bd-dwzum).
+func (s *Server) handleCreateAgent(req *Request) Response {
+	var args CreateAgentArgs
+	if err := json.Unmarshal(req.Args, &args); err != nil {
+		return Response{Success: false, Error: fmt.Sprintf("invalid create_agent args: %v", err)}
+	}
+	if args.AgentType == "" {
+		return Response{Success: false, Error: "agent_type is required"}
+	}
+	if args.ParentAgentID == "" {
+		return Response{Success: false, Error: "parent_agent_id is required"}
+	}
+	store := s.storage
+	if store == nil {
+		return Response{Success: false, Error: "storage not available"}
+	}
+	ctx, cancel := s.reqCtx(req)
+	defer cancel()
+
+	parentIssue, err := store.GetIssue(ctx, args.ParentAgentID)
+	if err != nil {
+		return Response{Success: false, Error: fmt.Sprintf("parent agent %s not found: %v", args.ParentAgentID, err)}
+	}
+
+	labels := []string{"gt:agent", "execution_target:k8s", fmt.Sprintf("parent_agent:%s", args.ParentAgentID)}
+	if args.TeamID != "" {
+		labels = append(labels, fmt.Sprintf("team:%s", args.TeamID))
+	}
+	labels = append(labels, args.Labels...)
+
+	title := args.Title
+	if title == "" {
+		title = fmt.Sprintf("Agent: %s (spawned by %s)", args.AgentType, args.ParentAgentID)
+	}
+	rig := args.Rig
+	if rig == "" {
+		rig = parentIssue.Rig
+	}
+
+	createData, err := json.Marshal(CreateArgs{
+		Title: title, Description: args.Description, IssueType: "agent",
+		Labels: labels, RoleType: args.AgentType, Rig: rig, Pinned: true,
+	})
+	if err != nil {
+		return Response{Success: false, Error: fmt.Sprintf("failed to marshal create args: %v", err)}
+	}
+	createResp := s.handleCreate(&Request{Operation: OpCreate, Args: createData, Actor: req.Actor})
+	if !createResp.Success {
+		return Response{Success: false, Error: fmt.Sprintf("failed to create agent bead: %s", createResp.Error)}
+	}
+
+	var createResult struct{ ID string `json:"id"` }
+	if err := json.Unmarshal(createResp.Data, &createResult); err != nil {
+		return Response{Success: false, Error: fmt.Sprintf("failed to parse create response: %v", err)}
+	}
+	agentID := createResult.ID
+
+	updates := map[string]interface{}{"agent_state": string(types.StateSpawning), "last_activity": time.Now()}
+	if err := store.UpdateIssue(ctx, agentID, updates, req.Actor); err != nil {
+		return Response{Success: false, Error: fmt.Sprintf("failed to set agent_state for %s: %v", agentID, err)}
+	}
+
+	if updatedIssue, _ := store.GetIssue(ctx, agentID); updatedIssue != nil {
+		evt := MutationEvent{Type: MutationCreate, IssueID: agentID, Actor: req.Actor}
+		enrichEvent(&evt, updatedIssue)
+		s.emitRichMutation(evt)
+	}
+	s.emitAgentEvent(eventbus.EventAgentStarted, eventbus.AgentEventPayload{
+		AgentID: agentID, AgentName: agentID, RigName: rig,
+		Role: args.AgentType, Reason: fmt.Sprintf("spawned by %s", args.ParentAgentID),
+	}, s.reqActor(req))
+
+	respData, _ := json.Marshal(CreateAgentResult{AgentID: agentID, AgentState: string(types.StateSpawning), Rig: rig})
+	return Response{Success: true, Data: respData}
+}
+
 // extractCoopURL parses the coop_url from a bead's notes field.
 // Notes format: "coop_url: http://host:port\nother_key: value\n"
 func extractCoopURL(notes string) string {
