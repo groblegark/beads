@@ -299,6 +299,14 @@ var agentStopForce bool
 var agentStopReason string
 var agentRestartReason string
 
+// Spawn command flags (bd-jqzha)
+var spawnAgentType string
+var spawnRig string
+var spawnTeam string
+var spawnLabels []string
+var spawnTitle string
+var spawnDescription string
+
 var agentStopCmd = &cobra.Command{
 	Use:   "stop <agent>",
 	Short: "Gracefully stop an agent",
@@ -351,6 +359,26 @@ Examples:
   bd agent signal gt-emma SIGUSR1`,
 	Args: cobra.ExactArgs(2),
 	RunE: runAgentSignal,
+}
+
+var agentSpawnCmd = &cobra.Command{
+	Use:   "spawn",
+	Short: "Create a new agent bead for K8s spawning",
+	Long: `Create a new agent bead via the daemon's create_agent RPC.
+
+The K8s controller watches for agent beads in "spawning" state and creates
+pods for them. This command lets agents (or operators) spawn new sub-agents.
+
+The --type flag is required and specifies the agent role (polecat, crew, witness, etc.).
+The parent agent is auto-detected from BD_ACTOR if set.
+
+This command requires the daemon (BD_DAEMON_HOST).
+
+Examples:
+  bd agent spawn --type=crew --rig=gastown-rwx
+  bd agent spawn --type=polecat --rig=gastown-rwx --title="Build runner"
+  bd agent spawn --type=crew --team=my-team --labels=priority:high`,
+	RunE: runAgentSpawn,
 }
 
 var rosterStaleThreshold int
@@ -419,6 +447,14 @@ func init() {
 	agentStopCmd.Flags().StringVar(&agentStopReason, "reason", "", "Reason for stopping the agent")
 	agentRestartCmd.Flags().StringVar(&agentRestartReason, "reason", "", "Reason for restarting the agent")
 
+	agentSpawnCmd.Flags().StringVar(&spawnAgentType, "type", "", "Agent role type (required): polecat, crew, witness, refinery, mayor, deacon")
+	_ = agentSpawnCmd.MarkFlagRequired("type")
+	agentSpawnCmd.Flags().StringVar(&spawnRig, "rig", "", "Rig name for the new agent")
+	agentSpawnCmd.Flags().StringVar(&spawnTeam, "team", "", "Team ID for grouping spawned agents")
+	agentSpawnCmd.Flags().StringSliceVar(&spawnLabels, "label", nil, "Additional labels (repeatable, e.g. --label=priority:high)")
+	agentSpawnCmd.Flags().StringVar(&spawnTitle, "title", "", "Title for the agent bead (auto-generated if empty)")
+	agentSpawnCmd.Flags().StringVar(&spawnDescription, "description", "", "Description for the agent bead")
+
 	agentCmd.AddCommand(agentStateCmd)
 	agentCmd.AddCommand(agentHeartbeatCmd)
 	agentCmd.AddCommand(agentShowCmd)
@@ -427,6 +463,7 @@ func init() {
 	agentCmd.AddCommand(agentSubscriptionsCmd)
 	agentCmd.AddCommand(agentStopCmd)
 	agentCmd.AddCommand(agentRestartCmd)
+	agentCmd.AddCommand(agentSpawnCmd)
 	agentCmd.AddCommand(agentSignalCmd)
 	agentCmd.AddCommand(agentPodRegisterCmd)
 	agentCmd.AddCommand(agentPodDeregisterCmd)
@@ -2048,5 +2085,40 @@ func runAgentBackfillBeads(cmd *cobra.Command, args []string) error {
 
 	fmt.Printf("\nSummary: %d roster agents scanned, %d beads created, %d already existed\n",
 		len(roster.Actors), created, skipped)
+	return nil
+}
+
+// runAgentSpawn implements `bd agent spawn`. (bd-jqzha)
+func runAgentSpawn(cmd *cobra.Command, args []string) error {
+	CheckReadonly("agent spawn")
+
+	if daemonClient == nil {
+		return fmt.Errorf("agent spawn requires the daemon (set BD_DAEMON_HOST)")
+	}
+
+	// Auto-detect parent agent from BD_ACTOR
+	parentAgentID := os.Getenv("BD_ACTOR")
+
+	result, err := daemonClient.CreateAgent(&rpc.CreateAgentArgs{
+		AgentType:     spawnAgentType,
+		Rig:           spawnRig,
+		ParentAgentID: parentAgentID,
+		TeamID:        spawnTeam,
+		Labels:        spawnLabels,
+		Title:         spawnTitle,
+		Description:   spawnDescription,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to spawn agent: %w", err)
+	}
+
+	if jsonOutput {
+		encoder := json.NewEncoder(os.Stdout)
+		encoder.SetIndent("", "  ")
+		return encoder.Encode(result)
+	}
+
+	fmt.Printf("%s spawned %s type=%s state=%s rig=%s\n",
+		ui.RenderPass("✓"), result.AgentID, spawnAgentType, result.AgentState, result.Rig)
 	return nil
 }
