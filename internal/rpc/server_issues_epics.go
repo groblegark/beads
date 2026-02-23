@@ -719,17 +719,24 @@ func (s *Server) handleCreate(req *Request) Response {
 			}
 		}
 
-		// Auto-add role_type/rig labels for agent beads
+		// Auto-add role_type/role/rig/agent labels for agent beads.
+		// The K8s controller reconciler uses role: and agent: labels (bd-muo1j).
 		if containsLabel(createArgs.Labels, "gt:agent") {
 			if issue.RoleType != "" {
 				if err := tx.AddLabel(ctx, issue.ID, "role_type:"+issue.RoleType, actor); err != nil {
 					return fmt.Errorf("failed to add role_type label: %w", err)
+				}
+				if err := tx.AddLabel(ctx, issue.ID, "role:"+issue.RoleType, actor); err != nil {
+					return fmt.Errorf("failed to add role label: %w", err)
 				}
 			}
 			if issue.Rig != "" {
 				if err := tx.AddLabel(ctx, issue.ID, "rig:"+issue.Rig, actor); err != nil {
 					return fmt.Errorf("failed to add rig label: %w", err)
 				}
+			}
+			if err := tx.AddLabel(ctx, issue.ID, "agent:"+issue.ID, actor); err != nil {
+				return fmt.Errorf("failed to add agent label: %w", err)
 			}
 		}
 
@@ -786,10 +793,12 @@ func (s *Server) handleCreate(req *Request) Response {
 	if containsLabel(createArgs.Labels, "gt:agent") {
 		if issue.RoleType != "" {
 			issue.Labels = append(issue.Labels, "role_type:"+issue.RoleType)
+			issue.Labels = append(issue.Labels, "role:"+issue.RoleType)
 		}
 		if issue.Rig != "" {
 			issue.Labels = append(issue.Labels, "rig:"+issue.Rig)
 		}
+		issue.Labels = append(issue.Labels, "agent:"+issue.ID)
 	}
 
 	// Emit mutation event for event-driven daemon (after transaction commits)
@@ -1110,17 +1119,21 @@ func (s *Server) handleUpdate(req *Request) Response {
 			}
 		}
 
-		// Auto-add role_type/rig labels for agent beads
+		// Auto-add role_type/role/rig labels for agent beads.
+		// The K8s controller reconciler uses role: and agent: labels (bd-muo1j).
 		issueLabels, _ := tx.GetLabels(ctx, updateArgs.ID)
 		if containsLabel(issueLabels, "gt:agent") {
 			if updateArgs.RoleType != nil && *updateArgs.RoleType != "" {
 				for _, l := range issueLabels {
-					if strings.HasPrefix(l, "role_type:") {
+					if strings.HasPrefix(l, "role_type:") || strings.HasPrefix(l, "role:") {
 						_ = tx.RemoveLabel(ctx, updateArgs.ID, l, actor)
 					}
 				}
 				if err := tx.AddLabel(ctx, updateArgs.ID, "role_type:"+*updateArgs.RoleType, actor); err != nil {
 					return fmt.Errorf("failed to add role_type label: %w", err)
+				}
+				if err := tx.AddLabel(ctx, updateArgs.ID, "role:"+*updateArgs.RoleType, actor); err != nil {
+					return fmt.Errorf("failed to add role label: %w", err)
 				}
 			}
 			if updateArgs.Rig != nil && *updateArgs.Rig != "" {
