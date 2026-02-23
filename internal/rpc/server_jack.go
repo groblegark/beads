@@ -209,7 +209,7 @@ func (s *Server) handleJackOff(req *Request) Response {
 	// Parse metadata to check revert status
 	metadata := make(map[string]interface{})
 	if len(issue.Metadata) > 0 {
-		json.Unmarshal(issue.Metadata, &metadata)
+		_ = json.Unmarshal(issue.Metadata, &metadata)
 	}
 
 	// If not skipping revert check, verify changes were logged
@@ -293,7 +293,7 @@ func (s *Server) handleJackCheck(req *Request) Response {
 		// Parse metadata to get expiry
 		metadata := make(map[string]interface{})
 		if len(jack.Metadata) > 0 {
-			json.Unmarshal(jack.Metadata, &metadata)
+			_ = json.Unmarshal(jack.Metadata, &metadata)
 		}
 
 		expiresAtStr, _ := metadata["jack_expires_at"].(string)
@@ -413,7 +413,7 @@ func (s *Server) handleJackExtend(req *Request) Response {
 	// Parse and update metadata
 	metadata := make(map[string]interface{})
 	if len(issue.Metadata) > 0 {
-		json.Unmarshal(issue.Metadata, &metadata)
+		_ = json.Unmarshal(issue.Metadata, &metadata)
 	}
 
 	now := time.Now().UTC()
