@@ -420,6 +420,29 @@ func TestHTTPMappingCompleteness(t *testing.T) {
 		OpRecordCommit, OpCommitsForIssue, OpIssuesForCommit,
 		// Jack operations (bd-x444q)
 		OpJackOn, OpJackOff, OpJackCheck, OpJackExtend, OpJackLog,
+		// Session gate operations (bd-jk5ay)
+		OpSessionGateMark, OpSessionGateClear, OpSessionGateCheck, OpSessionGateList,
+		// Bus register operations (bd-jk5ay)
+		OpBusRegister, OpBusUnregister,
+		// Agent roster/events (bd-jk5ay)
+		OpAgentRoster, OpAgentRecentEvents, OpCreateAgent,
+		// Done/wait (bd-jk5ay)
+		OpDoneWait,
+		// VCS operations (bd-jk5ay)
+		OpVcsCommit, OpVcsPush, OpVcsPull, OpVcsMerge,
+		OpVcsBranchCreate, OpVcsBranchDelete, OpVcsCheckout,
+		OpVcsActiveBranch, OpVcsStatus, OpVcsHasUncommitted,
+		OpVcsBranches, OpVcsCurrentCommit, OpVcsCommitExists, OpVcsLog,
+		// Admin operations (bd-jk5ay)
+		OpAdminGC, OpGCTombstones,
+		// History operations (bd-jk5ay)
+		OpHistoryIssue, OpHistoryDiff, OpHistoryIssueDiff,
+		OpHistoryConflicts, OpHistoryResolveConflicts, OpVersionedDiff,
+		// SQL query (bd-jk5ay)
+		OpSQL,
+		// Federation operations (bd-jk5ay)
+		OpFedListRemotes, OpFedSync, OpFedSyncStatus, OpFedFetch,
+		OpFedPushTo, OpFedPullFrom, OpFedAddRemote, OpFedRemoveRemote, OpFedAddPeer,
 	}
 
 	t.Run("client_operationToHTTPMethod_covers_all_handled_ops", func(t *testing.T) {
