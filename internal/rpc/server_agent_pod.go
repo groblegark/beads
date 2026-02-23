@@ -103,8 +103,7 @@ func (s *Server) handleAgentPodRegister(req *Request) Response {
 		PodName:   args.PodName,
 		PodStatus: podStatus,
 	}
-	data, _ := json.Marshal(result)
-	return Response{Success: true, Data: data}
+	return jsonOK(result)
 }
 
 // handleAgentPodDeregister clears all pod fields on an agent bead.
@@ -161,8 +160,7 @@ func (s *Server) handleAgentPodDeregister(req *Request) Response {
 	result := AgentPodDeregisterResult{
 		AgentID: args.AgentID,
 	}
-	data, _ := json.Marshal(result)
-	return Response{Success: true, Data: data}
+	return jsonOK(result)
 }
 
 // handleAgentPodStatus updates only the pod_status field on an agent bead.
@@ -228,8 +226,7 @@ func (s *Server) handleAgentPodStatus(req *Request) Response {
 		AgentID:   args.AgentID,
 		PodStatus: args.PodStatus,
 	}
-	data, _ := json.Marshal(result)
-	return Response{Success: true, Data: data}
+	return jsonOK(result)
 }
 
 // handleAgentPodList returns agents with active pods (pod_name != ”).
@@ -286,8 +283,7 @@ func (s *Server) handleAgentPodList(req *Request) Response {
 	}
 
 	result := AgentPodListResult{Agents: agents}
-	data, _ := json.Marshal(result)
-	return Response{Success: true, Data: data}
+	return jsonOK(result)
 }
 
 // handleAgentRoster returns a live presence roster from the NATS event bus (bd-3d5m2).
@@ -343,6 +339,9 @@ func (s *Server) handleAgentRoster(req *Request) Response {
 	// Also collects unclaimed in_progress beads (no assignee). (bd-oenjf)
 	unclaimed := s.enrichRosterWithTasks(req, rosterEntries)
 
+	// Enrich with team and parent_agent labels from agent beads. (bd-fvqsg)
+	s.enrichRosterWithTeamLabels(req, rosterEntries)
+
 	// Enrich with git branch/repo context from CWD (bd-z6958).
 	enrichRosterWithGitContext(rosterEntries)
 
@@ -361,6 +360,28 @@ func (s *Server) handleAgentRoster(req *Request) Response {
 		}
 	}
 
+	// Apply team filter if requested. (bd-fvqsg)
+	if args.TeamFilter != "" {
+		filtered := make([]AgentRosterEntry, 0, len(rosterEntries))
+		for _, e := range rosterEntries {
+			if e.TeamID == args.TeamFilter {
+				filtered = append(filtered, e)
+			}
+		}
+		rosterEntries = filtered
+		// Recount after filtering.
+		working, idle, dead = 0, 0, 0
+		for _, e := range rosterEntries {
+			if e.Reaped {
+				dead++
+			} else if e.TaskID != "" {
+				working++
+			} else {
+				idle++
+			}
+		}
+	}
+
 	result := AgentRosterResult{
 		Actors:         rosterEntries,
 		UnclaimedTasks: unclaimed,
@@ -370,8 +391,7 @@ func (s *Server) handleAgentRoster(req *Request) Response {
 		Idle:           idle,
 		Dead:           dead,
 	}
-	data, _ := json.Marshal(result)
-	return Response{Success: true, Data: data}
+	return jsonOK(result)
 }
 
 // handleAgentRecentEvents returns recent events for a specific agent from the
@@ -417,8 +437,7 @@ func (s *Server) handleAgentRecentEvents(req *Request) Response {
 		}
 	}
 
-	data, _ := json.Marshal(result)
-	return Response{Success: true, Data: data}
+	return jsonOK(result)
 }
 
 // enrichRosterWithPodStatus cross-references roster entries with K8s pod status
@@ -524,6 +543,79 @@ func matchActorToAgentID(actor, agentID string) bool {
 // enrichRosterWithTasks looks up in_progress beads and matches them to roster
 // actors via created_by or assignee. Also walks parent-child deps to find epics.
 // Returns unclaimed in_progress beads (no assignee) for visibility. (bd-oenjf)
+// enrichRosterWithTeamLabels reads team:<id> and parent_agent:<id> labels from
+// agent beads and populates the TeamID and ParentAgent fields on roster entries.
+// This enables team-based filtering and displays parent-child agent relationships. (bd-fvqsg)
+func (s *Server) enrichRosterWithTeamLabels(req *Request, entries []AgentRosterEntry) {
+	store := s.storage
+	if store == nil || len(entries) == 0 {
+		return
+	}
+
+	ctx, cancel := s.reqCtx(req)
+	defer cancel()
+
+	// Get all agent beads to extract team labels.
+	agentBeads, err := store.GetIssuesByLabel(ctx, "gt:agent")
+	if err != nil {
+		return
+	}
+
+	// Collect all agent bead IDs for batch label lookup.
+	agentIDs := make([]string, 0, len(agentBeads))
+	agentByID := make(map[string]*types.Issue, len(agentBeads))
+	for i := range agentBeads {
+		agentIDs = append(agentIDs, agentBeads[i].ID)
+		agentByID[agentBeads[i].ID] = agentBeads[i]
+	}
+	if len(agentIDs) == 0 {
+		return
+	}
+
+	// Batch-fetch labels for all agent beads.
+	labelsMap, err := store.GetLabelsForIssues(ctx, agentIDs)
+	if err != nil {
+		return
+	}
+
+	// Build actor → team/parent mapping.
+	// Actor names may differ from bead IDs, so also check assignee field.
+	type teamInfo struct {
+		teamID      string
+		parentAgent string
+	}
+	actorTeam := make(map[string]teamInfo)
+
+	for beadID, labels := range labelsMap {
+		var ti teamInfo
+		for _, lbl := range labels {
+			if strings.HasPrefix(lbl, "team:") {
+				ti.teamID = strings.TrimPrefix(lbl, "team:")
+			}
+			if strings.HasPrefix(lbl, "parent_agent:") {
+				ti.parentAgent = strings.TrimPrefix(lbl, "parent_agent:")
+			}
+		}
+		if ti.teamID == "" && ti.parentAgent == "" {
+			continue
+		}
+		// Map by bead ID.
+		actorTeam[beadID] = ti
+		// Also map by assignee if available.
+		if ab, ok := agentByID[beadID]; ok && ab.Assignee != "" {
+			actorTeam[ab.Assignee] = ti
+		}
+	}
+
+	// Apply to roster entries.
+	for i := range entries {
+		if info, ok := actorTeam[entries[i].Actor]; ok {
+			entries[i].TeamID = info.teamID
+			entries[i].ParentAgent = info.parentAgent
+		}
+	}
+}
+
 func (s *Server) enrichRosterWithTasks(req *Request, entries []AgentRosterEntry) []UnclaimedTask {
 	store := s.storage
 	if store == nil || len(entries) == 0 {

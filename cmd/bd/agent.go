@@ -230,7 +230,8 @@ events in that window are excluded. Use --all to show every actor ever seen.
 Examples:
   bd agent roster                # Active actors (idle < 1h)
   bd agent roster --all          # All actors ever seen
-  bd agent roster --stale=300    # Active in last 5 minutes`,
+  bd agent roster --stale=300    # Active in last 5 minutes
+  bd agent roster --team=my-team # Only agents in a team`,
 	RunE: runAgentRoster,
 }
 
@@ -354,6 +355,7 @@ Examples:
 
 var rosterStaleThreshold int
 var rosterShowAll bool
+var rosterTeamFilter string
 
 var podRegisterName string
 var podRegisterIP string
@@ -402,6 +404,7 @@ func init() {
 
 	agentRosterCmd.Flags().IntVar(&rosterStaleThreshold, "stale", 3600, "Exclude actors idle longer than N seconds (0 = no limit)")
 	agentRosterCmd.Flags().BoolVar(&rosterShowAll, "all", false, "Show all actors (no stale filtering)")
+	agentRosterCmd.Flags().StringVar(&rosterTeamFilter, "team", "", "Filter to agents in this team (bd-fvqsg)")
 
 	agentOrphansCmd.Flags().StringVar(&orphansRig, "rig", "", "Filter by rig name")
 
@@ -1105,6 +1108,7 @@ func runAgentRoster(cmd *cobra.Command, args []string) error {
 
 	result, err := daemonClient.AgentRoster(&rpc.AgentRosterArgs{
 		StaleThresholdSecs: stale,
+		TeamFilter:         rosterTeamFilter,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to get roster: %w", err)
@@ -1246,6 +1250,17 @@ func printRosterEntry(a rpc.AgentRosterEntry) {
 			}
 			line += fmt.Sprintf("\n  %20s  epic=%s %s", "", a.EpicID, epicTitle)
 		}
+	}
+	// Show team/parent agent context if available. (bd-fvqsg)
+	if a.TeamID != "" || a.ParentAgent != "" {
+		teamParts := []string{}
+		if a.TeamID != "" {
+			teamParts = append(teamParts, "team="+a.TeamID)
+		}
+		if a.ParentAgent != "" {
+			teamParts = append(teamParts, "parent="+a.ParentAgent)
+		}
+		line += fmt.Sprintf("\n  %20s  %s", "", strings.Join(teamParts, "  "))
 	}
 	fmt.Println(line)
 }
