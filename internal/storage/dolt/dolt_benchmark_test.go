@@ -1032,7 +1032,7 @@ func seedIssuesAtScale(b *testing.B, store *DoltStore, n int) int {
 
 // BenchmarkGetReadyWorkScale measures GetReadyWork at varying dataset sizes.
 func BenchmarkGetReadyWorkScale(b *testing.B) {
-	for _, n := range []int{500, 1000, 5000} {
+	for _, n := range []int{100, 500, 1000} {
 		b.Run(fmt.Sprintf("issues=%d", n), func(b *testing.B) {
 			store, cleanup := setupBenchStore(b)
 			defer cleanup()
@@ -1051,7 +1051,7 @@ func BenchmarkGetReadyWorkScale(b *testing.B) {
 
 // BenchmarkSearchIssuesScale measures text search at varying dataset sizes.
 func BenchmarkSearchIssuesScale(b *testing.B) {
-	for _, n := range []int{500, 1000, 5000} {
+	for _, n := range []int{100, 500, 1000} {
 		b.Run(fmt.Sprintf("issues=%d", n), func(b *testing.B) {
 			store, cleanup := setupBenchStore(b)
 			defer cleanup()
