@@ -561,6 +561,17 @@ func (s *Server) executeOperation(req *Request) Response {
 		resp = s.handleCommitsForIssue(req)
 	case OpIssuesForCommit:
 		resp = s.handleIssuesForCommit(req)
+	// Jack operations (bd-oi6md)
+	case OpJackOn:
+		resp = s.handleJackOn(req)
+	case OpJackOff:
+		resp = s.handleJackOff(req)
+	case OpJackCheck:
+		resp = s.handleJackCheck(req)
+	case OpJackExtend:
+		resp = s.handleJackExtend(req)
+	case OpJackLog:
+		resp = s.handleJackLog(req)
 	default:
 		return Response{
 			Success: false,

@@ -2215,11 +2215,31 @@ func (c *Client) IssuesForCommit(args *IssuesForCommitArgs) ([]CommitRecord, err
 	return result, nil
 }
 
-// Jack operations (bd-9mpa8)
+// Jack operations (bd-9mpa8, bd-oi6md)
+
+// JackOn creates and activates a jack bead via the daemon.
+func (c *Client) JackOn(args *JackOnArgs) (*Response, error) {
+	return c.Execute(OpJackOn, args)
+}
 
 // JackOff reverts and closes a jack via the daemon.
 func (c *Client) JackOff(args *JackOffArgs) (*Response, error) {
 	return c.Execute(OpJackOff, args)
+}
+
+// JackCheck finds expired jacks via the daemon.
+func (c *Client) JackCheck(args *JackCheckArgs) (*Response, error) {
+	return c.Execute(OpJackCheck, args)
+}
+
+// JackExtend extends a jack's TTL via the daemon.
+func (c *Client) JackExtend(args *JackExtendArgs) (*Response, error) {
+	return c.Execute(OpJackExtend, args)
+}
+
+// JackLog records a change under a jack via the daemon.
+func (c *Client) JackLog(args *JackLogArgs) (*Response, error) {
+	return c.Execute(OpJackLog, args)
 }
 
 // cleanupStaleDaemonArtifacts removes stale daemon.pid file when socket is missing and lock is free.
