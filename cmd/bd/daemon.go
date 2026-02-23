@@ -866,13 +866,46 @@ func runDaemonLoop(interval time.Duration, autoCommit, autoPush, autoPull, local
 					bus.PublishRaw("agents."+string(eventbus.EventAgentCrashed), data)
 				}
 
-				// Try to set agent_state=dead on the agent bead (best-effort).
+				// Load the agent bead to check role type before deciding
+				// whether to mark dead or auto-restart. (bd-fwo9b)
+				var agentBead *types.Issue
 				if store != nil {
 					ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 					defer cancel()
-					_ = store.UpdateIssue(ctx, actor, map[string]interface{}{
-						"agent_state": "dead",
-					}, "reaper")
+					agentBead, _ = store.GetIssue(ctx, actor)
+				}
+
+				// Crew agents running in K8s get auto-restarted by setting
+				// agent_state=spawning, which triggers the K8s controller to
+				// recreate the pod. Polecats and other roles stay dead. (bd-fwo9b)
+				autoRestart := false
+				if agentBead != nil && agentBead.RoleType == "crew" && agentBead.PodName != "" {
+					autoRestart = true
+				}
+
+				if store != nil {
+					ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+					defer cancel()
+					if autoRestart {
+						// Clear pod fields and set spawning — controller will create a new pod.
+						_ = store.UpdateIssue(ctx, actor, map[string]interface{}{
+							"agent_state": string(types.StateSpawning),
+							"pod_name":    "",
+							"pod_ip":      "",
+							"pod_node":    "",
+							"pod_status":  "",
+						}, "reaper")
+						_ = store.AddComment(ctx, actor, "reaper",
+							"Auto-restart: crew agent went dead, setting agent_state=spawning for K8s controller")
+						log.Info("reaper: auto-restarting crew agent", "agent", actor)
+						// Emit AgentStarted event so SSE/NATS consumers (K8s controller,
+						// beads3d) see the spawning state immediately. (bd-fwo9b)
+						bus.PublishRaw("agents."+string(eventbus.EventAgentStarted), data)
+					} else {
+						_ = store.UpdateIssue(ctx, actor, map[string]interface{}{
+							"agent_state": "dead",
+						}, "reaper")
+					}
 				}
 
 				// Release orphaned in_progress beads so they can be re-dispatched.
