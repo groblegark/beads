@@ -176,7 +176,7 @@ func (r *Registry) Register(entry RegistryEntry) error {
 	return r.withFileLock(func() error {
 		entries, err := r.readEntriesLocked()
 		if err != nil {
-			return err
+			return fmt.Errorf("register daemon: read entries: %w", err)
 		}
 
 		// Remove any existing entry for this workspace or PID
@@ -200,7 +200,7 @@ func (r *Registry) Unregister(workspacePath string, pid int) error {
 	return r.withFileLock(func() error {
 		entries, err := r.readEntriesLocked()
 		if err != nil {
-			return err
+			return fmt.Errorf("unregister daemon: read entries: %w", err)
 		}
 
 		// Filter out entries matching workspace or PID
@@ -223,7 +223,7 @@ func (r *Registry) List() ([]DaemonInfo, error) {
 	err := r.withFileLock(func() error {
 		entries, err := r.readEntriesLocked()
 		if err != nil {
-			return err
+			return fmt.Errorf("list daemons: read entries: %w", err)
 		}
 
 		var aliveEntries []RegistryEntry

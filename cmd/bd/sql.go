@@ -47,7 +47,7 @@ func runSQL(_ *cobra.Command, args []string) error {
 
 	result, err := getDaemonClient().SQL(&rpc.SQLArgs{Query: query})
 	if err != nil {
-		return err
+		return fmt.Errorf("execute sql query: %w", err)
 	}
 
 	if isJSONOutput() {
@@ -73,7 +73,7 @@ func outputSQLCSV(result *rpc.SQLResult) error {
 
 	// Header
 	if err := w.Write(result.Columns); err != nil {
-		return err
+		return fmt.Errorf("write csv header: %w", err)
 	}
 
 	// Rows
@@ -83,7 +83,7 @@ func outputSQLCSV(result *rpc.SQLResult) error {
 			record[i] = fmt.Sprintf("%v", row[col])
 		}
 		if err := w.Write(record); err != nil {
-			return err
+			return fmt.Errorf("write csv row: %w", err)
 		}
 	}
 

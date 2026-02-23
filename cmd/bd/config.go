@@ -216,16 +216,6 @@ func printConfigList(cfg map[string]string) {
 		fmt.Printf("  %s = %s\n", k, cfg[k])
 	}
 
-	// Check for config.yaml overrides that take precedence (bd-20j)
-	// This helps diagnose when effective config differs from database config
-	showConfigYAMLOverrides(cfg)
-}
-
-// showConfigYAMLOverrides warns when config.yaml or env vars override database settings.
-// This addresses the confusion when `bd config list` shows one value but the effective
-// value used by commands is different due to higher-priority config sources.
-func showConfigYAMLOverrides(_ map[string]string) {
-	// sync.branch override check removed (syncbranch package deleted)
 }
 
 var configUnsetCmd = &cobra.Command{

@@ -77,7 +77,7 @@ func getHierarchicalChildren(ctx context.Context, store storage.Storage, dbPath 
 		return err
 	})
 	if err != nil {
-		return nil, fmt.Errorf("error checking parent issue: %v", err)
+		return nil, fmt.Errorf("error checking parent issue: %w", err)
 	}
 	if parentIssue == nil {
 		return nil, fmt.Errorf("parent issue '%s' not found", parentID)
@@ -93,7 +93,7 @@ func getHierarchicalChildren(ctx context.Context, store storage.Storage, dbPath 
 	// Recursively find all descendants
 	err = findAllDescendants(ctx, store, dbPath, lockTimeout, parentID, allDescendants, 0, 10) // max depth 10
 	if err != nil {
-		return nil, fmt.Errorf("error finding descendants: %v", err)
+		return nil, fmt.Errorf("error finding descendants: %w", err)
 	}
 
 	// Convert map to slice for display

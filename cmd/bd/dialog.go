@@ -791,7 +791,7 @@ func (g *DialogGateway) recordResponse(decisionID, selected, text string) error 
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("bd command failed: %v\nOutput: %s", err, string(output))
+		return fmt.Errorf("bd command failed: %w\nOutput: %s", err, string(output))
 	}
 
 	if g.verbose {

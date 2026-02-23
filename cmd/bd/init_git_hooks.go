@@ -256,7 +256,7 @@ func mergeDriverInstalled() bool {
 func installJJHooks() error {
 	hooksDir, err := git.GetGitHooksDir()
 	if err != nil {
-		return err
+		return fmt.Errorf("get git hooks dir for jj: %w", err)
 	}
 
 	// Ensure hooks directory exists

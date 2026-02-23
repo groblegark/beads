@@ -2,6 +2,7 @@ package eventbus
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"sync"
 	"time"
@@ -111,7 +112,7 @@ func (pt *PresenceTracker) Start(js nats.JetStreamContext) error {
 		nats.AckNone(),
 	)
 	if err != nil {
-		return err
+		return fmt.Errorf("subscribe to hook events: %w", err)
 	}
 
 	// Subscribe to agent lifecycle events (agents.>).
@@ -121,7 +122,7 @@ func (pt *PresenceTracker) Start(js nats.JetStreamContext) error {
 	)
 	if err != nil {
 		hookSub.Unsubscribe()
-		return err
+		return fmt.Errorf("subscribe to agent events: %w", err)
 	}
 
 	// Subscribe to mutation status events (mutations.MutationStatus) for task tracking. (bd-tlckc)
