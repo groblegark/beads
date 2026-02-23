@@ -141,11 +141,11 @@ func TestValidateIDFormat_ParentChildFlow(t *testing.T) {
 			shouldMatch: true,
 		},
 		{
-			name:        "hyphenated prefix - child creation FAILS with current impl",
+			name:        "hyphenated prefix - child creation works",
 			parentID:    "bead-me-up-3e9",
 			childSuffix: ".1",
 			dbPrefix:    "bead-me-up",
-			wantPrefix:  "bead-me-up", // Current impl returns "bead" - THIS IS THE BUG
+			wantPrefix:  "bead-me-up",
 			shouldMatch: true,
 		},
 		{
