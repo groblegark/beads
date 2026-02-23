@@ -961,10 +961,10 @@ func TestUAT_FullLifecycle_CreateResolveUpdate(t *testing.T) {
 	bot.handleInteraction(resolveCallback)
 
 	mockAPI.mu.Lock()
-	if len(mockAPI.OpenedViews) != 1 {
-		t.Fatalf("step 3: expected modal opened, got %d views", len(mockAPI.OpenedViews))
+	if len(mockAPI.OpenedViews) != 2 {
+		t.Fatalf("step 3: expected loading + resolve modal, got %d views", len(mockAPI.OpenedViews))
 	}
-	modalMeta := mockAPI.OpenedViews[0].View.PrivateMetadata
+	modalMeta := mockAPI.OpenedViews[1].View.PrivateMetadata // [0]=loading, [1]=resolved
 	mockAPI.mu.Unlock()
 
 	// Step 4: User submits resolve modal with rationale
@@ -2152,10 +2152,10 @@ func TestUAT_FullLifecycle_RigMode_CreateResolveUpdate(t *testing.T) {
 	bot.handleInteraction(resolveCallback)
 
 	mockAPI.mu.Lock()
-	if len(mockAPI.OpenedViews) != 1 {
-		t.Fatalf("step 4: expected 1 modal, got %d", len(mockAPI.OpenedViews))
+	if len(mockAPI.OpenedViews) != 2 {
+		t.Fatalf("step 4: expected loading + resolve modal, got %d", len(mockAPI.OpenedViews))
 	}
-	modalMeta := mockAPI.OpenedViews[0].View.PrivateMetadata
+	modalMeta := mockAPI.OpenedViews[1].View.PrivateMetadata // [0]=loading, [1]=resolved
 	mockAPI.mu.Unlock()
 
 	// Step 5: Submit resolve modal
