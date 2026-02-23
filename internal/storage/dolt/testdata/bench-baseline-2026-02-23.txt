@@ -1,0 +1,80 @@
+# Dolt Storage Benchmark Baseline — 2026-02-23
+# Platform: linux/amd64, 2x AMD EPYC 9R14, 7.6 GiB RAM
+# Go: 1.25.7, Dolt: 1.82.4
+# Run via RWX CI: rwx run .rwx/ci.yml --target bench
+# RunID: e5d5951daf8b47fb949514c6e9508967
+# Command: go test -run='^$' -bench=. -benchmem -benchtime=3s -count=3
+#
+goos: linux
+goarch: amd64
+pkg: github.com/steveyegge/beads/internal/storage/dolt
+cpu: AMD EPYC 9R14
+BenchmarkBootstrapEmbedded-2         	      32	 112599733 ns/op	92125306 B/op	  596566 allocs/op
+BenchmarkBootstrapEmbedded-2         	      31	 111139667 ns/op	92125284 B/op	  596559 allocs/op
+BenchmarkBootstrapEmbedded-2         	      31	 111125482 ns/op	92115531 B/op	  596546 allocs/op
+BenchmarkColdStart-2                 	      30	 109884625 ns/op	93023676 B/op	  604975 allocs/op
+BenchmarkColdStart-2                 	      30	 112178109 ns/op	93008616 B/op	  604964 allocs/op
+BenchmarkColdStart-2                 	      30	 115816881 ns/op	93003280 B/op	  604968 allocs/op
+BenchmarkWarmCache-2                 	    6540	    463643 ns/op	  320148 B/op	    2649 allocs/op
+BenchmarkWarmCache-2                 	    6774	    474618 ns/op	  320145 B/op	    2649 allocs/op
+BenchmarkWarmCache-2                 	    6729	    466005 ns/op	  320145 B/op	    2649 allocs/op
+BenchmarkCLIWorkflow-2               	      30	 122529216 ns/op	98782486 B/op	  680024 allocs/op
+BenchmarkCLIWorkflow-2               	      28	 125505500 ns/op	98798309 B/op	  680036 allocs/op
+BenchmarkCLIWorkflow-2               	      28	 126122667 ns/op	98791577 B/op	  680082 allocs/op
+BenchmarkCreateIssue-2               	     621	   6382245 ns/op	 2398201 B/op	   28011 allocs/op
+BenchmarkCreateIssue-2               	     627	   6273624 ns/op	 2400000 B/op	   28049 allocs/op
+BenchmarkCreateIssue-2               	     632	   6279493 ns/op	 2395944 B/op	   28042 allocs/op
+BenchmarkGetIssue-2                  	    7129	    470148 ns/op	  320133 B/op	    2649 allocs/op
+BenchmarkGetIssue-2                  	    7521	    476673 ns/op	  320131 B/op	    2649 allocs/op
+BenchmarkGetIssue-2                  	    7495	    462383 ns/op	  320131 B/op	    2649 allocs/op
+BenchmarkUpdateIssue-2               	     343	  11436730 ns/op	 7249812 B/op	   59141 allocs/op
+BenchmarkUpdateIssue-2               	     345	  10228698 ns/op	 7259631 B/op	   59132 allocs/op
+BenchmarkUpdateIssue-2               	     344	  10325748 ns/op	 7227889 B/op	   59143 allocs/op
+BenchmarkBulkCreateIssues-2          	      14	 256095605 ns/op	154331742 B/op	 1625129 allocs/op
+BenchmarkBulkCreateIssues-2          	      15	 257210984 ns/op	153442187 B/op	 1624670 allocs/op
+BenchmarkBulkCreateIssues-2          	      13	 253508341 ns/op	153608501 B/op	 1623752 allocs/op
+BenchmarkBulkCreate1000Issues-2      	       2	2571779918 ns/op	1491662712 B/op	16234213 allocs/op
+BenchmarkBulkCreate1000Issues-2      	       2	2558629274 ns/op	1479755844 B/op	16218925 allocs/op
+BenchmarkBulkCreate1000Issues-2      	       2	2552709316 ns/op	1482728496 B/op	16222294 allocs/op
+BenchmarkSearchIssues-2              	    2052	   1907791 ns/op	 1520433 B/op	   15785 allocs/op
+BenchmarkSearchIssues-2              	    1563	   1959960 ns/op	 1520464 B/op	   15785 allocs/op
+BenchmarkSearchIssues-2              	    1591	   1949902 ns/op	 1520459 B/op	   15785 allocs/op
+BenchmarkSearchWithFilter-2          	    3152	   1070435 ns/op	  888530 B/op	    7604 allocs/op
+BenchmarkSearchWithFilter-2          	    3153	   1077351 ns/op	  888530 B/op	    7604 allocs/op
+BenchmarkSearchWithFilter-2          	    3193	   1080470 ns/op	  888529 B/op	    7604 allocs/op
+BenchmarkAddDependency-2             	     688	   5043679 ns/op	 1824192 B/op	   18908 allocs/op
+BenchmarkAddDependency-2             	     705	   5064745 ns/op	 1814598 B/op	   18902 allocs/op
+BenchmarkAddDependency-2             	     690	   5050514 ns/op	 1826916 B/op	   18898 allocs/op
+BenchmarkGetDependencies-2           	    3439	   1085428 ns/op	  714467 B/op	    7745 allocs/op
+BenchmarkGetDependencies-2           	    3331	   1079417 ns/op	  714470 B/op	    7745 allocs/op
+BenchmarkGetDependencies-2           	    3500	   1091198 ns/op	  714467 B/op	    7745 allocs/op
+BenchmarkIsBlocked-2                 	    3943	    972946 ns/op	  841644 B/op	    7593 allocs/op
+BenchmarkIsBlocked-2                 	    3993	    974685 ns/op	  841644 B/op	    7593 allocs/op
+BenchmarkIsBlocked-2                 	    3996	    982703 ns/op	  841643 B/op	    7593 allocs/op
+BenchmarkConcurrentReads-2           	    6823	    528095 ns/op	  320381 B/op	    2653 allocs/op
+BenchmarkConcurrentReads-2           	    6862	    524422 ns/op	  320381 B/op	    2653 allocs/op
+BenchmarkConcurrentReads-2           	    6860	    522870 ns/op	  320381 B/op	    2653 allocs/op
+BenchmarkConcurrentWrites-2          	     789	   4954255 ns/op	 1728017 B/op	   19453 allocs/op
+BenchmarkConcurrentWrites-2          	     764	   5026825 ns/op	 1727102 B/op	   19436 allocs/op
+BenchmarkConcurrentWrites-2          	     789	   5013566 ns/op	 1725765 B/op	   19436 allocs/op
+BenchmarkConcurrentMixedWorkload-2   	    2703	   1433696 ns/op	  598339 B/op	    6013 allocs/op
+BenchmarkConcurrentMixedWorkload-2   	    2690	   1433700 ns/op	  598353 B/op	    6015 allocs/op
+BenchmarkConcurrentMixedWorkload-2   	    2719	   1450609 ns/op	  596912 B/op	    6011 allocs/op
+BenchmarkCommit-2                    	     372	   9919700 ns/op	 4436520 B/op	   42052 allocs/op
+BenchmarkCommit-2                    	     375	   9923239 ns/op	 4428193 B/op	   42062 allocs/op
+BenchmarkCommit-2                    	     373	   9880685 ns/op	 4429544 B/op	   42046 allocs/op
+BenchmarkLog-2                       	   43348	     76454 ns/op	   53201 B/op	     798 allocs/op
+BenchmarkLog-2                       	   47763	     76341 ns/op	   53201 B/op	     798 allocs/op
+BenchmarkLog-2                       	   48950	     75833 ns/op	   53201 B/op	     798 allocs/op
+BenchmarkGetStatistics-2             	    1820	   1917203 ns/op	 1027160 B/op	   18270 allocs/op
+BenchmarkGetStatistics-2             	    2011	   1869589 ns/op	 1027120 B/op	   18269 allocs/op
+BenchmarkGetStatistics-2             	    1999	   1875772 ns/op	 1027086 B/op	   18269 allocs/op
+BenchmarkGetReadyWork-2              	    1221	   2539006 ns/op	 1627702 B/op	   17202 allocs/op
+BenchmarkGetReadyWork-2              	    1242	   2543096 ns/op	 1627634 B/op	   17201 allocs/op
+BenchmarkGetReadyWork-2              	    1209	   2564912 ns/op	 1627743 B/op	   17202 allocs/op
+BenchmarkAddLabel-2                  	     976	   3877576 ns/op	 1181472 B/op	   12348 allocs/op
+BenchmarkAddLabel-2                  	     981	   3959181 ns/op	 1179460 B/op	   12338 allocs/op
+BenchmarkAddLabel-2                  	     973	   3873626 ns/op	 1177650 B/op	   12341 allocs/op
+BenchmarkGetLabels-2                 	   30408	    115302 ns/op	   52617 B/op	     991 allocs/op
+BenchmarkGetLabels-2                 	   30672	    119382 ns/op	   52617 B/op	     991 allocs/op
+BenchmarkGetLabels-2                 	   31840	    117257 ns/op	   52617 B/op	     991 allocs/op
