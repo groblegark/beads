@@ -348,10 +348,10 @@ func runSkillShow(cmd *cobra.Command, args []string) error {
 		showArgs := &rpc.ShowArgs{ID: skillID}
 		resp, err := daemonClient.Show(showArgs)
 		if err != nil {
-			return fmt.Errorf("skill not found: %s", skillID)
+			return fmt.Errorf("fetch skill %s: %w", skillID, err)
 		}
 		if !resp.Success {
-			return fmt.Errorf("skill not found: %s", skillID)
+			return fmt.Errorf("skill %s not found: %s", skillID, resp.Error)
 		}
 		if err := json.Unmarshal(resp.Data, &issue); err != nil {
 			return fmt.Errorf("parsing show response: %w", err)

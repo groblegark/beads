@@ -377,7 +377,7 @@ func updateGateAwaitID(_ interface{}, gateID, runID string) error {
 
 	resp, err := daemonClient.Update(updateArgs)
 	if err != nil {
-		return err
+		return fmt.Errorf("update gate await_id for %s: %w", gateID, err)
 	}
 	if !resp.Success {
 		return fmt.Errorf("%s", resp.Error)

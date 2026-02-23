@@ -394,7 +394,9 @@ func deleteBatchFallback(issueIDs []string, force bool, dryRun bool, cascade boo
 	// Hard delete: remove from JSONL immediately
 	if hardDelete {
 		for _, id := range issueIDs {
-			_ = removeIssueFromJSONL(id)
+			if err := removeIssueFromJSONL(id); err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: failed to remove %s from JSONL: %v\n", id, err)
+			}
 		}
 	}
 

@@ -27,7 +27,7 @@ type doltAutoCommitParams struct {
 func maybeAutoCommit(ctx context.Context, p doltAutoCommitParams) error {
 	mode, err := getDoltAutoCommitMode()
 	if err != nil {
-		return err
+		return fmt.Errorf("get dolt auto-commit mode: %w", err)
 	}
 	if mode != doltAutoCommitOn {
 		return nil
@@ -48,7 +48,7 @@ func maybeAutoCommit(ctx context.Context, p doltAutoCommitParams) error {
 		if isDoltNothingToCommit(err) {
 			return nil
 		}
-		return err
+		return fmt.Errorf("dolt auto-commit: %w", err)
 	}
 	return nil
 }
