@@ -951,20 +951,27 @@ func (s *DoltStore) GetStatistics(ctx context.Context) (*types.Statistics, error
 
 	stats := &types.Statistics{}
 
-	// Get counts (mirror SQLite semantics: exclude tombstones from TotalIssues, report separately).
-	// Important: COALESCE to avoid NULL scans when the table is empty.
+	// Combined single-query statistics (bd-mxd4g): status counts + ready count in one scan.
+	// LEFT JOIN blocked_issues_cache so we can compute ready count (open + non-blocked + non-ephemeral)
+	// in the same pass. COALESCE avoids NULL scans when the table is empty.
 	// (gt-w676pl.3: count blocked by literal status to match bd count --status blocked)
+	// (bd-b2ts: use blocked_issues_cache instead of expensive recursive CTE)
+	// (bd-1oda: LEFT JOIN avoids NOT IN subquery which can trigger Dolt merge join panic)
 	err := s.db.QueryRowContext(ctx, `
 		SELECT
-			COALESCE(SUM(CASE WHEN status != 'tombstone' THEN 1 ELSE 0 END), 0) as total,
-			COALESCE(SUM(CASE WHEN status = 'open' THEN 1 ELSE 0 END), 0) as open_count,
-			COALESCE(SUM(CASE WHEN status = 'in_progress' THEN 1 ELSE 0 END), 0) as in_progress,
-			COALESCE(SUM(CASE WHEN status = 'closed' THEN 1 ELSE 0 END), 0) as closed,
-			COALESCE(SUM(CASE WHEN status = 'blocked' THEN 1 ELSE 0 END), 0) as blocked,
-			COALESCE(SUM(CASE WHEN status = 'deferred' THEN 1 ELSE 0 END), 0) as deferred,
-			COALESCE(SUM(CASE WHEN status = 'tombstone' THEN 1 ELSE 0 END), 0) as tombstone,
-			COALESCE(SUM(CASE WHEN pinned = 1 THEN 1 ELSE 0 END), 0) as pinned
-		FROM issues
+			COALESCE(SUM(CASE WHEN i.status != 'tombstone' THEN 1 ELSE 0 END), 0),
+			COALESCE(SUM(CASE WHEN i.status = 'open' THEN 1 ELSE 0 END), 0),
+			COALESCE(SUM(CASE WHEN i.status = 'in_progress' THEN 1 ELSE 0 END), 0),
+			COALESCE(SUM(CASE WHEN i.status = 'closed' THEN 1 ELSE 0 END), 0),
+			COALESCE(SUM(CASE WHEN i.status = 'blocked' THEN 1 ELSE 0 END), 0),
+			COALESCE(SUM(CASE WHEN i.status = 'deferred' THEN 1 ELSE 0 END), 0),
+			COALESCE(SUM(CASE WHEN i.status = 'tombstone' THEN 1 ELSE 0 END), 0),
+			COALESCE(SUM(CASE WHEN i.pinned = 1 THEN 1 ELSE 0 END), 0),
+			COALESCE(SUM(CASE WHEN i.status = 'open'
+				AND (i.ephemeral = 0 OR i.ephemeral IS NULL)
+				AND b.issue_id IS NULL THEN 1 ELSE 0 END), 0)
+		FROM issues i
+		LEFT JOIN blocked_issues_cache b ON i.id = b.issue_id
 	`).Scan(
 		&stats.TotalIssues,
 		&stats.OpenIssues,
@@ -974,22 +981,10 @@ func (s *DoltStore) GetStatistics(ctx context.Context) (*types.Statistics, error
 		&stats.DeferredIssues,
 		&stats.TombstoneIssues,
 		&stats.PinnedIssues,
+		&stats.ReadyIssues,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get statistics: %w", err)
-	}
-
-	// Ready count: use blocked_issues_cache instead of the expensive recursive CTE view (bd-b2ts)
-	// LEFT JOIN avoids NOT IN subquery which can trigger a Dolt merge join panic (bd-1oda)
-	err = s.db.QueryRowContext(ctx, `
-		SELECT COUNT(*) FROM issues i
-		LEFT JOIN blocked_issues_cache b ON i.id = b.issue_id
-		WHERE i.status = 'open'
-		  AND (i.ephemeral = 0 OR i.ephemeral IS NULL)
-		  AND b.issue_id IS NULL
-	`).Scan(&stats.ReadyIssues)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get ready count: %w", err)
 	}
 
 	return stats, nil
