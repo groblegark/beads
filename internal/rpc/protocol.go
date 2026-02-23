@@ -76,6 +76,13 @@ const (
 	OpDecisionRemind     = "decision_remind"
 	OpDecisionCancel     = "decision_cancel"
 
+t// Jack operations (bd-9mpa8)
+tOpJackOn     = "jack_on"
+tOpJackOff    = "jack_off"
+tOpJackCheck  = "jack_check"
+tOpJackExtend = "jack_extend"
+tOpJackLog    = "jack_log"
+
 	// Mol operations (gt-as9kdm)
 	OpMolBond          = "mol_bond"
 	OpMolSquash        = "mol_squash"

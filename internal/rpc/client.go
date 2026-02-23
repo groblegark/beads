@@ -2215,6 +2215,13 @@ func (c *Client) IssuesForCommit(args *IssuesForCommitArgs) ([]CommitRecord, err
 	return result, nil
 }
 
+// Jack operations (bd-9mpa8)
+
+// JackOff reverts and closes a jack via the daemon.
+func (c *Client) JackOff(args *JackOffArgs) (*Response, error) {
+treturn c.Execute(OpJackOff, args)
+}
+
 // cleanupStaleDaemonArtifacts removes stale daemon.pid file when socket is missing and lock is free.
 // This prevents stale artifacts from accumulating after daemon crashes.
 // Only removes pid file - lock file is managed by OS (released on process exit).
