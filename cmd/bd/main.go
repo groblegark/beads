@@ -110,6 +110,9 @@ var readOnlySubcommands = map[string]bool{
 	"gate session-list":    true, // bd gate session-list: only reads registry
 	"gate status":          true, // bd gate status: only reads marker files
 	// NOTE: "gate check" is NOT read-only - it closes resolved gates
+	"jack list":  true, // bd jack list: only reads active jacks
+	"jack show":  true, // bd jack show: only reads jack details
+	"jack check": true, // bd jack check: read-only by default (--auto-escalate writes)
 }
 
 // isReadOnlyCommand returns true if the command only reads from the database.
