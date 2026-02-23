@@ -522,6 +522,27 @@ func operationToHTTPMethod(operation string) string {
 		OpJackCheck:  "JackCheck",
 		OpJackExtend: "JackExtend",
 		OpJackLog:    "JackLog",
+
+		// Session gate operations (bd-jk5ay)
+		OpSessionGateMark:  "SessionGateMark",
+		OpSessionGateClear: "SessionGateClear",
+		OpSessionGateCheck: "SessionGateCheck",
+		OpSessionGateList:  "SessionGateList",
+
+		// Bus register operations (bd-jk5ay)
+		OpBusRegister:   "BusRegister",
+		OpBusUnregister: "BusUnregister",
+
+		// History operations (bd-jk5ay)
+		OpHistoryIssue:            "HistoryIssue",
+		OpHistoryDiff:             "HistoryDiff",
+		OpHistoryIssueDiff:        "HistoryIssueDiff",
+		OpHistoryConflicts:        "HistoryConflicts",
+		OpHistoryResolveConflicts: "HistoryResolveConflicts",
+		OpVersionedDiff:           "VersionedDiff",
+
+		// SQL query (bd-jk5ay)
+		OpSQL: "SQL",
 	}
 
 	return methodMap[operation]

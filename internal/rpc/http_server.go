@@ -666,6 +666,27 @@ func httpMethodToOperation(method string) string {
 		"JackCheck":  OpJackCheck,
 		"JackExtend": OpJackExtend,
 		"JackLog":    OpJackLog,
+
+		// Session gate operations (bd-jk5ay)
+		"SessionGateMark":  OpSessionGateMark,
+		"SessionGateClear": OpSessionGateClear,
+		"SessionGateCheck": OpSessionGateCheck,
+		"SessionGateList":  OpSessionGateList,
+
+		// Bus register operations (bd-jk5ay)
+		"BusRegister":   OpBusRegister,
+		"BusUnregister": OpBusUnregister,
+
+		// Federation operations (bd-jk5ay)
+		"FedListRemotes":  OpFedListRemotes,
+		"FedSync":         OpFedSync,
+		"FedSyncStatus":   OpFedSyncStatus,
+		"FedFetch":        OpFedFetch,
+		"FedPushTo":       OpFedPushTo,
+		"FedPullFrom":     OpFedPullFrom,
+		"FedAddRemote":    OpFedAddRemote,
+		"FedRemoveRemote": OpFedRemoveRemote,
+		"FedAddPeer":      OpFedAddPeer,
 	}
 
 	return methodMap[method]
