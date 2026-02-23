@@ -128,12 +128,18 @@ func (s *DoltStore) SearchIssues(ctx context.Context, query string, filter types
 		whereClauses = append(whereClauses, "id NOT IN (SELECT DISTINCT issue_id FROM labels)")
 	}
 
-	// Label filtering (AND)
+	// Label filtering (AND) — batched subquery with HAVING COUNT (bd-2wdjd)
 	if len(filter.Labels) > 0 {
-		for _, label := range filter.Labels {
-			whereClauses = append(whereClauses, "id IN (SELECT issue_id FROM labels WHERE label = ?)")
+		placeholders := make([]string, len(filter.Labels))
+		for i, label := range filter.Labels {
+			placeholders[i] = "?"
 			args = append(args, label)
 		}
+		whereClauses = append(whereClauses, fmt.Sprintf(
+			"id IN (SELECT issue_id FROM labels WHERE label IN (%s) GROUP BY issue_id HAVING COUNT(DISTINCT label) = ?)",
+			strings.Join(placeholders, ", "),
+		))
+		args = append(args, len(filter.Labels))
 	}
 
 	// Label filtering (OR)
