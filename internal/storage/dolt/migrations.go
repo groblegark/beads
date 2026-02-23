@@ -34,6 +34,7 @@ var migrations = []Migration{
 	{"issue_commits_table", migrateIssueCommitsTable},
 	{"decision_yielded_at", migrateDecisionYieldedAt},
 	{"decision_pending_index", migrateDecisionPendingIndex},
+	{"query_perf_indexes", migrateQueryPerfIndexes},
 }
 
 // RunMigrations executes all registered migrations in order.
@@ -506,6 +507,29 @@ func migrateDecisionPendingIndex(ctx context.Context, db *sql.DB) error {
 			return nil
 		}
 		return fmt.Errorf("failed to create decision pending index: %w", err)
+	}
+	return nil
+}
+
+// migrateQueryPerfIndexes adds composite indexes to improve GetReadyWork and
+// dependency query performance (bd-5mwz6, bd-towmg).
+func migrateQueryPerfIndexes(ctx context.Context, db *sql.DB) error {
+	indexes := []struct{ name, table, cols string }{
+		{"idx_issues_status_type", "issues", "status, issue_type"},
+		{"idx_dependencies_issue_type", "dependencies", "issue_id, type"},
+	}
+	for _, idx := range indexes {
+		_, err := db.ExecContext(ctx, fmt.Sprintf(
+			"CREATE INDEX IF NOT EXISTS %s ON %s (%s)", idx.name, idx.table, idx.cols,
+		))
+		if err != nil {
+			errLower := strings.ToLower(err.Error())
+			if strings.Contains(errLower, "duplicate key") ||
+				strings.Contains(errLower, "already exists") {
+				continue
+			}
+			return fmt.Errorf("failed to create index %s: %w", idx.name, err)
+		}
 	}
 	return nil
 }

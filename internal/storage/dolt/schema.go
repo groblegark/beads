@@ -107,7 +107,8 @@ CREATE TABLE IF NOT EXISTS issues (
     INDEX idx_issues_priority (priority),
     INDEX idx_issues_assignee (assignee),
     INDEX idx_issues_created_at (created_at),
-    INDEX idx_issues_external_ref (external_ref)
+    INDEX idx_issues_external_ref (external_ref),
+    INDEX idx_issues_status_type (status, issue_type)
 );
 
 -- Dependencies table (edge schema)
@@ -123,6 +124,7 @@ CREATE TABLE IF NOT EXISTS dependencies (
     INDEX idx_dependencies_issue (issue_id),
     INDEX idx_dependencies_depends_on (depends_on_id),
     INDEX idx_dependencies_depends_on_type (depends_on_id, type),
+    INDEX idx_dependencies_issue_type (issue_id, type),
     INDEX idx_dependencies_thread (thread_id),
     CONSTRAINT fk_dep_issue FOREIGN KEY (issue_id) REFERENCES issues(id) ON DELETE CASCADE
     -- Note: No FK on depends_on_id to allow external references (external:<project>:<capability>)
