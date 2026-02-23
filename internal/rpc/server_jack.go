@@ -66,6 +66,12 @@ func (s *Server) handleJackOn(req *Request) Response {
 		ttl = d
 	}
 
+	// Enforce maximum TTL of 7 days (design doc §8.7)
+	const maxTTL = 7 * 24 * time.Hour
+	if ttl > maxTTL {
+		return Response{Success: false, Error: fmt.Sprintf("TTL %s exceeds maximum of 7 days", ttl)}
+	}
+
 	// Validate priority
 	priority := args.Priority
 	if priority < 0 || priority > 4 {
@@ -88,6 +94,32 @@ func (s *Server) handleJackOn(req *Request) Response {
 	ctx, cancel := s.reqCtx(req)
 	defer cancel()
 	actor := s.reqActor(req)
+
+	// Concurrent jack detection (design doc §8.8): reject if another active jack
+	// already targets the same resource, unless --allow-concurrent is set.
+	if !args.AllowConcurrent {
+		jackType := types.TypeJack
+		inProgress := types.StatusInProgress
+		existingJacks, err := store.SearchIssues(ctx, "", types.IssueFilter{
+			IssueType: &jackType,
+			Status:    &inProgress,
+		})
+		if err == nil {
+			for _, existing := range existingJacks {
+				md := make(map[string]interface{})
+				if len(existing.Metadata) > 0 {
+					_ = json.Unmarshal(existing.Metadata, &md)
+				}
+				if existingTarget, _ := md["jack_target"].(string); existingTarget == args.Target {
+					return Response{
+						Success: false,
+						Error: fmt.Sprintf("existing active jack %s on target %q (by %s); use --allow-concurrent to override",
+							existing.ID, args.Target, existing.Assignee),
+					}
+				}
+			}
+		}
+	}
 
 	now := time.Now().UTC()
 	expiresAt := now.Add(ttl)
@@ -388,6 +420,12 @@ func (s *Server) handleJackExtend(req *Request) Response {
 		return Response{Success: false, Error: fmt.Sprintf("invalid TTL %q: %v", args.TTL, err)}
 	}
 
+	// Enforce max single extension of 24 hours (design doc §8.7)
+	const maxSingleExtension = 24 * time.Hour
+	if ttl > maxSingleExtension {
+		return Response{Success: false, Error: fmt.Sprintf("extension TTL %s exceeds maximum of 24 hours per extension", ttl)}
+	}
+
 	ctx, cancel := s.reqCtx(req)
 	defer cancel()
 	actor := s.reqActor(req)
@@ -413,10 +451,45 @@ func (s *Server) handleJackExtend(req *Request) Response {
 		_ = json.Unmarshal(issue.Metadata, &metadata)
 	}
 
+	// Enforce max 5 extensions per jack (design doc §8.7)
+	const maxExtensions = 5
+	extensionCount := 0
+	if cnt, ok := metadata["jack_extension_count"]; ok {
+		if f, ok := cnt.(float64); ok {
+			extensionCount = int(f)
+		}
+	}
+	if extensionCount >= maxExtensions {
+		return Response{Success: false, Error: fmt.Sprintf("jack %s has been extended %d times (max %d)", args.ID, extensionCount, maxExtensions)}
+	}
+
+	// Enforce max cumulative TTL of 7 days (design doc §8.7)
+	const maxCumulativeTTL = 7 * 24 * time.Hour
+	cumulativeTTL := ttl
+	if origTTLStr, ok := metadata["jack_original_ttl"].(string); ok {
+		if origTTL, err := time.ParseDuration(origTTLStr); err == nil {
+			cumulativeTTL += origTTL
+		}
+	} else if ttlStr, ok := metadata["jack_ttl"].(string); ok {
+		if prevTTL, err := time.ParseDuration(ttlStr); err == nil {
+			cumulativeTTL += prevTTL
+		}
+	}
+	if cumulativeTTL > maxCumulativeTTL {
+		return Response{Success: false, Error: fmt.Sprintf("cumulative TTL would exceed 7-day maximum (current + extension = %s)", cumulativeTTL)}
+	}
+
 	now := time.Now().UTC()
 	newExpiry := now.Add(ttl)
+	// Track original TTL for cumulative enforcement (save before overwriting jack_ttl)
+	if _, ok := metadata["jack_original_ttl"]; !ok {
+		if origTTL, ok := metadata["jack_ttl"].(string); ok {
+			metadata["jack_original_ttl"] = origTTL
+		}
+	}
 	metadata["jack_ttl"] = ttl.String()
 	metadata["jack_expires_at"] = newExpiry.Format(time.RFC3339)
+	metadata["jack_extension_count"] = extensionCount + 1
 
 	metadataJSON, err := json.Marshal(metadata)
 	if err != nil {

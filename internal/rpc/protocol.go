@@ -1148,14 +1148,15 @@ type DecisionCancelResult struct {
 
 // JackOnArgs represents arguments for creating and activating a jack.
 type JackOnArgs struct {
-	Target     string   `json:"target"`                // Required: resource identifier (e.g., "pod/my-app", "deployment/api")
-	Reason     string   `json:"reason"`                // Required: why this modification is needed
-	TTL        string   `json:"ttl,omitempty"`         // Duration string, default "1h"
-	RevertPlan string   `json:"revert_plan,omitempty"` // How to undo (required unless P0)
-	Blocks     string   `json:"blocks,omitempty"`      // Bead ID this jack blocks
-	Labels     []string `json:"labels,omitempty"`      // Additional labels (e.g., ["jack:debug"])
-	Priority   int      `json:"priority,omitempty"`    // 0-4, default 2
-	TargetRig  string   `json:"target_rig,omitempty"`  // Rig scope for authorization validation
+	Target          string   `json:"target"`                          // Required: resource identifier (e.g., "pod/my-app", "deployment/api")
+	Reason          string   `json:"reason"`                          // Required: why this modification is needed
+	TTL             string   `json:"ttl,omitempty"`                   // Duration string, default "1h"
+	RevertPlan      string   `json:"revert_plan,omitempty"`           // How to undo (required unless P0)
+	Blocks          string   `json:"blocks,omitempty"`                // Bead ID this jack blocks
+	Labels          []string `json:"labels,omitempty"`                // Additional labels (e.g., ["jack:debug"])
+	Priority        int      `json:"priority,omitempty"`              // 0-4, default 2
+	TargetRig       string   `json:"target_rig,omitempty"`            // Rig scope for authorization validation
+	AllowConcurrent bool     `json:"allow_concurrent,omitempty"`      // Override concurrent jack detection on same target
 }
 
 // JackOffArgs represents arguments for reverting and closing a jack.
