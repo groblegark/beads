@@ -974,3 +974,221 @@ func BenchmarkGetLabels(b *testing.B) {
 		}
 	}
 }
+
+// =============================================================================
+// Scale Benchmarks (bd-eruh5)
+// =============================================================================
+
+// seedIssuesAtScale creates N issues with a realistic distribution of statuses,
+// types, dependencies, and labels. Returns the number of open (ready) issues.
+func seedIssuesAtScale(b *testing.B, store *DoltStore, n int) int {
+	b.Helper()
+	ctx := context.Background()
+	statuses := []types.Status{types.StatusOpen, types.StatusOpen, types.StatusOpen,
+		types.StatusInProgress, types.StatusClosed, types.StatusClosed}
+	issueTypes := []types.IssueType{types.TypeTask, types.TypeTask, types.TypeBug,
+		types.TypeFeature, types.TypeEpic}
+	ready := 0
+
+	for i := 0; i < n; i++ {
+		status := statuses[i%len(statuses)]
+		itype := issueTypes[i%len(issueTypes)]
+		issue := &types.Issue{
+			ID:          fmt.Sprintf("scale-%d", i),
+			Title:       fmt.Sprintf("Scale Issue %d — realistic title with keywords", i),
+			Description: fmt.Sprintf("Description for issue %d with enough text to exercise LIKE queries on larger fields.", i),
+			Status:      status,
+			Priority:    i % 5,
+			IssueType:   itype,
+		}
+		if err := store.CreateIssue(ctx, issue, "bench"); err != nil {
+			b.Fatalf("seed issue %d: %v", i, err)
+		}
+
+		// Add labels to ~40% of issues
+		if i%5 < 2 {
+			for _, lbl := range []string{"backend", "perf"} {
+				_ = store.AddLabel(ctx, issue.ID, lbl, "bench")
+			}
+		}
+
+		// Add blocking deps to ~25% of open issues
+		if status == types.StatusOpen && i%4 == 0 && i > 0 {
+			dep := &types.Dependency{
+				IssueID:     issue.ID,
+				DependsOnID: fmt.Sprintf("scale-%d", i-1),
+				Type:        types.DepBlocks,
+			}
+			_ = store.AddDependency(ctx, dep, "bench")
+		} else if status == types.StatusOpen {
+			ready++
+		}
+	}
+
+	// Rebuild blocked cache after seeding
+	_ = store.RebuildBlockedCache(ctx)
+	return ready
+}
+
+// BenchmarkGetReadyWorkScale measures GetReadyWork at varying dataset sizes.
+func BenchmarkGetReadyWorkScale(b *testing.B) {
+	for _, n := range []int{500, 1000, 5000} {
+		b.Run(fmt.Sprintf("issues=%d", n), func(b *testing.B) {
+			store, cleanup := setupBenchStore(b)
+			defer cleanup()
+			seedIssuesAtScale(b, store, n)
+
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				_, err := store.GetReadyWork(context.Background(), types.WorkFilter{})
+				if err != nil {
+					b.Fatalf("GetReadyWork: %v", err)
+				}
+			}
+		})
+	}
+}
+
+// BenchmarkSearchIssuesScale measures text search at varying dataset sizes.
+func BenchmarkSearchIssuesScale(b *testing.B) {
+	for _, n := range []int{500, 1000, 5000} {
+		b.Run(fmt.Sprintf("issues=%d", n), func(b *testing.B) {
+			store, cleanup := setupBenchStore(b)
+			defer cleanup()
+			seedIssuesAtScale(b, store, n)
+
+			filter := types.IssueFilter{}
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				_, err := store.SearchIssues(context.Background(), "keywords", filter)
+				if err != nil {
+					b.Fatalf("SearchIssues: %v", err)
+				}
+			}
+		})
+	}
+}
+
+// BenchmarkGetStatisticsScale measures GetStatistics at varying dataset sizes.
+func BenchmarkGetStatisticsScale(b *testing.B) {
+	for _, n := range []int{500, 1000, 5000} {
+		b.Run(fmt.Sprintf("issues=%d", n), func(b *testing.B) {
+			store, cleanup := setupBenchStore(b)
+			defer cleanup()
+			seedIssuesAtScale(b, store, n)
+
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				_, err := store.GetStatistics(context.Background())
+				if err != nil {
+					b.Fatalf("GetStatistics: %v", err)
+				}
+			}
+		})
+	}
+}
+
+// BenchmarkSearchWithLabelsScale measures multi-label AND filtering at scale.
+func BenchmarkSearchWithLabelsScale(b *testing.B) {
+	for _, n := range []int{500, 1000, 5000} {
+		b.Run(fmt.Sprintf("issues=%d", n), func(b *testing.B) {
+			store, cleanup := setupBenchStore(b)
+			defer cleanup()
+			seedIssuesAtScale(b, store, n)
+
+			filter := types.IssueFilter{Labels: []string{"backend", "perf"}}
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				_, err := store.SearchIssues(context.Background(), "", filter)
+				if err != nil {
+					b.Fatalf("SearchIssues with labels: %v", err)
+				}
+			}
+		})
+	}
+}
+
+// BenchmarkGetEpicOverviewScale measures GetEpicOverview with many epics and children.
+func BenchmarkGetEpicOverviewScale(b *testing.B) {
+	for _, numEpics := range []int{5, 20, 50} {
+		childrenPerEpic := 30
+		b.Run(fmt.Sprintf("epics=%d/children=%d", numEpics, childrenPerEpic), func(b *testing.B) {
+			store, cleanup := setupBenchStore(b)
+			defer cleanup()
+			ctx := context.Background()
+
+			for e := 0; e < numEpics; e++ {
+				epic := &types.Issue{
+					ID:        fmt.Sprintf("epic-%d", e),
+					Title:     fmt.Sprintf("Epic %d", e),
+					Status:    types.StatusOpen,
+					Priority:  1,
+					IssueType: types.TypeEpic,
+				}
+				if err := store.CreateIssue(ctx, epic, "bench"); err != nil {
+					b.Fatalf("create epic: %v", err)
+				}
+				for c := 0; c < childrenPerEpic; c++ {
+					child := &types.Issue{
+						ID:        fmt.Sprintf("epic-%d-child-%d", e, c),
+						Title:     fmt.Sprintf("Epic %d Child %d", e, c),
+						Status:    []types.Status{types.StatusOpen, types.StatusClosed, types.StatusInProgress}[c%3],
+						Priority:  c % 5,
+						IssueType: types.TypeTask,
+					}
+					if err := store.CreateIssue(ctx, child, "bench"); err != nil {
+						b.Fatalf("create child: %v", err)
+					}
+					dep := &types.Dependency{
+						IssueID:     child.ID,
+						DependsOnID: epic.ID,
+						Type:        types.DepParentChild,
+					}
+					if err := store.AddDependency(ctx, dep, "bench"); err != nil {
+						b.Fatalf("add parent-child dep: %v", err)
+					}
+				}
+			}
+
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				_, err := store.GetEpicOverview(ctx)
+				if err != nil {
+					b.Fatalf("GetEpicOverview: %v", err)
+				}
+			}
+		})
+	}
+}
+
+// BenchmarkConcurrentDaemonWorkload simulates concurrent daemon operations:
+// reads (bd ready), writes (bd create), and closes happening simultaneously.
+func BenchmarkConcurrentDaemonWorkload(b *testing.B) {
+	store, cleanup := setupBenchStore(b)
+	defer cleanup()
+	seedIssuesAtScale(b, store, 500)
+
+	b.ResetTimer()
+	b.RunParallel(func(pb *testing.PB) {
+		ctx := context.Background()
+		i := 0
+		for pb.Next() {
+			switch i % 3 {
+			case 0: // Read: GetReadyWork
+				_, _ = store.GetReadyWork(ctx, types.WorkFilter{})
+			case 1: // Write: CreateIssue
+				issue := &types.Issue{
+					ID:        fmt.Sprintf("concurrent-%d", i),
+					Title:     fmt.Sprintf("Concurrent Issue %d", i),
+					Status:    types.StatusOpen,
+					Priority:  2,
+					IssueType: types.TypeTask,
+				}
+				_ = store.CreateIssue(ctx, issue, "bench")
+			case 2: // Read: SearchIssues
+				_, _ = store.SearchIssues(ctx, "Scale", types.IssueFilter{})
+			}
+			i++
+		}
+	})
+}
