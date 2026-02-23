@@ -767,7 +767,7 @@ func (s *DoltStore) GetEpicOverview(ctx context.Context) ([]*types.EpicOverview,
 	`, prefixedIssueColumns(), strings.Join(placeholders, ","))
 	childRows, err := s.queryContext(ctx, childQuery, args...)
 	if err != nil {
-		return nil, fmt.Errorf("GetEpicOverview: failed to batch-fetch children: %%w", err)
+		return nil, fmt.Errorf("GetEpicOverview: failed to batch-fetch children: %w", err)
 	}
 
 	childrenByEpic := make(map[string][]types.EpicOverviewChild)
