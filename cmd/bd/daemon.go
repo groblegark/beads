@@ -775,10 +775,18 @@ func runDaemonLoop(interval time.Duration, autoCommit, autoPush, autoPull, local
 		log.Info("JetStream connected to event bus - events will be persisted")
 	}
 
-	// Initialize NATS-backed gate backend when KV is available (bd-vecxd)
+	// Initialize gate backend: prefer NATS KV for local performance,
+	// fall back to DB backend for 100% HTTP operation. (bd-vecxd, bd-c50kp)
 	if gateKV != nil {
 		gate.ActiveBackend = gate.NewNATSBackend(gateKV)
 		log.Info("NATS gate backend initialized")
+	} else if db := store.UnderlyingDB(); db != nil {
+		if err := gate.EnsureSessionGatesTable(db); err != nil {
+			log.Warn("failed to create session_gates table", "error", err)
+		} else {
+			gate.ActiveBackend = gate.NewDBBackend(db)
+			log.Info("DB gate backend initialized (NATS KV not available)")
+		}
 	}
 
 	// Wire storage into inbox handlers for in-process drain (bd-f33nh).

@@ -380,6 +380,21 @@ CREATE TABLE IF NOT EXISTS session_registry (
     project_root VARCHAR(1024) DEFAULT '',
     INDEX idx_session_registry_name (assigned_name)
 );
+
+-- Session gates table (HTTP-compatible gate state storage, bd-c50kp)
+-- Replaces NATS KV bucket GATE_STATE for 100% HTTP operation.
+-- Stores per-agent gate satisfaction state with application-level TTLs.
+CREATE TABLE IF NOT EXISTS session_gates (
+    agent VARCHAR(255) NOT NULL,
+    gate_id VARCHAR(255) NOT NULL,
+    mechanism VARCHAR(64) DEFAULT '',
+    actor VARCHAR(255) DEFAULT '',
+    session_id VARCHAR(255) DEFAULT '',
+    marked_at BIGINT NOT NULL,
+    ttl_seconds INT DEFAULT 0,
+    PRIMARY KEY (agent, gate_id),
+    INDEX idx_session_gates_agent (agent)
+);
 `
 
 // defaultConfig contains the default configuration values

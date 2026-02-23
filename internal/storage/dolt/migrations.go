@@ -39,6 +39,7 @@ var migrations = []Migration{
 	{"time_column_indexes", migrateTimeColumnIndexes},
 	{"jack_expires_at", migrateJackExpiresAt},
 	{"inbox_subject", migrateInboxSubject},
+	{"session_gates_table", migrateSessionGatesTable},
 }
 
 // RunMigrations executes all registered migrations in order.
@@ -603,5 +604,44 @@ func migrateTimeColumnIndexes(ctx context.Context, db *sql.DB) error {
 // migrateInboxSubject adds the subject column to the inbox table (bd-pwoii).
 func migrateInboxSubject(ctx context.Context, db *sql.DB) error {
 	return addColumnIfNotExists(ctx, db, "inbox", "subject", "VARCHAR(512) DEFAULT ''")
+}
+
+// migrateSessionGatesTable creates the session_gates table for DB-backed gate state. (bd-c50kp)
+// This enables session gate operations over HTTP without requiring direct NATS access.
+func migrateSessionGatesTable(ctx context.Context, db *sql.DB) error {
+	var count int
+	err := db.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM information_schema.tables
+		WHERE table_schema = DATABASE()
+		  AND table_name = 'session_gates'
+	`).Scan(&count)
+	if err != nil {
+		return fmt.Errorf("failed to check for session_gates table: %w", err)
+	}
+	if count > 0 {
+		return nil
+	}
+
+	_, err = db.ExecContext(ctx, `
+		CREATE TABLE session_gates (
+			agent VARCHAR(255) NOT NULL,
+			gate_id VARCHAR(255) NOT NULL,
+			mechanism VARCHAR(64) DEFAULT '',
+			actor VARCHAR(255) DEFAULT '',
+			session_id VARCHAR(255) DEFAULT '',
+			marked_at BIGINT NOT NULL,
+			ttl_seconds INT DEFAULT 0,
+			PRIMARY KEY (agent, gate_id),
+			INDEX idx_session_gates_agent (agent)
+		)
+	`)
+	if err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "already exists") {
+			return nil
+		}
+		return fmt.Errorf("failed to create session_gates table: %w", err)
+	}
+
+	return nil
 }
 
