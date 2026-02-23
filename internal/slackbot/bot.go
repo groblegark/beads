@@ -16,6 +16,7 @@ import (
 	"github.com/slack-go/slack"
 	"github.com/slack-go/slack/slackevents"
 	"github.com/slack-go/slack/socketmode"
+	"github.com/steveyegge/beads/internal/eventbus"
 	"github.com/steveyegge/beads/internal/rpc"
 )
 
@@ -1716,6 +1717,122 @@ func (b *Bot) NotifyAgentCrash(agentID, agentName, reason string) error {
 	if reason != "" {
 		text += fmt.Sprintf("\n> %s", reason)
 	}
+
+	blocks := []slack.Block{
+		slack.NewSectionBlock(
+			slack.NewTextBlockObject("mrkdwn", text, false, false),
+			nil, nil),
+	}
+
+	_, _, err := b.client.PostMessage(b.channelID, slack.MsgOptionBlocks(blocks...))
+	return err
+}
+
+// ---------- Jack notifications (bd-cnn4x) ----------
+
+// NotifyJackOn posts a jack-raised alert to the default channel.
+func (b *Bot) NotifyJackOn(payload eventbus.JackEventPayload) error {
+	if b.channelID == "" {
+		return nil
+	}
+
+	text := fmt.Sprintf(":wrench: *Jack Raised: %s*\nTarget: `%s`", payload.JackID, payload.Target)
+	if payload.Agent != "" {
+		text += fmt.Sprintf(" · Agent: *%s*", payload.Agent)
+	}
+	if payload.TTL != "" {
+		text += fmt.Sprintf("\nTTL: %s", payload.TTL)
+	}
+	if payload.ExpiresAt != "" {
+		text += fmt.Sprintf(" · Expires: %s", payload.ExpiresAt)
+	}
+	if payload.Reason != "" {
+		text += fmt.Sprintf("\n> %s", payload.Reason)
+	}
+
+	blocks := []slack.Block{
+		slack.NewSectionBlock(
+			slack.NewTextBlockObject("mrkdwn", text, false, false),
+			nil, nil),
+	}
+
+	_, _, err := b.client.PostMessage(b.channelID, slack.MsgOptionBlocks(blocks...))
+	return err
+}
+
+// NotifyJackOnBatch posts a summary when >10 jack.on events arrive within 1 minute.
+func (b *Bot) NotifyJackOnBatch(payloads []eventbus.JackEventPayload) error {
+	if b.channelID == "" || len(payloads) == 0 {
+		return nil
+	}
+
+	text := fmt.Sprintf(":wrench: *%d additional jacks raised* (batch)\n", len(payloads))
+	for i, p := range payloads {
+		if i >= 5 {
+			text += fmt.Sprintf("  ...and %d more\n", len(payloads)-5)
+			break
+		}
+		text += fmt.Sprintf("  • `%s` target=`%s`", p.JackID, p.Target)
+		if p.Agent != "" {
+			text += fmt.Sprintf(" by %s", p.Agent)
+		}
+		text += "\n"
+	}
+
+	blocks := []slack.Block{
+		slack.NewSectionBlock(
+			slack.NewTextBlockObject("mrkdwn", text, false, false),
+			nil, nil),
+	}
+
+	_, _, err := b.client.PostMessage(b.channelID, slack.MsgOptionBlocks(blocks...))
+	return err
+}
+
+// NotifyJackOff posts a jack-lowered alert to the default channel.
+func (b *Bot) NotifyJackOff(payload eventbus.JackEventPayload) error {
+	if b.channelID == "" {
+		return nil
+	}
+
+	text := fmt.Sprintf(":white_check_mark: *Jack Lowered: %s*\nTarget: `%s`", payload.JackID, payload.Target)
+	if payload.Agent != "" {
+		text += fmt.Sprintf(" · Agent: *%s*", payload.Agent)
+	}
+	if payload.Reason != "" {
+		text += fmt.Sprintf("\n> %s", payload.Reason)
+	}
+
+	blocks := []slack.Block{
+		slack.NewSectionBlock(
+			slack.NewTextBlockObject("mrkdwn", text, false, false),
+			nil, nil),
+	}
+
+	_, _, err := b.client.PostMessage(b.channelID, slack.MsgOptionBlocks(blocks...))
+	return err
+}
+
+// NotifyJackExpired posts an expired-jack alert to the default channel.
+func (b *Bot) NotifyJackExpired(payload eventbus.JackEventPayload) error {
+	if b.channelID == "" {
+		return nil
+	}
+
+	text := fmt.Sprintf(":warning: *Jack Expired: %s*\nTarget: `%s`", payload.JackID, payload.Target)
+	if payload.Agent != "" {
+		text += fmt.Sprintf(" · Agent: *%s*", payload.Agent)
+	}
+	if payload.ExpiresAt != "" {
+		if t, err := time.Parse(time.RFC3339, payload.ExpiresAt); err == nil {
+			pastDue := time.Since(t).Round(time.Minute)
+			text += fmt.Sprintf("\nExpired: %s past TTL", pastDue)
+		}
+	}
+	if payload.Reason != "" {
+		text += fmt.Sprintf("\n> %s", payload.Reason)
+	}
+	text += fmt.Sprintf("\n_Action: Review revert plan and close with_ `bd jack off %s`", payload.JackID)
 
 	blocks := []slack.Block{
 		slack.NewSectionBlock(

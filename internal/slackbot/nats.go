@@ -26,8 +26,15 @@ type NATSWatcher struct {
 	agentSub     *nats.Subscription
 	dashboardSub *nats.Subscription // Separate consumer for dashboard refresh (bd-ije8h)
 	mutationSub  *nats.Subscription // Watches for bead close events with Slack metadata (beads-4m4o)
+	jackSub      *nats.Subscription // Jack lifecycle events (bd-cnn4x)
 	seen         map[string]bool
 	seenMu       sync.Mutex
+
+	// Jack event throttling (bd-cnn4x, design doc Part 8.9)
+	jackOnBatchMu    sync.Mutex
+	jackOnBatch      []eventbus.JackEventPayload
+	jackOnBatchTimer *time.Timer
+	jackExpiredSeen  map[string]time.Time // jack ID → last notification time (6h dedup)
 }
 
 // NewNATSWatcher creates a watcher that subscribes to decision events on the
@@ -35,11 +42,12 @@ type NATSWatcher struct {
 // auth when the embedded server requires it (BD_DAEMON_TOKEN).
 func NewNATSWatcher(natsURL, natsToken string, bot *Bot, decisions *DecisionClient) *NATSWatcher {
 	return &NATSWatcher{
-		natsURL:   natsURL,
-		natsToken: natsToken,
-		bot:       bot,
-		decisions: decisions,
-		seen:      make(map[string]bool),
+		natsURL:         natsURL,
+		natsToken:       natsToken,
+		bot:             bot,
+		decisions:       decisions,
+		seen:            make(map[string]bool),
+		jackExpiredSeen: make(map[string]time.Time),
 	}
 }
 
@@ -254,11 +262,47 @@ func (w *NATSWatcher) connect(ctx context.Context) error {
 		}
 	}
 
+	// Subscribe to jack lifecycle events for Slack notifications (bd-cnn4x).
+	var jackSub *nats.Subscription
+	for attempt := 1; attempt <= 10; attempt++ {
+		jackSub, err = js.Subscribe(
+			eventbus.SubjectJackPrefix+">",
+			w.handleJackMessage,
+			nats.Durable("slack-bot-jacks"),
+			nats.DeliverNew(),
+			nats.AckExplicit(),
+			nats.ManualAck(),
+		)
+		if err == nil {
+			break
+		}
+		if !strings.Contains(err.Error(), "already bound") {
+			log.Printf("slackbot/nats: jack events subscribe failed: %v (continuing without)", err)
+			jackSub = nil
+			err = nil
+			break
+		}
+		if attempt == 10 {
+			log.Printf("slackbot/nats: jack events consumer still bound after %d attempts (continuing without)", attempt)
+			jackSub = nil
+			err = nil
+			break
+		}
+		log.Printf("slackbot/nats: jack events consumer still bound (attempt %d/10), retrying in 3s", attempt)
+		select {
+		case <-ctx.Done():
+			nc.Close()
+			return ctx.Err()
+		case <-time.After(3 * time.Second):
+		}
+	}
+
 	w.conn = nc
 	w.sub = sub
 	w.agentSub = agentSub
 	w.dashboardSub = dashboardSub
 	w.mutationSub = mutationSub
+	w.jackSub = jackSub
 
 	subs := []string{eventbus.StreamDecisionEvents}
 	if agentSub != nil {
@@ -269,6 +313,9 @@ func (w *NATSWatcher) connect(ctx context.Context) error {
 	}
 	if mutationSub != nil {
 		subs = append(subs, "mutations")
+	}
+	if jackSub != nil {
+		subs = append(subs, eventbus.StreamJackEvents)
 	}
 	log.Printf("slackbot/nats: connected to %s, subscribed to %s", w.natsURL, strings.Join(subs, " + "))
 	return nil
@@ -610,6 +657,10 @@ func (w *NATSWatcher) handleMutationStatus(msg *nats.Msg) {
 
 // Close drains the subscriptions and closes the NATS connection.
 func (w *NATSWatcher) Close() {
+	if w.jackSub != nil {
+		_ = w.jackSub.Drain()
+		w.jackSub = nil
+	}
 	if w.mutationSub != nil {
 		_ = w.mutationSub.Drain()
 		w.mutationSub = nil
@@ -629,5 +680,128 @@ func (w *NATSWatcher) Close() {
 	if w.conn != nil {
 		w.conn.Close()
 		w.conn = nil
+	}
+	// Stop jack batch timer if running
+	w.jackOnBatchMu.Lock()
+	if w.jackOnBatchTimer != nil {
+		w.jackOnBatchTimer.Stop()
+	}
+	w.jackOnBatchMu.Unlock()
+}
+
+// handleJackMessage parses a NATS message from the JACK_EVENTS stream and
+// posts Slack notifications per design doc Part 8.9:
+//   - jack.on: real-time alert (batched if >10/minute)
+//   - jack.off: real-time alert
+//   - jack.expired: real-time alert (deduplicated per jack per 6 hours)
+//   - jack.extend: suppressed (low-noise extension events)
+//   - jack.log: suppressed entirely
+func (w *NATSWatcher) handleJackMessage(msg *nats.Msg) {
+	// Extract event type from subject: "jack.<EventType>"
+	subject := msg.Subject
+	lastDot := strings.LastIndex(subject, ".")
+	if lastDot < 0 {
+		_ = msg.Ack()
+		return
+	}
+	eventType := eventbus.EventType(subject[lastDot+1:])
+
+	var payload eventbus.JackEventPayload
+	if err := json.Unmarshal(msg.Data, &payload); err != nil {
+		log.Printf("slackbot/nats: jack event unmarshal error: %v", err)
+		_ = msg.Ack()
+		return
+	}
+
+	switch eventType {
+	case eventbus.EventJackOn:
+		w.handleJackOn(payload)
+	case eventbus.EventJackOff:
+		w.handleJackOff(payload)
+	case eventbus.EventJackExpired:
+		w.handleJackExpired(payload)
+	case eventbus.EventJackExtend:
+		// Suppressed: extension events are low-noise
+		log.Printf("slackbot/nats: jack extend %s (suppressed)", payload.JackID)
+	default:
+		// jack.log and others: suppressed entirely per design doc Part 8.9
+		log.Printf("slackbot/nats: jack event %s/%s (suppressed)", eventType, payload.JackID)
+	}
+
+	_ = msg.Ack()
+}
+
+// handleJackOn batches jack.on events. If >10 arrive within 1 minute, a
+// summary is posted instead of individual alerts.
+func (w *NATSWatcher) handleJackOn(payload eventbus.JackEventPayload) {
+	w.jackOnBatchMu.Lock()
+	defer w.jackOnBatchMu.Unlock()
+
+	w.jackOnBatch = append(w.jackOnBatch, payload)
+
+	if w.jackOnBatchTimer == nil {
+		// First event: start a 1-minute timer
+		w.jackOnBatchTimer = time.AfterFunc(time.Minute, w.flushJackOnBatch)
+	}
+
+	// If batch is small enough, send immediately
+	if len(w.jackOnBatch) <= 10 {
+		// Post individual notification (timer still runs for potential batch)
+		if err := w.bot.NotifyJackOn(payload); err != nil {
+			log.Printf("slackbot/nats: notify jack on %s failed: %v", payload.JackID, err)
+		}
+	}
+	// If >10, the timer flush will send a summary
+}
+
+// flushJackOnBatch posts a summary if >10 jack.on events arrived in the batch window.
+func (w *NATSWatcher) flushJackOnBatch() {
+	w.jackOnBatchMu.Lock()
+	batch := w.jackOnBatch
+	w.jackOnBatch = nil
+	w.jackOnBatchTimer = nil
+	w.jackOnBatchMu.Unlock()
+
+	// If >10, post a summary for the ones that weren't individually notified
+	if len(batch) > 10 {
+		if err := w.bot.NotifyJackOnBatch(batch[10:]); err != nil {
+			log.Printf("slackbot/nats: notify jack on batch failed: %v", err)
+		}
+	}
+}
+
+// handleJackOff sends a real-time Slack alert for jack closure.
+func (w *NATSWatcher) handleJackOff(payload eventbus.JackEventPayload) {
+	// Deduplicate by jack ID
+	key := "jack-off:" + payload.JackID
+	w.seenMu.Lock()
+	if w.seen[key] {
+		w.seenMu.Unlock()
+		return
+	}
+	w.seen[key] = true
+	w.seenMu.Unlock()
+
+	if err := w.bot.NotifyJackOff(payload); err != nil {
+		log.Printf("slackbot/nats: notify jack off %s failed: %v", payload.JackID, err)
+	}
+}
+
+// handleJackExpired sends a real-time Slack alert for expired jacks,
+// deduplicated to one notification per jack per 6 hours.
+func (w *NATSWatcher) handleJackExpired(payload eventbus.JackEventPayload) {
+	w.jackOnBatchMu.Lock() // reuse mutex for expired dedup map
+	lastNotified, ok := w.jackExpiredSeen[payload.JackID]
+	if ok && time.Since(lastNotified) < 6*time.Hour {
+		w.jackOnBatchMu.Unlock()
+		log.Printf("slackbot/nats: jack expired %s deduplicated (last notified %s ago)",
+			payload.JackID, time.Since(lastNotified).Round(time.Minute))
+		return
+	}
+	w.jackExpiredSeen[payload.JackID] = time.Now()
+	w.jackOnBatchMu.Unlock()
+
+	if err := w.bot.NotifyJackExpired(payload); err != nil {
+		log.Printf("slackbot/nats: notify jack expired %s failed: %v", payload.JackID, err)
 	}
 }
