@@ -630,9 +630,8 @@ it's documentation-only.
 **Resolution**:
 - **Revert plan is documentation, not executable by daemon.** Agent is
   responsible for executing steps manually, then closing the jack.
-- **Required at creation** for non-emergency jacks (reject if missing).
-- **Optional at creation for P0 jacks** (`--priority=0`), but required before
-  closing without `--force`.
+- **Always required at creation** — no exceptions, including P0 jacks. If you
+  can't articulate how to undo what you're about to do, you shouldn't do it.
 - **`--force` renamed to `--skip-revert-check`** for clarity. Requires `--reason`
   explaining why revert was skipped (e.g., "pod recycled").
 
