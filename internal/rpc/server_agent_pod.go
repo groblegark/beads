@@ -193,6 +193,22 @@ func (s *Server) handleAgentPodStatus(req *Request) Response {
 		"last_activity": time.Now(),
 	}
 
+	// Store exit code and reason in the bead notes for audit trail. (bd-6dpt3)
+	// Notes use "key: value\n" format — upsertNotesField handles this.
+	if args.ExitCode != nil || args.ExitReason != "" {
+		issue, err := store.GetIssue(ctx, args.AgentID)
+		if err == nil && issue != nil {
+			notes := issue.Notes
+			if args.ExitCode != nil {
+				notes = upsertNotesField(notes, "exit_code", fmt.Sprintf("%d", *args.ExitCode))
+			}
+			if args.ExitReason != "" {
+				notes = upsertNotesField(notes, "exit_reason", args.ExitReason)
+			}
+			updates["notes"] = notes
+		}
+	}
+
 	if err := store.UpdateIssue(ctx, args.AgentID, updates, req.Actor); err != nil {
 		return Response{
 			Success: false,
@@ -223,8 +239,10 @@ func (s *Server) handleAgentPodStatus(req *Request) Response {
 	}
 
 	result := AgentPodStatusResult{
-		AgentID:   args.AgentID,
-		PodStatus: args.PodStatus,
+		AgentID:    args.AgentID,
+		PodStatus:  args.PodStatus,
+		ExitCode:   args.ExitCode,
+		ExitReason: args.ExitReason,
 	}
 	return jsonOK(result)
 }

@@ -90,15 +90,15 @@ Examples:
 
 func init() {
 	// Push flags
-	inboxPushCmd.Flags().String("to", "", "Target agent name (required)")
+	inboxPushCmd.Flags().String("to", "", "Target agent name")
 	inboxPushCmd.Flags().String("rig", "", "Target rig (for cross-rig messaging)")
 	inboxPushCmd.Flags().String("type", "agent", "Message type (alert, agent, mail, decision, gate, system, event)")
 	inboxPushCmd.Flags().String("source", "", "Source identifier (defaults to current actor)")
 	inboxPushCmd.Flags().String("ttl", "", "Time-to-live duration (e.g., 10m, 1h)")
 	inboxPushCmd.Flags().String("dedup-key", "", "Deduplication key (auto-generated if not set)")
 	inboxPushCmd.Flags().Int("priority", 0, "Priority (0=critical, 1=high, 2=normal, 3=low, 4=bulk)")
-
-	_ = inboxPushCmd.MarkFlagRequired("to")
+	inboxPushCmd.Flags().String("subject", "", "Short summary/title for the message")
+	inboxPushCmd.Flags().String("team", "", "Send to all active agents in roster (instead of --to)")
 
 	// List flags
 	inboxListCmd.Flags().BoolP("all", "a", false, "Show all items (including delivered)")
@@ -125,6 +125,13 @@ func runInboxPush(cmd *cobra.Command, args []string) {
 	ttl, _ := cmd.Flags().GetString("ttl")
 	dedupKey, _ := cmd.Flags().GetString("dedup-key")
 	priority, _ := cmd.Flags().GetInt("priority")
+	subject, _ := cmd.Flags().GetString("subject")
+	team, _ := cmd.Flags().GetString("team")
+
+	if to == "" && team == "" {
+		fmt.Fprintln(os.Stderr, "Error: --to or --team is required")
+		os.Exit(1)
+	}
 
 	content := strings.Join(args, " ")
 	if content == "" {
@@ -142,9 +149,11 @@ func runInboxPush(cmd *cobra.Command, args []string) {
 		Type:      msgType,
 		Source:    source,
 		Content:   content,
+		Subject:   subject,
 		Priority:  priority,
 		DedupKey:  dedupKey,
 		TTL:       ttl,
+		Team:      team,
 	}
 
 	resp, err := daemonClient.InboxPush(pushArgs)
@@ -165,7 +174,11 @@ func runInboxPush(cmd *cobra.Command, args []string) {
 		return
 	}
 
-	fmt.Printf("Pushed to %s's inbox\n", to)
+	if team != "" {
+		fmt.Printf("Broadcast to team %s\n", team)
+	} else {
+		fmt.Printf("Pushed to %s's inbox\n", to)
+	}
 }
 
 func runInboxList(cmd *cobra.Command, args []string) {
@@ -232,7 +245,13 @@ func runInboxList(cmd *cobra.Command, args []string) {
 			sourceStr = ui.RenderMuted(" from " + item.Source)
 		}
 
-		fmt.Printf("%d. %s %s %s%s %s\n", i+1, status, typeStr, item.Content, sourceStr, age)
+		// Show subject as title line if present (bd-pwoii).
+		if item.Subject != "" {
+			fmt.Printf("%d. %s %s %s%s %s\n", i+1, status, typeStr, item.Subject, sourceStr, age)
+			fmt.Printf("   %s\n", item.Content)
+		} else {
+			fmt.Printf("%d. %s %s %s%s %s\n", i+1, status, typeStr, item.Content, sourceStr, age)
+		}
 	}
 }
 
@@ -285,7 +304,11 @@ func runInboxDrain(cmd *cobra.Command, args []string) {
 		if item.Source != "" {
 			sourceStr = fmt.Sprintf(" (from %s)", item.Source)
 		}
-		sb.WriteString(fmt.Sprintf("- [%s]%s: %s\n", item.Type, sourceStr, item.Content))
+		if item.Subject != "" {
+			sb.WriteString(fmt.Sprintf("- [%s]%s: %s — %s\n", item.Type, sourceStr, item.Subject, item.Content))
+		} else {
+			sb.WriteString(fmt.Sprintf("- [%s]%s: %s\n", item.Type, sourceStr, item.Content))
+		}
 	}
 
 	fmt.Print(sb.String())

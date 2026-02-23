@@ -2090,14 +2090,18 @@ type AgentPodDeregisterResult struct {
 
 // AgentPodStatusArgs updates the pod_status field on an agent bead.
 type AgentPodStatusArgs struct {
-	AgentID   string `json:"agent_id"`   // Agent bead ID
-	PodStatus string `json:"pod_status"` // New pod status
+	AgentID    string `json:"agent_id"`              // Agent bead ID
+	PodStatus  string `json:"pod_status"`            // New pod status
+	ExitCode   *int   `json:"exit_code,omitempty"`   // Container exit code on termination (bd-6dpt3)
+	ExitReason string `json:"exit_reason,omitempty"` // Reason for exit (e.g., "OOMKilled", "Completed") (bd-6dpt3)
 }
 
 // AgentPodStatusResult is returned after pod status update.
 type AgentPodStatusResult struct {
-	AgentID   string `json:"agent_id"`
-	PodStatus string `json:"pod_status"`
+	AgentID    string `json:"agent_id"`
+	PodStatus  string `json:"pod_status"`
+	ExitCode   *int   `json:"exit_code,omitempty"`   // Echo back if provided (bd-6dpt3)
+	ExitReason string `json:"exit_reason,omitempty"` // Echo back if provided (bd-6dpt3)
 }
 
 // AgentPodListArgs queries agents with active pods.
