@@ -1051,6 +1051,15 @@ func (s *Server) handleUpdate(req *Request) Response {
 		}
 	}
 
+	// No-op short-circuit: if nothing to change, return issue as-is without
+	// bumping updated_at or firing events (bd-dq3yj)
+	hasChanges := len(updates) > 0 || updateArgs.Claim ||
+		len(updateArgs.SetLabels) > 0 || len(updateArgs.AddLabels) > 0 || len(updateArgs.RemoveLabels) > 0 ||
+		updateArgs.Parent != nil || updateArgs.RoleType != nil || updateArgs.Rig != nil
+	if !hasChanges {
+		return jsonOK(issue)
+	}
+
 	// Wrap all writes in a single transaction to prevent FK constraint violations (hq-7yh6lz)
 	err = store.RunInTransaction(ctx, func(tx storage.Transaction) error {
 		// Claim operation
@@ -1570,6 +1579,11 @@ func (s *Server) handleClose(req *Request) Response {
 			Success: false,
 			Error:   fmt.Sprintf("cannot close template %s: templates are read-only", closeArgs.ID),
 		}
+	}
+
+	// Idempotent: if already closed, return existing issue without re-stamping closed_at (bd-maz8i)
+	if issue != nil && issue.Status == types.StatusClosed {
+		return jsonOK(issue)
 	}
 
 	// Check if issue has open blockers (GH#962)

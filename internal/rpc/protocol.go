@@ -1018,9 +1018,9 @@ type ConfigSetResponse struct {
 	Value string `json:"value"`
 }
 
-// ConfigListArgs represents arguments for listing all config values (bd-wmil)
+// ConfigListArgs represents arguments for listing config values (bd-wmil, bd-32tl9)
 type ConfigListArgs struct {
-	// No arguments needed
+	Namespace string `json:"namespace,omitempty"` // Optional: filter keys by namespace prefix (e.g., "myns" matches "myns/...")
 }
 
 // ConfigListResponse represents the response from config_list operation

@@ -3,6 +3,7 @@ package rpc
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/steveyegge/beads/internal/eventbus"
 )
@@ -88,8 +89,14 @@ func (s *Server) handleConfigSet(req *Request) Response {
 	return jsonOK(result)
 }
 
-// handleConfigList lists all config values from the database (bd-wmil)
+// handleConfigList lists config values from the database, optionally filtered by namespace (bd-wmil, bd-32tl9)
 func (s *Server) handleConfigList(req *Request) Response {
+	var args ConfigListArgs
+	if req.Args != nil {
+		// Args are optional — ignore parse errors for backward compatibility
+		_ = json.Unmarshal(req.Args, &args)
+	}
+
 	store := s.storage
 	if store == nil {
 		return Response{
@@ -108,6 +115,22 @@ func (s *Server) handleConfigList(req *Request) Response {
 			Success: false,
 			Error:   fmt.Sprintf("failed to list config: %v", err),
 		}
+	}
+
+	// Filter by namespace prefix if specified (bd-32tl9)
+	if args.Namespace != "" {
+		prefix := args.Namespace
+		// Normalize: ensure prefix ends with "/" for matching
+		if !strings.HasSuffix(prefix, "/") {
+			prefix += "/"
+		}
+		filtered := make(map[string]string)
+		for key, value := range config {
+			if strings.HasPrefix(key, prefix) {
+				filtered[key] = value
+			}
+		}
+		config = filtered
 	}
 
 	result := ConfigListResponse{
