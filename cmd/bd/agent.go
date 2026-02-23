@@ -364,6 +364,9 @@ var podRegisterStatus string
 var podRegisterScreen string
 var podRegisterCoopURL string
 var podStatusValue string
+var podStatusExitCode int
+var podStatusExitCodeSet bool
+var podStatusExitReason string
 var podListRig string
 
 var agentSubscriptionsCmd = &cobra.Command{
@@ -399,6 +402,8 @@ func init() {
 
 	agentPodStatusCmd.Flags().StringVar(&podStatusValue, "status", "", "Pod status value (required)")
 	_ = agentPodStatusCmd.MarkFlagRequired("status")
+	agentPodStatusCmd.Flags().IntVar(&podStatusExitCode, "exit-code", -1, "Container exit code on termination (bd-6dpt3)")
+	agentPodStatusCmd.Flags().StringVar(&podStatusExitReason, "exit-reason", "", "Reason for exit (e.g., OOMKilled, Completed)")
 
 	agentPodListCmd.Flags().StringVar(&podListRig, "rig", "", "Filter by rig name")
 
@@ -1038,10 +1043,16 @@ func runAgentPodStatus(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("parsing response: %w", err)
 	}
 
-	result, err := daemonClient.AgentPodStatus(&rpc.AgentPodStatusArgs{
-		AgentID:   agentID,
-		PodStatus: podStatusValue,
-	})
+	rpcArgs := &rpc.AgentPodStatusArgs{
+		AgentID:    agentID,
+		PodStatus:  podStatusValue,
+		ExitReason: podStatusExitReason,
+	}
+	// Only set exit code if explicitly provided (default -1 means not set).
+	if cmd.Flags().Changed("exit-code") {
+		rpcArgs.ExitCode = &podStatusExitCode
+	}
+	result, err := daemonClient.AgentPodStatus(rpcArgs)
 	if err != nil {
 		return fmt.Errorf("failed to update pod status: %w", err)
 	}
