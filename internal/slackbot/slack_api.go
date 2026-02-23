@@ -18,6 +18,11 @@ type SlackAPI interface {
 	UpdateMessage(channelID, timestamp string, options ...slack.MsgOption) (string, string, string, error)
 	DeleteMessage(channelID, timestamp string) (string, string, error)
 
+	// Pins
+	AddPin(channel string, item slack.ItemRef) error
+	RemovePin(channel string, item slack.ItemRef) error
+	ListPins(channel string) ([]slack.Item, *slack.Paging, error)
+
 	// Modals
 	OpenView(triggerID string, view slack.ModalViewRequest) (*slack.ViewResponse, error)
 

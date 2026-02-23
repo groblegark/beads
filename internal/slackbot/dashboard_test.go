@@ -478,11 +478,14 @@ func (p *dashboardMockProvider) GetIssueDescription(_ context.Context, issueID s
 	return "", nil
 }
 
-// dashboardMockSlack captures PostMessage and UpdateMessage calls.
+// dashboardMockSlack captures PostMessage, UpdateMessage, and DeleteMessage calls.
 type dashboardMockSlack struct {
 	mu       sync.Mutex
 	posts    int
 	updates  int
+	deletes  int
+	pins     int
+	unpins   int
 	nextTS   int
 	updateFn func() error // optional error injection
 }
@@ -512,6 +515,9 @@ func (m *dashboardMockSlack) UpdateMessage(ch, ts string, opts ...slack.MsgOptio
 	return ch, ts, "", nil
 }
 func (m *dashboardMockSlack) DeleteMessage(ch, ts string) (string, string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.deletes++
 	return ch, ts, nil
 }
 func (m *dashboardMockSlack) OpenView(id string, v slack.ModalViewRequest) (*slack.ViewResponse, error) {
@@ -534,6 +540,21 @@ func (m *dashboardMockSlack) JoinConversation(ch string) (*slack.Channel, string
 }
 func (m *dashboardMockSlack) OpenConversation(p *slack.OpenConversationParameters) (*slack.Channel, bool, bool, error) {
 	return nil, false, false, nil
+}
+func (m *dashboardMockSlack) AddPin(channel string, item slack.ItemRef) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.pins++
+	return nil
+}
+func (m *dashboardMockSlack) RemovePin(channel string, item slack.ItemRef) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.unpins++
+	return nil
+}
+func (m *dashboardMockSlack) ListPins(channel string) ([]slack.Item, *slack.Paging, error) {
+	return nil, nil, nil
 }
 func (m *dashboardMockSlack) GetUserInfo(id string) (*slack.User, error) { return nil, nil }
 

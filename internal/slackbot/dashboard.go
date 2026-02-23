@@ -417,9 +417,13 @@ func (d *Dashboard) HandleAgentEvent(msg *nats.Msg) {
 	}
 }
 
-// initMessage restores a persisted dashboard message or posts a new one.
+// dashboardMarker is embedded in every dashboard message so we can identify
+// our pinned message after a pod restart when local state is lost.
+const dashboardMarker = ":factory: *Agent Dashboard*"
+
+// initMessage restores a persisted dashboard message, finds a pinned one, or posts new.
 func (d *Dashboard) initMessage(ctx context.Context) {
-	// Try to restore from state.
+	// Try to restore from local state file.
 	if d.state != nil {
 		chID, ts, _, ok := d.state.GetDashboard()
 		if ok && chID != "" && ts != "" {
@@ -434,11 +438,33 @@ func (d *Dashboard) initMessage(ctx context.Context) {
 					d.msg = &DashboardMessage{ChannelID: chID, Timestamp: ts, LastHash: hash}
 					d.lastUpdate = time.Now()
 					d.mu.Unlock()
-					log.Printf("slackbot/dashboard: restored message in %s (ts=%s)", chID, ts)
+					log.Printf("slackbot/dashboard: restored message from state in %s (ts=%s)", chID, ts)
 					return
 				}
-				log.Printf("slackbot/dashboard: persisted message gone (update failed: %v), posting new", err)
+				log.Printf("slackbot/dashboard: persisted message gone (update failed: %v), checking pins", err)
 			}
+		}
+	}
+
+	// State file missing or stale — look for a pinned dashboard message.
+	if ts := d.findPinnedDashboard(); ts != "" {
+		blocks, hash, err := BuildDashboardBlocks(ctx, d.provider, d.cfg)
+		if err != nil {
+			log.Printf("slackbot/dashboard: init build blocks (pin recovery) failed: %v", err)
+		} else {
+			_, _, _, err = d.client.UpdateMessage(d.cfg.ChannelID, ts, slack.MsgOptionBlocks(blocks...))
+			if err == nil {
+				d.mu.Lock()
+				d.msg = &DashboardMessage{ChannelID: d.cfg.ChannelID, Timestamp: ts, LastHash: hash}
+				d.lastUpdate = time.Now()
+				d.mu.Unlock()
+				if d.state != nil {
+					_ = d.state.SetDashboard(d.cfg.ChannelID, ts, hash)
+				}
+				log.Printf("slackbot/dashboard: recovered pinned message in %s (ts=%s)", d.cfg.ChannelID, ts)
+				return
+			}
+			log.Printf("slackbot/dashboard: pinned message update failed: %v, posting new", err)
 		}
 	}
 
@@ -446,8 +472,35 @@ func (d *Dashboard) initMessage(ctx context.Context) {
 	d.postNew(ctx)
 }
 
-// postNew creates a fresh dashboard message.
+// findPinnedDashboard scans pinned messages in the dashboard channel for one
+// that contains the dashboard marker text. Returns the message timestamp or "".
+func (d *Dashboard) findPinnedDashboard() string {
+	items, _, err := d.client.ListPins(d.cfg.ChannelID)
+	if err != nil {
+		log.Printf("slackbot/dashboard: list pins failed: %v", err)
+		return ""
+	}
+	for _, item := range items {
+		if item.Message == nil {
+			continue
+		}
+		if strings.Contains(item.Message.Text, dashboardMarker) {
+			log.Printf("slackbot/dashboard: found pinned dashboard message (ts=%s)", item.Message.Timestamp)
+			return item.Message.Timestamp
+		}
+	}
+	return ""
+}
+
+// postNew creates a fresh dashboard message and pins it.
+// If an old message exists, it is deleted first to prevent roster spam (bd-0gg9j).
 func (d *Dashboard) postNew(ctx context.Context) {
+	// Clean up old message before posting a new one (bd-0gg9j).
+	d.mu.Lock()
+	oldMsg := d.msg
+	d.mu.Unlock()
+	d.cleanupOldMessage(oldMsg)
+
 	blocks, hash, err := BuildDashboardBlocks(ctx, d.provider, d.cfg)
 	if err != nil {
 		log.Printf("slackbot/dashboard: build blocks failed: %v", err)
@@ -458,6 +511,16 @@ func (d *Dashboard) postNew(ctx context.Context) {
 	if err != nil {
 		log.Printf("slackbot/dashboard: post message failed: %v", err)
 		return
+	}
+
+	// Pin the message so we can find it after pod restarts.
+	if pinErr := d.client.AddPin(chID, slack.NewRefToMessage(chID, ts)); pinErr != nil {
+		// "already_pinned" is fine (shouldn't happen for a new message, but be safe).
+		if !strings.Contains(pinErr.Error(), "already_pinned") {
+			log.Printf("slackbot/dashboard: pin message failed: %v", pinErr)
+		}
+	} else {
+		log.Printf("slackbot/dashboard: pinned dashboard message in %s", chID)
 	}
 
 	d.mu.Lock()
@@ -472,6 +535,27 @@ func (d *Dashboard) postNew(ctx context.Context) {
 	}
 
 	log.Printf("slackbot/dashboard: posted new message in %s (ts=%s)", chID, ts)
+}
+
+// cleanupOldMessage removes a stale dashboard message: unpin then delete (bd-0gg9j).
+// Errors are logged but not fatal — the old message may already be gone.
+func (d *Dashboard) cleanupOldMessage(old *DashboardMessage) {
+	if old == nil || old.ChannelID == "" || old.Timestamp == "" {
+		return
+	}
+	ref := slack.NewRefToMessage(old.ChannelID, old.Timestamp)
+	if err := d.client.RemovePin(old.ChannelID, ref); err != nil {
+		if !strings.Contains(err.Error(), "no_pin") {
+			log.Printf("slackbot/dashboard: unpin old message failed: %v", err)
+		}
+	}
+	if _, _, err := d.client.DeleteMessage(old.ChannelID, old.Timestamp); err != nil {
+		if !strings.Contains(err.Error(), "message_not_found") {
+			log.Printf("slackbot/dashboard: delete old message failed: %v", err)
+		}
+	} else {
+		log.Printf("slackbot/dashboard: deleted old dashboard message (ts=%s)", old.Timestamp)
+	}
 }
 
 // refresh fetches the current roster and updates the dashboard message if changed.

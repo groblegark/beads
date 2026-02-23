@@ -190,6 +190,12 @@ func (m *mockSlackAPI) GetConversationReplies(params *slack.GetConversationRepli
 	return nil, false, "", nil
 }
 
+func (m *mockSlackAPI) AddPin(channel string, item slack.ItemRef) error    { return nil }
+func (m *mockSlackAPI) RemovePin(channel string, item slack.ItemRef) error { return nil }
+func (m *mockSlackAPI) ListPins(channel string) ([]slack.Item, *slack.Paging, error) {
+	return nil, nil, nil
+}
+
 func (m *mockSlackAPI) GetUserInfo(userID string) (*slack.User, error) {
 	return &slack.User{
 		ID:       userID,
