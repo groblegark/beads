@@ -854,7 +854,7 @@ func (s *Server) resolveRigToPrefix(targetRig string) (string, error) {
 		Status:    &openStatus,
 	})
 	if err != nil {
-		return "", fmt.Errorf("failed to query rig beads: %v", err)
+		return "", fmt.Errorf("failed to query rig beads: %w", err)
 	}
 
 	for _, rig := range rigBeads {
@@ -881,7 +881,7 @@ func (s *Server) resolveRigToPrefix(targetRig string) (string, error) {
 func extractPrefixLabel(ctx context.Context, store storage.Storage, issueID string) (string, error) {
 	labels, err := store.GetLabels(ctx, issueID)
 	if err != nil {
-		return "", fmt.Errorf("failed to get labels for rig %s: %v", issueID, err)
+		return "", fmt.Errorf("failed to get labels for rig %s: %w", issueID, err)
 	}
 	for _, label := range labels {
 		if strings.HasPrefix(label, "prefix:") {
@@ -913,7 +913,7 @@ func (s *Server) resolveTargetRig(req *Request, targetRig string) (string, strin
 	}
 	townBeadsDir, err := findTownBeadsDir(cwd)
 	if err != nil {
-		return "", "", fmt.Errorf("cannot resolve target rig: %v", err)
+		return "", "", fmt.Errorf("cannot resolve target rig: %w", err)
 	}
 	return routing.ResolveBeadsDirForRig(targetRig, townBeadsDir)
 }

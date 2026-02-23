@@ -5,7 +5,9 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -37,7 +39,7 @@ func countIssuesInJSONL(path string) (int, error) {
 	for {
 		var issue types.Issue
 		if err := decoder.Decode(&issue); err != nil {
-			if err.Error() == "EOF" {
+			if errors.Is(err, io.EOF) {
 				break
 			}
 			// Return error for corrupt/invalid JSON
@@ -67,7 +69,7 @@ func getIssueIDsFromJSONL(path string) (map[string]bool, error) {
 	for {
 		var issue types.Issue
 		if err := decoder.Decode(&issue); err != nil {
-			if err.Error() == "EOF" {
+			if errors.Is(err, io.EOF) {
 				break
 			}
 			// Return error for corrupt/invalid JSON
@@ -84,7 +86,7 @@ func validateExportPath(path string) error {
 	// Get absolute path to normalize it
 	absPath, err := filepath.Abs(path)
 	if err != nil {
-		return fmt.Errorf("invalid path: %v", err)
+		return fmt.Errorf("invalid path: %w", err)
 	}
 
 	// Convert to lowercase for case-insensitive comparison on Windows

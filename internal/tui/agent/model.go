@@ -628,7 +628,7 @@ func (m *Model) fetchRecentEvents(actor string) tea.Cmd {
 		cmd.Stderr = &stderr
 
 		if err := cmd.Run(); err != nil {
-			return fetchRecentEventsMsg{actor: actor, err: fmt.Errorf("bd agent recent-events: %v", err)}
+			return fetchRecentEventsMsg{actor: actor, err: fmt.Errorf("bd agent recent-events: %w", err)}
 		}
 
 		var result rpc.AgentRecentEventsResult
