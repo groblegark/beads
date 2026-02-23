@@ -341,8 +341,13 @@ func (s *Server) handleJackCheck(req *Request) Response {
 		if now.After(expiresAt) {
 			expired = append(expired, jack)
 
-			// Auto-escalate: create P0 alert bead for each expired jack
+			// Auto-escalate: create P0 alert bead for each expired jack.
+			// Skip if already escalated (prevents duplicate P0 alerts on repeated calls).
 			if args.AutoEscalate {
+				if _, alreadyEscalated := metadata["jack_escalated"]; alreadyEscalated {
+					continue // Already escalated by sweeper or previous check
+				}
+
 				target, _ := metadata["jack_target"].(string)
 				alertTitle := fmt.Sprintf("EXPIRED JACK: %s — %s", target, jack.Title)
 				if len(alertTitle) > 200 {
@@ -381,6 +386,13 @@ func (s *Server) handleJackCheck(req *Request) Response {
 					escalated++
 					s.emitMutationFor(MutationCreate, alertIssue)
 					s.emitJackEvent(eventbus.EventJackExpired, jack.ID, target, actor, "TTL expired", "", expiresAtStr)
+
+					// Mark as escalated to prevent duplicate alerts on repeated calls
+					metadata["jack_escalated"] = true
+					metadata["jack_escalated_at"] = now.Format(time.RFC3339)
+					if metaJSON, err := json.Marshal(metadata); err == nil {
+						_ = store.UpdateIssue(ctx, jack.ID, map[string]interface{}{"metadata": string(metaJSON)}, "system:jack-check")
+					}
 				}
 			}
 		} else {
