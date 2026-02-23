@@ -114,6 +114,9 @@ func (s *Server) Start(_ context.Context) error {
 	// Start background decision expiration sweeper
 	s.startDecisionSweeper()
 
+	// Start background jack expiry sweeper (bd-c5z5j)
+	s.startJackSweeper()
+
 	// Start background inbox item cleanup (bd-xtahx.6)
 	s.startInboxReaper()
 
