@@ -56,6 +56,7 @@ type jackListChange struct {
 	Action    string `json:"action"`
 	Target    string `json:"target"`
 	Agent     string `json:"agent,omitempty"`
+	Sensitive bool   `json:"sensitive,omitempty"`
 }
 
 // jackListItem holds a jack with parsed metadata for display.
@@ -216,7 +217,17 @@ func runJackList(cmd *cobra.Command, args []string) {
 
 		// Line 4: Changes count (if any)
 		if len(item.Meta.Changes) > 0 {
-			fmt.Printf("    Changes: %d recorded\n", len(item.Meta.Changes))
+			sensitiveCount := 0
+			for _, ch := range item.Meta.Changes {
+				if ch.Sensitive {
+					sensitiveCount++
+				}
+			}
+			if sensitiveCount > 0 {
+				fmt.Printf("    Changes: %d recorded (%d sensitive)\n", len(item.Meta.Changes), sensitiveCount)
+			} else {
+				fmt.Printf("    Changes: %d recorded\n", len(item.Meta.Changes))
+			}
 		}
 
 		// Line 5: Status (only for --all, when showing closed jacks)

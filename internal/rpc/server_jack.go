@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/steveyegge/beads/internal/eventbus"
+	"github.com/steveyegge/beads/internal/sensitive"
 	"github.com/steveyegge/beads/internal/storage"
 	"github.com/steveyegge/beads/internal/types"
 )
@@ -507,15 +508,25 @@ func (s *Server) handleJackLog(req *Request) Response {
 		}
 	}
 
+	// Detect and redact sensitive data in before/after values
+	before := args.Before
+	after := args.After
+	hasSensitive := sensitive.ContainsSecret(before) || sensitive.ContainsSecret(after)
+	if hasSensitive {
+		before, _ = sensitive.Redact(before)
+		after, _ = sensitive.Redact(after)
+	}
+
 	// Build change record
 	change := JackChange{
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
 		Action:    args.Action,
 		Target:    target,
-		Before:    args.Before,
-		After:     args.After,
+		Before:    before,
+		After:     after,
 		Cmd:       args.Cmd,
 		Agent:     actor,
+		Sensitive: hasSensitive,
 	}
 
 	changes = append(changes, change)

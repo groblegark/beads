@@ -8,6 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/steveyegge/beads/internal/rpc"
+	"github.com/steveyegge/beads/internal/sensitive"
 	"github.com/steveyegge/beads/internal/types"
 	"github.com/steveyegge/beads/internal/ui"
 )
@@ -186,15 +187,23 @@ func runJackShow(cmd *cobra.Command, args []string) {
 	}
 
 	// Changes section
+	sensitiveCount := 0
 	if len(changes) > 0 {
 		fmt.Printf("\n%s (%d):\n", sectionHeader("CHANGES"), len(changes))
 		for _, ch := range changes {
+			if ch.Sensitive {
+				sensitiveCount++
+			}
 			timeStr := ch.Timestamp
 			if t, err := time.Parse(time.RFC3339, ch.Timestamp); err == nil {
 				timeStr = t.Format("15:04")
 			}
 
-			parts := []string{fmt.Sprintf("  [%s] %s %s", timeStr, ch.Action, ch.Target)}
+			sensitiveTag := ""
+			if ch.Sensitive {
+				sensitiveTag = " [S]"
+			}
+			parts := []string{fmt.Sprintf("  [%s] %s %s%s", timeStr, ch.Action, ch.Target, sensitiveTag)}
 
 			if ch.Cmd != "" {
 				parts = append(parts, fmt.Sprintf(" %s", ch.Cmd))
@@ -226,6 +235,10 @@ func runJackShow(cmd *cobra.Command, args []string) {
 			}
 
 			fmt.Println(strings.Join(parts, ""))
+		}
+
+		if sensitiveCount > 0 && !reveal {
+			fmt.Printf("\n  [S] = %d change(s) contain redacted sensitive data — use --reveal to show\n", sensitiveCount)
 		}
 
 		if len(changes) >= maxJackChanges*4/5 {
@@ -302,10 +315,8 @@ func jackFmtDuration(d time.Duration) string {
 
 // redactIfSensitive checks if a value matches known secret patterns and redacts it.
 func redactIfSensitive(value string) string {
-	for _, pat := range secretPatterns {
-		if pat.MatchString(value) {
-			return "[SENSITIVE - use --reveal to show]"
-		}
+	if sensitive.ContainsSecret(value) {
+		return sensitive.RedactedPlaceholder
 	}
 	return value
 }

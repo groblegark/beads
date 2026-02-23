@@ -3,27 +3,18 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"regexp"
 	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/steveyegge/beads/internal/rpc"
+	"github.com/steveyegge/beads/internal/sensitive"
 	"github.com/steveyegge/beads/internal/types"
 	"github.com/steveyegge/beads/internal/ui"
 )
 
 const maxJackChanges = 500
 const maxChangeFieldSize = 5 * 1024 // 5KB
-
-var secretPatterns = []*regexp.Regexp{
-	regexp.MustCompile(`(?i)(password|passwd|pwd)\s*[=:]\s*\S+`),
-	regexp.MustCompile(`(?i)(api[_-]?key|apikey)\s*[=:]\s*\S+`),
-	regexp.MustCompile(`(?i)(secret|token)\s*[=:]\s*\S+`),
-	regexp.MustCompile(`(?i)(aws_secret_access_key|aws_access_key_id)\s*[=:]\s*\S+`),
-	regexp.MustCompile(`(?i)bearer\s+[a-zA-Z0-9._\-]+`),
-	regexp.MustCompile(`-----BEGIN\s+(RSA\s+)?PRIVATE\s+KEY-----`),
-}
 
 var validJackActions = map[string]bool{
 	"edit":   true,
@@ -88,7 +79,7 @@ func runJackLog(cmd *cobra.Command, args []string) {
 	before, _ := cmd.Flags().GetString("before")
 	after, _ := cmd.Flags().GetString("after")
 	cmdStr, _ := cmd.Flags().GetString("cmd")
-	sensitive, _ := cmd.Flags().GetBool("sensitive")
+	sensitiveFlag, _ := cmd.Flags().GetBool("sensitive")
 
 	// Validate action
 	if action == "" {
@@ -106,24 +97,23 @@ func runJackLog(cmd *cobra.Command, args []string) {
 		after = after[:maxChangeFieldSize-3] + "..."
 	}
 
-	// Check for secrets in before/after unless --sensitive is set
-	if !sensitive {
-		for _, field := range []struct {
-			name  string
-			value string
-		}{
-			{"--before", before},
-			{"--after", after},
-		} {
-			for _, pat := range secretPatterns {
-				if pat.MatchString(field.value) {
-					FatalErrorRespectJSON(
-						"%s appears to contain secrets (matched pattern: %s)\n"+
-							"Use --sensitive to acknowledge and proceed, or redact the value",
-						field.name, pat.String())
-				}
+	// Check for secrets in before/after
+	hasSensitive := false
+	if field := sensitive.ScanFields(before, after); field != "" {
+		if !sensitiveFlag {
+			pat := sensitive.MatchedPattern(before)
+			if pat == "" {
+				pat = sensitive.MatchedPattern(after)
 			}
+			FatalErrorRespectJSON(
+				"%s appears to contain secrets (matched pattern: %s)\n"+
+					"Use --sensitive to acknowledge and proceed, or redact the value",
+				field, pat)
 		}
+		hasSensitive = true
+		// Redact secret values in storage — originals are never persisted
+		before, _ = sensitive.Redact(before)
+		after, _ = sensitive.Redact(after)
 	}
 
 	// Fetch the jack to validate it exists, is a jack type, and is active
@@ -188,6 +178,7 @@ func runJackLog(cmd *cobra.Command, args []string) {
 		After:     after,
 		Cmd:       cmdStr,
 		Agent:     actor,
+		Sensitive: hasSensitive,
 	}
 
 	// Append to changes
@@ -224,6 +215,7 @@ func runJackLog(cmd *cobra.Command, args []string) {
 			"target":       target,
 			"timestamp":    change.Timestamp,
 			"total":        len(changes),
+			"sensitive":    hasSensitive,
 		})
 		return
 	}
@@ -231,6 +223,9 @@ func runJackLog(cmd *cobra.Command, args []string) {
 	fmt.Printf("%s Change recorded on jack %s\n\n", ui.RenderPass("✓"), ui.RenderID(jackID))
 	fmt.Printf("  Action:    %s\n", action)
 	fmt.Printf("  Target:    %s\n", target)
+	if hasSensitive {
+		fmt.Printf("  Sensitive: values redacted in storage (use 'bd jack show %s --reveal' to view)\n", jackID)
+	}
 	if before != "" {
 		display := before
 		if len(display) > 80 {

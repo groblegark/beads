@@ -1178,13 +1178,14 @@ type JackLogArgs struct {
 
 // JackChange represents a single modification recorded under a jack.
 type JackChange struct {
-	Timestamp string `json:"timestamp"`        // ISO 8601 timestamp
-	Action    string `json:"action"`           // edit, exec, patch, delete, create
-	Target    string `json:"target"`           // Resource affected
-	Before    string `json:"before,omitempty"` // State before (max 5KB)
-	After     string `json:"after,omitempty"`  // State after (max 5KB)
-	Cmd       string `json:"cmd,omitempty"`    // Command executed
-	Agent     string `json:"agent,omitempty"`  // Agent that made the change
+	Timestamp string `json:"timestamp"`            // ISO 8601 timestamp
+	Action    string `json:"action"`               // edit, exec, patch, delete, create
+	Target    string `json:"target"`               // Resource affected
+	Before    string `json:"before,omitempty"`     // State before (max 5KB, redacted if sensitive)
+	After     string `json:"after,omitempty"`      // State after (max 5KB, redacted if sensitive)
+	Cmd       string `json:"cmd,omitempty"`        // Command executed
+	Agent     string `json:"agent,omitempty"`      // Agent that made the change
+	Sensitive bool   `json:"sensitive,omitempty"`   // True if values were redacted due to secret detection
 }
 
 // Inbox operations (bd-xtahx)
