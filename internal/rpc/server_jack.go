@@ -101,6 +101,13 @@ func (s *Server) handleJackOn(req *Request) Response {
 		"jack_reverted":    false,
 		"jack_changes":     []interface{}{},
 	}
+
+	// Set jack_rig for multi-rig visibility (design doc 8.10)
+	if args.TargetRig != "" {
+		metadata["jack_rig"] = args.TargetRig
+	} else if rig := s.getDefaultRig(ctx); rig != "" {
+		metadata["jack_rig"] = rig
+	}
 	metadataJSON, err := json.Marshal(metadata)
 	if err != nil {
 		return Response{Success: false, Error: fmt.Sprintf("failed to marshal metadata: %v", err)}

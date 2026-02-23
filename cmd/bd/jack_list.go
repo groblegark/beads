@@ -17,19 +17,21 @@ var jackListCmd = &cobra.Command{
 	Short: "Show active jacks (default) or all with filtering",
 	Long: `Show infrastructure jacks with target, TTL remaining, agent, and status.
 
-By default, shows only active (in_progress) jacks sorted by expiry.
+By default, shows all active (in_progress) jacks across all rigs.
 
 Flags:
   -a, --all              Include closed jacks
       --expired          Show only expired (past TTL) jacks
       --target string    Filter by target resource
+      --rig string       Filter by rig name (shows all rigs by default)
       --json             Output JSON
 
 Examples:
   bd jack list
   bd jack list --all
   bd jack list --expired
-  bd jack list --target=pod/bd-daemon-abc`,
+  bd jack list --target=pod/bd-daemon-abc
+  bd jack list --rig=beads`,
 	Run: runJackList,
 }
 
@@ -37,6 +39,7 @@ func init() {
 	jackListCmd.Flags().BoolP("all", "a", false, "Include closed jacks")
 	jackListCmd.Flags().Bool("expired", false, "Show only expired (past TTL) jacks")
 	jackListCmd.Flags().String("target", "", "Filter by target resource")
+	jackListCmd.Flags().String("rig", "", "Filter by rig name (shows all rigs by default)")
 
 	jackCmd.AddCommand(jackListCmd)
 }
@@ -48,6 +51,7 @@ type jackListMeta struct {
 	ExpiresAt  string           `json:"jack_expires_at"`
 	RevertPlan string           `json:"jack_revert_plan"`
 	Reverted   bool             `json:"jack_reverted"`
+	Rig        string           `json:"jack_rig"`
 	Changes    []jackListChange `json:"jack_changes"`
 }
 
@@ -73,6 +77,7 @@ func runJackList(cmd *cobra.Command, args []string) {
 	showAll, _ := cmd.Flags().GetBool("all")
 	expiredOnly, _ := cmd.Flags().GetBool("expired")
 	targetFilter, _ := cmd.Flags().GetString("target")
+	rigFilter, _ := cmd.Flags().GetString("rig")
 
 	// Build list query: filter by type=jack
 	listArgs := &rpc.ListArgs{
@@ -131,6 +136,11 @@ func runJackList(cmd *cobra.Command, args []string) {
 
 		// Apply --target filter
 		if targetFilter != "" && meta.Target != targetFilter {
+			continue
+		}
+
+		// Apply --rig filter (multi-rig visibility, design doc 8.10)
+		if rigFilter != "" && meta.Rig != rigFilter {
 			continue
 		}
 
@@ -206,13 +216,16 @@ func runJackList(cmd *cobra.Command, args []string) {
 		}
 		fmt.Printf("    Reason: %s\n", reason)
 
-		// Line 3: Agent
+		// Line 3: Agent and rig
 		agent := issue.CreatedBy
 		if issue.Assignee != "" {
 			agent = issue.Assignee
 		}
 		if agent != "" {
 			fmt.Printf("    Agent: %s\n", agent)
+		}
+		if item.Meta.Rig != "" {
+			fmt.Printf("    Rig: %s\n", item.Meta.Rig)
 		}
 
 		// Line 4: Changes count (if any)

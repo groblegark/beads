@@ -170,6 +170,11 @@ func runJackOn(cmd *cobra.Command, args []string) {
 		"jack_reverted":    false,
 		"jack_changes":     []interface{}{},
 	}
+
+	// Set jack_rig for multi-rig visibility (design doc 8.10)
+	if rigName := os.Getenv("BD_RIG_NAME"); rigName != "" {
+		metadata["jack_rig"] = rigName
+	}
 	metadataJSON, err := json.Marshal(metadata)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: failed to marshal metadata: %v\n", err)
