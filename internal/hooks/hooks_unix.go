@@ -23,7 +23,7 @@ func (r *Runner) runHook(hookPath, event string, issue *types.Issue) error {
 	// Prepare JSON data for stdin
 	issueJSON, err := json.Marshal(issue)
 	if err != nil {
-		return err
+		return fmt.Errorf("marshal issue for hook: %w", err)
 	}
 
 	// Create command: hook_script <issue_id> <event_type>
@@ -47,7 +47,7 @@ func (r *Runner) runHook(hookPath, event string, issue *types.Issue) error {
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
 	if err := cmd.Start(); err != nil {
-		return err
+		return fmt.Errorf("start hook %s: %w", hookPath, err)
 	}
 
 	done := make(chan error, 1)
@@ -67,7 +67,7 @@ func (r *Runner) runHook(hookPath, event string, issue *types.Issue) error {
 		return ctx.Err()
 	case err := <-done:
 		if err != nil {
-			return err
+			return fmt.Errorf("hook %s failed: %w", hookPath, err)
 		}
 		return nil
 	}

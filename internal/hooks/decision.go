@@ -2,6 +2,7 @@ package hooks
 
 import (
 	"bytes"
+	"fmt"
 	"context"
 	"encoding/json"
 	"os"
@@ -146,7 +147,7 @@ func (r *Runner) runDecisionHook(hookPath, event string, dp *types.DecisionPoint
 	// Serialize to JSON
 	payloadJSON, err := json.Marshal(payload)
 	if err != nil {
-		return err
+		return fmt.Errorf("marshal decision payload: %w", err)
 	}
 
 	// Create command: hook_script <decision_id> <event_type>
@@ -159,5 +160,8 @@ func (r *Runner) runDecisionHook(hookPath, event string, dp *types.DecisionPoint
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
-	return cmd.Run()
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("execute decision hook %s: %w", hookPath, err)
+	}
+	return nil
 }

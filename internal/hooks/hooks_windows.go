@@ -21,7 +21,7 @@ func (r *Runner) runHook(hookPath, event string, issue *types.Issue) error {
 
 	issueJSON, err := json.Marshal(issue)
 	if err != nil {
-		return err
+		return fmt.Errorf("marshal issue for hook: %w", err)
 	}
 
 	cmd := exec.CommandContext(ctx, hookPath, issue.ID, event)
@@ -32,7 +32,7 @@ func (r *Runner) runHook(hookPath, event string, issue *types.Issue) error {
 	cmd.Stderr = &stderr
 
 	if err := cmd.Start(); err != nil {
-		return err
+		return fmt.Errorf("start hook %s: %w", hookPath, err)
 	}
 
 	done := make(chan error, 1)
@@ -48,6 +48,6 @@ func (r *Runner) runHook(hookPath, event string, issue *types.Issue) error {
 		<-done
 		return ctx.Err()
 	case err := <-done:
-		return err
+		return fmt.Errorf("hook %s failed: %w", hookPath, err)
 	}
 }
