@@ -1,6 +1,6 @@
 #!/usr/bin/env sh
 # bd-shim v1
-# bd-hooks-version: 2026.218.5
+# bd-hooks-version: 2026.222.11
 #
 # bd (beads) post-commit hook - thin shim
 #
