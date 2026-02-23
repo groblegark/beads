@@ -903,3 +903,117 @@ func TestRenderDashboardBlocks_DeadOverflow(t *testing.T) {
 		t.Errorf("should show dead overflow: got %s", allStr)
 	}
 }
+
+// --- bd-0gg9j: old message cleanup on replacement ---
+
+func TestDashboard_PostNewDeletesOldMessage(t *testing.T) {
+	provider := &dashboardMockProvider{}
+	mockSlack := &dashboardMockSlack{}
+	cfg := DashboardConfig{
+		Enabled:   true,
+		ChannelID: "C-test",
+	}
+
+	d := NewDashboard(mockSlack, provider, nil, cfg)
+	// Simulate an existing message that will be replaced.
+	d.msg = &DashboardMessage{
+		ChannelID: "C-test",
+		Timestamp: "1234.000001",
+		LastHash:  "old-hash",
+	}
+
+	// postNew should delete the old message, then post a new one.
+	d.postNew(context.Background())
+
+	mockSlack.mu.Lock()
+	posts := mockSlack.posts
+	deletes := mockSlack.deletes
+	unpins := mockSlack.unpins
+	pins := mockSlack.pins
+	mockSlack.mu.Unlock()
+
+	if posts != 1 {
+		t.Errorf("expected 1 new post, got %d", posts)
+	}
+	if deletes != 1 {
+		t.Errorf("expected 1 delete of old message, got %d", deletes)
+	}
+	if unpins != 1 {
+		t.Errorf("expected 1 unpin of old message, got %d", unpins)
+	}
+	if pins != 1 {
+		t.Errorf("expected 1 pin of new message, got %d", pins)
+	}
+}
+
+func TestDashboard_PostNewNoDeleteWhenNoOldMessage(t *testing.T) {
+	provider := &dashboardMockProvider{}
+	mockSlack := &dashboardMockSlack{}
+	cfg := DashboardConfig{
+		Enabled:   true,
+		ChannelID: "C-test",
+	}
+
+	d := NewDashboard(mockSlack, provider, nil, cfg)
+	// msg is nil — first post ever.
+	d.postNew(context.Background())
+
+	mockSlack.mu.Lock()
+	posts := mockSlack.posts
+	deletes := mockSlack.deletes
+	mockSlack.mu.Unlock()
+
+	if posts != 1 {
+		t.Errorf("expected 1 post, got %d", posts)
+	}
+	if deletes != 0 {
+		t.Errorf("expected 0 deletes on first post, got %d", deletes)
+	}
+}
+
+func TestDashboard_MessageNotFoundTriggersCleanReplacement(t *testing.T) {
+	provider := &dashboardMockProvider{
+		roster: &rpc.AgentRosterResult{
+			Actors: []rpc.AgentRosterEntry{
+				{Actor: "a1", TaskID: "bd-1"},
+			},
+		},
+	}
+	mockSlack := &dashboardMockSlack{
+		updateFn: func() error {
+			return fmt.Errorf("message_not_found")
+		},
+	}
+	cfg := DashboardConfig{
+		Enabled:   true,
+		ChannelID: "C-test",
+	}
+
+	d := NewDashboard(mockSlack, provider, nil, cfg)
+	d.msg = &DashboardMessage{
+		ChannelID: "C-test",
+		Timestamp: "1234.000001",
+		LastHash:  "stale",
+	}
+	d.lastUpdate = time.Now().Add(-10 * time.Second)
+
+	// First refresh: update fails with message_not_found → sets msg=nil.
+	d.refresh(context.Background())
+
+	d.mu.Lock()
+	msgNil := d.msg == nil
+	d.mu.Unlock()
+	if !msgNil {
+		t.Fatal("expected msg to be nil after message_not_found")
+	}
+
+	// Second refresh: msg is nil → calls postNew → posts new + deletes nothing (msg already nil).
+	d.refresh(context.Background())
+
+	mockSlack.mu.Lock()
+	posts := mockSlack.posts
+	mockSlack.mu.Unlock()
+	if posts != 1 {
+		t.Errorf("expected 1 new post after message_not_found, got %d", posts)
+	}
+}
