@@ -39,6 +39,9 @@ type DoltPerfMetrics struct {
 
 	// Profile file path if profiling was enabled
 	ProfilePath string
+
+	// EXPLAIN-based query plan warnings (bd-wy184)
+	QueryPlanWarnings []QueryPlanWarning
 }
 
 // RunDoltPerformanceDiagnostics runs performance diagnostics for Dolt backend
@@ -226,6 +229,12 @@ func runDoltDiagnosticQueries(ctx context.Context, db *sql.DB, metrics *DoltPerf
 		LIMIT 10
 	`)
 
+	// Run EXPLAIN-based query plan validation (bd-wy184)
+	planWarnings, planErr := ExplainQueryPlans(ctx, db)
+	if planErr == nil {
+		metrics.QueryPlanWarnings = planWarnings
+	}
+
 	return nil
 }
 
@@ -321,6 +330,10 @@ func PrintDoltPerfReport(metrics *DoltPerfMetrics) {
 	// Performance assessment
 	fmt.Printf("\nPerformance Assessment:\n")
 	assessDoltPerformance(metrics)
+
+	// Print EXPLAIN-based query plan analysis
+	fmt.Printf("\nQuery Plan Analysis:\n")
+	PrintQueryPlanWarnings(metrics.QueryPlanWarnings)
 
 	if metrics.ProfilePath != "" {
 		fmt.Printf("\nCPU Profile saved: %s\n", metrics.ProfilePath)
@@ -418,6 +431,11 @@ func CheckDoltPerformance(path string) DoctorCheck {
 		issues = append(issues, fmt.Sprintf("slow bootstrap (%dms)", metrics.ConnectionTime))
 	}
 
+	// Check EXPLAIN-based query plan warnings
+	for _, w := range metrics.QueryPlanWarnings {
+		issues = append(issues, fmt.Sprintf("query plan: %s — %s", w.Query, w.Warning))
+	}
+
 	if metrics.ReadyWorkTime > 500 {
 		issues = append(issues, fmt.Sprintf("slow ready-work (%dms)", metrics.ReadyWorkTime))
 	}
@@ -445,6 +463,133 @@ func CheckDoltPerformance(path string) DoctorCheck {
 		Status:   StatusOK,
 		Message:  fmt.Sprintf("OK (mode: %s, connect: %dms, ready: %dms)", mode, metrics.ConnectionTime, metrics.ReadyWorkTime),
 		Category: CategoryPerformance,
+	}
+}
+
+// QueryPlanWarning describes a potential performance issue found via EXPLAIN.
+type QueryPlanWarning struct {
+	Query       string // Short description of the query
+	Warning     string // What was detected
+	ExplainType string // EXPLAIN 'type' value (ALL, index, range, etc.)
+	Rows        int64  // Estimated row scan count
+	Extra       string // EXPLAIN 'Extra' field
+}
+
+// hotPathQueries defines the queries to EXPLAIN with descriptive names.
+var hotPathQueries = []struct {
+	Name  string
+	Query string
+}{
+	{"GetReadyWork", `SELECT id FROM issues i LEFT JOIN blocked_issues_cache b ON i.id = b.issue_id WHERE i.status IN ('open','in_progress') AND b.issue_id IS NULL LIMIT 100`},
+	{"SearchIssues (text)", `SELECT id FROM issues WHERE LOWER(title) LIKE '%test%' OR LOWER(description) LIKE '%test%' LIMIT 100`},
+	{"GetStatistics", `SELECT COUNT(*), SUM(CASE WHEN i.status = 'open' THEN 1 ELSE 0 END) FROM issues i LEFT JOIN blocked_issues_cache b ON i.id = b.issue_id`},
+	{"ListOpen", `SELECT id FROM issues WHERE status = 'open' ORDER BY priority ASC, created_at DESC LIMIT 100`},
+	{"DepLookup (blocks)", `SELECT issue_id, depends_on_id FROM dependencies WHERE issue_id = 'dummy' AND type = 'blocks'`},
+}
+
+// ExplainQueryPlans runs EXPLAIN on hot-path queries and detects performance issues.
+// Returns warnings for full table scans, missing index usage, temporary tables, and filesort.
+func ExplainQueryPlans(ctx context.Context, db *sql.DB) ([]QueryPlanWarning, error) {
+	var warnings []QueryPlanWarning
+
+	for _, q := range hotPathQueries {
+		rows, err := db.QueryContext(ctx, "EXPLAIN "+q.Query)
+		if err != nil {
+			// Skip queries that fail (e.g. table not found)
+			continue
+		}
+
+		for rows.Next() {
+			cols, err := rows.Columns()
+			if err != nil {
+				rows.Close()
+				continue
+			}
+
+			// EXPLAIN returns varying columns; scan into a map via string pointers
+			vals := make([]interface{}, len(cols))
+			valPtrs := make([]interface{}, len(cols))
+			for i := range vals {
+				valPtrs[i] = &vals[i]
+			}
+			if err := rows.Scan(valPtrs...); err != nil {
+				rows.Close()
+				continue
+			}
+
+			// Build column map
+			colMap := make(map[string]string, len(cols))
+			for i, col := range cols {
+				switch v := vals[i].(type) {
+				case []byte:
+					colMap[col] = string(v)
+				case string:
+					colMap[col] = v
+				case int64:
+					colMap[col] = fmt.Sprintf("%d", v)
+				case nil:
+					colMap[col] = ""
+				default:
+					colMap[col] = fmt.Sprintf("%v", v)
+				}
+			}
+
+			explainType := colMap["type"]
+			extra := colMap["Extra"]
+			rowsStr := colMap["rows"]
+
+			var rowCount int64
+			if rowsStr != "" {
+				fmt.Sscanf(rowsStr, "%d", &rowCount)
+			}
+
+			// Flag full table scans
+			if explainType == "ALL" && rowCount > 100 {
+				warnings = append(warnings, QueryPlanWarning{
+					Query:       q.Name,
+					Warning:     fmt.Sprintf("full table scan (%d rows estimated)", rowCount),
+					ExplainType: explainType,
+					Rows:        rowCount,
+					Extra:       extra,
+				})
+			}
+
+			// Flag filesort
+			if strings.Contains(extra, "filesort") {
+				warnings = append(warnings, QueryPlanWarning{
+					Query:       q.Name,
+					Warning:     "Using filesort (no index covers ORDER BY)",
+					ExplainType: explainType,
+					Rows:        rowCount,
+					Extra:       extra,
+				})
+			}
+
+			// Flag temporary table
+			if strings.Contains(extra, "temporary") {
+				warnings = append(warnings, QueryPlanWarning{
+					Query:       q.Name,
+					Warning:     "Using temporary table",
+					ExplainType: explainType,
+					Rows:        rowCount,
+					Extra:       extra,
+				})
+			}
+		}
+		rows.Close()
+	}
+
+	return warnings, nil
+}
+
+// PrintQueryPlanWarnings prints EXPLAIN-based warnings in a human-readable format.
+func PrintQueryPlanWarnings(warnings []QueryPlanWarning) {
+	if len(warnings) == 0 {
+		fmt.Println("  [OK] All hot-path query plans use indexes")
+		return
+	}
+	for _, w := range warnings {
+		fmt.Printf("  [WARN] %s: %s (type=%s, extra=%s)\n", w.Query, w.Warning, w.ExplainType, w.Extra)
 	}
 }
 
