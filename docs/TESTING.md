@@ -1,5 +1,7 @@
 # Testing Guide
 
+> **WARNING**: Do NOT run `go test` or `make test` locally on this codebase. CGO/ICU dependencies exhaust system memory and cause OOM kills. Always use **RWX CI** for test execution: `rwx run .rwx/ci.yml --init commit-sha=$(git rev-parse HEAD) --target test --wait`
+
 ## Overview
 
 The beads project has a comprehensive test suite with **~41,000 lines of code** across **205 files** in `cmd/bd` alone.

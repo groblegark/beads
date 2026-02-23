@@ -1,5 +1,7 @@
 # Testing Strategy
 
+> **WARNING**: Do NOT run `go test` or `make test` locally on this codebase. CGO/ICU dependencies exhaust system memory and cause OOM kills. Always use **RWX CI** for test execution: `rwx run .rwx/ci.yml --init commit-sha=$(git rev-parse HEAD) --target test --wait`
+
 This project uses a two-tier testing approach to balance speed and thoroughness.
 
 > **Testing Philosophy**: For guidance on what to test, anti-patterns to avoid, and target metrics, see [TESTING_PHILOSOPHY.md](TESTING_PHILOSOPHY.md).
