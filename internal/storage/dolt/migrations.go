@@ -36,6 +36,7 @@ var migrations = []Migration{
 	{"decision_pending_index", migrateDecisionPendingIndex},
 	{"query_perf_indexes", migrateQueryPerfIndexes},
 	{"blocked_cache_dep_index", migrateBlockedCacheDepIndex},
+	{"time_column_indexes", migrateTimeColumnIndexes},
 	{"jack_expires_at", migrateJackExpiresAt},
 }
 
@@ -570,6 +571,30 @@ func migrateBlockedCacheDepIndex(ctx context.Context, db *sql.DB) error {
 			return nil
 		}
 		return fmt.Errorf("failed to create dep type index: %w", err)
+	}
+	return nil
+}
+
+// migrateTimeColumnIndexes adds indexes on time-based columns used for filtering:
+// updated_at (GetStaleIssues), due_at, defer_until (GetReadyWork) (bd-c771m).
+func migrateTimeColumnIndexes(ctx context.Context, db *sql.DB) error {
+	indexes := []struct{ name, cols string }{
+		{"idx_issues_updated_at", "updated_at"},
+		{"idx_issues_due_at", "due_at"},
+		{"idx_issues_defer_until", "defer_until"},
+	}
+	for _, idx := range indexes {
+		_, err := db.ExecContext(ctx, fmt.Sprintf(
+			"CREATE INDEX IF NOT EXISTS %s ON issues (%s)", idx.name, idx.cols,
+		))
+		if err != nil {
+			errLower := strings.ToLower(err.Error())
+			if strings.Contains(errLower, "duplicate key") ||
+				strings.Contains(errLower, "already exists") {
+				continue
+			}
+			return fmt.Errorf("failed to create index %s: %w", idx.name, err)
+		}
 	}
 	return nil
 }

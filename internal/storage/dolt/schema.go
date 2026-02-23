@@ -110,7 +110,10 @@ CREATE TABLE IF NOT EXISTS issues (
     INDEX idx_issues_created_at (created_at),
     INDEX idx_issues_external_ref (external_ref),
     INDEX idx_issues_jack_expires_at (jack_expires_at),
-    INDEX idx_issues_status_type (status, issue_type)
+    INDEX idx_issues_status_type (status, issue_type),
+    INDEX idx_issues_updated_at (updated_at),
+    INDEX idx_issues_due_at (due_at),
+    INDEX idx_issues_defer_until (defer_until)
 );
 
 -- Dependencies table (edge schema)
