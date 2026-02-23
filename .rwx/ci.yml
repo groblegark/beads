@@ -128,10 +128,6 @@ tasks:
   - key: bench
     use: [code, go-deps, git-config, system-deps]
     cache: false
-    filter:
-      - "internal/storage/dolt/**"
-      - "go.mod"
-      - "go.sum"
     run: |
       echo "Running Dolt storage benchmarks..."
       echo "=== System Info ==="
