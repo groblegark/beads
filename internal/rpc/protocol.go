@@ -1119,6 +1119,67 @@ type DecisionCancelResult struct {
 	Prompt     string `json:"prompt"`
 }
 
+// Jack operations (bd-ns7cc)
+
+// JackOnArgs represents arguments for creating and activating a jack.
+type JackOnArgs struct {
+	Target     string   `json:"target"`                // Required: resource identifier (e.g., "pod/my-app", "deployment/api")
+	Reason     string   `json:"reason"`                // Required: why this modification is needed
+	TTL        string   `json:"ttl,omitempty"`         // Duration string, default "1h"
+	RevertPlan string   `json:"revert_plan,omitempty"` // How to undo (required unless P0)
+	Blocks     string   `json:"blocks,omitempty"`      // Bead ID this jack blocks
+	Labels     []string `json:"labels,omitempty"`      // Additional labels (e.g., ["jack:debug"])
+	Priority   int      `json:"priority,omitempty"`    // 0-4, default 2
+	TargetRig  string   `json:"target_rig,omitempty"`  // Rig scope for authorization validation
+}
+
+// JackOffArgs represents arguments for reverting and closing a jack.
+type JackOffArgs struct {
+	ID              string `json:"id"`                          // Jack bead ID
+	Reason          string `json:"reason"`                      // What was found / why reverting
+	SkipRevertCheck bool   `json:"skip_revert_check,omitempty"` // Close without verifying revert was executed
+}
+
+// JackCheckArgs represents arguments for finding expired jacks.
+type JackCheckArgs struct {
+	AutoEscalate bool `json:"auto_escalate,omitempty"` // Create P0 alert beads for expired jacks
+}
+
+// JackCheckResult represents the result of a jack check operation.
+type JackCheckResult struct {
+	Expired   []*types.Issue `json:"expired"`             // Jacks past their TTL
+	Active    int            `json:"active"`              // Count of non-expired active jacks
+	Escalated int            `json:"escalated,omitempty"` // Count of newly escalated (if auto_escalate)
+}
+
+// JackExtendArgs represents arguments for extending a jack's TTL.
+type JackExtendArgs struct {
+	ID     string `json:"id"`               // Jack bead ID
+	TTL    string `json:"ttl,omitempty"`    // New TTL from now (default: original TTL)
+	Reason string `json:"reason,omitempty"` // Why more time is needed
+}
+
+// JackLogArgs represents arguments for recording a change made under a jack.
+type JackLogArgs struct {
+	ID     string `json:"id"`               // Jack bead ID
+	Action string `json:"action"`           // What was done: edit, exec, patch, delete, create
+	Target string `json:"target,omitempty"` // Specific resource affected (defaults to jack target)
+	Before string `json:"before,omitempty"` // State before change
+	After  string `json:"after,omitempty"`  // State after change
+	Cmd    string `json:"cmd,omitempty"`    // Command that was executed
+}
+
+// JackChange represents a single modification recorded under a jack.
+type JackChange struct {
+	Timestamp string `json:"timestamp"`        // ISO 8601 timestamp
+	Action    string `json:"action"`           // edit, exec, patch, delete, create
+	Target    string `json:"target"`           // Resource affected
+	Before    string `json:"before,omitempty"` // State before (max 5KB)
+	After     string `json:"after,omitempty"`  // State after (max 5KB)
+	Cmd       string `json:"cmd,omitempty"`    // Command executed
+	Agent     string `json:"agent,omitempty"`  // Agent that made the change
+}
+
 // Inbox operations (bd-xtahx)
 
 // InboxPushArgs represents arguments for pushing a message to the inbox.
