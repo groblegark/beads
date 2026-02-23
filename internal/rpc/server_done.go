@@ -93,16 +93,14 @@ func (s *Server) handleDoneWait(req *Request) Response {
 	if bus != nil && bus.JetStreamEnabled() {
 		result, err := s.doneWaitViaNATS(ctx, bus.JetStream(), agentName, timeout, listenInbox, listenDecision)
 		if err == nil {
-			data, _ := json.Marshal(result)
-			return Response{Success: true, Data: data}
+			return jsonOK(result)
 		}
 		fmt.Fprintf(os.Stderr, "done_wait: NATS failed (%v), falling back to polling\n", err)
 	}
 
 	// Fallback: poll inbox and decision tables.
 	result := s.doneWaitViaPoll(ctx, agentName, timeout, listenInbox, listenDecision)
-	data, _ := json.Marshal(result)
-	return Response{Success: true, Data: data}
+	return jsonOK(result)
 }
 
 // doneWaitViaNATS subscribes to JetStream subjects and blocks until an event arrives.

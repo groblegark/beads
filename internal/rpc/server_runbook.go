@@ -62,8 +62,7 @@ func (s *Server) handleRunbookList(req *Request) Response {
 		Count:    len(runbooks),
 	}
 
-	data, _ := json.Marshal(result)
-	return Response{Success: true, Data: data}
+	return jsonOK(result)
 }
 
 // handleRunbookGet handles the runbook_get RPC operation.
@@ -142,8 +141,7 @@ func (s *Server) handleRunbookGet(req *Request) Response {
 		Content: issue.Metadata,
 	}
 
-	data, _ := json.Marshal(result)
-	return Response{Success: true, Data: data}
+	return jsonOK(result)
 }
 
 // handleRunbookSave handles the runbook_save RPC operation.
@@ -235,6 +233,5 @@ func (s *Server) handleRunbookSave(req *Request) Response {
 		Created: created,
 	}
 
-	data, _ := json.Marshal(result)
-	return Response{Success: true, Data: data}
+	return jsonOK(result)
 }

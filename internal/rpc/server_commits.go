@@ -88,8 +88,7 @@ func (s *Server) handleRecordCommit(req *Request) Response {
 	}
 	record.RecordedAt = time.Now().UTC().Format(time.RFC3339)
 
-	data, _ := json.Marshal(record)
-	return Response{Success: true, Data: data}
+	return jsonOK(record)
 }
 
 // handleCommitsForIssue returns all commits associated with an issue (bd-xxabm).
@@ -136,8 +135,7 @@ func (s *Server) handleCommitsForIssue(req *Request) Response {
 	defer rows.Close()
 
 	records := scanCommitRows(rows)
-	data, _ := json.Marshal(records)
-	return Response{Success: true, Data: data}
+	return jsonOK(records)
 }
 
 // handleIssuesForCommit returns all issues associated with a commit SHA (bd-xxabm).
@@ -178,8 +176,7 @@ func (s *Server) handleIssuesForCommit(req *Request) Response {
 	defer rows.Close()
 
 	records := scanCommitRows(rows)
-	data, _ := json.Marshal(records)
-	return Response{Success: true, Data: data}
+	return jsonOK(records)
 }
 
 // scanCommitRows scans issue_commits rows into CommitRecord slice.

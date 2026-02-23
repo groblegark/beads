@@ -250,11 +250,7 @@ func (s *Server) handleSessionRegister(req *Request) Response {
 		SessionKey:   args.SessionKey,
 	}
 
-	data, _ := json.Marshal(resp)
-	return Response{
-		Success: true,
-		Data:    data,
-	}
+	return jsonOK(resp)
 }
 
 // handleSessionList returns all registered sessions (bd-tp3r6).
@@ -266,11 +262,10 @@ func (s *Server) handleSessionList(req *Request) Response {
 
 	if s.sessionReg == nil {
 		// No sessions registered yet
-		data, _ := json.Marshal(SessionListResponse{
+		return jsonOK(SessionListResponse{
 			Sessions: []SessionListEntry{},
 			Count:    0,
 		})
-		return Response{Success: true, Data: data}
 	}
 
 	entries := s.sessionReg.list()
@@ -296,6 +291,5 @@ func (s *Server) handleSessionList(req *Request) Response {
 		Count:    len(sessions),
 	}
 
-	data, _ := json.Marshal(resp)
-	return Response{Success: true, Data: data}
+	return jsonOK(resp)
 }

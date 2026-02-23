@@ -1,6 +1,5 @@
 package rpc
 
-import "encoding/json"
 
 // DirtyCountResult is the response for the dirty_count operation.
 type DirtyCountResult struct {
@@ -17,8 +16,7 @@ func (s *Server) handleDirtyCount(req *Request) Response {
 		return Response{Success: false, Error: err.Error()}
 	}
 
-	data, _ := json.Marshal(DirtyCountResult{Count: count})
-	return Response{Success: true, Data: data}
+	return jsonOK(DirtyCountResult{Count: count})
 }
 
 // DirtyFlushResult is the response for the dirty_flush operation.
@@ -37,6 +35,5 @@ func (s *Server) handleDirtyFlush(req *Request) Response {
 		return Response{Success: false, Error: err.Error()}
 	}
 
-	data, _ := json.Marshal(DirtyFlushResult{Orphaned: orphaned, Exported: exported})
-	return Response{Success: true, Data: data}
+	return jsonOK(DirtyFlushResult{Orphaned: orphaned, Exported: exported})
 }

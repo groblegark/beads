@@ -84,14 +84,12 @@ func (s *Server) handleBusEmit(req *Request) Response {
 	fmt.Fprintf(os.Stderr, "bus_emit: dispatched %s (jetstream=%v block=%v)\n",
 		args.HookType, bus.JetStreamEnabled(), result.Block)
 
-	data, _ := json.Marshal(BusEmitResult{
+	return jsonOK(BusEmitResult{
 		Block:    result.Block,
 		Reason:   result.Reason,
 		Inject:   result.Inject,
 		Warnings: result.Warnings,
 	})
-
-	return Response{Success: true, Data: data}
 }
 
 // handleBusStatus returns event bus health and handler count. (bd-66fp)
@@ -118,8 +116,7 @@ func (s *Server) handleBusStatus(_ *Request) Response {
 		result.Streams = health.Streams
 	}
 
-	data, _ := json.Marshal(result)
-	return Response{Success: true, Data: data}
+	return jsonOK(result)
 }
 
 // handleBusHandlers lists all registered event bus handlers. (bd-66fp)
@@ -147,8 +144,7 @@ func (s *Server) handleBusHandlers(_ *Request) Response {
 		}
 	}
 
-	data, _ := json.Marshal(BusHandlersResult{Handlers: handlers})
-	return Response{Success: true, Data: data}
+	return jsonOK(BusHandlersResult{Handlers: handlers})
 }
 
 // handleBusRegister registers an external handler on the event bus. (bd-4q86.1)
@@ -212,8 +208,7 @@ func (s *Server) handleBusRegister(req *Request) Response {
 		}
 	}
 
-	data, _ := json.Marshal(BusRegisterResult{ID: args.ID, Persisted: persisted})
-	return Response{Success: true, Data: data}
+	return jsonOK(BusRegisterResult{ID: args.ID, Persisted: persisted})
 }
 
 // handleBusUnregister removes an external handler from the event bus. (bd-4q86.1)
@@ -254,8 +249,7 @@ func (s *Server) handleBusUnregister(req *Request) Response {
 
 	fmt.Fprintf(os.Stderr, "bus_unregister: removed=%v persisted=%v handler %q\n", removed, persistRemoved, args.ID)
 
-	data, _ := json.Marshal(BusUnregisterResult{Removed: removed, Persisted: persistRemoved})
-	return Response{Success: true, Data: data}
+	return jsonOK(BusUnregisterResult{Removed: removed, Persisted: persistRemoved})
 }
 
 // AdviceEventPayload is the payload for advice CRUD bus events. (bd-z4cu.2)

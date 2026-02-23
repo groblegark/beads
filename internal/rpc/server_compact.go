@@ -110,11 +110,7 @@ func (s *Server) handleCompact(req *Request) Response {
 				Reduction:    "70-80%",
 				DryRun:       true,
 			}
-			data, _ := json.Marshal(result)
-			return Response{
-				Success: true,
-				Data:    data,
-			}
+			return jsonOK(result)
 		}
 
 		if args.Tier == 1 {
@@ -148,11 +144,7 @@ func (s *Server) handleCompact(req *Request) Response {
 			Reduction:     fmt.Sprintf("%.1f%%", float64(originalSize-compactedSize)/float64(originalSize)*100),
 			Duration:      duration.String(),
 		}
-		data, _ := json.Marshal(result)
-		return Response{
-			Success: true,
-			Data:    data,
-		}
+		return jsonOK(result)
 	}
 
 	if args.All {
@@ -189,11 +181,7 @@ func (s *Server) handleCompact(req *Request) Response {
 				Success: true,
 				Results: []CompactResult{},
 			}
-			data, _ := json.Marshal(result)
-			return Response{
-				Success: true,
-				Data:    data,
-			}
+			return jsonOK(result)
 		}
 
 		issueIDs := make([]string, len(candidates))
@@ -232,11 +220,7 @@ func (s *Server) handleCompact(req *Request) Response {
 			Duration: duration.String(),
 			DryRun:   args.DryRun,
 		}
-		data, _ := json.Marshal(response)
-		return Response{
-			Success: true,
-			Data:    data,
-		}
+		return jsonOK(response)
 	}
 
 	return Response{
@@ -301,9 +285,5 @@ func (s *Server) handleCompactStats(req *Request) Response {
 		Success: true,
 		Stats:   &stats,
 	}
-	data, _ := json.Marshal(result)
-	return Response{
-		Success: true,
-		Data:    data,
-	}
+	return jsonOK(result)
 }

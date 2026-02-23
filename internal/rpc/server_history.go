@@ -42,8 +42,7 @@ func (s *Server) handleHistoryIssue(req *Request) Response {
 	}
 
 	result := HistoryIssueResult{Entries: rpcEntries}
-	data, _ := json.Marshal(result)
-	return Response{Success: true, Data: data}
+	return jsonOK(result)
 }
 
 // handleHistoryDiff returns low-level table-level diffs between two commits.
@@ -93,8 +92,7 @@ func (s *Server) handleHistoryDiff(req *Request) Response {
 	}
 
 	result := HistoryDiffResult{Entries: entries}
-	data, _ := json.Marshal(result)
-	return Response{Success: true, Data: data}
+	return jsonOK(result)
 }
 
 // handleHistoryIssueDiff returns detailed changes to a specific issue between two commits.
@@ -159,8 +157,7 @@ func (s *Server) handleHistoryIssueDiff(req *Request) Response {
 		// sql.ErrNoRows means the issue wasn't in the diff
 		if err.Error() == "sql: no rows in result set" {
 			result.Found = false
-			data, _ := json.Marshal(result)
-			return Response{Success: true, Data: data}
+			return jsonOK(result)
 		}
 		return Response{Success: false, Error: fmt.Sprintf("failed to get issue diff: %v", err)}
 	}
@@ -191,8 +188,7 @@ func (s *Server) handleHistoryIssueDiff(req *Request) Response {
 		result.ToDescription = *toDesc
 	}
 
-	data, _ := json.Marshal(result)
-	return Response{Success: true, Data: data}
+	return jsonOK(result)
 }
 
 // handleHistoryConflicts returns any merge conflicts in the current state.
@@ -230,8 +226,7 @@ func (s *Server) handleHistoryConflicts(req *Request) Response {
 	}
 
 	result := HistoryConflictsResult{Conflicts: conflicts}
-	data, _ := json.Marshal(result)
-	return Response{Success: true, Data: data}
+	return jsonOK(result)
 }
 
 // handleHistoryResolveConflicts resolves merge conflicts using the specified strategy.
@@ -261,8 +256,7 @@ func (s *Server) handleHistoryResolveConflicts(req *Request) Response {
 	}
 
 	result := HistoryResolveConflictsResult{Resolved: true}
-	data, _ := json.Marshal(result)
-	return Response{Success: true, Data: data}
+	return jsonOK(result)
 }
 
 // handleVersionedDiff returns issue-level diffs with full Issue data between two commits.
@@ -300,6 +294,5 @@ func (s *Server) handleVersionedDiff(req *Request) Response {
 	}
 
 	result := VersionedDiffResult{Entries: rpcEntries}
-	data, _ := json.Marshal(result)
-	return Response{Success: true, Data: data}
+	return jsonOK(result)
 }

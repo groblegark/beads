@@ -138,6 +138,5 @@ func (s *Server) handleSQL(req *Request) Response {
 		Count:   len(results),
 	}
 
-	data, _ := json.Marshal(result)
-	return Response{Success: true, Data: data}
+	return jsonOK(result)
 }

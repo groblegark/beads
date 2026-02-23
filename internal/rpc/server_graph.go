@@ -780,11 +780,7 @@ func (s *Server) handleGraph(req *Request) Response {
 		result.Stats.TotalBlocked = graphStats.BlockedIssues
 	}
 
-	data, _ := json.Marshal(result)
-	resp := Response{
-		Success: true,
-		Data:    data,
-	}
+	resp := jsonOK(result)
 
 	// Store in Redis cache for next poll (bd-xlv1i)
 	if s.redisCache != nil {

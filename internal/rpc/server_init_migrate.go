@@ -102,9 +102,5 @@ func (s *Server) handleMigrateInspect(req *Request) Response {
 		Message:         fmt.Sprintf("Database at %s, version %s, %d issues, prefix: %s", s.dbPath, version, issueCount, prefix),
 	}
 
-	data, _ := json.Marshal(result)
-	return Response{
-		Success: true,
-		Data:    data,
-	}
+	return jsonOK(result)
 }

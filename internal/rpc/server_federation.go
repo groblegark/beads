@@ -47,8 +47,7 @@ func (s *Server) handleFedListRemotes(req *Request) Response {
 		result.Remotes[i] = FedRemoteInfo{Name: r.Name, URL: r.URL}
 	}
 
-	data, _ := json.Marshal(result)
-	return Response{Success: true, Data: data}
+	return jsonOK(result)
 }
 
 // handleFedSync handles the fed_sync RPC operation.
@@ -111,8 +110,7 @@ func (s *Server) handleFedSync(req *Request) Response {
 		return Response{Success: false, Error: err.Error(), Data: data}
 	}
 
-	data, _ := json.Marshal(result)
-	return Response{Success: true, Data: data}
+	return jsonOK(result)
 }
 
 // handleFedSyncStatus handles the fed_sync_status RPC operation.
@@ -148,8 +146,7 @@ func (s *Server) handleFedSyncStatus(req *Request) Response {
 		result.LastSync = status.LastSync.Format(time.RFC3339)
 	}
 
-	data, _ := json.Marshal(result)
-	return Response{Success: true, Data: data}
+	return jsonOK(result)
 }
 
 // handleFedFetch handles the fed_fetch RPC operation.
@@ -175,8 +172,7 @@ func (s *Server) handleFedFetch(req *Request) Response {
 	}
 
 	result := FedFetchResult{Peer: args.Peer}
-	data, _ := json.Marshal(result)
-	return Response{Success: true, Data: data}
+	return jsonOK(result)
 }
 
 // handleFedPushTo handles the fed_push_to RPC operation.
@@ -202,8 +198,7 @@ func (s *Server) handleFedPushTo(req *Request) Response {
 	}
 
 	result := FedPushToResult{Peer: args.Peer}
-	data, _ := json.Marshal(result)
-	return Response{Success: true, Data: data}
+	return jsonOK(result)
 }
 
 // handleFedPullFrom handles the fed_pull_from RPC operation.
@@ -240,8 +235,7 @@ func (s *Server) handleFedPullFrom(req *Request) Response {
 		}
 	}
 
-	data, _ := json.Marshal(result)
-	return Response{Success: true, Data: data}
+	return jsonOK(result)
 }
 
 // handleFedAddRemote handles the fed_add_remote RPC operation.
@@ -270,8 +264,7 @@ func (s *Server) handleFedAddRemote(req *Request) Response {
 	}
 
 	result := FedAddRemoteResult{Name: args.Name, URL: args.URL}
-	data, _ := json.Marshal(result)
-	return Response{Success: true, Data: data}
+	return jsonOK(result)
 }
 
 // handleFedRemoveRemote handles the fed_remove_remote RPC operation.
@@ -297,8 +290,7 @@ func (s *Server) handleFedRemoveRemote(req *Request) Response {
 	}
 
 	result := FedRemoveRemoteResult{Name: args.Name}
-	data, _ := json.Marshal(result)
-	return Response{Success: true, Data: data}
+	return jsonOK(result)
 }
 
 // handleFedAddPeer handles the fed_add_peer RPC operation.
@@ -341,6 +333,5 @@ func (s *Server) handleFedAddPeer(req *Request) Response {
 		HasAuth:     args.Username != "",
 		Sovereignty: args.Sovereignty,
 	}
-	data, _ := json.Marshal(result)
-	return Response{Success: true, Data: data}
+	return jsonOK(result)
 }

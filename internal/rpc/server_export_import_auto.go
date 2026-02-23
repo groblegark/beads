@@ -260,11 +260,7 @@ func (s *Server) handleExport(req *Request) Response {
 	if len(encodingWarnings) > 0 {
 		responseData["warnings"] = encodingWarnings
 	}
-	data, _ := json.Marshal(responseData)
-	return Response{
-		Success: true,
-		Data:    data,
-	}
+	return jsonOK(responseData)
 }
 
 // handleImport handles the import operation

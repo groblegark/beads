@@ -294,8 +294,7 @@ func (s *Server) handleBurndown(req *Request) Response {
 		Interval:   interval,
 		DataPoints: dataPoints,
 	}
-	data, _ := json.Marshal(resp)
-	return Response{Success: true, Data: data}
+	return jsonOK(resp)
 }
 
 // handleVelocity returns throughput metrics per interval (beads-cqpj).
@@ -458,8 +457,7 @@ func (s *Server) handleVelocity(req *Request) Response {
 		Interval:   interval,
 		DataPoints: dataPoints,
 	}
-	data, _ := json.Marshal(resp)
-	return Response{Success: true, Data: data}
+	return jsonOK(resp)
 }
 
 // handleCycleTime returns cycle-time percentile stats grouped by dimension (beads-cqpj).
@@ -583,8 +581,7 @@ func (s *Server) handleCycleTime(req *Request) Response {
 		GroupBy:   groupBy,
 		Buckets:   buckets,
 	}
-	data, _ := json.Marshal(resp)
-	return Response{Success: true, Data: data}
+	return jsonOK(resp)
 }
 
 // percentile returns the p-th percentile from a sorted slice using nearest-rank.

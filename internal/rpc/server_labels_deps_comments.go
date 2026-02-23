@@ -91,8 +91,7 @@ func (s *Server) handleDepAdd(req *Request) Response {
 		"depends_on_id": depArgs.ToID,
 		"type":          depArgs.DepType,
 	}
-	data, _ := json.Marshal(result)
-	return Response{Success: true, Data: data}
+	return jsonOK(result)
 }
 
 // Generic handler for simple store operations with standard error handling
@@ -131,8 +130,7 @@ func (s *Server) handleSimpleStoreOp(req *Request, argsPtr interface{}, argDesc 
 	}
 
 	if responseData != nil {
-		data, _ := json.Marshal(responseData())
-		return Response{Success: true, Data: data}
+		return jsonOK(responseData())
 	}
 	return Response{Success: true}
 }
@@ -235,8 +233,7 @@ func (s *Server) handleDepAddBidirectional(req *Request) Response {
 		"id2":    args.ID2,
 		"type":   args.DepType,
 	}
-	data, _ := json.Marshal(result)
-	return Response{Success: true, Data: data}
+	return jsonOK(result)
 }
 
 // handleDepRemoveBidirectional removes a bidirectional relation atomically in a single transaction.
@@ -301,8 +298,7 @@ func (s *Server) handleDepRemoveBidirectional(req *Request) Response {
 		"id1":    args.ID1,
 		"id2":    args.ID2,
 	}
-	data, _ := json.Marshal(result)
-	return Response{Success: true, Data: data}
+	return jsonOK(result)
 }
 
 func (s *Server) handleLabelAdd(req *Request) Response {
@@ -348,8 +344,7 @@ func (s *Server) handleBatchAddLabels(req *Request) Response {
 			IssueID:     args.IssueID,
 			LabelsAdded: 0,
 		}
-		data, _ := json.Marshal(result)
-		return Response{Success: true, Data: data}
+		return jsonOK(result)
 	}
 
 	store := s.storage
@@ -402,8 +397,7 @@ func (s *Server) handleBatchAddLabels(req *Request) Response {
 			IssueID:     fullID,
 			LabelsAdded: 0,
 		}
-		data, _ := json.Marshal(result)
-		return Response{Success: true, Data: data}
+		return jsonOK(result)
 	}
 
 	// Add all labels in a single transaction
@@ -439,8 +433,7 @@ func (s *Server) handleBatchAddLabels(req *Request) Response {
 		IssueID:     fullID,
 		LabelsAdded: len(labelsToAdd),
 	}
-	data, _ := json.Marshal(result)
-	return Response{Success: true, Data: data}
+	return jsonOK(result)
 }
 
 func (s *Server) handleCommentList(req *Request) Response {
@@ -464,11 +457,7 @@ func (s *Server) handleCommentList(req *Request) Response {
 		}
 	}
 
-	data, _ := json.Marshal(comments)
-	return Response{
-		Success: true,
-		Data:    data,
-	}
+	return jsonOK(comments)
 }
 
 func (s *Server) handleCommentAdd(req *Request) Response {
@@ -499,11 +488,7 @@ func (s *Server) handleCommentAdd(req *Request) Response {
 		s.emitMutation(MutationComment, commentArgs.ID, "", "")
 	}
 
-	data, _ := json.Marshal(comment)
-	return Response{
-		Success: true,
-		Data:    data,
-	}
+	return jsonOK(comment)
 }
 
 func (s *Server) handleBatch(req *Request) Response {
@@ -537,12 +522,7 @@ func (s *Server) handleBatch(req *Request) Response {
 	}
 
 	batchResp := BatchResponse{Results: results}
-	data, _ := json.Marshal(batchResp)
-
-	return Response{
-		Success: true,
-		Data:    data,
-	}
+	return jsonOK(batchResp)
 }
 
 // handleSetState handles the set_state RPC operation.
@@ -621,8 +601,7 @@ func (s *Server) handleSetState(req *Request) Response {
 			NewValue:  args.NewValue,
 			Changed:   false,
 		}
-		data, _ := json.Marshal(result)
-		return Response{Success: true, Data: data}
+		return jsonOK(result)
 	}
 
 	// Build event description
@@ -708,8 +687,7 @@ func (s *Server) handleSetState(req *Request) Response {
 		EventID:   eventID,
 		Changed:   true,
 	}
-	data, _ := json.Marshal(result)
-	return Response{Success: true, Data: data}
+	return jsonOK(result)
 }
 
 // handleBatchAddDependencies adds multiple dependencies atomically in a single transaction.
@@ -729,8 +707,7 @@ func (s *Server) handleBatchAddDependencies(req *Request) Response {
 		result := &BatchAddDependenciesResult{
 			Added: 0,
 		}
-		data, _ := json.Marshal(result)
-		return Response{Success: true, Data: data}
+		return jsonOK(result)
 	}
 
 	store := s.storage
@@ -796,8 +773,7 @@ func (s *Server) handleBatchAddDependencies(req *Request) Response {
 		Added:  addedCount,
 		Errors: errors,
 	}
-	data, _ := json.Marshal(result)
-	return Response{Success: true, Data: data}
+	return jsonOK(result)
 }
 
 // handleBatchQueryWorkers queries worker assignments for multiple issues at once.
@@ -816,8 +792,7 @@ func (s *Server) handleBatchQueryWorkers(req *Request) Response {
 		result := &BatchQueryWorkersResult{
 			Workers: make(map[string]*WorkerInfo),
 		}
-		data, _ := json.Marshal(result)
-		return Response{Success: true, Data: data}
+		return jsonOK(result)
 	}
 
 	store := s.storage
@@ -866,6 +841,5 @@ func (s *Server) handleBatchQueryWorkers(req *Request) Response {
 	result := &BatchQueryWorkersResult{
 		Workers: workers,
 	}
-	data, _ := json.Marshal(result)
-	return Response{Success: true, Data: data}
+	return jsonOK(result)
 }

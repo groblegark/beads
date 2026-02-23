@@ -602,11 +602,7 @@ func (s *Server) handleCreate(req *Request) Response {
 
 		// Wisps don't support dependencies, labels, or other persistent relations
 		// They are purely in-memory ephemeral issues
-		data, _ := json.Marshal(issue)
-		return Response{
-			Success: true,
-			Data:    data,
-		}
+		return jsonOK(issue)
 	}
 
 	// Pre-validate dependency specs and waits-for gate before starting the transaction
@@ -830,11 +826,7 @@ func (s *Server) handleCreate(req *Request) Response {
 		s.labelCache.SetLabels(issue.ID, issue.Labels)
 	}
 
-	data, _ := json.Marshal(issue)
-	return Response{
-		Success: true,
-		Data:    data,
-	}
+	return jsonOK(issue)
 }
 
 // validateClaimPreconditions checks claim-related guards that apply to both
@@ -979,11 +971,7 @@ func (s *Server) handleUpdate(req *Request) Response {
 			// Emit mutation event
 			s.emitMutationFor(MutationUpdate, issue)
 
-			data, _ := json.Marshal(issue)
-			return Response{
-				Success: true,
-				Data:    data,
-			}
+			return jsonOK(issue)
 		}
 		// Not found in WispStore, fall through to regular storage
 	}
@@ -1500,11 +1488,7 @@ func (s *Server) handleUpdateWithComment(req *Request) Response {
 		s.labelCache.InvalidateIssue(args.ID)
 	}
 
-	data, _ := json.Marshal(updatedIssue)
-	return Response{
-		Success: true,
-		Data:    data,
-	}
+	return jsonOK(updatedIssue)
 }
 
 func (s *Server) handleClose(req *Request) Response {
@@ -1555,11 +1539,7 @@ func (s *Server) handleClose(req *Request) Response {
 			enrichEvent(&evt, issue)
 			s.emitRichMutation(evt)
 
-			data, _ := json.Marshal(issue)
-			return Response{
-				Success: true,
-				Data:    data,
-			}
+			return jsonOK(issue)
 		}
 		// Not found in WispStore, fall through to regular storage
 	}
@@ -1675,19 +1655,11 @@ func (s *Server) handleClose(req *Request) Response {
 			Closed:    closedIssue,
 			Unblocked: unblocked,
 		}
-		data, _ := json.Marshal(result)
-		return Response{
-			Success: true,
-			Data:    data,
-		}
+		return jsonOK(result)
 	}
 
 	// Backward compatible: just return the closed issue
-	data, _ := json.Marshal(closedIssue)
-	return Response{
-		Success: true,
-		Data:    data,
-	}
+	return jsonOK(closedIssue)
 }
 
 func (s *Server) handleDelete(req *Request) Response {
@@ -1737,14 +1709,10 @@ func (s *Server) handleDelete(req *Request) Response {
 
 		// If all IDs were wisps, return success
 		if len(regularIDs) == 0 {
-			data, _ := json.Marshal(map[string]interface{}{
+			return jsonOK(map[string]interface{}{
 				"deleted_count": len(wispIDs),
 				"total_count":   len(deleteArgs.IDs),
 			})
-			return Response{
-				Success: true,
-				Data:    data,
-			}
 		}
 
 		// Continue with regular IDs
@@ -1784,16 +1752,12 @@ func (s *Server) handleDelete(req *Request) Response {
 			}
 
 			if deleteArgs.DryRun {
-				data, _ := json.Marshal(map[string]interface{}{
+				return jsonOK(map[string]interface{}{
 					"deleted_count": len(deleteArgs.IDs),
 					"total_count":   len(deleteArgs.IDs),
 					"dry_run":       true,
 					"issue_count":   len(deleteArgs.IDs),
 				})
-				return Response{
-					Success: true,
-					Data:    data,
-				}
 			}
 
 			// Delete issues one by one using the storage interface.
@@ -1843,26 +1807,18 @@ func (s *Server) handleDelete(req *Request) Response {
 				responseData["partial_success"] = true
 			}
 
-			data, _ := json.Marshal(responseData)
-			return Response{
-				Success: true,
-				Data:    data,
-			}
+			return jsonOK(responseData)
 		}
 	}
 
 	// Simple single-issue delete path (preserves custom reason)
 	// DryRun mode: just return what would be deleted
 	if deleteArgs.DryRun {
-		data, _ := json.Marshal(map[string]interface{}{
+		return jsonOK(map[string]interface{}{
 			"dry_run":     true,
 			"issue_count": len(deleteArgs.IDs),
 			"issues":      deleteArgs.IDs,
 		})
-		return Response{
-			Success: true,
-			Data:    data,
-		}
 	}
 
 	deletedCount := 0
@@ -1957,11 +1913,7 @@ func (s *Server) handleDelete(req *Request) Response {
 		result["partial_success"] = true
 	}
 
-	data, _ := json.Marshal(result)
-	return Response{
-		Success: true,
-		Data:    data,
-	}
+	return jsonOK(result)
 }
 
 func (s *Server) handleRename(req *Request) Response {
@@ -2053,11 +2005,7 @@ func (s *Server) handleRename(req *Request) Response {
 		ReferencesUpdated: referencesUpdated,
 	}
 
-	data, _ := json.Marshal(result)
-	return Response{
-		Success: true,
-		Data:    data,
-	}
+	return jsonOK(result)
 }
 
 // updateReferencesInAllIssues updates text references to the old ID in all issues
@@ -2406,11 +2354,7 @@ func (s *Server) handleList(req *Request) Response {
 				DependentCount:  0,
 			}
 		}
-		data, _ := json.Marshal(issuesWithCounts)
-		return Response{
-			Success: true,
-			Data:    data,
-		}
+		return jsonOK(issuesWithCounts)
 	}
 
 	// Reduce database limit to account for wisps already collected (gt-w676pl.4)
@@ -2500,11 +2444,7 @@ func (s *Server) handleList(req *Request) Response {
 		issuesWithCounts = issuesWithCounts[:listArgs.Limit]
 	}
 
-	data, _ := json.Marshal(issuesWithCounts)
-	return Response{
-		Success: true,
-		Data:    data,
-	}
+	return jsonOK(issuesWithCounts)
 }
 
 // handleListWatch implements long-polling watch mode for bd list --watch (bd-la75)
@@ -2742,11 +2682,7 @@ func (s *Server) handleListWatch(req *Request) Response {
 		LastMutationMs: lastMutationMs,
 	}
 
-	data, _ := json.Marshal(result)
-	return Response{
-		Success: true,
-		Data:    data,
-	}
+	return jsonOK(result)
 }
 
 func (s *Server) handleCount(req *Request) Response {
@@ -2912,11 +2848,7 @@ func (s *Server) handleCount(req *Request) Response {
 		type CountResult struct {
 			Count int `json:"count"`
 		}
-		data, _ := json.Marshal(CountResult{Count: len(issues)})
-		return Response{
-			Success: true,
-			Data:    data,
-		}
+		return jsonOK(CountResult{Count: len(issues)})
 	}
 
 	// Group by the specified field
@@ -2995,11 +2927,7 @@ func (s *Server) handleCount(req *Request) Response {
 		Groups: groups,
 	}
 
-	data, _ := json.Marshal(result)
-	return Response{
-		Success: true,
-		Data:    data,
-	}
+	return jsonOK(result)
 }
 
 func (s *Server) handleResolveID(req *Request) Response {
@@ -3025,11 +2953,7 @@ func (s *Server) handleResolveID(req *Request) Response {
 	if s.wispStore != nil && isWispID(args.ID) {
 		issue, err := s.wispStore.Get(ctx, args.ID)
 		if err == nil && issue != nil {
-			data, _ := json.Marshal(issue.ID)
-			return Response{
-				Success: true,
-				Data:    data,
-			}
+			return jsonOK(issue.ID)
 		}
 		// Fall through to regular storage if not found in wispStore
 	}
@@ -3042,11 +2966,7 @@ func (s *Server) handleResolveID(req *Request) Response {
 		}
 	}
 
-	data, _ := json.Marshal(resolvedID)
-	return Response{
-		Success: true,
-		Data:    data,
-	}
+	return jsonOK(resolvedID)
 }
 
 func (s *Server) handleShow(req *Request) Response {
@@ -3076,11 +2996,7 @@ func (s *Server) handleShow(req *Request) Response {
 				Issue:  *issue,
 				Labels: issue.Labels, // Labels are stored directly on wisp
 			}
-			data, _ := json.Marshal(details)
-			return Response{
-				Success: true,
-				Data:    data,
-			}
+			return jsonOK(details)
 		}
 		// Not found in WispStore, fall through to regular storage
 	}
@@ -3146,11 +3062,7 @@ func (s *Server) handleShow(req *Request) Response {
 		Commits:      commitsJSON,
 	}
 
-	data, _ := json.Marshal(details)
-	return Response{
-		Success: true,
-		Data:    data,
-	}
+	return jsonOK(details)
 }
 
 func (s *Server) handleReady(req *Request) Response {
@@ -3202,11 +3114,7 @@ func (s *Server) handleReady(req *Request) Response {
 		}
 	}
 
-	data, _ := json.Marshal(issues)
-	return Response{
-		Success: true,
-		Data:    data,
-	}
+	return jsonOK(issues)
 }
 
 func (s *Server) handleBlocked(req *Request) Response {
@@ -3241,11 +3149,7 @@ func (s *Server) handleBlocked(req *Request) Response {
 		}
 	}
 
-	data, _ := json.Marshal(blocked)
-	return Response{
-		Success: true,
-		Data:    data,
-	}
+	return jsonOK(blocked)
 }
 
 func (s *Server) handleStale(req *Request) Response {
@@ -3281,11 +3185,7 @@ func (s *Server) handleStale(req *Request) Response {
 		}
 	}
 
-	data, _ := json.Marshal(issues)
-	return Response{
-		Success: true,
-		Data:    data,
-	}
+	return jsonOK(issues)
 }
 
 func (s *Server) handleStats(req *Request) Response {
@@ -3307,11 +3207,7 @@ func (s *Server) handleStats(req *Request) Response {
 		}
 	}
 
-	data, _ := json.Marshal(stats)
-	return Response{
-		Success: true,
-		Data:    data,
-	}
+	return jsonOK(stats)
 }
 
 func (s *Server) handleEpicStatus(req *Request) Response {
@@ -3474,11 +3370,7 @@ func (s *Server) handleGetConfig(req *Request) Response {
 		Value: value,
 	}
 
-	data, _ := json.Marshal(result)
-	return Response{
-		Success: true,
-		Data:    data,
-	}
+	return jsonOK(result)
 }
 
 // handleConfigSet sets a config value in the database (bd-wmil)
@@ -3521,11 +3413,7 @@ func (s *Server) handleConfigSet(req *Request) Response {
 		Value: args.Value,
 	}
 
-	data, _ := json.Marshal(result)
-	return Response{
-		Success: true,
-		Data:    data,
-	}
+	return jsonOK(result)
 }
 
 // handleConfigList lists all config values from the database (bd-wmil)
@@ -3554,11 +3442,7 @@ func (s *Server) handleConfigList(req *Request) Response {
 		Config: config,
 	}
 
-	data, _ := json.Marshal(result)
-	return Response{
-		Success: true,
-		Data:    data,
-	}
+	return jsonOK(result)
 }
 
 // handleConfigUnset deletes a config value from the database (bd-wmil)
@@ -3599,11 +3483,7 @@ func (s *Server) handleConfigUnset(req *Request) Response {
 		Key: args.Key,
 	}
 
-	data, _ := json.Marshal(result)
-	return Response{
-		Success: true,
-		Data:    data,
-	}
+	return jsonOK(result)
 }
 
 // Gate handlers
@@ -3656,11 +3536,7 @@ func (s *Server) handleGateCreate(req *Request) Response {
 	// Emit mutation event
 	s.emitMutationFor(MutationCreate, gate)
 
-	data, _ := json.Marshal(GateCreateResult{ID: gate.ID})
-	return Response{
-		Success: true,
-		Data:    data,
-	}
+	return jsonOK(GateCreateResult{ID: gate.ID})
 }
 
 func (s *Server) handleGateList(req *Request) Response {
@@ -3701,11 +3577,7 @@ func (s *Server) handleGateList(req *Request) Response {
 		}
 	}
 
-	data, _ := json.Marshal(gates)
-	return Response{
-		Success: true,
-		Data:    data,
-	}
+	return jsonOK(gates)
 }
 
 func (s *Server) handleGateShow(req *Request) Response {
@@ -3757,11 +3629,7 @@ func (s *Server) handleGateShow(req *Request) Response {
 		}
 	}
 
-	data, _ := json.Marshal(gate)
-	return Response{
-		Success: true,
-		Data:    data,
-	}
+	return jsonOK(gate)
 }
 
 func (s *Server) handleGateClose(req *Request) Response {
@@ -3842,11 +3710,7 @@ func (s *Server) handleGateClose(req *Request) Response {
 	s.pushGateClosedToInbox(ctx, gate, reason)
 
 	closedGate, _ := store.GetIssue(ctx, gateID)
-	data, _ := json.Marshal(closedGate)
-	return Response{
-		Success: true,
-		Data:    data,
-	}
+	return jsonOK(closedGate)
 }
 
 func (s *Server) handleGateWait(req *Request) Response {
@@ -3938,11 +3802,7 @@ func (s *Server) handleGateWait(req *Request) Response {
 		s.emitMutationFor(MutationUpdate, gate)
 	}
 
-	data, _ := json.Marshal(GateWaitResult{AddedCount: addedCount})
-	return Response{
-		Success: true,
-		Data:    data,
-	}
+	return jsonOK(GateWaitResult{AddedCount: addedCount})
 }
 
 // Decision point handlers
@@ -4185,11 +4045,7 @@ func (s *Server) handleDecisionCreate(req *Request) Response {
 		Issue:    issue,
 	}
 
-	data, _ := json.Marshal(resp)
-	return Response{
-		Success: true,
-		Data:    data,
-	}
+	return jsonOK(resp)
 }
 
 func (s *Server) handleDecisionGet(req *Request) Response {
@@ -4240,11 +4096,7 @@ func (s *Server) handleDecisionGet(req *Request) Response {
 		Issue:    issue,
 	}
 
-	data, _ := json.Marshal(resp)
-	return Response{
-		Success: true,
-		Data:    data,
-	}
+	return jsonOK(resp)
 }
 
 func (s *Server) handleDecisionResolve(req *Request) Response {
@@ -4388,11 +4240,7 @@ func (s *Server) handleDecisionResolve(req *Request) Response {
 		}
 	}
 
-	data, _ := json.Marshal(resp)
-	return Response{
-		Success: true,
-		Data:    data,
-	}
+	return jsonOK(resp)
 }
 
 // pushDecisionResponseToInbox pushes a formatted decision response to the
@@ -4679,11 +4527,7 @@ func (s *Server) handleDecisionList(req *Request) Response {
 		Count:     len(respDecisions),
 	}
 
-	data, _ := json.Marshal(resp)
-	return Response{
-		Success: true,
-		Data:    data,
-	}
+	return jsonOK(resp)
 }
 
 func (s *Server) handleDecisionListRecent(req *Request) Response {
@@ -4736,11 +4580,7 @@ func (s *Server) handleDecisionListRecent(req *Request) Response {
 		Count:     len(respDecisions),
 	}
 
-	data, _ := json.Marshal(resp)
-	return Response{
-		Success: true,
-		Data:    data,
-	}
+	return jsonOK(resp)
 }
 
 func (s *Server) handleDecisionRemind(req *Request) Response {
@@ -4852,11 +4692,7 @@ func (s *Server) handleDecisionRemind(req *Request) Response {
 		Prompt:        dp.Prompt,
 	}
 
-	data, _ := json.Marshal(result)
-	return Response{
-		Success: true,
-		Data:    data,
-	}
+	return jsonOK(result)
 }
 
 func (s *Server) handleDecisionCancel(req *Request) Response {
@@ -4931,11 +4767,7 @@ func (s *Server) handleDecisionCancel(req *Request) Response {
 			CanceledBy: args.CanceledBy,
 			Prompt:     dp.Prompt,
 		}
-		data, _ := json.Marshal(result)
-		return Response{
-			Success: true,
-			Data:    data,
-		}
+		return jsonOK(result)
 	}
 
 	// Mark as canceled
@@ -4980,11 +4812,7 @@ func (s *Server) handleDecisionCancel(req *Request) Response {
 		Prompt:     dp.Prompt,
 	}
 
-	data, _ := json.Marshal(result)
-	return Response{
-		Success: true,
-		Data:    data,
-	}
+	return jsonOK(result)
 }
 
 // handleCreateWithDeps handles the create_with_deps operation for atomic issue creation.
@@ -5132,11 +4960,7 @@ func (s *Server) handleCreateWithDeps(req *Request) Response {
 		Created:   len(args.Issues),
 	}
 
-	data, _ := json.Marshal(result)
-	return Response{
-		Success: true,
-		Data:    data,
-	}
+	return jsonOK(result)
 }
 
 // handleCreateMolecule creates multiple issues and their dependencies atomically.
@@ -5329,11 +5153,7 @@ func (s *Server) handleCreateMolecule(req *Request) Response {
 		}, s.reqActor(req))
 	}
 
-	data, _ := json.Marshal(result)
-	return Response{
-		Success: true,
-		Data:    data,
-	}
+	return jsonOK(result)
 }
 
 // handleCreateConvoyWithTracking creates a convoy issue and tracking dependencies atomically.
@@ -5441,11 +5261,7 @@ func (s *Server) handleCreateConvoyWithTracking(req *Request) Response {
 		TrackedIDs:   trackedIDs,
 	}
 
-	data, _ := json.Marshal(result)
-	return Response{
-		Success: true,
-		Data:    data,
-	}
+	return jsonOK(result)
 }
 
 // handleAtomicClosureChain closes multiple related issues and updates an agent atomically.
@@ -5532,9 +5348,5 @@ func (s *Server) handleAtomicClosureChain(req *Request) Response {
 		s.emitMutation(MutationUpdate, args.AgentBeadID, "", "")
 	}
 
-	data, _ := json.Marshal(result)
-	return Response{
-		Success: true,
-		Data:    data,
-	}
+	return jsonOK(result)
 }

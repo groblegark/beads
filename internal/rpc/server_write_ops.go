@@ -80,8 +80,7 @@ func (s *Server) handleRenamePrefix(req *Request) Response {
 			IssuesRenamed: count,
 			DryRun:        true,
 		}
-		data, _ := json.Marshal(result)
-		return Response{Success: true, Data: data}
+		return jsonOK(result)
 	}
 
 	// Rename each issue
@@ -136,8 +135,7 @@ func (s *Server) handleRenamePrefix(req *Request) Response {
 		IssuesRenamed: renamed,
 		DryRun:        false,
 	}
-	data, _ := json.Marshal(result)
-	return Response{Success: true, Data: data}
+	return jsonOK(result)
 }
 
 // renamePrefixInFields updates text references to the old prefix in all issue fields.
@@ -242,8 +240,7 @@ func (s *Server) handleMove(req *Request) Response {
 		Closed:       closed,
 		DepsRemapped: depsRemapped,
 	}
-	data, _ := json.Marshal(result)
-	return Response{Success: true, Data: data}
+	return jsonOK(result)
 }
 
 // handleRefile handles the refile RPC operation (bd-wj80).
@@ -343,8 +340,7 @@ func (s *Server) handleRefile(req *Request) Response {
 		TargetID: newIssue.ID,
 		Closed:   closed,
 	}
-	data, _ := json.Marshal(result)
-	return Response{Success: true, Data: data}
+	return jsonOK(result)
 }
 
 // handleCook handles the cook RPC operation (gt-pozvwr.24.6).
@@ -415,8 +411,7 @@ func (s *Server) handleCook(req *Request) Response {
 			BondPoints: bondPoints,
 			DryRun:     true,
 		}
-		data, _ := json.Marshal(result)
-		return Response{Success: true, Data: data}
+		return jsonOK(result)
 	}
 
 	// Determine runtime mode
@@ -475,8 +470,7 @@ func (s *Server) handleCook(req *Request) Response {
 		BondPoints: bondPoints,
 		Subgraph:   subgraphJSON,
 	}
-	data, _ := json.Marshal(result)
-	return Response{Success: true, Data: data}
+	return jsonOK(result)
 }
 
 // handleCookPersist creates a proto bead from a resolved formula and stores it in the DB.
@@ -561,8 +555,7 @@ func (s *Server) handleCookPersist(ctx context.Context, resolved *formula.Formul
 		Variables:  vars,
 		BondPoints: bondPoints,
 	}
-	data, _ := json.Marshal(result)
-	return Response{Success: true, Data: data}
+	return jsonOK(result)
 }
 
 // deleteProtoSubgraphFromDB deletes a proto and all its child issues from the database.
@@ -671,8 +664,7 @@ func (s *Server) handlePour(req *Request) Response {
 			Created: issueCount,
 			Phase:   "liquid",
 		}
-		data, _ := json.Marshal(result)
-		return Response{Success: true, Data: data}
+		return jsonOK(result)
 	}
 
 	// Spawn as persistent mol (ephemeral=false)
@@ -750,8 +742,7 @@ func (s *Server) handlePour(req *Request) Response {
 		Phase:    "liquid",
 		Runbooks: runbooks,
 	}
-	data, _ := json.Marshal(result)
-	return Response{Success: true, Data: data}
+	return jsonOK(result)
 }
 
 // cookFormulaFull loads a formula by name, applies the full transformation pipeline,

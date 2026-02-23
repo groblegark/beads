@@ -80,8 +80,7 @@ func (s *Server) handleFormulaList(req *Request) Response {
 		Count:    len(formulas),
 	}
 
-	data, _ := json.Marshal(result)
-	return Response{Success: true, Data: data}
+	return jsonOK(result)
 }
 
 // handleFormulaGet handles the formula_get RPC operation (gt-pozvwr.24.9).
@@ -154,8 +153,7 @@ func (s *Server) handleFormulaGet(req *Request) Response {
 		Source:  f.Source,
 	}
 
-	data, _ := json.Marshal(result)
-	return Response{Success: true, Data: data}
+	return jsonOK(result)
 }
 
 // handleFormulaSave handles the formula_save RPC operation (gt-pozvwr.24.9).
@@ -258,8 +256,7 @@ func (s *Server) handleFormulaSave(req *Request) Response {
 		Created: created,
 	}
 
-	data, _ := json.Marshal(result)
-	return Response{Success: true, Data: data}
+	return jsonOK(result)
 }
 
 // handleFormulaDelete handles the formula_delete RPC operation (gt-pozvwr.24.9).
@@ -345,6 +342,5 @@ func (s *Server) handleFormulaDelete(req *Request) Response {
 		Name: issue.Title,
 	}
 
-	data, _ := json.Marshal(result)
-	return Response{Success: true, Data: data}
+	return jsonOK(result)
 }

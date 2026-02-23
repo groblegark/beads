@@ -164,8 +164,7 @@ func (s *Server) handleJackOn(req *Request) Response {
 	s.emitMutationFor(MutationCreate, issue)
 	s.emitJackEvent(eventbus.EventJackOn, issue.ID, args.Target, actor, args.Reason, ttl.String(), expiresAt.Format(time.RFC3339))
 
-	data, _ := json.Marshal(issue)
-	return Response{Success: true, Data: data}
+	return jsonOK(issue)
 }
 
 // handleJackOff closes a jack bead after verifying revert status.
@@ -253,8 +252,7 @@ func (s *Server) handleJackOff(req *Request) Response {
 	target, _ := metadata["jack_target"].(string)
 	s.emitJackEvent(eventbus.EventJackOff, args.ID, target, actor, args.Reason, "", "")
 
-	data, _ := json.Marshal(issue)
-	return Response{Success: true, Data: data}
+	return jsonOK(issue)
 }
 
 // handleJackCheck finds expired jacks. If --auto-escalate, creates P0 alert beads.
@@ -363,8 +361,7 @@ func (s *Server) handleJackCheck(req *Request) Response {
 		Active:    active,
 		Escalated: escalated,
 	}
-	data, _ := json.Marshal(result)
-	return Response{Success: true, Data: data}
+	return jsonOK(result)
 }
 
 // handleJackExtend extends a jack's TTL.
@@ -448,8 +445,7 @@ func (s *Server) handleJackExtend(req *Request) Response {
 		"ttl":        ttl.String(),
 		"expires_at": newExpiry.Format(time.RFC3339),
 	}
-	data, _ := json.Marshal(result)
-	return Response{Success: true, Data: data}
+	return jsonOK(result)
 }
 
 // handleJackLog appends a change record to a jack's metadata.
@@ -575,6 +571,5 @@ func (s *Server) handleJackLog(req *Request) Response {
 		"timestamp":    change.Timestamp,
 		"total":        len(changes),
 	}
-	data, _ := json.Marshal(result)
-	return Response{Success: true, Data: data}
+	return jsonOK(result)
 }

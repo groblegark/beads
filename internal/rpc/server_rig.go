@@ -139,8 +139,7 @@ func (s *Server) handleRigRegister(req *Request) Response {
 		CreatedAt:     nowStr,
 		UpdatedAt:     nowStr,
 	}
-	data, _ := json.Marshal(result)
-	return Response{Success: true, Data: data}
+	return jsonOK(result)
 }
 
 // handleRigList lists all registered rigs.
@@ -171,8 +170,7 @@ func (s *Server) handleRigList(req *Request) Response {
 	}
 
 	result := RigListResult{Rigs: rigs}
-	data, _ := json.Marshal(result)
-	return Response{Success: true, Data: data}
+	return jsonOK(result)
 }
 
 // handleRigShow returns details for a single rig by name.
@@ -225,8 +223,7 @@ func (s *Server) handleRigShow(req *Request) Response {
 	}
 
 	rig := rigMetaFromIssue(issue)
-	data, _ := json.Marshal(rig)
-	return Response{Success: true, Data: data}
+	return jsonOK(rig)
 }
 
 // handleRigRemove soft-deletes a rig by closing its issue.
@@ -278,6 +275,5 @@ func (s *Server) handleRigRemove(req *Request) Response {
 
 	s.emitMutationFor(MutationUpdate, issue)
 
-	data, _ := json.Marshal(map[string]string{"removed": args.Name})
-	return Response{Success: true, Data: data}
+	return jsonOK(map[string]string{"removed": args.Name})
 }

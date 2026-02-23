@@ -57,8 +57,7 @@ func (s *Server) handleVcsCommit(req *Request) Response {
 		return Response{Success: false, Error: fmt.Sprintf("vcs commit failed: %v", err)}
 	}
 
-	data, _ := json.Marshal(VcsCommitResult{Success: true})
-	return Response{Success: true, Data: data}
+	return jsonOK(VcsCommitResult{Success: true})
 }
 
 func (s *Server) handleVcsPush(req *Request) Response {
@@ -79,8 +78,7 @@ func (s *Server) handleVcsPush(req *Request) Response {
 		return Response{Success: false, Error: fmt.Sprintf("vcs push failed: %v", err)}
 	}
 
-	data, _ := json.Marshal(VcsPushResult{Success: true})
-	return Response{Success: true, Data: data}
+	return jsonOK(VcsPushResult{Success: true})
 }
 
 func (s *Server) handleVcsPull(req *Request) Response {
@@ -101,8 +99,7 @@ func (s *Server) handleVcsPull(req *Request) Response {
 		return Response{Success: false, Error: fmt.Sprintf("vcs pull failed: %v", err)}
 	}
 
-	data, _ := json.Marshal(VcsPullResult{Success: true})
-	return Response{Success: true, Data: data}
+	return jsonOK(VcsPullResult{Success: true})
 }
 
 func (s *Server) handleVcsMerge(req *Request) Response {
@@ -137,8 +134,7 @@ func (s *Server) handleVcsMerge(req *Request) Response {
 		})
 	}
 
-	data, _ := json.Marshal(result)
-	return Response{Success: true, Data: data}
+	return jsonOK(result)
 }
 
 func (s *Server) handleVcsBranchCreate(req *Request) Response {
@@ -162,8 +158,7 @@ func (s *Server) handleVcsBranchCreate(req *Request) Response {
 		return Response{Success: false, Error: fmt.Sprintf("vcs branch create failed: %v", err)}
 	}
 
-	data, _ := json.Marshal(VcsBranchCreateResult{Name: args.Name})
-	return Response{Success: true, Data: data}
+	return jsonOK(VcsBranchCreateResult{Name: args.Name})
 }
 
 func (s *Server) handleVcsBranchDelete(req *Request) Response {
@@ -188,8 +183,7 @@ func (s *Server) handleVcsBranchDelete(req *Request) Response {
 		return Response{Success: false, Error: fmt.Sprintf("vcs branch delete failed: %v", err)}
 	}
 
-	data, _ := json.Marshal(VcsBranchDeleteResult{Name: args.Name})
-	return Response{Success: true, Data: data}
+	return jsonOK(VcsBranchDeleteResult{Name: args.Name})
 }
 
 func (s *Server) handleVcsCheckout(req *Request) Response {
@@ -213,8 +207,7 @@ func (s *Server) handleVcsCheckout(req *Request) Response {
 		return Response{Success: false, Error: fmt.Sprintf("vcs checkout failed: %v", err)}
 	}
 
-	data, _ := json.Marshal(VcsCheckoutResult{Branch: args.Branch})
-	return Response{Success: true, Data: data}
+	return jsonOK(VcsCheckoutResult{Branch: args.Branch})
 }
 
 func (s *Server) handleVcsActiveBranch(req *Request) Response {
@@ -231,8 +224,7 @@ func (s *Server) handleVcsActiveBranch(req *Request) Response {
 		return Response{Success: false, Error: fmt.Sprintf("vcs active branch failed: %v", err)}
 	}
 
-	data, _ := json.Marshal(VcsActiveBranchResult{Branch: branch})
-	return Response{Success: true, Data: data}
+	return jsonOK(VcsActiveBranchResult{Branch: branch})
 }
 
 func (s *Server) handleVcsStatus(req *Request) Response {
@@ -261,8 +253,7 @@ func (s *Server) handleVcsStatus(req *Request) Response {
 		result.Unstaged = append(result.Unstaged, VcsStatusEntry{Table: e.Table, Status: e.Status})
 	}
 
-	data, _ := json.Marshal(result)
-	return Response{Success: true, Data: data}
+	return jsonOK(result)
 }
 
 func (s *Server) handleVcsHasUncommitted(req *Request) Response {
@@ -284,8 +275,7 @@ func (s *Server) handleVcsHasUncommitted(req *Request) Response {
 		return Response{Success: false, Error: fmt.Sprintf("vcs has_uncommitted failed: %v", err)}
 	}
 
-	data, _ := json.Marshal(VcsHasUncommittedResult{HasUncommitted: hasChanges})
-	return Response{Success: true, Data: data}
+	return jsonOK(VcsHasUncommittedResult{HasUncommitted: hasChanges})
 }
 
 func (s *Server) handleVcsBranches(req *Request) Response {
@@ -302,8 +292,7 @@ func (s *Server) handleVcsBranches(req *Request) Response {
 		return Response{Success: false, Error: fmt.Sprintf("vcs branches failed: %v", err)}
 	}
 
-	data, _ := json.Marshal(VcsBranchesResult{Branches: branches})
-	return Response{Success: true, Data: data}
+	return jsonOK(VcsBranchesResult{Branches: branches})
 }
 
 func (s *Server) handleVcsCurrentCommit(req *Request) Response {
@@ -320,8 +309,7 @@ func (s *Server) handleVcsCurrentCommit(req *Request) Response {
 		return Response{Success: false, Error: fmt.Sprintf("vcs current commit failed: %v", err)}
 	}
 
-	data, _ := json.Marshal(VcsCurrentCommitResult{Hash: hash})
-	return Response{Success: true, Data: data}
+	return jsonOK(VcsCurrentCommitResult{Hash: hash})
 }
 
 func (s *Server) handleVcsCommitExists(req *Request) Response {
@@ -347,8 +335,7 @@ func (s *Server) handleVcsCommitExists(req *Request) Response {
 		return Response{Success: false, Error: fmt.Sprintf("vcs commit exists failed: %v", err)}
 	}
 
-	data, _ := json.Marshal(VcsCommitExistsResult{Exists: exists})
-	return Response{Success: true, Data: data}
+	return jsonOK(VcsCommitExistsResult{Exists: exists})
 }
 
 func (s *Server) handleVcsLog(req *Request) Response {
@@ -389,6 +376,5 @@ func (s *Server) handleVcsLog(req *Request) Response {
 		})
 	}
 
-	data, _ := json.Marshal(result)
-	return Response{Success: true, Data: data}
+	return jsonOK(result)
 }

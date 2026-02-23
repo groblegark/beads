@@ -27,11 +27,10 @@ import (
 func (s *Server) handleSyncExport(req *Request) Response {
 	// Single-flight guard: only one export at a time
 	if !s.exportInProgress.CompareAndSwap(false, true) {
-		data, _ := json.Marshal(SyncExportResult{
+		return jsonOK(SyncExportResult{
 			Skipped: true,
 			Message: "export already in progress",
 		})
-		return Response{Success: true, Data: data}
 	}
 	defer s.exportInProgress.Store(false)
 
@@ -60,8 +59,7 @@ func (s *Server) handleSyncExport(req *Request) Response {
 			ChangedCount:  0,
 			Message:       "[DRY RUN] Dolt-native mode: would commit/push via Dolt",
 		}
-		data, _ := json.Marshal(result)
-		return Response{Success: true, Data: data}
+		return jsonOK(result)
 	}
 
 	// No changes and not forced: mark as skipped
@@ -70,8 +68,7 @@ func (s *Server) handleSyncExport(req *Request) Response {
 			Skipped: true,
 			Message: "Dolt-native mode: nothing to commit",
 		}
-		data, _ := json.Marshal(result)
-		return Response{Success: true, Data: data}
+		return jsonOK(result)
 	}
 
 	// Return success — Dolt handles the sync
@@ -80,8 +77,7 @@ func (s *Server) handleSyncExport(req *Request) Response {
 		ChangedCount:  0,
 		Message:       "Dolt-native mode: synced via Dolt",
 	}
-	data, _ := json.Marshal(result)
-	return Response{Success: true, Data: data}
+	return jsonOK(result)
 }
 
 // handleSyncStatus handles the sync_status RPC operation (bd-wn2g).
@@ -145,8 +141,7 @@ func (s *Server) handleSyncStatus(req *Request) Response {
 		FederationRemote: fedCfg.Remote,
 	}
 
-	data, _ := json.Marshal(result)
-	return Response{Success: true, Data: data}
+	return jsonOK(result)
 }
 
 // findJSONLPath finds the JSONL file path for the current workspace.

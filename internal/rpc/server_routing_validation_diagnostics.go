@@ -471,6 +471,8 @@ func (s *Server) executeOperation(req *Request) Response {
 		resp = s.handleAgentRoster(req)
 	case OpAgentRecentEvents:
 		resp = s.handleAgentRecentEvents(req)
+	case OpCreateAgent:
+		resp = s.handleCreateAgent(req)
 	// VCS operations (bd-ma0s.2)
 	case OpVcsCommit:
 		resp = s.handleVcsCommit(req)
@@ -603,14 +605,10 @@ func (s *Server) reqActor(req *Request) string {
 // Handler implementations
 
 func (s *Server) handlePing(_ *Request) Response {
-	data, _ := json.Marshal(PingResponse{
+	return jsonOK(PingResponse{
 		Message: "pong",
 		Version: ServerVersion,
 	})
-	return Response{
-		Success: true,
-		Data:    data,
-	}
 }
 
 func (s *Server) handleStatus(_ *Request) Response {
@@ -662,11 +660,7 @@ func (s *Server) handleStatus(_ *Request) Response {
 		HTTPAddr:            httpAddr,
 	}
 	
-	data, _ := json.Marshal(statusResp)
-	return Response{
-		Success: true,
-		Data:    data,
-	}
+	return jsonOK(statusResp)
 }
 
 func (s *Server) handleHealth(req *Request) Response {
@@ -737,11 +731,7 @@ func (s *Server) handleMetrics(_ *Request) Response {
 		snapshot.Cache = &stats
 	}
 
-	data, _ := json.Marshal(snapshot)
-	return Response{
-		Success: true,
-		Data:    data,
-	}
+	return jsonOK(snapshot)
 }
 
 func (s *Server) handleGetWorkerStatus(req *Request) Response {
@@ -842,9 +832,5 @@ func (s *Server) handleGetWorkerStatus(req *Request) Response {
 		Workers: workers,
 	}
 
-	data, _ := json.Marshal(resp)
-	return Response{
-		Success: true,
-		Data:    data,
-	}
+	return jsonOK(resp)
 }

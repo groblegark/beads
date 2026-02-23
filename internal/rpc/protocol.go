@@ -172,6 +172,7 @@ const (
 	OpAgentSignal       = "agent_signal"
 	OpAgentRoster       = "agent_roster"        // bd-3d5m2
 	OpAgentRecentEvents = "agent_recent_events" // bd-9y9ba
+	OpCreateAgent       = "create_agent"        // bd-dwzum
 
 	// VCS operations (bd-ma0s.2)
 	OpVcsCommit         = "vcs_commit"
@@ -270,6 +271,16 @@ type Response struct {
 	Data    json.RawMessage `json:"data,omitempty"`
 	Error   string          `json:"error,omitempty"`
 	Message string          `json:"message,omitempty"` // Informational message (e.g., auto-released tasks on --force claim) (bd-nl8zj)
+}
+
+// jsonOK marshals v into a success Response. If marshaling fails, it returns
+// an error Response instead of silently discarding the error.
+func jsonOK(v interface{}) Response {
+	data, err := json.Marshal(v)
+	if err != nil {
+		return Response{Success: false, Error: fmt.Sprintf("marshal response: %v", err)}
+	}
+	return Response{Success: true, Data: data}
 }
 
 // CreateArgs represents arguments for the create operation
@@ -1197,9 +1208,11 @@ type InboxPushArgs struct {
 	Type      string `json:"type"`                // "decision", "alert", "event", "agent", "mail", "gate", "system"
 	Source    string `json:"source"`              // Producer identity
 	Content   string `json:"content"`             // The message
+	Subject   string `json:"subject,omitempty"`  // Short summary/title (bd-pwoii)
 	Priority  int    `json:"priority,omitempty"`  // 0=critical, 2=normal(default), 4=low
 	DedupKey  string `json:"dedup_key,omitempty"` // Dedup key (auto-generated if empty)
 	TTL       string `json:"ttl,omitempty"`       // Time-to-live (e.g., "10m", "1h")
+	Team      string `json:"team,omitempty"`      // Team name — push to all active agents in roster (bd-pwoii)
 }
 
 // InboxListArgs represents arguments for listing inbox items.
@@ -2115,7 +2128,8 @@ type AgentPodListResult struct {
 
 // AgentRosterArgs requests a live presence roster from the NATS event bus.
 type AgentRosterArgs struct {
-	StaleThresholdSecs int `json:"stale_threshold_secs,omitempty"` // Exclude actors idle longer than this (0 = show all)
+	StaleThresholdSecs int    `json:"stale_threshold_secs,omitempty"` // Exclude actors idle longer than this (0 = show all)
+	TeamFilter         string `json:"team_filter,omitempty"`          // Filter to only agents in this team (bd-fvqsg)
 }
 
 // AgentRosterEntry represents a single actor's live presence.
@@ -2141,6 +2155,8 @@ type AgentRosterEntry struct {
 	ReapedAt            string   `json:"reaped_at,omitempty"`             // when reaped (bd-khlpu)
 	Conflict            bool     `json:"conflict,omitempty"`              // true if another agent shares rig+branch (bd-f91be)
 	ConflictWith        []string `json:"conflict_with,omitempty"`         // names of conflicting agents (bd-f91be)
+	TeamID              string   `json:"team_id,omitempty"`               // team label value from agent bead (bd-fvqsg)
+	ParentAgent         string   `json:"parent_agent,omitempty"`          // parent_agent label value from agent bead (bd-fvqsg)
 }
 
 // AgentRosterResult is the response from agent_roster.
@@ -2226,6 +2242,27 @@ type AgentSignalResult struct {
 	AgentID string `json:"agent_id"`
 	Signal  string `json:"signal"`
 	Sent    bool   `json:"sent"` // True if signal was delivered to coop
+}
+
+// ===== Agent Creation (bd-dwzum) =====
+
+// CreateAgentArgs represents arguments for the create_agent operation.
+// Allows a running agent to request creation of a new agent bead.
+type CreateAgentArgs struct {
+	AgentType     string   `json:"agent_type"`            // Role: polecat, crew, witness, refinery, mayor, deacon
+	Rig           string   `json:"rig,omitempty"`         // Rig name (empty for town-level agents)
+	ParentAgentID string   `json:"parent_agent_id"`       // ID of the requesting agent
+	TeamID        string   `json:"team_id,omitempty"`     // Optional team for grouping
+	Labels        []string `json:"labels,omitempty"`      // Additional labels
+	Title         string   `json:"title,omitempty"`       // Optional title (auto-generated if empty)
+	Description   string   `json:"description,omitempty"` // Optional description
+}
+
+// CreateAgentResult is returned after a create_agent request.
+type CreateAgentResult struct {
+	AgentID    string `json:"agent_id"`    // New agent bead ID
+	AgentState string `json:"agent_state"` // Will be "spawning"
+	Rig        string `json:"rig"`         // Rig the agent was created in
 }
 
 // ===== VCS Operations (bd-ma0s.2) =====

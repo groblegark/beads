@@ -58,8 +58,7 @@ func (s *Server) handleAdminGC(req *Request) Response {
 			DryRun:      true,
 			ElapsedMs:   elapsed.Milliseconds(),
 		}
-		data, _ := json.Marshal(result)
-		return Response{Success: true, Data: data}
+		return jsonOK(result)
 	}
 
 	// Run dolt gc with a timeout context
@@ -95,8 +94,7 @@ func (s *Server) handleAdminGC(req *Request) Response {
 		SpaceFreed:  spaceFreed,
 		ElapsedMs:   elapsed.Milliseconds(),
 	}
-	data, _ := json.Marshal(result)
-	return Response{Success: true, Data: data}
+	return jsonOK(result)
 }
 
 // handleGCTombstones deletes tombstone (and optionally closed) issues from the database (bd-t8b0).
@@ -148,8 +146,7 @@ func (s *Server) handleGCTombstones(req *Request) Response {
 		TotalAfter:        gcResult.TotalAfter,
 		ElapsedMs:         elapsed.Milliseconds(),
 	}
-	data, _ := json.Marshal(result)
-	return Response{Success: true, Data: data}
+	return jsonOK(result)
 }
 
 // gcTombstonesDryRun counts what would be deleted without modifying the database.
@@ -188,8 +185,7 @@ func gcTombstonesDryRun(ctx context.Context, ds *dolt.DoltStore, olderThan time.
 		DryRun:            true,
 		ElapsedMs:         elapsed.Milliseconds(),
 	}
-	data, _ := json.Marshal(result)
-	return Response{Success: true, Data: data}
+	return jsonOK(result)
 }
 
 // adminGetDirSize calculates the total size of a directory.

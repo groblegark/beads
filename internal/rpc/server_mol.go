@@ -96,8 +96,7 @@ func (s *Server) handleMolBond(req *Request) Response {
 		}, s.reqActor(req))
 	}
 
-	data, _ := json.Marshal(result)
-	return Response{Success: true, Data: data}
+	return jsonOK(result)
 }
 
 // handleMolBondDryRun returns a preview of what bonding would do
@@ -125,8 +124,7 @@ func (s *Server) handleMolBondDryRun(ctx context.Context, args *MolBondArgs, act
 		BondType:   args.BondType,
 	}
 
-	data, _ := json.Marshal(result)
-	return Response{Success: true, Data: data}
+	return jsonOK(result)
 }
 
 // resolveOperand resolves an operand to an issue, determines if it's a proto,
@@ -654,8 +652,7 @@ func (s *Server) handleMolSquash(req *Request) Response {
 		for _, child := range wispChildren {
 			result.SquashedIDs = append(result.SquashedIDs, child.ID)
 		}
-		data, _ := json.Marshal(result)
-		return Response{Success: true, Data: data}
+		return jsonOK(result)
 	}
 
 	// No children to squash
@@ -664,8 +661,7 @@ func (s *Server) handleMolSquash(req *Request) Response {
 			MoleculeID:    moleculeID,
 			SquashedCount: 0,
 		}
-		data, _ := json.Marshal(result)
-		return Response{Success: true, Data: data}
+		return jsonOK(result)
 	}
 
 	// Perform the squash
@@ -677,8 +673,7 @@ func (s *Server) handleMolSquash(req *Request) Response {
 	// Emit mutation event
 	s.emitMutation(MutationSquashed, result.DigestID, "digest", "")
 
-	data, _ := json.Marshal(result)
-	return Response{Success: true, Data: data}
+	return jsonOK(result)
 }
 
 // squashMolecule performs the squash operation
@@ -836,8 +831,7 @@ func (s *Server) handleMolBurn(req *Request) Response {
 			DeletedCount: len(allIDs),
 			FailedCount:  failedCount,
 		}
-		data, _ := json.Marshal(result)
-		return Response{Success: true, Data: data}
+		return jsonOK(result)
 	}
 
 	// Perform the burn
@@ -851,8 +845,7 @@ func (s *Server) handleMolBurn(req *Request) Response {
 		s.emitMutation(MutationBurned, id, "burned", "")
 	}
 
-	data, _ := json.Marshal(result)
-	return Response{Success: true, Data: data}
+	return jsonOK(result)
 }
 
 // burnMolecules deletes the specified molecules and their children
@@ -944,8 +937,7 @@ func (s *Server) handleMolCurrent(req *Request) Response {
 		Molecules: molecules,
 	}
 
-	data, _ := json.Marshal(result)
-	return Response{Success: true, Data: data}
+	return jsonOK(result)
 }
 
 // handleMolProgressStats handles the mol progress stats RPC operation (bd-ck35)
@@ -998,8 +990,7 @@ func (s *Server) handleMolProgressStats(req *Request) Response {
 		result.LastClosed = &t
 	}
 
-	data, _ := json.Marshal(result)
-	return Response{Success: true, Data: data}
+	return jsonOK(result)
 }
 
 // getMoleculeProgress loads a molecule and computes detailed progress
@@ -1267,8 +1258,7 @@ func (s *Server) handleCloseContinue(req *Request) Response {
 	moleculeID := s.findParentMolecule(ctx, closedStepID)
 	if moleculeID == "" {
 		// Not part of a molecule - nothing to advance, return empty result
-		data, _ := json.Marshal(result)
-		return Response{Success: true, Data: data}
+		return jsonOK(result)
 	}
 	result.MoleculeID = moleculeID
 
@@ -1288,8 +1278,7 @@ func (s *Server) handleCloseContinue(req *Request) Response {
 			BeadID: moleculeID,
 		}, s.reqActor(req))
 
-		data, _ := json.Marshal(result)
-		return Response{Success: true, Data: data}
+		return jsonOK(result)
 	}
 
 	// Find next ready step from the progress steps
@@ -1307,8 +1296,7 @@ func (s *Server) handleCloseContinue(req *Request) Response {
 
 	if nextStep == nil {
 		// No ready steps - might be blocked
-		data, _ := json.Marshal(result)
-		return Response{Success: true, Data: data}
+		return jsonOK(result)
 	}
 
 	result.NextStep = nextStep
@@ -1335,8 +1323,7 @@ func (s *Server) handleCloseContinue(req *Request) Response {
 		s.emitMutationFor(MutationUpdate, nextStep)
 	}
 
-	data, _ := json.Marshal(result)
-	return Response{Success: true, Data: data}
+	return jsonOK(result)
 }
 
 // handleMolReadyGated handles the mol ready --gated RPC operation (bd-2n56)
@@ -1360,8 +1347,7 @@ func (s *Server) handleMolReadyGated(req *Request) Response {
 		Count:     len(molecules),
 	}
 
-	data, _ := json.Marshal(result)
-	return Response{Success: true, Data: data}
+	return jsonOK(result)
 }
 
 // findGateReadyMolecules finds molecules where a gate has closed and work can resume.
@@ -1518,6 +1504,5 @@ func (s *Server) handleTypes(req *Request) Response {
 		CustomTypes: customTypes,
 	}
 
-	data, _ := json.Marshal(result)
-	return Response{Success: true, Data: data}
+	return jsonOK(result)
 }

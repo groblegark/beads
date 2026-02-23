@@ -140,8 +140,7 @@ func (s *Server) handleSessionGateCheck(req *Request) Response {
 		result.TTL = entry.TTL
 	}
 
-	data, _ := json.Marshal(result)
-	return Response{Success: true, Data: data}
+	return jsonOK(result)
 }
 
 // handleSessionGateList lists all session gates for an agent. (bd-rabpy)
@@ -180,6 +179,5 @@ func (s *Server) handleSessionGateList(req *Request) Response {
 	}
 
 	result := SessionGateListResult{Gates: entries}
-	data, _ := json.Marshal(result)
-	return Response{Success: true, Data: data}
+	return jsonOK(result)
 }
