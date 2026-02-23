@@ -362,7 +362,7 @@ func installHooksWithOptions(embeddedHooks map[string]string, force bool, shared
 		var err error
 		hooksDir, err = git.GetGitHooksDir()
 		if err != nil {
-			return err
+			return fmt.Errorf("get git hooks dir: %w", err)
 		}
 	}
 
@@ -463,7 +463,7 @@ func uninstallHooks() error {
 	// Get hooks directory from common git dir (hooks are shared across worktrees)
 	hooksDir, err := git.GetGitHooksDir()
 	if err != nil {
-		return err
+		return fmt.Errorf("get git hooks dir: %w", err)
 	}
 	hookNames := []string{"post-merge", "pre-push", "post-checkout", "prepare-commit-msg", "post-commit"}
 

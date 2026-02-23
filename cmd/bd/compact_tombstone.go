@@ -2,7 +2,9 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"time"
@@ -42,7 +44,7 @@ func pruneExpiredTombstones(customTTL time.Duration) (*TombstonePruneResult, err
 	for {
 		var issue types.Issue
 		if err := decoder.Decode(&issue); err != nil {
-			if err.Error() == "EOF" {
+			if errors.Is(err, io.EOF) {
 				break
 			}
 			// Skip corrupt lines
@@ -138,7 +140,7 @@ func previewPruneTombstones(customTTL time.Duration) (*TombstonePruneResult, err
 	for {
 		var issue types.Issue
 		if err := decoder.Decode(&issue); err != nil {
-			if err.Error() == "EOF" {
+			if errors.Is(err, io.EOF) {
 				break
 			}
 			// Skip corrupt lines
@@ -301,7 +303,7 @@ func purgeTombstonesByDependency(dryRun bool) (*PurgeTombstonesResult, error) {
 	for {
 		var issue types.Issue
 		if err := decoder.Decode(&issue); err != nil {
-			if err.Error() == "EOF" {
+			if errors.Is(err, io.EOF) {
 				break
 			}
 			continue

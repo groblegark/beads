@@ -3,7 +3,9 @@ package main
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"time"
@@ -175,7 +177,7 @@ Examples:
 			for {
 				var issue types.Issue
 				if err := decoder.Decode(&issue); err != nil {
-					if err.Error() == "EOF" {
+					if errors.Is(err, io.EOF) {
 						break
 					}
 					// Skip corrupt lines, continue reading

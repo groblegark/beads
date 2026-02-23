@@ -346,7 +346,7 @@ func runWorktreeRemove(cmd *cobra.Command, args []string) error {
 	// Resolve worktree path
 	worktreePath, err := resolveWorktreePath(ctx, repoRoot, name)
 	if err != nil {
-		return err
+		return fmt.Errorf("resolve worktree path: %w", err)
 	}
 
 	// Don't allow removing the main repository
@@ -681,7 +681,7 @@ func addToGitignore(repoRoot, entry string) error {
 	// Read existing content
 	content, err := os.ReadFile(gitignorePath) //nolint:gosec // G304: gitignorePath from known repoRoot
 	if err != nil && !os.IsNotExist(err) {
-		return err
+		return fmt.Errorf("read .gitignore: %w", err)
 	}
 
 	// Check if already present
@@ -695,20 +695,20 @@ func addToGitignore(repoRoot, entry string) error {
 	// Append entry
 	f, err := os.OpenFile(gitignorePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644) //nolint:gosec // G302: .gitignore should be world-readable
 	if err != nil {
-		return err
+		return fmt.Errorf("open .gitignore for append: %w", err)
 	}
 	defer f.Close()
 
 	// Add newline if file doesn't end with one
 	if len(content) > 0 && content[len(content)-1] != '\n' {
 		if _, err := f.WriteString("\n"); err != nil {
-			return err
+			return fmt.Errorf("write newline to .gitignore: %w", err)
 		}
 	}
 
 	// Add comment and entry
 	if _, err := f.WriteString(fmt.Sprintf("# bd worktree\n%s/\n", entry)); err != nil {
-		return err
+		return fmt.Errorf("write worktree entry to .gitignore: %w", err)
 	}
 
 	return nil
@@ -722,7 +722,7 @@ func removeFromGitignore(repoRoot, entry string) error {
 		if os.IsNotExist(err) {
 			return nil
 		}
-		return err
+		return fmt.Errorf("read .gitignore: %w", err)
 	}
 
 	lines := strings.Split(string(content), "\n")

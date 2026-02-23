@@ -1,7 +1,9 @@
 package rpc
 
 import (
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/steveyegge/beads/internal/storage"
@@ -155,7 +157,7 @@ func (s *Server) handleHistoryIssueDiff(req *Request) Response {
 
 	if err != nil {
 		// sql.ErrNoRows means the issue wasn't in the diff
-		if err.Error() == "sql: no rows in result set" {
+		if errors.Is(err, sql.ErrNoRows) {
 			result.Found = false
 			return jsonOK(result)
 		}
