@@ -35,6 +35,7 @@ var migrations = []Migration{
 	{"decision_yielded_at", migrateDecisionYieldedAt},
 	{"decision_pending_index", migrateDecisionPendingIndex},
 	{"query_perf_indexes", migrateQueryPerfIndexes},
+	{"jack_expires_at", migrateJackExpiresAt},
 }
 
 // RunMigrations executes all registered migrations in order.
@@ -530,6 +531,28 @@ func migrateQueryPerfIndexes(ctx context.Context, db *sql.DB) error {
 			}
 			return fmt.Errorf("failed to create index %s: %w", idx.name, err)
 		}
+	}
+	return nil
+}
+
+// migrateJackExpiresAt adds jack_expires_at column and index to the issues table (bd-duvjc).
+// This column tracks when a jack infrastructure modification expires, enabling the sweeper
+// to automatically clean up expired jacks.
+func migrateJackExpiresAt(ctx context.Context, db *sql.DB) error {
+	if err := addColumnIfNotExists(ctx, db, "issues", "jack_expires_at", "DATETIME"); err != nil {
+		return err
+	}
+	_, err := db.ExecContext(ctx, `
+		CREATE INDEX IF NOT EXISTS idx_issues_jack_expires_at
+		ON issues (jack_expires_at)
+	`)
+	if err != nil {
+		errLower := strings.ToLower(err.Error())
+		if strings.Contains(errLower, "duplicate key") ||
+			strings.Contains(errLower, "already exists") {
+			return nil
+		}
+		return fmt.Errorf("failed to create jack_expires_at index: %w", err)
 	}
 	return nil
 }

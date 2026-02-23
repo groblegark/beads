@@ -113,7 +113,7 @@ func insertIssue(ctx context.Context, tx *sql.Tx, issue *types.Issue) error {
 			await_type, await_id, timeout_ns, waiters,
 			hook_bead, role_bead, agent_state, last_activity, role_type, rig,
 			pod_name, pod_ip, pod_node, pod_status, screen_session,
-			due_at, defer_until, metadata,
+			due_at, defer_until, jack_expires_at, metadata,
 			advice_hook_command, advice_hook_trigger, advice_hook_timeout, advice_hook_on_failure,
 			advice_subscriptions, advice_subscriptions_exclude,
 			created_by_session
@@ -129,7 +129,7 @@ func insertIssue(ctx context.Context, tx *sql.Tx, issue *types.Issue) error {
 			?, ?, ?, ?,
 			?, ?, ?, ?, ?, ?,
 			?, ?, ?, ?, ?,
-			?, ?, ?,
+			?, ?, ?, ?,
 			?, ?, ?, ?,
 			?, ?,
 			?
@@ -146,7 +146,7 @@ func insertIssue(ctx context.Context, tx *sql.Tx, issue *types.Issue) error {
 		issue.AwaitType, issue.AwaitID, issue.Timeout.Nanoseconds(), formatJSONStringArray(issue.Waiters),
 		issue.HookBead, issue.RoleBead, issue.AgentState, issue.LastActivity, issue.RoleType, issue.Rig,
 		issue.PodName, issue.PodIP, issue.PodNode, issue.PodStatus, issue.ScreenSession,
-		issue.DueAt, issue.DeferUntil, jsonMetadata(issue.Metadata),
+		issue.DueAt, issue.DeferUntil, issue.JackExpiresAt, jsonMetadata(issue.Metadata),
 		// NOTE: advice_target_* columns removed - advice uses labels now
 		issue.AdviceHookCommand, issue.AdviceHookTrigger, issue.AdviceHookTimeout, issue.AdviceHookOnFailure,
 		formatJSONStringArray(issue.AdviceSubscriptions), formatJSONStringArray(issue.AdviceSubscriptionsExclude),
@@ -158,7 +158,7 @@ func insertIssue(ctx context.Context, tx *sql.Tx, issue *types.Issue) error {
 func scanIssue(ctx context.Context, db *sql.DB, id string) (*types.Issue, error) {
 	var issue types.Issue
 	var createdAtStr, updatedAtStr sql.NullString // TEXT columns - must parse manually
-	var closedAt, compactedAt, deletedAt, lastActivity, dueAt, deferUntil sql.NullTime
+	var closedAt, compactedAt, deletedAt, lastActivity, dueAt, deferUntil, jackExpiresAt sql.NullTime
 	var estimatedMinutes, originalSize, timeoutNs sql.NullInt64
 	var assignee, externalRef, compactedAtCommit, owner, createdBy sql.NullString
 	var contentHash, sourceRepo, closeReason, deletedBy, deleteReason, originalType sql.NullString
@@ -191,7 +191,7 @@ func scanIssue(ctx context.Context, db *sql.DB, id string) (*types.Issue, error)
 		       pod_name, pod_ip, pod_node, pod_status, screen_session,
 		       mol_type,
 		       event_kind, actor, target, payload,
-		       due_at, defer_until,
+		       due_at, defer_until, jack_expires_at,
 		       quality_score, work_type, source_system, metadata,
 		       advice_hook_command, advice_hook_trigger, advice_hook_timeout, advice_hook_on_failure,
 		       advice_subscriptions, advice_subscriptions_exclude
@@ -210,7 +210,7 @@ func scanIssue(ctx context.Context, db *sql.DB, id string) (*types.Issue, error)
 		&podName, &podIP, &podNode, &podStatus, &screenSession,
 		&molType,
 		&eventKind, &actor, &target, &payload,
-		&dueAt, &deferUntil,
+		&dueAt, &deferUntil, &jackExpiresAt,
 		&qualityScore, &workType, &sourceSystem, &metadata,
 		&adviceHookCommand, &adviceHookTrigger, &adviceHookTimeout, &adviceHookOnFailure,
 		&adviceSubscriptions, &adviceSubscriptionsExclude,
@@ -368,6 +368,9 @@ func scanIssue(ctx context.Context, db *sql.DB, id string) (*types.Issue, error)
 	if deferUntil.Valid {
 		issue.DeferUntil = &deferUntil.Time
 	}
+	if jackExpiresAt.Valid {
+		issue.JackExpiresAt = &jackExpiresAt.Time
+	}
 	if qualityScore.Valid {
 		qs := float32(qualityScore.Float64)
 		issue.QualityScore = &qs
@@ -438,7 +441,7 @@ func isAllowedUpdateField(key string) bool {
 		"role_type": true, "rig": true, "mol_type": true,
 		"pod_name": true, "pod_ip": true, "pod_node": true, "pod_status": true, "screen_session": true,
 		"event_category": true, "event_actor": true, "event_target": true, "event_payload": true,
-		"due_at": true, "defer_until": true, "await_id": true, "waiters": true,
+		"due_at": true, "defer_until": true, "jack_expires_at": true, "await_id": true, "waiters": true,
 		"metadata": true,
 		// Advice hook fields
 		"advice_hook_command": true, "advice_hook_trigger": true,

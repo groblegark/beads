@@ -82,6 +82,7 @@ CREATE TABLE IF NOT EXISTS issues (
     -- Time-based scheduling fields
     due_at DATETIME,
     defer_until DATETIME,
+    jack_expires_at DATETIME,
     -- Skill fields (capability tracking - hq-a72961)
     skill_name VARCHAR(255) DEFAULT '',
     skill_version VARCHAR(32) DEFAULT '',
@@ -108,6 +109,7 @@ CREATE TABLE IF NOT EXISTS issues (
     INDEX idx_issues_assignee (assignee),
     INDEX idx_issues_created_at (created_at),
     INDEX idx_issues_external_ref (external_ref),
+    INDEX idx_issues_jack_expires_at (jack_expires_at),
     INDEX idx_issues_status_type (status, issue_type)
 );
 
