@@ -70,6 +70,9 @@ var gateMarkCmd = &cobra.Command{
 The session ID is read from the CLAUDE_SESSION_ID environment variable.
 Gate markers are stored in .runtime/gates/<session-id>/<gate-id>.
 
+When a daemon is connected, the gate is also marked in the NATS KV backend
+so the in-process gate handler (used by remote daemons) sees the change.
+
 Examples:
   bd gate mark decision         # Mark decision gate satisfied
   bd gate mark commit-push      # Mark commit-push gate satisfied`,
@@ -86,6 +89,23 @@ Examples:
 		if err := gate.MarkGate(workDir, sessionID, gateID); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
+		}
+
+		// Also mark in the daemon's NATS KV backend when connected.
+		// The remote daemon's in-process gate handler checks NATS KV only
+		// (it cannot access local file markers), so without this the file
+		// marker has no effect on remote gate evaluation. (bd-knezj)
+		if daemonClient != nil && actor != "" {
+			agentBase := eventbus.AgentBaseName(actor)
+			markArgs := &rpc.SessionGateMarkArgs{
+				Agent:     agentBase,
+				GateID:    gateID,
+				Mechanism: "cli_mark",
+				SessionID: sessionID,
+			}
+			if _, err := daemonClient.Execute(rpc.OpSessionGateMark, markArgs); err != nil {
+				fmt.Fprintf(os.Stderr, "warning: daemon gate mark failed: %v\n", err)
+			}
 		}
 
 		if jsonOutput {

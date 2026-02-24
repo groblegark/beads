@@ -49,7 +49,7 @@ type GateBackend interface {
 // DefaultTTLs maps gate IDs to their recommended TTL durations.
 // Used by the NATS backend to set per-key expiration. (bd-vecxd)
 var DefaultTTLs = map[string]time.Duration{
-	"decision":         30 * time.Minute, // refreshed on create + respond; long enough for human response time
+	"decision":         24 * time.Hour,   // session lifetime — remote daemon can't check file markers; TTL must cover long sessions (bd-knezj)
 	"decision-waiting": 30 * time.Minute, // active decision blocking wait — must outlast human response time
 	"commit-push":      1 * time.Hour,    // stays satisfied after git push
 	"bead-update":      1 * time.Hour,    // stays satisfied after bead update
